@@ -64,33 +64,35 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                 var createdWasAtTop: Boolean? = null
                 val coordinator =
                     NewMemoCreationCoordinator<String>(
-                        scope = backgroundScope,
-                        isListAtAbsoluteTop = { true },
-                        scrollListToAbsoluteTop = { events += "scroll" },
-                        awaitTopBaseline = {
-                            events += "baseline"
-                            HeadEnterBaseline.ExistingHead("old-memo-id")
-                        },
-                        prepareNewTopEnter = { baseline ->
-                            capturedBaseline = baseline
-                            events += "prepare:$baseline"
-                            EnterRequestId(1L)
-                        },
-                        createMemo = { content, wasAtTop ->
-                            events += "create:$content"
-                            createdWasAtTop = wasAtTop
-                            true
-                        },
-                        awaitNewTopItem = { baseline ->
-                            events += "await:$baseline"
-                            "new-memo-id"
-                        },
-                        revealNewTopItem = { newTopId ->
-                            events += "reveal:$newTopId"
-                        },
-                        cancelPreparedEnter = { requestId ->
-                            events += "cancel:${requestId.value}"
-                        },
+                        NewMemoCreationCoordinatorDependencies<String>(
+                            scope = backgroundScope,
+                            isListAtAbsoluteTop = { true },
+                            scrollListToAbsoluteTop = { events += "scroll" },
+                            awaitTopBaseline = {
+                                events += "baseline"
+                                HeadEnterBaseline.ExistingHead("old-memo-id")
+                            },
+                            prepareNewTopEnter = { baseline ->
+                                capturedBaseline = baseline
+                                events += "prepare:$baseline"
+                                EnterRequestId(1L)
+                            },
+                            createMemo = { content, wasAtTop ->
+                                events += "create:$content"
+                                createdWasAtTop = wasAtTop
+                                true
+                            },
+                            awaitNewTopItem = { baseline ->
+                                events += "await:$baseline"
+                                "new-memo-id"
+                            },
+                            revealNewTopItem = { newTopId ->
+                                events += "reveal:$newTopId"
+                            },
+                            cancelPreparedEnter = { requestId ->
+                                events += "cancel:${requestId.value}"
+                            },
+                        ),
                     )
 
                 val accepted = coordinator.submit("memo body")
@@ -116,35 +118,37 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                 var createdWasAtTop: Boolean? = null
                 val coordinator =
                     NewMemoCreationCoordinator<String>(
-                        scope = backgroundScope,
-                        isListAtAbsoluteTop = { atTop },
-                        scrollListToAbsoluteTop = {
-                            events += "scroll"
-                            atTop = true
-                        },
-                        awaitTopBaseline = {
-                            events += "baseline"
-                            HeadEnterBaseline.ExistingHead("prev-id")
-                        },
-                        prepareNewTopEnter = { baseline ->
-                            events += "prepare:$baseline"
-                            EnterRequestId(2L)
-                        },
-                        createMemo = { content, wasAtTop ->
-                            events += "create:$content"
-                            createdWasAtTop = wasAtTop
-                            true
-                        },
-                        awaitNewTopItem = { baseline ->
-                            events += "await:$baseline"
-                            "new-id"
-                        },
-                        revealNewTopItem = { newTopId ->
-                            events += "reveal:$newTopId"
-                        },
-                        cancelPreparedEnter = { requestId ->
-                            events += "cancel:${requestId.value}"
-                        },
+                        NewMemoCreationCoordinatorDependencies<String>(
+                            scope = backgroundScope,
+                            isListAtAbsoluteTop = { atTop },
+                            scrollListToAbsoluteTop = {
+                                events += "scroll"
+                                atTop = true
+                            },
+                            awaitTopBaseline = {
+                                events += "baseline"
+                                HeadEnterBaseline.ExistingHead("prev-id")
+                            },
+                            prepareNewTopEnter = { baseline ->
+                                events += "prepare:$baseline"
+                                EnterRequestId(2L)
+                            },
+                            createMemo = { content, wasAtTop ->
+                                events += "create:$content"
+                                createdWasAtTop = wasAtTop
+                                true
+                            },
+                            awaitNewTopItem = { baseline ->
+                                events += "await:$baseline"
+                                "new-id"
+                            },
+                            revealNewTopItem = { newTopId ->
+                                events += "reveal:$newTopId"
+                            },
+                            cancelPreparedEnter = { requestId ->
+                                events += "cancel:${requestId.value}"
+                            },
+                        ),
                     )
 
                 val accepted = coordinator.submit("memo body")
@@ -169,32 +173,34 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                 val events = mutableListOf<String>()
                 val coordinator =
                     NewMemoCreationCoordinator<String>(
-                        scope = backgroundScope,
-                        isListAtAbsoluteTop = { true },
-                        scrollListToAbsoluteTop = { events += "scroll" },
-                        awaitTopBaseline = {
-                            events += "baseline"
-                            HeadEnterBaseline.ExistingHead("prev-id")
-                        },
-                        prepareNewTopEnter = { baseline ->
-                            events += "prepare:$baseline"
-                            EnterRequestId(3L)
-                        },
-                        createMemo = { content, _ ->
-                            events += "create:$content"
-                            true
-                        },
-                        awaitNewTopItem = { baseline ->
-                            events += "await:$baseline"
-                            awaitGate.await()
-                            "new-id"
-                        },
-                        revealNewTopItem = { newTopId ->
-                            events += "reveal:$newTopId"
-                        },
-                        cancelPreparedEnter = { requestId ->
-                            events += "cancel:${requestId.value}"
-                        },
+                        NewMemoCreationCoordinatorDependencies<String>(
+                            scope = backgroundScope,
+                            isListAtAbsoluteTop = { true },
+                            scrollListToAbsoluteTop = { events += "scroll" },
+                            awaitTopBaseline = {
+                                events += "baseline"
+                                HeadEnterBaseline.ExistingHead("prev-id")
+                            },
+                            prepareNewTopEnter = { baseline ->
+                                events += "prepare:$baseline"
+                                EnterRequestId(3L)
+                            },
+                            createMemo = { content, _ ->
+                                events += "create:$content"
+                                true
+                            },
+                            awaitNewTopItem = { baseline ->
+                                events += "await:$baseline"
+                                awaitGate.await()
+                                "new-id"
+                            },
+                            revealNewTopItem = { newTopId ->
+                                events += "reveal:$newTopId"
+                            },
+                            cancelPreparedEnter = { requestId ->
+                                events += "cancel:${requestId.value}"
+                            },
+                        ),
                     )
 
                 val firstAccepted = coordinator.submit("first")
@@ -220,32 +226,34 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                 var capturedBaseline: HeadEnterBaseline? = null
                 val coordinator =
                     NewMemoCreationCoordinator<String>(
-                        scope = backgroundScope,
-                        isListAtAbsoluteTop = { true },
-                        scrollListToAbsoluteTop = { events += "scroll" },
-                        awaitTopBaseline = {
-                            events += "baseline"
-                            HeadEnterBaseline.EmptyList
-                        },
-                        prepareNewTopEnter = { baseline ->
-                            capturedBaseline = baseline
-                            events += "prepare:$baseline"
-                            EnterRequestId(4L)
-                        },
-                        createMemo = { content, _ ->
-                            events += "create:$content"
-                            true
-                        },
-                        awaitNewTopItem = { baseline ->
-                            events += "await:$baseline"
-                            "first-id"
-                        },
-                        revealNewTopItem = { newTopId ->
-                            events += "reveal:$newTopId"
-                        },
-                        cancelPreparedEnter = { requestId ->
-                            events += "cancel:${requestId.value}"
-                        },
+                        NewMemoCreationCoordinatorDependencies<String>(
+                            scope = backgroundScope,
+                            isListAtAbsoluteTop = { true },
+                            scrollListToAbsoluteTop = { events += "scroll" },
+                            awaitTopBaseline = {
+                                events += "baseline"
+                                HeadEnterBaseline.EmptyList
+                            },
+                            prepareNewTopEnter = { baseline ->
+                                capturedBaseline = baseline
+                                events += "prepare:$baseline"
+                                EnterRequestId(4L)
+                            },
+                            createMemo = { content, _ ->
+                                events += "create:$content"
+                                true
+                            },
+                            awaitNewTopItem = { baseline ->
+                                events += "await:$baseline"
+                                "first-id"
+                            },
+                            revealNewTopItem = { newTopId ->
+                                events += "reveal:$newTopId"
+                            },
+                            cancelPreparedEnter = { requestId ->
+                                events += "cancel:${requestId.value}"
+                            },
+                        ),
                     )
 
                 val accepted = coordinator.submit("memo body")
@@ -268,31 +276,33 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                 val events = mutableListOf<String>()
                 val coordinator =
                     NewMemoCreationCoordinator<String>(
-                        scope = backgroundScope,
-                        isListAtAbsoluteTop = { true },
-                        scrollListToAbsoluteTop = { events += "scroll" },
-                        awaitTopBaseline = {
-                            events += "baseline"
-                            HeadEnterBaseline.ExistingHead("prev-id")
-                        },
-                        prepareNewTopEnter = { baseline ->
-                            events += "prepare:$baseline"
-                            EnterRequestId(5L)
-                        },
-                        createMemo = { content, _ ->
-                            events += "create:$content"
-                            true
-                        },
-                        awaitNewTopItem = { baseline ->
-                            events += "await:$baseline"
-                            null
-                        },
-                        revealNewTopItem = { newTopId ->
-                            events += "reveal:$newTopId"
-                        },
-                        cancelPreparedEnter = { requestId ->
-                            events += "cancel:${requestId.value}"
-                        },
+                        NewMemoCreationCoordinatorDependencies<String>(
+                            scope = backgroundScope,
+                            isListAtAbsoluteTop = { true },
+                            scrollListToAbsoluteTop = { events += "scroll" },
+                            awaitTopBaseline = {
+                                events += "baseline"
+                                HeadEnterBaseline.ExistingHead("prev-id")
+                            },
+                            prepareNewTopEnter = { baseline ->
+                                events += "prepare:$baseline"
+                                EnterRequestId(5L)
+                            },
+                            createMemo = { content, _ ->
+                                events += "create:$content"
+                                true
+                            },
+                            awaitNewTopItem = { baseline ->
+                                events += "await:$baseline"
+                                null
+                            },
+                            revealNewTopItem = { newTopId ->
+                                events += "reveal:$newTopId"
+                            },
+                            cancelPreparedEnter = { requestId ->
+                                events += "cancel:${requestId.value}"
+                            },
+                        ),
                     )
 
                 val accepted = coordinator.submit("memo body")
@@ -315,32 +325,34 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                 val events = mutableListOf<String>()
                 val coordinator =
                     NewMemoCreationCoordinator<String>(
-                        scope = backgroundScope,
-                        isListAtAbsoluteTop = { true },
-                        scrollListToAbsoluteTop = { events += "scroll" },
-                        awaitTopBaseline = {
-                            events += "await-baseline"
-                            baseline.await()
-                        },
-                        prepareNewTopEnter = { loadedBaseline ->
-                            events += "prepare:$loadedBaseline"
-                            EnterRequestId(6L)
-                        },
-                        createMemo = { content, _ ->
-                            events += "create:$content"
-                            true
-                        },
-                        awaitNewTopItem = { loadedBaseline ->
-                            events += "await-new:$loadedBaseline"
-                            "new-id"
-                        },
-                        revealNewTopItem = { newTopId ->
-                            events += "reveal:$newTopId"
-                        },
-                        cancelPreparedEnter = { requestId ->
-                            events += "cancel:${requestId.value}"
-                        },
-                        baselineTimeoutMillis = 0L,
+                        NewMemoCreationCoordinatorDependencies<String>(
+                            scope = backgroundScope,
+                            isListAtAbsoluteTop = { true },
+                            scrollListToAbsoluteTop = { events += "scroll" },
+                            awaitTopBaseline = {
+                                events += "await-baseline"
+                                baseline.await()
+                            },
+                            prepareNewTopEnter = { loadedBaseline ->
+                                events += "prepare:$loadedBaseline"
+                                EnterRequestId(6L)
+                            },
+                            createMemo = { content, _ ->
+                                events += "create:$content"
+                                true
+                            },
+                            awaitNewTopItem = { loadedBaseline ->
+                                events += "await-new:$loadedBaseline"
+                                "new-id"
+                            },
+                            revealNewTopItem = { newTopId ->
+                                events += "reveal:$newTopId"
+                            },
+                            cancelPreparedEnter = { requestId ->
+                                events += "cancel:${requestId.value}"
+                            },
+                            baselineTimeoutMillis = 0L,
+                        ),
                     )
 
                 val accepted = coordinator.submit("memo body")
@@ -356,21 +368,23 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                 val events = mutableListOf<String>()
                 val coordinator =
                     NewMemoCreationCoordinator<String>(
-                        scope = backgroundScope,
-                        isListAtAbsoluteTop = { true },
-                        scrollListToAbsoluteTop = {},
-                        awaitTopBaseline = {
-                            CompletableDeferred<HeadEnterBaseline>().await()
-                        },
-                        prepareNewTopEnter = { error("baseline timeout must skip animation preparation") },
-                        createMemo = { content, _ ->
-                            events += content
-                            true
-                        },
-                        awaitNewTopItem = { error("baseline timeout must skip reveal observation") },
-                        revealNewTopItem = { error("baseline timeout must skip reveal") },
-                        cancelPreparedEnter = { error("no enter request was prepared") },
-                        baselineTimeoutMillis = 0L,
+                        NewMemoCreationCoordinatorDependencies<String>(
+                            scope = backgroundScope,
+                            isListAtAbsoluteTop = { true },
+                            scrollListToAbsoluteTop = {},
+                            awaitTopBaseline = {
+                                CompletableDeferred<HeadEnterBaseline>().await()
+                            },
+                            prepareNewTopEnter = { error("baseline timeout must skip animation preparation") },
+                            createMemo = { content, _ ->
+                                events += content
+                                true
+                            },
+                            awaitNewTopItem = { error("baseline timeout must skip reveal observation") },
+                            revealNewTopItem = { error("baseline timeout must skip reveal") },
+                            cancelPreparedEnter = { error("no enter request was prepared") },
+                            baselineTimeoutMillis = 0L,
+                        ),
                     )
 
                 coordinator.submit("first") shouldBe true
@@ -386,27 +400,29 @@ class NewMemoCreationCoordinatorTest : AppFunSpec() {
                 var createSucceeds = false
                 val coordinator =
                     NewMemoCreationCoordinator<String>(
-                        scope = backgroundScope,
-                        isListAtAbsoluteTop = { true },
-                        scrollListToAbsoluteTop = { events += "scroll" },
-                        awaitTopBaseline = {
-                            events += "baseline"
-                            HeadEnterBaseline.EmptyList
-                        },
-                        prepareNewTopEnter = {
-                            events += "prepare"
-                            EnterRequestId(7L)
-                        },
-                        createMemo = { content, _ ->
-                            events += "create:$content"
-                            createSucceeds
-                        },
-                        awaitNewTopItem = {
-                            events += "await"
-                            "new-id"
-                        },
-                        revealNewTopItem = { events += "reveal:$it" },
-                        cancelPreparedEnter = { events += "cancel:${it.value}" },
+                        NewMemoCreationCoordinatorDependencies<String>(
+                            scope = backgroundScope,
+                            isListAtAbsoluteTop = { true },
+                            scrollListToAbsoluteTop = { events += "scroll" },
+                            awaitTopBaseline = {
+                                events += "baseline"
+                                HeadEnterBaseline.EmptyList
+                            },
+                            prepareNewTopEnter = {
+                                events += "prepare"
+                                EnterRequestId(7L)
+                            },
+                            createMemo = { content, _ ->
+                                events += "create:$content"
+                                createSucceeds
+                            },
+                            awaitNewTopItem = {
+                                events += "await"
+                                "new-id"
+                            },
+                            revealNewTopItem = { events += "reveal:$it" },
+                            cancelPreparedEnter = { events += "cancel:${it.value}" },
+                        ),
                     )
 
                 coordinator.submit("first") shouldBe true

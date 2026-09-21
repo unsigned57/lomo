@@ -42,7 +42,7 @@ internal fun normalizeMemoGeoUri(value: String?): String? {
         if (!MEMO_GEO_COORDINATE_PAIR_REGEX.matches(coordinatePart)) {
             return null
         }
-        val zoom = MEMO_GEO_ZOOM_REGEX.find(compact)?.groupValues?.get(1) ?: DEFAULT_MEMO_GEO_ZOOM.toString()
+        val zoom = MEMO_GEO_ZOOM_REGEX.find(compact)?.groupValues[1] ?: DEFAULT_MEMO_GEO_ZOOM.toString()
         return "geo:$coordinatePart?z=$zoom"
     }
     return if (MEMO_GEO_COORDINATE_PAIR_REGEX.matches(compact)) {

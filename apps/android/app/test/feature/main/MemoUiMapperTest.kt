@@ -16,6 +16,10 @@ package com.lomo.app.feature.main
  * - Given invalid or missing readiness inputs, when exercised, then fail-closed outcomes remain.
  * - Given one paging batch, when multiple memos are mapped, then reminders are fetched once for
  *   the whole batch rather than once per memo.
+ * - Given a preview row whose store char_count exceeds the expand threshold, when mapped, then
+ *   expand is shown even though the preview body is short.
+ * - Given a non-empty preview body, when mapped, then collapsedSummary stays blank because the
+ *   preview itself is the collapsed surface.
  *
  * Observable outcomes:
  * - Public method results, DI wiring, and presentation fields match the post-cutover contracts.
@@ -171,6 +175,36 @@ class MemoUiMapperTest : AppFunSpec() {
                 uiModel.renderDocument.blocks shouldHaveSize 1
             }
         }
+
+        test("preview mapping shows expand from projected char count not preview length") {
+            runTest {
+                val preview =
+                    memo(
+                        content = "short preview",
+                        contentKind = MemoContentKind.Preview,
+                        projectedCharCount = 900L,
+                    )
+
+                val uiModel = mapper.mapToUiModel(preview, null, null, emptyMap())
+
+                uiModel.shouldShowExpand shouldBe true
+                uiModel.collapsedSummary shouldBe ""
+            }
+        }
+
+        test("short preview without projected char count does not show expand") {
+            runTest {
+                val preview =
+                    memo(
+                        content = "short preview",
+                        contentKind = MemoContentKind.Preview,
+                    )
+
+                val uiModel = mapper.mapToUiModel(preview, null, null, emptyMap())
+
+                uiModel.shouldShowExpand shouldBe false
+            }
+        }
     }
 }
 
@@ -181,6 +215,7 @@ private fun memo(
     contentRevision: Long? = null,
     fileFingerprint: String? = null,
     contentKind: MemoContentKind = MemoContentKind.Full,
+    projectedCharCount: Long? = null,
 ): Memo =
     Memo(
         id = id,
@@ -192,4 +227,5 @@ private fun memo(
         contentRevision = contentRevision,
         fileFingerprint = fileFingerprint,
         contentKind = contentKind,
+        projectedCharCount = projectedCharCount,
     )

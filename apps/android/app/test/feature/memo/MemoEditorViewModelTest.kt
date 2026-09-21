@@ -9,7 +9,7 @@
  *   - Given constructor is called, it does not block on first persisted draft emission.
  *   - Given a create/update is still executing, submission remains Submitting and callers cannot
  *     observe success early; after the durable use case returns it becomes Committed.
- *   - Given createMemo/updateMemo success, discard inputs, clear draft text, and update widgets.
+ *   - Given createMemo/updateMemo success, discard inputs and clear draft text.
  *   - Given create/update failure, submission becomes Failed and the draft remains available.
  *   - Given a submission that never reaches a terminal state, when the acknowledgement budget
  *     elapses, then a stalled diagnostic is recorded (the only trace of an editor that can never
@@ -32,19 +32,19 @@
 
 package com.lomo.app.feature.memo
 
-import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.domain.model.EngineDiagnosticEvent
 import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoCreateDraft
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.usecase.CreateMemoUseCase
 import com.lomo.domain.usecase.DiscardDraftMediaUseCase
-import com.lomo.domain.usecase.ObserveDraftTextUseCase
+import com.lomo.domain.usecase.LoadCreateDraftUseCase
+import com.lomo.domain.usecase.SaveCreateDraftUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
-import com.lomo.domain.usecase.SetDraftTextUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldHaveSize
@@ -57,7 +57,6 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -68,29 +67,27 @@ import kotlinx.coroutines.test.runTest
 class MemoEditorViewModelTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
 
-    private val sharedDraftTextFlow = MutableStateFlow("initial draft")
+    private val sharedDraftText = MutableStateFlow<String?>("initial draft")
 
     private val createMemoUseCase = FakeCreateMemoUseCase()
     private val updateMemoContentUseCase = FakeUpdateMemoContentUseCase()
     private val saveImageUseCase = FakeSaveImageUseCase()
     private val discardDraftMediaUseCase = FakeDiscardDraftMediaUseCase()
-    private val appWidgetRepository = FakeAppWidgetRepository()
-    private val observeDraftTextUseCase = FakeObserveDraftTextUseCase(sharedDraftTextFlow)
-    private val setDraftTextUseCase = FakeSetDraftTextUseCase(sharedDraftTextFlow)
+    private val loadCreateDraftUseCase = FakeLoadCreateDraftUseCase(sharedDraftText)
+    private val saveCreateDraftUseCase = FakeSaveCreateDraftUseCase(sharedDraftText)
     private val diagnostics = FakeEngineDiagnosticsRecorder()
 
     init {
         extension(MainDispatcherExtension(testDispatcher))
 
         beforeTest {
-            sharedDraftTextFlow.value = "initial draft"
+            sharedDraftText.value = "initial draft"
             createMemoUseCase.reset()
             updateMemoContentUseCase.reset()
             saveImageUseCase.reset()
             discardDraftMediaUseCase.reset()
-            appWidgetRepository.reset()
-            observeDraftTextUseCase.reset()
-            setDraftTextUseCase.reset()
+            loadCreateDraftUseCase.reset()
+            saveCreateDraftUseCase.reset()
             diagnostics.reset()
         }
 
@@ -102,8 +99,8 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 advanceUntilIdle()
 
                 viewModel.draftText.value shouldBe "draft A"
-                setDraftTextUseCase.setDraftTextCalledWithValue shouldBe "draft A"
-                setDraftTextUseCase.setDraftTextCalledCount shouldBe 1
+                saveCreateDraftUseCase.saveCalledWithValue shouldBe "draft A"
+                saveCreateDraftUseCase.saveCalledCount shouldBe 1
             }
         }
 
@@ -115,19 +112,17 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 advanceUntilIdle()
 
                 viewModel.draftText.value shouldBe ""
-                setDraftTextUseCase.setDraftTextCalledWithValue shouldBe null
-            setDraftTextUseCase.setDraftTextCalledCount shouldBe 1
+                saveCreateDraftUseCase.saveCalledWithValue shouldBe null
+            saveCreateDraftUseCase.saveCalledCount shouldBe 1
         }
 
         }
 
-        test("constructor does not wait for first persisted draft emission") {
+        test("constructor does not wait for the persisted create draft") {
             runTest {
+                sharedDraftText.value = "loaded draft"
                 val firstDraftGate = CompletableDeferred<Unit>()
-                observeDraftTextUseCase.customFlow = kotlinx.coroutines.flow.flow {
-                    firstDraftGate.await()
-                    emit("loaded draft")
-                }
+                loadCreateDraftUseCase.loadGate = firstDraftGate
                 val executor = Executors.newSingleThreadExecutor()
 
                 try {
@@ -168,7 +163,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 viewModel.submissions.await(submissionId) shouldBe true
                 viewModel.draftText.value shouldBe ""
                 createMemoUseCase.createMemoCalledWithContent shouldBe "new memo"
-                setDraftTextUseCase.setDraftTextCalledWithValue shouldBe null
+                saveCreateDraftUseCase.saveCalledWithValue shouldBe null
                 discardDraftMediaUseCase.discardCalledWith shouldBe emptyList()
             }
         }
@@ -215,6 +210,21 @@ class MemoEditorViewModelTest : AppFunSpec() {
             }
         }
 
+        test("given a failed create when its unchanged draft retries then identity and chronology are preserved") {
+            runTest {
+                val viewModel = createViewModel()
+                createMemoUseCase.createMemoException = IllegalStateException("host disconnected")
+                viewModel.submissions.create(MemoEditorSubmissionId(700L), "same draft")
+                advanceUntilIdle()
+                createMemoUseCase.createMemoException = null
+                viewModel.submissions.create(MemoEditorSubmissionId(701L), "same draft")
+                advanceUntilIdle()
+                createMemoUseCase.attemptedCreates.shouldHaveSize(2)
+                createMemoUseCase.attemptedCreates.first() shouldBe createMemoUseCase.attemptedCreates.last()
+                viewModel.submissionState.value shouldBe MemoEditorSubmissionState.Committed(MemoEditorSubmissionId(701L))
+            }
+        }
+
         test("createMemo forwards supplied backfill timestamp") {
             runTest {
                 val viewModel = createViewModel()
@@ -247,7 +257,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
             }
         }
 
-        test("updateMemo success clears tracked images and updates widgets") {
+        test("updateMemo success clears tracked images") {
             runTest {
                 val viewModel = createViewModel()
                 val memo = sampleMemo("memo-update-success")
@@ -268,7 +278,6 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 updateMemoContentUseCase.updateMemoCalledWithMemo shouldBe memo
                 updateMemoContentUseCase.updateMemoCalledWithContent shouldBe "updated"
                 viewModel.submissions.await(submissionId) shouldBe true
-                appWidgetRepository.updateAllWidgetsCalledCount shouldBe 1
                 discardDraftMediaUseCase.discardCalledWith shouldBe emptyList()
             }
         }
@@ -314,11 +323,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 val viewModel = createViewModel()
                 val uri = mockk<android.net.Uri>()
                 every { uri.toString() } returns "content://memo-editor/image-2"
-                saveImageUseCase.customSaveResults["content://memo-editor/image-2"] =
-                    SaveImageResult.SavedButCacheSyncFailed(
-                        location = StorageLocation("images/memo-editor-2.jpg"),
-                        cause = IllegalStateException("cache failed"),
-                    )
+                saveImageUseCase.saveException = IllegalStateException("cache failed")
                 var savedPath: String? = null
                 var onErrorCalled = false
 
@@ -409,9 +414,8 @@ class MemoEditorViewModelTest : AppFunSpec() {
             updateMemoContentUseCase = updateMemoContentUseCase,
             saveImageUseCase = saveImageUseCase,
             discardDraftMediaUseCase = discardDraftMediaUseCase,
-            appWidgetRepository = appWidgetRepository,
-            observeDraftTextUseCase = observeDraftTextUseCase,
-            setDraftTextUseCase = setDraftTextUseCase,
+            loadCreateDraftUseCase = loadCreateDraftUseCase,
+            saveCreateDraftUseCase = saveCreateDraftUseCase,
             diagnostics = diagnostics,
         )
 
@@ -422,6 +426,8 @@ class MemoEditorViewModelTest : AppFunSpec() {
             content = "memo content",
             rawContent = "- 10:00 memo content",
             dateKey = "2026_03_24",
+            contentRevision = 1L,
+            fileFingerprint = "editor-source-fingerprint",
         )
 
     class FakeCreateMemoUseCase : CreateMemoUseCase(mockk(), mockk(), mockk(), mockk()) {
@@ -429,15 +435,20 @@ class MemoEditorViewModelTest : AppFunSpec() {
         var createMemoCalledWithTimestamp: Long? = null
         var createMemoException: Throwable? = null
         var createMemoGate: CompletableDeferred<Unit>? = null
+        val attemptedCreates = mutableListOf<com.lomo.domain.model.MemoCreateAttempt>()
 
         fun reset() {
+            attemptedCreates.clear()
             createMemoCalledWithContent = null
             createMemoCalledWithTimestamp = null
             createMemoException = null
             createMemoGate = null
         }
 
-        override suspend fun invoke(content: String, timestampMillis: Long, geoLocation: String?): Memo {
+        override suspend fun invoke(attempt: com.lomo.domain.model.MemoCreateAttempt): Memo {
+            val content = attempt.content
+            val timestampMillis = attempt.timestampMillis
+            attemptedCreates += attempt
             createMemoGate?.await()
             createMemoException?.let { throw it }
             createMemoCalledWithContent = content
@@ -463,7 +474,9 @@ class MemoEditorViewModelTest : AppFunSpec() {
             updateMemoException = null
         }
 
-        override suspend fun invoke(memo: Memo, newContent: String) {
+        override suspend fun invoke(attempt: com.lomo.domain.model.MemoUpdateAttempt) {
+            val memo = attempt.snapshot.memo
+            val newContent = attempt.content
             updateMemoException?.let { throw it }
             updateMemoCalledWithMemo = memo
             updateMemoCalledWithContent = newContent
@@ -472,12 +485,18 @@ class MemoEditorViewModelTest : AppFunSpec() {
 
     class FakeSaveImageUseCase : SaveImageUseCase(mockk()) {
         val customSaveResults = mutableMapOf<String, SaveImageResult>()
+        var saveException: Throwable? = null
 
         fun reset() {
             customSaveResults.clear()
+            saveException = null
         }
 
-        override suspend fun saveWithCacheSyncStatus(source: StorageLocation): SaveImageResult {
+        override suspend fun saveWithCacheSyncStatus(
+            source: StorageLocation,
+            draftId: com.lomo.domain.model.DraftId,
+        ): SaveImageResult {
+            saveException?.let { throw it }
             return customSaveResults[source.raw]
                 ?: SaveImageResult.SavedAndCacheSynced(StorageLocation("images/default.jpg"))
         }
@@ -492,52 +511,45 @@ class MemoEditorViewModelTest : AppFunSpec() {
             discardException = null
         }
 
-        override suspend fun invoke(filenames: Collection<String>) {
+        override suspend fun invoke(
+            filenames: Collection<String>,
+            draftId: com.lomo.domain.model.DraftId,
+        ) {
             discardException?.let { throw it }
             discardCalledWith = filenames
         }
     }
 
-    class FakeObserveDraftTextUseCase(
-        private val sharedDraftTextFlow: MutableStateFlow<String>,
-    ) : ObserveDraftTextUseCase(mockk()) {
-        var customFlow: Flow<String>? = null
+    class FakeLoadCreateDraftUseCase(
+        private val stored: MutableStateFlow<String?>,
+    ) : LoadCreateDraftUseCase(mockk()) {
+        var loadGate: CompletableDeferred<Unit>? = null
 
         fun reset() {
-            customFlow = null
+            loadGate = null
         }
 
-        override fun invoke(): Flow<String> = customFlow ?: sharedDraftTextFlow
-    }
-
-    class FakeSetDraftTextUseCase(
-        private val sharedDraftTextFlow: MutableStateFlow<String>,
-    ) : SetDraftTextUseCase(mockk()) {
-        var setDraftTextCalledCount = 0
-        var setDraftTextCalledWithValue: String? = null
-
-        fun reset() {
-            setDraftTextCalledCount = 0
-            setDraftTextCalledWithValue = null
-        }
-
-        override suspend fun invoke(text: String?) {
-            setDraftTextCalledCount++
-            setDraftTextCalledWithValue = text
-            sharedDraftTextFlow.value = text ?: ""
+        override suspend operator fun invoke(): MemoCreateDraft? {
+            loadGate?.await()
+            return stored.value?.let { MemoCreateDraft(it) }
         }
     }
 
-
-    class FakeAppWidgetRepository : AppWidgetRepository(mockk()) {
-        var updateAllWidgetsCalledCount = 0
+    class FakeSaveCreateDraftUseCase(
+        private val stored: MutableStateFlow<String?>,
+    ) : SaveCreateDraftUseCase(mockk()) {
+        var saveCalledCount = 0
+        var saveCalledWithValue: String? = null
 
         fun reset() {
-            updateAllWidgetsCalledCount = 0
+            saveCalledCount = 0
+            saveCalledWithValue = null
         }
 
-        override suspend fun updateAllWidgets() {
-            updateAllWidgetsCalledCount++
+        override suspend operator fun invoke(content: String?) {
+            saveCalledCount++
+            saveCalledWithValue = content
+            stored.value = content
         }
     }
 }

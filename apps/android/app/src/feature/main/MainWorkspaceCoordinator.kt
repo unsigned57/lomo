@@ -21,8 +21,11 @@ class MainWorkspaceCoordinator(
     private val engineReadinessRepository: EngineReadinessRepository,
 ) {
     val engineReadiness: StateFlow<EngineReadiness> = engineReadinessRepository.readiness
+    val activeWorkspaceLocation: StateFlow<StorageLocation?> =
+        engineReadinessRepository.activeWorkspaceLocation
     val workspaceAuthority: StateFlow<WorkspaceAuthority?> = engineReadinessRepository.workspaceAuthority
     val projectionFreshness: StateFlow<ProjectionFreshness> = engineReadinessRepository.projectionFreshness
+    val mount = engineReadinessRepository.mount
 
     suspend fun createDefaultDirectories(
         forImage: Boolean,
@@ -31,20 +34,12 @@ class MainWorkspaceCoordinator(
         initializeWorkspaceUseCase.ensureDefaultMediaDirectories(forImage, forVoice)
     }
 
-    suspend fun switchRoot(path: String) {
-        switchRootStorageUseCase.updateRootLocation(StorageLocation(path))
-    }
-
     suspend fun switchRootAndRefresh(path: String) {
         switchRootStorageUseCase.updateRootLocation(StorageLocation(path))
     }
 
     suspend fun rebuildDerivedIndex(): DerivedIndexRebuildSummary =
         engineReadinessRepository.rebuildDerivedIndex()
-
-    suspend fun retryProjectionBuild() {
-        engineReadinessRepository.retryProjectionBuild()
-    }
 
     suspend fun createRecoveryDiagnosticReport(): RecoveryDiagnosticReport =
         engineReadinessRepository.createRecoveryDiagnosticReport()
@@ -67,9 +62,4 @@ class MainWorkspaceCoordinator(
     suspend fun retryEngineOpen(rootPath: String) {
         switchRootStorageUseCase.updateRootLocation(StorageLocation(rootPath))
     }
-
-    fun resnapshotEngine() {
-        engineReadinessRepository.resnapshot()
-    }
-
 }

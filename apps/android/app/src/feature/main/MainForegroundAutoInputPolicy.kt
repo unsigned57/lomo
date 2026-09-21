@@ -16,27 +16,36 @@ internal enum class MainForegroundAutoInputPolicy {
     OpenDraftEditor,
 }
 
+/** One foreground-entry decision input: the entry identity plus the current session gates. */
+internal data class MainForegroundAutoInputFacts(
+    val foregroundEntryId: Long,
+    val handledForegroundEntryId: Long,
+    val enabled: Boolean,
+    val isReady: Boolean,
+    val explicitEntryPending: Boolean,
+    val editorVisible: Boolean,
+    val isRecording: Boolean,
+    val hasPendingNewMemoCreation: Boolean,
+)
+
 internal fun resolveMainForegroundAutoInputDecision(
-    foregroundEntryId: Long,
-    handledForegroundEntryId: Long,
-    enabled: Boolean,
-    isReady: Boolean,
-    explicitEntryPending: Boolean,
-    editorVisible: Boolean,
-    isRecording: Boolean,
-    hasPendingNewMemoCreation: Boolean,
+    facts: MainForegroundAutoInputFacts,
 ): MainForegroundAutoInputPolicy =
     when {
-        foregroundEntryId <= 0L || foregroundEntryId == handledForegroundEntryId ->
+        facts.foregroundEntryId <= 0L ||
+            facts.foregroundEntryId == facts.handledForegroundEntryId ->
             MainForegroundAutoInputPolicy.Ignore
 
-        !enabled || explicitEntryPending || isRecording || hasPendingNewMemoCreation ->
+        !facts.enabled ||
+            facts.explicitEntryPending ||
+            facts.isRecording ||
+            facts.hasPendingNewMemoCreation ->
             MainForegroundAutoInputPolicy.Suppress
 
-        !isReady ->
+        !facts.isReady ->
             MainForegroundAutoInputPolicy.WaitForReady
 
-        editorVisible ->
+        facts.editorVisible ->
             MainForegroundAutoInputPolicy.RefocusEditor
 
         else ->
@@ -72,14 +81,16 @@ internal fun MainForegroundAutoInputEffect(
     ) {
         when (
             resolveMainForegroundAutoInputDecision(
-                foregroundEntryId = foregroundEntryId,
-                handledForegroundEntryId = handledForegroundEntryId,
-                enabled = enabled,
-                isReady = uiState is MainViewModel.MainScreenState.Ready,
-                explicitEntryPending = explicitEntryPending,
-                editorVisible = editorVisible,
-                isRecording = isRecording,
-                hasPendingNewMemoCreation = hasPendingNewMemoCreation,
+                MainForegroundAutoInputFacts(
+                    foregroundEntryId = foregroundEntryId,
+                    handledForegroundEntryId = handledForegroundEntryId,
+                    enabled = enabled,
+                    isReady = uiState is MainViewModel.MainScreenState.Ready,
+                    explicitEntryPending = explicitEntryPending,
+                    editorVisible = editorVisible,
+                    isRecording = isRecording,
+                    hasPendingNewMemoCreation = hasPendingNewMemoCreation,
+                ),
             )
         ) {
             MainForegroundAutoInputPolicy.Ignore,

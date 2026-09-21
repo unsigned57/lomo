@@ -45,21 +45,37 @@ sealed interface TagFilterScreenState {
 }
 
 
+/** Collaborators of the tag-filter screen; the route handle stays a separate view-model input. */
+data class TagFilterViewModelDependencies(
+    val getMemosByTagPageUseCase: GetMemosByTagPageUseCase,
+    val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
+    val appConfigStateProvider: AppConfigStateProvider,
+    val appConfigUiCoordinator: AppConfigUiCoordinator,
+    val imageMapProvider: ImageMapProvider,
+    val memoUiMapper: MemoUiMapper,
+    val deleteMemoUseCase: DeleteMemoUseCase,
+    val updateMemoContentUseCase: UpdateMemoContentUseCase,
+    val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
+    val saveImageUseCase: SaveImageUseCase,
+    val workspaceCoordinator: MainWorkspaceCoordinator,
+)
+
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class TagFilterViewModel(
+    dependencies: TagFilterViewModelDependencies,
     savedStateHandle: SavedStateHandle,
-    getMemosByTagPageUseCase: GetMemosByTagPageUseCase,
-    observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
-    appConfigStateProvider: AppConfigStateProvider,
-    private val appConfigUiCoordinator: AppConfigUiCoordinator,
-    imageMapProvider: ImageMapProvider,
-    memoUiMapper: MemoUiMapper,
-    deleteMemoUseCase: DeleteMemoUseCase,
-    updateMemoContentUseCase: UpdateMemoContentUseCase,
-    toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
-    saveImageUseCase: SaveImageUseCase,
-    workspaceCoordinator: MainWorkspaceCoordinator,
 ) : ViewModel() {
+    private val getMemosByTagPageUseCase = dependencies.getMemosByTagPageUseCase
+    private val observeActiveDayCountUseCase = dependencies.observeActiveDayCountUseCase
+    private val appConfigStateProvider = dependencies.appConfigStateProvider
+    private val appConfigUiCoordinator = dependencies.appConfigUiCoordinator
+    private val imageMapProvider = dependencies.imageMapProvider
+    private val memoUiMapper = dependencies.memoUiMapper
+    private val deleteMemoUseCase = dependencies.deleteMemoUseCase
+    private val updateMemoContentUseCase = dependencies.updateMemoContentUseCase
+    private val toggleMemoCheckboxUseCase = dependencies.toggleMemoCheckboxUseCase
+    private val saveImageUseCase = dependencies.saveImageUseCase
+    private val workspaceCoordinator = dependencies.workspaceCoordinator
         private val routeArgs = TagFilterRouteArgs.from(savedStateHandle)
         val tagName: String = routeArgs.tagName
 
@@ -114,7 +130,9 @@ class TagFilterViewModel(
                         toggleTodo = { memo, actionSpan ->
                             toggleMemoCheckboxUseCase(memo = memo, actionSpan = actionSpan)
                         },
-                        saveImage = saveImageUseCase::saveWithCacheSyncStatus,
+                        saveImage = { source, draftId ->
+                            saveImageUseCase.saveWithCacheSyncStatus(source, draftId)
+                        },
                     ),
                 scope = viewModelScope,
                 mapToUiModel = { memo ->

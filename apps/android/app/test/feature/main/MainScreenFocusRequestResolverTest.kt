@@ -1,40 +1,3 @@
-/*
- * Behavior Contract:
- * - Unit under test: MainScreenFocusRequestResolver
- * - Owning layer: production path under test
- * - Priority tier: P1
- * - Capability: preserve observable product behavior after Markdown semantic ownership moved to
- *   lomo-workspace (typed IR, workspace scan/render/document commands) with Kotlin adapters only.
- *
- * Scenarios:
- * - Given production collaborators expose workspace IR / document-command seams, when this suite
- *   runs, then assertions verify the same user-visible outcomes without Kotlin MarkdownParser.
- * - Given deleted JetBrains or line-authority helpers, when tests construct fakes, then they use
- *   FakeMarkdownWorkspace / content projector adapters instead of dual-authority parsers.
- * - Given invalid or missing readiness inputs, when exercised, then fail-closed outcomes remain.
- *
- * Observable outcomes:
- * - Public method results, DI wiring, and presentation fields match the post-cutover contracts.
- *
- * TDD proof:
- * - RED: suites fail to compile or assert against MarkdownParser / JetBrains plan types after cutover.
- * - GREEN: ./kotlin test on this class passes against workspace IR adapters.
- *
- * Excludes:
- * - Room schema ownership, sync backend redesign, and Compose pixel rendering.
- *
- * Test Change Justification:
- * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
- * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
- *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
- * - Why old assertion is no longer correct: production storage analysis and presentation consume
- *   lomo-workspace typed IR and workspace adapters; the deleted Kotlin/JetBrains authorities are gone.
- * - Coverage preserved by: the same observable product outcomes (mapping, mutation gates, DI wiring,
- *   share/card presentation) re-asserted against FakeMarkdownWorkspace / IR / projector seams.
- * - Why this is not fitting the test to the implementation: assertions still check public behavior and
- *   fail-closed boundaries, not private parser implementation details.
- */
-
 package com.lomo.app.feature.main
 
 import com.lomo.app.testing.AppFunSpec
@@ -47,14 +10,36 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
- * - Unit under test: main-screen Jump focus request resolver.
- * - Behavior focus: Jump actions returning from Daily Review or Gallery must resolve to an immediate list-focus
- *   request for the matching memo and request direct list placement instead of a visible scroll effect.
- * - Observable outcomes: returned focus request type, target index for hit and miss cases, and requested direct-placement indexes.
- * - Red phase: Fails before the fix because main-screen Jump handling still inlines a long-distance animated
- *   list scroll instead of resolving an immediate-focus request contract.
- * - Excludes: Compose rendering, NavHost back-stack transitions, and LazyListState scroll physics.
+ * Behavior Contract:
+ * - Unit under test: main-screen list focus request resolver.
+ * - Owning layer: app
+ * - Priority tier: P1
+ * - Capability: Jump from Daily Review or Gallery places a memo by list rank. Missing identity is
+ *   a terminal Missing outcome; an offscreen rank is WaitingForPage until paging exposes the row.
+ *
+ * Scenarios:
+ * - Given the target is in the loaded snapshot, when resolved, then the request is Immediate.
+ * - Given paging placeholders precede the snapshot, when resolved, then the index is absolute.
+ * - Given the target is absent from the snapshot, when resolved, then the request is NotFound.
+ * - Given an offscreen identity with a store rank, when fallback runs, then placement is requested
+ *   and the attempt is WaitingForPage.
+ * - Given an identity the store cannot rank, when fallback runs, then the attempt is Missing.
+ *
+ * Observable outcomes: focus request type, placement indexes, and attempt kind.
+ *
+ * TDD proof: Fails if offscreen success is collapsed into a boolean false that looks like Missing.
+ *
+ * Excludes: Compose rendering, NavHost back-stack transitions, and LazyListState scroll physics.
+ *
+ * Test Change Justification:
+ * - Reason category: systemic behavior replacement.
+ * - Old behavior/assertion being replaced: offscreen focus returned Boolean false after a successful
+ *   scrollToItem, indistinguishable from a missing memo.
+ * - Why old assertion is no longer correct: Missing must surface to the user; WaitingForPage must
+ *   retry until the identity is in the loaded window.
+ * - Coverage preserved by: visible Immediate placement and absent-from-snapshot NotFound remain.
+ * - Why this is not fitting the test to the implementation: asserts the public attempt kind the
+ *   event host consumes.
  */
 class MainScreenFocusRequestResolverTest : AppFunSpec() {
     init {
@@ -70,11 +55,9 @@ class MainScreenFocusRequestResolverTest : AppFunSpec() {
                         ).toImmutableList(),
                 )
 
-            (request) shouldBe (MainScreenFocusRequest.Immediate(index = 1))
+            request shouldBe MainScreenFocusRequest.Immediate(index = 1)
         }
-    }
 
-    init {
         test("returns immediate focus request for the last visible memo") {
             val request =
                 resolveMainScreenFocusRequest(
@@ -87,11 +70,9 @@ class MainScreenFocusRequestResolverTest : AppFunSpec() {
                         ).toImmutableList(),
                 )
 
-            (request) shouldBe (MainScreenFocusRequest.Immediate(index = 2))
+            request shouldBe MainScreenFocusRequest.Immediate(index = 2)
         }
-    }
 
-    init {
         test("returns absolute focus index when paging snapshot starts after placeholders") {
             val request =
                 resolveMainScreenFocusRequest(
@@ -105,11 +86,9 @@ class MainScreenFocusRequestResolverTest : AppFunSpec() {
                         ).toImmutableList(),
                 )
 
-            (request) shouldBe (MainScreenFocusRequest.Immediate(index = 42))
+            request shouldBe MainScreenFocusRequest.Immediate(index = 42)
         }
-    }
 
-    init {
         test("returns not found when target memo is not visible") {
             val request =
                 resolveMainScreenFocusRequest(
@@ -121,11 +100,9 @@ class MainScreenFocusRequestResolverTest : AppFunSpec() {
                         ).toImmutableList(),
                 )
 
-            (request) shouldBe (MainScreenFocusRequest.NotFound)
+            request shouldBe MainScreenFocusRequest.NotFound
         }
-    }
 
-    init {
         test("focuses matching memo with one direct placement request") {
             runTest {
                 val positioner = RecordingFocusPositioner()
@@ -142,13 +119,11 @@ class MainScreenFocusRequestResolverTest : AppFunSpec() {
                         positioner = positioner,
                     )
 
-                ((handled)) shouldBe true
-                (positioner.indexes) shouldBe (listOf(1))
+                handled shouldBe true
+                positioner.indexes shouldBe listOf(1)
             }
         }
-    }
 
-    init {
         test("does not request placement when target memo is absent") {
             runTest {
                 val positioner = RecordingFocusPositioner()
@@ -164,18 +139,16 @@ class MainScreenFocusRequestResolverTest : AppFunSpec() {
                         positioner = positioner,
                     )
 
-                (handled) shouldBe (false)
-                (positioner.indexes) shouldBe (emptyList<Int>())
+                handled shouldBe false
+                positioner.indexes shouldBe emptyList()
             }
         }
-    }
 
-    init {
-        test("offscreen focus requests direct placement and keeps request pending until paging exposes the target") {
+        test("offscreen focus requests direct placement and waits for paging to expose the target") {
             runTest {
                 val positioner = RecordingFocusPositioner()
 
-                val handled =
+                val attempt =
                     focusMemoInMainScreenWithFallback(
                         memoId = "memo-42",
                         visibleUiMemos = listOf(memoUiModel("memo-1")).toImmutableList(),
@@ -184,8 +157,26 @@ class MainScreenFocusRequestResolverTest : AppFunSpec() {
                         positioner = positioner,
                     )
 
-                (handled) shouldBe (false)
-                (positioner.indexes) shouldBe (listOf(42))
+                attempt shouldBe MainScreenFocusAttempt.WaitingForPage
+                positioner.indexes shouldBe listOf(42)
+            }
+        }
+
+        test("missing identity is a terminal focus outcome") {
+            runTest {
+                val positioner = RecordingFocusPositioner()
+
+                val attempt =
+                    focusMemoInMainScreenWithFallback(
+                        memoId = "gone",
+                        visibleUiMemos = listOf(memoUiModel("memo-1")).toImmutableList(),
+                        canResolveOffscreenMainListFocus = true,
+                        resolveOffscreenIndex = { null },
+                        positioner = positioner,
+                    )
+
+                attempt shouldBe MainScreenFocusAttempt.Missing
+                positioner.indexes shouldBe emptyList()
             }
         }
     }

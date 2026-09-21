@@ -193,27 +193,28 @@ private class FakeMemoMutationRepository(
     ) = Unit
 
     override suspend fun saveMemo(
-        content: String,
-        timestamp: Long,
-        geoLocation: String?,
+        attempt: com.lomo.domain.model.MemoCreateAttempt,
     ): Memo = Memo(
-        id = timestamp.toString(),
-        timestamp = timestamp,
-        content = content,
-        rawContent = content,
+        id = attempt.timestampMillis.toString(),
+        timestamp = attempt.timestampMillis,
+        content = attempt.content,
+        rawContent = attempt.content,
         dateKey = "test",
     )
 
     override suspend fun updateMemo(
-        memo: Memo,
-        newContent: String,
+        attempt: com.lomo.domain.model.MemoUpdateAttempt,
     ) = Unit
 
-    override suspend fun deleteMemo(memo: Memo) = Unit
+    override suspend fun deleteMemo(
+        memo: Memo,
+        operationId: com.lomo.domain.model.MemoOperationId,
+    ) = Unit
 
     override suspend fun restoreMemoRevision(
         currentMemo: Memo,
         revision: MemoRevision,
+        operationId: com.lomo.domain.model.MemoOperationId,
     ) {
         restoreCalls += 1
         restoreGate?.await()
@@ -222,6 +223,7 @@ private class FakeMemoMutationRepository(
     override suspend fun setMemoPinned(
         memoId: String,
         pinned: Boolean,
+        operationId: com.lomo.domain.model.MemoOperationId,
     ) = Unit
 }
 

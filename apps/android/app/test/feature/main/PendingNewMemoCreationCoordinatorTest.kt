@@ -8,7 +8,7 @@
  *
  * Scenarios:
  * - Given a submitted request, when it waits/consumes/cancels, then content, submission identity,
- *   optional location and backfill time remain attached to the same request.
+ *   and backfill time remain attached to the same request.
  * - Given one pending request, when another is submitted, then overlap is rejected.
  *
  * Observable outcomes:
@@ -60,14 +60,13 @@ class PendingNewMemoCreationCoordinatorTest : AppFunSpec() {
             (coordinator.consume(requestId = firstRequest.requestId)) shouldBe (firstRequest)
             (coordinator.pendingRequest) shouldBe null
         }
-        test("submit stores optional geo location and backfill timestamp") {
+        test("submit stores optional backfill timestamp") {
             val coordinator = PendingNewMemoCreationCoordinator()
 
             val request =
                 coordinator.submit(
                     submissionId = MemoEditorSubmissionId(4L),
                     content = "backfilled memo",
-                    geoLocation = "geo:31.2304,121.4737",
                     timestampMillis = 1_777_777_777_000L,
                 )
 
@@ -75,7 +74,6 @@ class PendingNewMemoCreationCoordinatorTest : AppFunSpec() {
                     requestId = 1L,
                     submissionId = MemoEditorSubmissionId(4L),
                     content = "backfilled memo",
-                    geoLocation = "geo:31.2304,121.4737",
                     timestampMillis = 1_777_777_777_000L,
                 ))
             (coordinator.pendingRequest) shouldBe (request)

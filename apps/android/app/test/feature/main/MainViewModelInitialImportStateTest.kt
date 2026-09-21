@@ -13,7 +13,6 @@ import com.lomo.app.testing.collectWhileSubscribed
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeAppRuntimeInfoRepository
 import com.lomo.app.testing.fakes.FakeAppVersionRepository
-import com.lomo.app.testing.fakes.FakeAppWidgetRepository
 import com.lomo.app.testing.fakes.FakeAudioPlayerManager
 import com.lomo.app.testing.fakes.FakeExternalAppCommandStore
 import com.lomo.app.testing.fakes.FakeGitSyncRepository
@@ -25,6 +24,9 @@ import com.lomo.app.testing.fakes.FakeSyncInboxRepository
 import com.lomo.app.testing.fakes.FakeSyncPolicyRepository
 import com.lomo.app.testing.fakes.FakeWebDavSyncRepository
 import com.lomo.domain.usecase.FakeDispatcherProvider
+import com.lomo.domain.model.EngineFailureCategory
+import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
@@ -39,6 +41,7 @@ import com.lomo.domain.usecase.LoadMemoRevisionHistoryUseCase
 import com.lomo.domain.usecase.MainMemoListQueryUseCase
 import com.lomo.domain.usecase.MarkReminderDoneUseCase
 import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
+import com.lomo.domain.usecase.ObserveWorkspaceSessionUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.RestoreMemoRevisionUseCase
 import com.lomo.domain.usecase.S3UnifiedSyncProvider
@@ -74,12 +77,12 @@ import kotlinx.coroutines.test.runTest
  * - Capability: Main screen loading and directory switching state orchestration.
  *
  * Scenarios:
- * - Given a first workspace projection is Building, when the ViewModel observes it, then UI reports
- *   InitialImporting until that same projection becomes Verified.
- * - Given the first projection fails, when the user retries, then the session-owned projection
- *   state returns to Building instead of requiring a process restart.
+ * - Given a first workspace projection is Unavailable, when the ViewModel observes it, then UI reports
+ *   OpeningEngine until that same projection becomes Verified.
+ * - Given Recovery after a failed open, when the user retries, then activateWorkspace publishes a new
+ *   generation instead of retryProjectionBuild.
  * - Given a root switch commits before its DataStore echo arrives, when the echo is observed, then
- *   the already-ready workspace does not re-enter an ownerless importing state.
+ *   the already-ready workspace does not re-enter an ownerless opening state.
  *
  * Observable outcomes:
  * - uiState StateFlow values over time during deferred import/rebuild operations.
@@ -92,15 +95,15 @@ import kotlinx.coroutines.test.runTest
  * - Database writes, direct file synchronization protocols, and UI rendering hooks.
  *
  * Test Change Justification:
- * - Reason category: the managed session is now the sole SAF projection rebuild owner.
- * - Old behavior/assertion being replaced: DataStore root observations triggered a second rebuild
- *   and a ViewModel-owned importing Boolean tracked its lifetime.
- * - Why old assertion is no longer correct: a persisted-root echo is a replay of the committed
- *   switch, not a new rebuild command; treating it as one creates an ordering race.
- * - Coverage preserved by: Building, Verified, Failed, retry, and late-root-echo states are asserted
- *   at the user-visible MainScreenState boundary.
- * - Why this is not fitting the test to the implementation: the tests assert authoritative domain
- *   state transitions and explicitly reject the duplicate command path.
+ * - Reason category: A02 mount freshness collapsed to Unavailable/Revalidating/Verified.
+ * - Old behavior/assertion being replaced: Building/Failed freshness drove InitialImporting and a
+ *   dedicated retryProjectionBuild path.
+ * - Why old assertion is no longer correct: first projection without a trusted cache is Opening;
+ *   failure is ReadOnlyRecovery; retry is a new activateWorkspace generation.
+ * - Coverage preserved by: unavailable-until-verified, recovery retry, and late-root-echo states
+ *   remain asserted at the user-visible MainScreenState boundary.
+ * - Why this is not fitting the test to the implementation: the tests assert mount admission law, not
+ *   a renamed importing Boolean.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelInitialImportStateTest : AppFunSpec() {
@@ -109,13 +112,14 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
     private val repository = FakeMemoStore()
     private val sidebarStateHolder = MainSidebarStateHolder()
     private val appConfigRepository = FakeAppConfigRepository()
-    private val appWidgetRepository = FakeAppWidgetRepository()
     private val imageMapProvider by lazy { emptyImageMapProvider() }
     private val audioPlayerManager by lazy { FakeAudioPlayerManager() }
     private val rootLocationFlow = MutableStateFlow<StorageLocation?>(null)
-    private val switchRootStorageUseCase by lazy { FakeSwitchRootStorageUseCase(rootLocationFlow) }
     private val dispatcherProvider = FakeDispatcherProvider(testDispatcher)
     private val engineReadinessRepository = com.lomo.app.testing.fakes.FakeEngineReadinessRepository()
+    private val switchRootStorageUseCase by lazy {
+        FakeSwitchRootStorageUseCase(rootLocationFlow, engineReadinessRepository)
+    }
     private val workspaceMutationLease = FakeWorkspaceMutationLease(engineReadinessRepository)
 
     private lateinit var gitSyncRepo: FakeGitSyncRepository
@@ -167,18 +171,18 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
             settleMainDispatcher()
         }
 
-        test("first projection stays importing until its verified revision is readable") {
+        test("first projection stays opening until its verified revision is readable") {
             runTest {
                 val root = StorageLocation("/tmp/large-root")
                 appConfigRepository.setLocation(StorageArea.ROOT, root)
                 engineReadinessRepository.activateWorkspace(root)
                 val revision = engineReadinessRepository.workspaceAuthority.value!!.projectionRevision
-                engineReadinessRepository.publishProjectionFreshness(ProjectionFreshness.Building(revision))
+                engineReadinessRepository.publishProjectionFreshness(ProjectionFreshness.Unavailable)
 
                 val viewModel = createViewModel()
                 try {
                     advanceUntilIdle()
-                    viewModel.uiState.value shouldBe MainViewModel.MainScreenState.InitialImporting
+                    viewModel.uiState.value shouldBe MainViewModel.MainScreenState.OpeningEngine
 
                     engineReadinessRepository.publishProjectionFreshness(
                         ProjectionFreshness.Verified(revision),
@@ -195,9 +199,13 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                 val root = StorageLocation("/tmp/large-root")
                 appConfigRepository.setLocation(StorageArea.ROOT, root)
                 engineReadinessRepository.activateWorkspace(root)
-                val revision = engineReadinessRepository.workspaceAuthority.value!!.projectionRevision
-                engineReadinessRepository.publishProjectionFreshness(
-                    ProjectionFreshness.Failed(revision, "projection_refresh_failed"),
+                engineReadinessRepository.publish(
+                    EngineReadiness.ReadOnlyRecovery(
+                        category = EngineFailureCategory.STORAGE,
+                        code = "projection_refresh_failed",
+                        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                        diagnostic = "Workspace projection build failed",
+                    ),
                 )
 
                 val viewModel = createViewModel()
@@ -213,7 +221,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                     viewModel.retryEngineOpen()
                     advanceUntilIdle()
 
-                    viewModel.uiState.value shouldBe MainViewModel.MainScreenState.InitialImporting
+                    viewModel.uiState.value shouldBe MainViewModel.MainScreenState.Ready
                 } finally {
                     clearViewModel(viewModel)
                 }
@@ -229,9 +237,8 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                 engineReadinessRepository.activateWorkspace(oldRoot)
                 switchRootStorageUseCase.updateRootLocationCallback = { location ->
                     engineReadinessRepository.activateWorkspace(location)
-                    val revision = engineReadinessRepository.workspaceAuthority.value!!.projectionRevision
                     engineReadinessRepository.publishProjectionFreshness(
-                        ProjectionFreshness.Building(revision),
+                        ProjectionFreshness.Unavailable,
                     )
                 }
 
@@ -259,68 +266,71 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
 
     private fun TestScope.createViewModel(): MainViewModel =
         MainViewModel(
-            mainMemoListQueryUseCase = mainMemoListQueryUseCase(),
-            observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
-            setMemoPinnedUseCase = setMemoPinnedUseCase(),
-            appConfigStateProvider = createAppConfigStateProvider(),
-            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-            sidebarStateHolder = sidebarStateHolder,
-            versionHistoryCoordinator =
-                MainVersionHistoryCoordinator(
-                    loadMemoRevisionHistoryUseCase = LoadMemoRevisionHistoryUseCase(memoVersionRepository),
-                    restoreMemoRevisionUseCase =
-                        RestoreMemoRevisionUseCase(
-                            com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
-                        ),
-                ),
-            memoUiMapper = testMemoUiMapper(),
-            imageMapProvider = imageMapProvider,
-            mainMemoMutationCoordinator =
-                MainMemoMutationCoordinator(
-                    deleteMemoUseCase = DeleteMemoUseCase(com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository)),
-                    toggleMemoCheckboxUseCase = ToggleMemoCheckboxUseCase(com.lomo.app.testing.fakes.FakeMarkdownWorkspaceRepository(), com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository)),
-                    appWidgetRepository = appWidgetRepository,
-                ),
-            workspaceCoordinator =
-                MainWorkspaceCoordinator(
-                    initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
-                    refreshMemosUseCase =
-                        RefreshMemosUseCase(
-                            SyncAndRebuildUseCase(
-                                memoRepository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
-                                syncProviderRegistry = syncProviderRegistry(),
-                                syncPolicyRepository = syncPolicyRepository,
+            MainViewModelDependencies(
+                mainMemoListQueryUseCase = mainMemoListQueryUseCase(),
+                observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
+                setMemoPinnedUseCase = setMemoPinnedUseCase(),
+                appConfigStateProvider = createAppConfigStateProvider(),
+                appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+                sidebarStateHolder = sidebarStateHolder,
+                versionHistoryCoordinator =
+                    MainVersionHistoryCoordinator(
+                        loadMemoRevisionHistoryUseCase = LoadMemoRevisionHistoryUseCase(memoVersionRepository),
+                        restoreMemoRevisionUseCase =
+                            RestoreMemoRevisionUseCase(
+                                com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
                             ),
-                        ),
-                    switchRootStorageUseCase = switchRootStorageUseCase,
-                    mediaRepository = mediaRepository,
-                    engineReadinessRepository = engineReadinessRepository,
-                ),
-            startupCoordinator =
-                MainStartupCoordinator(
-                    getCurrentAppBuildVersionUseCase = GetCurrentAppBuildVersionUseCase(appRuntimeInfoRepository),
-                    startupMaintenanceUseCase =
-                        StartupMaintenanceUseCase(
-                            mediaRepository = mediaRepository,
-                            initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
-                            syncAndRebuildUseCase =
+                    ),
+                memoUiMapper = testMemoUiMapper(),
+                imageMapProvider = imageMapProvider,
+                mainMemoMutationCoordinator =
+                    MainMemoMutationCoordinator(
+                        deleteMemoUseCase = DeleteMemoUseCase(com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository)),
+                        toggleMemoCheckboxUseCase = ToggleMemoCheckboxUseCase(com.lomo.app.testing.fakes.FakeMarkdownWorkspaceRepository(), com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository)),
+                    ),
+                workspaceCoordinator =
+                    MainWorkspaceCoordinator(
+                        initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
+                        refreshMemosUseCase =
+                            RefreshMemosUseCase(
                                 SyncAndRebuildUseCase(
                                     memoRepository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
                                     syncProviderRegistry = syncProviderRegistry(),
                                     syncPolicyRepository = syncPolicyRepository,
                                 ),
-                            syncProviderRegistry = syncProviderRegistry(),
-                            appVersionRepository = appVersionRepository,
-                            syncInboxRepository = syncInboxRepository,
-                        ),
-                    appConfigStateProvider =
-                        createAppConfigStateProvider(),
-                    audioPlayerManager = audioPlayerManager,
-                ),
-            markReminderDoneUseCase =
-                MarkReminderDoneUseCase(com.lomo.app.testing.fakes.FakeReminderCoordinator()),
-            dispatcherProvider = dispatcherProvider,
-            externalAppCommandStore = FakeExternalAppCommandStore(),
+                            ),
+                        switchRootStorageUseCase = switchRootStorageUseCase,
+                        mediaRepository = mediaRepository,
+                        engineReadinessRepository = engineReadinessRepository,
+                    ),
+                startupCoordinator =
+                    MainStartupCoordinator(
+                        getCurrentAppBuildVersionUseCase = GetCurrentAppBuildVersionUseCase(appRuntimeInfoRepository),
+                        startupMaintenanceUseCase =
+                            StartupMaintenanceUseCase(
+                                mediaRepository = mediaRepository,
+                                initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
+                                syncAndRebuildUseCase =
+                                    SyncAndRebuildUseCase(
+                                        memoRepository = com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
+                                        syncProviderRegistry = syncProviderRegistry(),
+                                        syncPolicyRepository = syncPolicyRepository,
+                                    ),
+                                syncProviderRegistry = syncProviderRegistry(),
+                                appVersionRepository = appVersionRepository,
+                                syncInboxRepository = syncInboxRepository,
+                            ),
+                        appConfigStateProvider =
+                            createAppConfigStateProvider(),
+                        audioPlayerManager = audioPlayerManager,
+                        observeWorkspaceSessionUseCase =
+                            ObserveWorkspaceSessionUseCase(engineReadinessRepository),
+                    ),
+                markReminderDoneUseCase =
+                    MarkReminderDoneUseCase(com.lomo.app.testing.fakes.FakeReminderCoordinator()),
+                dispatcherProvider = dispatcherProvider,
+                externalAppCommandStore = FakeExternalAppCommandStore(),
+            ),
         ).also { viewModel ->
             collectWhileSubscribed(viewModel.uiState)
         }
@@ -414,7 +424,8 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
     }
 
     class FakeSwitchRootStorageUseCase(
-        private val rootLocationFlow: MutableStateFlow<StorageLocation?>
+        private val rootLocationFlow: MutableStateFlow<StorageLocation?>,
+        private val engineReadiness: com.lomo.domain.repository.EngineReadinessRepository,
     ) : SwitchRootStorageUseCase(DummyDirectorySettingsRepository(), DummyWorkspaceStateResolver(), FakeWorkspaceMutationLease(), com.lomo.app.testing.fakes.FakeEngineReadinessRepository()) {
         var updateRootLocationCallback: (suspend (StorageLocation) -> Unit)? = null
 
@@ -425,6 +436,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
         override suspend fun updateRootLocation(location: StorageLocation) {
             updateRootLocationCallback?.invoke(location) ?: run {
                 rootLocationFlow.value = location
+                engineReadiness.activateWorkspace(location)
             }
         }
     }

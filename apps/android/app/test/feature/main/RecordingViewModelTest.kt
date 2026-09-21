@@ -169,6 +169,7 @@ private class FakeRecordingSession : RecordingSession {
             RecordingSessionState.Recording(
                 filename = "voice_20260324_100000.m4a",
                 startedAtMillis = System.currentTimeMillis(),
+                draftId = com.lomo.domain.model.DraftId("recording-test"),
             )
         _durationMillis.value = 0
         _amplitude.value = 0

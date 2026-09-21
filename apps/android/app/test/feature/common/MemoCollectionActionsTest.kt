@@ -58,12 +58,13 @@ class MemoCollectionActionsTest : AppFunSpec() {
                 val errorMessage = MutableStateFlow<String?>(null)
                 val errors = MemoCollectionErrors(errorMessage)
                 val capabilities = MemoCollectionCapabilities.DeletableTodo(
-                    deleteMemo = {},
+                    deleteMemo = { _, _ -> },
                     toggleTodo = { _, _ -> "updated" }
                 )
                 val actions = MemoCollectionActions(
                     exitAnimationRegistry = registry,
                     errors = errors,
+                    draftId = com.lomo.domain.model.DraftId("draft-test"),
                     capabilities = capabilities,
                     scope = this,
                     mapToUiModel = { throw RuntimeException("markdown render error") }
@@ -89,13 +90,14 @@ class MemoCollectionActionsTest : AppFunSpec() {
                 val errorMessage = MutableStateFlow<String?>(null)
                 val errors = MemoCollectionErrors(errorMessage)
                 val capabilities = MemoCollectionCapabilities.Trash(
-                    restoreMemo = {},
-                    deletePermanently = {},
-                    clearTrash = {}
+                    restoreMemo = { _, _ -> },
+                    deletePermanently = { _, _ -> },
+                    clearTrash = { _ -> }
                 )
                 val actions = MemoCollectionActions(
                     exitAnimationRegistry = registry,
                     errors = errors,
+                    draftId = com.lomo.domain.model.DraftId("draft-test"),
                     capabilities = capabilities,
                     scope = this,
                     mapToUiModel = { throw RuntimeException("markdown render error") }
@@ -121,13 +123,14 @@ class MemoCollectionActionsTest : AppFunSpec() {
                 val errorMessage = MutableStateFlow<String?>(null)
                 val errors = MemoCollectionErrors(errorMessage)
                 val capabilities = MemoCollectionCapabilities.Trash(
-                    restoreMemo = {},
-                    deletePermanently = {},
-                    clearTrash = {}
+                    restoreMemo = { _, _ -> },
+                    deletePermanently = { _, _ -> },
+                    clearTrash = { _ -> }
                 )
                 val actions = MemoCollectionActions(
                     exitAnimationRegistry = registry,
                     errors = errors,
+                    draftId = com.lomo.domain.model.DraftId("draft-test"),
                     capabilities = capabilities,
                     scope = this,
                     mapToUiModel = { throw RuntimeException("markdown render error") }
@@ -153,13 +156,14 @@ class MemoCollectionActionsTest : AppFunSpec() {
                 val errorMessage = MutableStateFlow<String?>(null)
                 val errors = MemoCollectionErrors(errorMessage)
                 val capabilities = MemoCollectionCapabilities.Trash(
-                    restoreMemo = {},
-                    deletePermanently = {},
-                    clearTrash = {}
+                    restoreMemo = { _, _ -> },
+                    deletePermanently = { _, _ -> },
+                    clearTrash = { _ -> }
                 )
                 val actions = MemoCollectionActions(
                     exitAnimationRegistry = registry,
                     errors = errors,
+                    draftId = com.lomo.domain.model.DraftId("draft-test"),
                     capabilities = capabilities,
                     scope = this,
                     mapToUiModel = { throw RuntimeException("markdown render error") }
@@ -193,13 +197,14 @@ class MemoCollectionActionsTest : AppFunSpec() {
                 val errorMessage = MutableStateFlow<String?>(null)
                 val errors = MemoCollectionErrors(errorMessage)
                 val capabilities = MemoCollectionCapabilities.Trash(
-                    restoreMemo = {},
-                    deletePermanently = {},
-                    clearTrash = {}
+                    restoreMemo = { _, _ -> },
+                    deletePermanently = { _, _ -> },
+                    clearTrash = { _ -> }
                 )
                 val actions = MemoCollectionActions(
                     exitAnimationRegistry = registry,
                     errors = errors,
+                    draftId = com.lomo.domain.model.DraftId("draft-test"),
                     capabilities = capabilities,
                     scope = this,
                     mapToUiModel = {
@@ -232,12 +237,13 @@ class MemoCollectionActionsTest : AppFunSpec() {
                 val errorMessage = MutableStateFlow<String?>(null)
                 val errors = MemoCollectionErrors(errorMessage)
                 val capabilities = MemoCollectionCapabilities.DeletableTodo(
-                    deleteMemo = {},
+                    deleteMemo = { _, _ -> },
                     toggleTodo = { _, _ -> "updated" }
                 )
                 val actions = MemoCollectionActions(
                     exitAnimationRegistry = registry,
                     errors = errors,
+                    draftId = com.lomo.domain.model.DraftId("draft-test"),
                     capabilities = capabilities,
                     scope = this,
                     mapToUiModel = {
@@ -275,21 +281,25 @@ class MemoCollectionActionsTest : AppFunSpec() {
                         content = "old",
                         rawContent = "old",
                         dateKey = "2026_08_09",
+                        contentRevision = 1L,
+                        fileFingerprint = "source-fingerprint",
                     )
                 var committedContent: String? = null
                 val actions =
                     MemoCollectionActions(
                         exitAnimationRegistry = ExitAnimationRegistry(),
                         errors = MemoCollectionErrors(errorMessage),
+                        draftId = com.lomo.domain.model.DraftId("draft-test"),
                         capabilities =
                             MemoCollectionCapabilities.Editable(
-                                deleteMemo = {},
-                                updateMemo = { _, content ->
+                                deleteMemo = { _, _ -> },
+                                updateMemo = { attempt ->
+                                    val content = attempt.content
                                     gate.await()
                                     committedContent = content
                                 },
                                 toggleTodo = { _, _ -> "updated" },
-                                saveImage = { error("not used") },
+                                saveImage = { _, _ -> error("not used") },
                             ),
                         scope = this,
                         mapToUiModel = { error("not used") },

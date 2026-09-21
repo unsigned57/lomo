@@ -302,10 +302,6 @@ internal fun MainScreenAnimatedBody(
                 )
             }
 
-            is MainViewModel.MainScreenState.InitialImporting -> {
-                MainInitialImportingState(modifier = Modifier.fillMaxSize())
-            }
-
             is MainViewModel.MainScreenState.OpeningEngine -> {
                 MainInitialImportingState(modifier = Modifier.fillMaxSize())
             }

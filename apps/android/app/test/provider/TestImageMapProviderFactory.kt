@@ -23,9 +23,15 @@ fun emptyImageMapProvider(
 private data class FakeMediaRepository(
     val imageLocations: Flow<Map<MediaEntryId, StorageLocation>> = flowOf(emptyMap()),
 ) : MediaRepository {
-    override suspend fun importImage(source: StorageLocation): StorageLocation = source
+    override suspend fun importImage(
+        source: StorageLocation,
+        draftId: com.lomo.domain.model.DraftId,
+    ): StorageLocation = source
 
-    override suspend fun removeImage(entryId: MediaEntryId) = Unit
+    override suspend fun removeImage(
+        entryId: MediaEntryId,
+        draftId: com.lomo.domain.model.DraftId,
+    ) = Unit
 
     override fun observeImageLocations(): Flow<Map<MediaEntryId, StorageLocation>> = imageLocations
 
@@ -39,9 +45,14 @@ private data class FakeMediaRepository(
     override suspend fun finalizeVoiceCapture(
         recordingLocation: StorageLocation,
         humanNameHint: String,
+        draftId: com.lomo.domain.model.DraftId,
     ): StorageLocation = StorageLocation(humanNameHint.ifBlank { "voice.m4a" })
 
-    override suspend fun removeVoiceCapture(entryId: MediaEntryId) = Unit
+    override suspend fun removeVoiceCapture(
+        entryId: MediaEntryId,
+        captureLocation: StorageLocation,
+        draftId: com.lomo.domain.model.DraftId,
+    ) = Unit
 
     override suspend fun runOrphanSweepAtOperationBoundary() = Unit
 }

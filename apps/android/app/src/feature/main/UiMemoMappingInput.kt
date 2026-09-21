@@ -16,14 +16,13 @@ internal data class UiMemoMappingInput(
     val rootDirectory: String?,
     val imageDirectory: String?,
     val imageMap: Map<String, Uri>,
-    val imageDependencySignature: String,
 )
 
 internal fun UiMemoMappingInput.hasSameUiDependencies(other: UiMemoMappingInput): Boolean =
     memos == other.memos &&
         rootDirectory == other.rootDirectory &&
         imageDirectory == other.imageDirectory &&
-        imageDependencySignature == other.imageDependencySignature
+        imageMap == other.imageMap
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 internal fun Flow<List<Memo>>.mapToUiModels(
@@ -32,7 +31,6 @@ internal fun Flow<List<Memo>>.mapToUiModels(
     imageMap: Flow<Map<String, Uri>>,
     memoUiMapper: MemoUiMapper,
     transformMemos: (List<Memo>) -> List<Memo> = { it },
-    dependencyMemos: (List<Memo>) -> List<Memo> = { it },
 ): Flow<List<MemoUiModel>> =
     combine(this, rootDirectory, imageDirectory, imageMap) { memos, rootDir, imageDir, currentImageMap ->
         val mappedMemos = transformMemos(memos)
@@ -41,7 +39,6 @@ internal fun Flow<List<Memo>>.mapToUiModels(
             rootDirectory = rootDir,
             imageDirectory = imageDir,
             imageMap = currentImageMap,
-            imageDependencySignature = buildMemoListImageDependencySignature(dependencyMemos(memos), currentImageMap),
         )
     }.distinctUntilChanged(UiMemoMappingInput::hasSameUiDependencies)
         .mapLatest { input ->
@@ -60,7 +57,6 @@ internal fun Flow<List<Memo>>.mapToUiModelState(
     memoUiMapper: MemoUiMapper,
     scope: CoroutineScope,
     transformMemos: (List<Memo>) -> List<Memo> = { it },
-    dependencyMemos: (List<Memo>) -> List<Memo> = { it },
 ): StateFlow<List<MemoUiModel>> =
     mapToUiModels(
         rootDirectory = rootDirectory,
@@ -68,5 +64,4 @@ internal fun Flow<List<Memo>>.mapToUiModelState(
         imageMap = imageMap,
         memoUiMapper = memoUiMapper,
         transformMemos = transformMemos,
-        dependencyMemos = dependencyMemos,
     ).stateIn(scope, appWhileSubscribed(), emptyList())

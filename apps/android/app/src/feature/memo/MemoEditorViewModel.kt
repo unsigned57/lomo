@@ -4,41 +4,39 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.toUserMessage
-import com.lomo.app.repository.AppWidgetRepository
+import com.lomo.app.util.runSuspendCatching
 import com.lomo.domain.model.EngineDiagnosticEvent
 import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.usecase.CreateMemoUseCase
 import com.lomo.domain.usecase.DiscardDraftMediaUseCase
-import com.lomo.domain.usecase.ObserveDraftTextUseCase
+import com.lomo.domain.usecase.LoadCreateDraftUseCase
+import com.lomo.domain.usecase.SaveCreateDraftUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
-import com.lomo.domain.usecase.SetDraftTextUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 
 class MemoEditorViewModel(
-    private val createMemoUseCase: CreateMemoUseCase,
-    private val updateMemoContentUseCase: UpdateMemoContentUseCase,
+    createMemoUseCase: CreateMemoUseCase,
+    updateMemoContentUseCase: UpdateMemoContentUseCase,
     private val saveImageUseCase: SaveImageUseCase,
     private val discardDraftMediaUseCase: DiscardDraftMediaUseCase,
-    private val appWidgetRepository: AppWidgetRepository,
-    private val observeDraftTextUseCase: ObserveDraftTextUseCase,
-    private val setDraftTextUseCase: SetDraftTextUseCase,
+    private val loadCreateDraftUseCase: LoadCreateDraftUseCase,
+    private val saveCreateDraftUseCase: SaveCreateDraftUseCase,
     private val diagnostics: EngineDiagnosticsRecorder,
 ) : ViewModel() {
     /** Staged draft media destinations (image + voice relative paths) for discard. */
     private val trackedStagedMedia = mutableSetOf<String>()
+    private val draftId = com.lomo.app.feature.common.newDraftId()
     private val hasLocalDraftMutation = MutableStateFlow(false)
 
     private val _errorMessage = MutableStateFlow<String?>(null)
@@ -48,23 +46,16 @@ class MemoEditorViewModel(
     val draftText: StateFlow<String> = _draftText
     internal val submissions =
         MemoEditorCommitCoordinator(
+            draftId = draftId,
             scope = viewModelScope,
-            createMemo = { content, geoLocation, timestampMillis ->
-                createMemoUseCase(
-                    content = content,
-                    timestampMillis = timestampMillis ?: System.currentTimeMillis(),
-                    geoLocation = geoLocation,
-                )
-            },
+            createMemo = { attempt -> createMemoUseCase(attempt) },
             updateMemo = updateMemoContentUseCase::invoke,
             onCreateCommitted = {
                 clearTrackedStagedMedia()
                 clearDraft()
-                refreshWidgetsAfterCommit()
             },
             onUpdateCommitted = {
                 clearTrackedStagedMedia()
-                refreshWidgetsAfterCommit()
             },
             onStarted = { _errorMessage.value = null },
             onFailure = { throwable -> _errorMessage.value = throwable.toUserMessage() },
@@ -89,7 +80,7 @@ class MemoEditorViewModel(
 
     init {
         viewModelScope.launch {
-            val persistedDraft = observeDraftTextUseCase().first()
+            val persistedDraft = loadCreateDraftUseCase()?.content.orEmpty()
             if (!hasLocalDraftMutation.value) {
                 _draftText.value = persistedDraft
             }
@@ -124,7 +115,7 @@ class MemoEditorViewModel(
             _draftText.value = text
             draftJob?.cancel()
             draftJob = viewModelScope.launch {
-                setDraftTextUseCase(text)
+                saveCreateDraftUseCase(text)
             }
         }
 
@@ -133,7 +124,7 @@ class MemoEditorViewModel(
             _draftText.value = ""
             draftJob?.cancel()
             draftJob = viewModelScope.launch {
-                setDraftTextUseCase(null)
+                saveCreateDraftUseCase(null)
             }
         }
 
@@ -143,23 +134,15 @@ class MemoEditorViewModel(
             onError: (() -> Unit)? = null,
         ) {
             viewModelScope.launch {
-                runCatching {
+                runSuspendCatching {
                     val path =
-                        when (
-                            val result =
-                                saveImageUseCase.saveWithCacheSyncStatus(
-                                    StorageLocation(uri.toString()),
-                                )
-                        ) {
-                            is SaveImageResult.SavedAndCacheSynced -> result.location.raw
-                            is SaveImageResult.SavedButCacheSyncFailed -> throw result.cause
-                        }
+                        saveImageUseCase.saveWithCacheSyncStatus(
+                            StorageLocation(uri.toString()),
+                            draftId,
+                        ).location.raw
                     trackStagedMedia(path)
                     onResult(path)
                 }.onFailure { throwable ->
-                    if (throwable is kotlinx.coroutines.CancellationException) {
-                        throw throwable
-                    }
                     _errorMessage.value = throwable.toUserMessage("Failed to save image")
                     onError?.invoke()
                 }
@@ -187,14 +170,11 @@ class MemoEditorViewModel(
 
         fun discardInputs() {
             viewModelScope.launch {
-                runCatching {
+                runSuspendCatching {
                     val toDelete = trackedStagedMedia.toList()
                     trackedStagedMedia.clear()
-                    discardDraftMediaUseCase(toDelete)
+                    discardDraftMediaUseCase(toDelete, draftId)
                 }.onFailure { throwable ->
-                    if (throwable is kotlinx.coroutines.CancellationException) {
-                        throw throwable
-                    }
                     _errorMessage.value = throwable.toUserMessage("Failed to discard input")
                 }
             }
@@ -206,14 +186,6 @@ class MemoEditorViewModel(
 
     private fun clearTrackedStagedMedia() {
         trackedStagedMedia.clear()
-    }
-
-    private fun refreshWidgetsAfterCommit() {
-        viewModelScope.launch(Dispatchers.IO) {
-            // behavior-contract: silent-result-ok: widgets are a rebuildable projection and must
-            // never turn an already-durable memo commit into an editor submission failure.
-            runCatching { appWidgetRepository.updateAllWidgets() }
-        }
     }
 
     companion object {

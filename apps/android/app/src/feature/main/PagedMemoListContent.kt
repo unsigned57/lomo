@@ -85,9 +85,10 @@ internal fun MemoListContent(
     doubleTapEditEnabled: Boolean = true,
     freeTextCopyEnabled: Boolean = false,
     scrollbarEnabled: Boolean = true,
+    pullToRefreshEnabled: Boolean = true,
+    listContentPadding: PaddingValues? = null,
     onShowMemoMenu: (MemoMenuSelection) -> Unit,
 ) {
-    val pullState = rememberPullToRefreshState()
     val itemSnapshotList = pagedMemos.itemSnapshotList
     val rawLoadedSnapshot =
         remember(itemSnapshotList) {
@@ -106,28 +107,19 @@ internal fun MemoListContent(
     var expandedMemoIds by rememberSaveable(saver = expandedMemoIdsSaver()) {
         mutableStateOf(persistentSetOf<String>())
     }
+    val expandedSnapshots = rememberExpandedMemoSnapshots(expandedMemoIds)
 
     MemoListPreloadEffect(
         loadedWindow = preloadWindow,
         listState = listState,
     )
 
-    PullToRefreshBox(
-        isRefreshing = isRefreshing,
-        state = pullState,
-        onRefresh = onRefresh,
-        modifier = Modifier.fillMaxSize(),
-        indicator = {
-            MemoListPullToRefreshIndicator(
-                state = pullState,
-                isRefreshing = isRefreshing,
-            )
-        },
-    ) {
+    val listColumn: @Composable () -> Unit = {
         MemoPagedListColumn(
             pagedMemos = pagedMemos,
             rawLoadedSnapshot = rawLoadedSnapshot,
             expandedMemoIds = expandedMemoIds,
+            expandedSnapshots = expandedSnapshots,
             onExpandedMemoChange = { memoId, isExpanded ->
                 expandedMemoIds = updateExpandedMemoIds(
                     expandedMemoIds = expandedMemoIds,
@@ -146,10 +138,31 @@ internal fun MemoListContent(
             doubleTapEditEnabled = doubleTapEditEnabled,
             freeTextCopyEnabled = freeTextCopyEnabled,
             scrollbarEnabled = scrollbarEnabled,
+            listContentPadding = listContentPadding,
             onTagClick = onTagClick,
             onImageClick = onImageClick,
             onShowMemoMenu = onShowMemoMenu,
         )
+    }
+
+    val pullState = rememberPullToRefreshState()
+    if (pullToRefreshEnabled) {
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            state = pullState,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+            indicator = {
+                MemoListPullToRefreshIndicator(
+                    state = pullState,
+                    isRefreshing = isRefreshing,
+                )
+            },
+        ) {
+            listColumn()
+        }
+    } else {
+        listColumn()
     }
 }
 
@@ -159,6 +172,7 @@ private fun MemoPagedListColumn(
     pagedMemos: LazyPagingItems<MemoUiModel>,
     rawLoadedSnapshot: MemoListLoadedSnapshot<MemoUiModel>,
     expandedMemoIds: ImmutableSet<String>,
+    expandedSnapshots: Map<String, MemoUiModel>,
     onExpandedMemoChange: (String, Boolean) -> Unit,
     exitAnimationRegistry: com.lomo.ui.component.common.ExitAnimationRegistry<MemoUiModel>,
     enterAnimationRegistry: EnterAnimationRegistry,
@@ -171,6 +185,7 @@ private fun MemoPagedListColumn(
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
     scrollbarEnabled: Boolean,
+    listContentPadding: PaddingValues?,
     onTagClick: (String) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
     onShowMemoMenu: (MemoMenuSelection) -> Unit,
@@ -186,7 +201,9 @@ private fun MemoPagedListColumn(
         )
 
     val visiblePagedMemos =
-        remember(exitState.renderList) {
+        if (exitState.overlayIdle) {
+            snapshotMemos
+        } else {
             exitState.renderList.map { it.item }.toImmutableList()
         }
 
@@ -216,13 +233,16 @@ private fun MemoPagedListColumn(
         pagedMemos = pagedMemos,
         visiblePagedMemos = visiblePagedMemos,
         renderList = exitState.renderList,
+        overlayIdle = exitState.overlayIdle,
         snapshotStartIndex = snapshotStartIndex,
         renderedItemCount = listItemCount,
         scrollbarItemCount = scrollbarItemCount,
         scrollTargetItemCount = materializedItemCount,
         expandedMemoIds = expandedMemoIds,
+        expandedSnapshots = expandedSnapshots,
         listState = listState,
         scrollbarEnabled = scrollbarEnabled,
+        listContentPadding = listContentPadding,
         deletingIds = deletingIds,
         snapshotMemos = snapshotMemos,
         dateFormat = dateFormat,
@@ -250,6 +270,8 @@ private fun MemoPagedLazyColumn(
     visiblePagedMemoStartIndex: Int,
     renderedItemCount: Int,
     expandedMemoIds: ImmutableSet<String>,
+    expandedSnapshots: Map<String, MemoUiModel>,
+    overlayIdle: Boolean,
     listState: LazyListState,
     scrollbarEnabled: Boolean,
     displayConfig: MemoPagedListDisplayConfig,
@@ -257,6 +279,7 @@ private fun MemoPagedLazyColumn(
     onItemExitSettled: (String) -> Unit,
     enteringIds: ImmutableSet<String>,
     onItemEnterSettled: (String) -> Unit,
+    listContentPadding: PaddingValues?,
 ) {
     val horizontalContentPadding = resolveMemoListHorizontalContentPadding(scrollbarEnabled)
     val renderKeys =
@@ -265,10 +288,9 @@ private fun MemoPagedLazyColumn(
             visiblePagedMemos = visiblePagedMemos,
             pagedMemos = pagedMemos,
         )
-    LazyColumn(
-        state = listState,
-        contentPadding =
-            PaddingValues(
+    val contentPadding =
+        listContentPadding
+            ?: PaddingValues(
                   top = MEMO_LIST_TOP_PADDING,
                   start = horizontalContentPadding.start,
                   end = horizontalContentPadding.end,
@@ -276,7 +298,10 @@ private fun MemoPagedLazyColumn(
                       WindowInsets.navigationBars
                           .asPaddingValues()
                           .calculateBottomPadding() + MEMO_LIST_BOTTOM_PADDING,
-            ),
+            )
+    LazyColumn(
+        state = listState,
+        contentPadding = contentPadding,
         verticalArrangement = Arrangement.Top,
         modifier = Modifier.fillMaxSize(),
     ) {
@@ -297,6 +322,9 @@ private fun MemoPagedLazyColumn(
                 index = index,
                 pagedMemos = pagedMemos,
                 renderList = renderList,
+                visiblePagedMemos = visiblePagedMemos,
+                overlayIdle = overlayIdle,
+                expandedSnapshots = expandedSnapshots,
                 visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
                 renderedItemCount = renderedItemCount,
                 expandedMemoIds = expandedMemoIds,
@@ -316,6 +344,9 @@ private fun MemoPagedListRow(
     index: Int,
     pagedMemos: LazyPagingItems<MemoUiModel>,
     renderList: ImmutableList<LomoListExitRenderEntry<MemoUiModel>>,
+    visiblePagedMemos: ImmutableList<MemoUiModel>,
+    overlayIdle: Boolean,
+    expandedSnapshots: Map<String, MemoUiModel>,
     visiblePagedMemoStartIndex: Int,
     renderedItemCount: Int,
     expandedMemoIds: ImmutableSet<String>,
@@ -332,10 +363,22 @@ private fun MemoPagedListRow(
     )?.let { accessIndex ->
         pagedMemos[accessIndex]
     }
-    val entry = renderList.getOrNull(index - visiblePagedMemoStartIndex)
-    val uiModel = entry?.item
+    val entry =
+        if (overlayIdle) {
+            null
+        } else {
+            renderList.getOrNull(index - visiblePagedMemoStartIndex)
+        }
+    val previewModel =
+        entry?.item
+            ?: memoListItemAt(
+                index = index,
+                visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
+                visiblePagedMemos = visiblePagedMemos,
+                pagedMemos = pagedMemos,
+            )
 
-    if (uiModel == null) {
+    if (previewModel == null) {
         MemoPagedListPlaceholderRow(
             lazyItemScope = lazyItemScope,
             index = index,
@@ -344,14 +387,26 @@ private fun MemoPagedListRow(
         return
     }
 
+    val memoId = previewModel.memo.id
+    val isExpanded = memoId in expandedMemoIds
+    val uiModel = if (isExpanded) expandedSnapshots[memoId] ?: previewModel else previewModel
+
     val anchoredAfterKey = if (index > 0) {
-        val prevEntry = renderList.getOrNull(index - visiblePagedMemoStartIndex - 1)
-        prevEntry?.item?.memo?.id
+        if (overlayIdle) {
+            memoListItemAt(
+                index = index - 1,
+                visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
+                visiblePagedMemos = visiblePagedMemos,
+                pagedMemos = pagedMemos,
+            )?.run { memo.id }
+        } else {
+            renderList.getOrNull(index - visiblePagedMemoStartIndex - 1)?.run { item.memo.id }
+        }
     } else null
 
-    val exitPhase = entry.exitPhase
+    val exitPhase = entry?.exitPhase
     val isExiting = exitPhase != null
-    val isEntering = uiModel.memo.id in enteringIds
+    val isEntering = memoId in enteringIds
     MemoPagedListItem(
         uiModel = uiModel,
         index = index,
@@ -360,9 +415,9 @@ private fun MemoPagedListRow(
         displayConfig = displayConfig,
         actions = actions,
         exitPhase = exitPhase,
-        onExitSettled = { onItemExitSettled(entry.snapshotMemo.memo.id) },
+        onExitSettled = { onItemExitSettled((entry?.snapshotMemo ?: previewModel).memo.id) },
         isEntering = isEntering,
-        onEnterSettled = { onItemEnterSettled(uiModel.memo.id) },
+        onEnterSettled = { onItemEnterSettled(memoId) },
         modifier =
             Modifier
                 .lomoListItemMotion(lazyItemScope, animateAppearance = false, animatePlacement = !isExiting)
@@ -427,13 +482,16 @@ private fun PagedMemoLazyColumn(
     pagedMemos: LazyPagingItems<MemoUiModel>,
     visiblePagedMemos: ImmutableList<MemoUiModel>,
     renderList: ImmutableList<LomoListExitRenderEntry<MemoUiModel>>,
+    overlayIdle: Boolean,
     snapshotStartIndex: Int,
     renderedItemCount: Int,
     scrollbarItemCount: Int,
     scrollTargetItemCount: Int,
     expandedMemoIds: ImmutableSet<String>,
+    expandedSnapshots: Map<String, MemoUiModel>,
     listState: LazyListState,
     scrollbarEnabled: Boolean,
+    listContentPadding: PaddingValues?,
     deletingIds: ImmutableSet<String>,
     snapshotMemos: ImmutableList<MemoUiModel>,
     dateFormat: String,
@@ -486,6 +544,8 @@ private fun PagedMemoLazyColumn(
             pagedMemos = pagedMemos,
             visiblePagedMemos = visiblePagedMemos,
             renderList = renderList,
+            overlayIdle = overlayIdle,
+            expandedSnapshots = expandedSnapshots,
             visiblePagedMemoStartIndex = snapshotStartIndex,
             renderedItemCount = renderedItemCount,
             expandedMemoIds = expandedMemoIds,
@@ -496,6 +556,7 @@ private fun PagedMemoLazyColumn(
             onItemExitSettled = onItemExitSettled,
             enteringIds = enteringIds,
             onItemEnterSettled = onItemEnterSettled,
+            listContentPadding = listContentPadding,
         )
     }
 }

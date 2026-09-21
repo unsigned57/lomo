@@ -1,9 +1,7 @@
 package com.lomo.app.feature.main
 
 import android.net.Uri
-import com.lomo.domain.model.markdown.MarkdownRenderBlock
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
-import com.lomo.domain.model.markdown.MarkdownRenderInline
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import java.io.File
@@ -21,20 +19,61 @@ internal const val QUERY_SEPARATOR = '?'
 internal const val FRAGMENT_SEPARATOR = '#'
 internal const val PATH_SEPARATOR = '/'
 private val MANAGED_IMAGE_FILENAME_REGEX = Regex("""img_\d+\.(png|jpg|jpeg|gif|webp)""")
+private const val IMAGE_RESOLVE_CACHE_SIZE = 256
+
+internal data class ResolvedMemoImages(
+    val document: MarkdownRenderDocument,
+    val imageUrls: ImmutableList<String>,
+)
+
+private data class ImageResolveCacheKey(
+    val url: String,
+    val rootPath: String?,
+    val imagePath: String?,
+    val mappedUri: String?,
+)
+
 internal class MemoUiImageContentResolver {
+    private val resolvedPathCache = androidx.collection.LruCache<ImageResolveCacheKey, String>(IMAGE_RESOLVE_CACHE_SIZE)
+
+    fun resolveMemoImages(
+        document: MarkdownRenderDocument,
+        imageUrls: List<String>,
+        rootPath: String?,
+        imagePath: String?,
+        imageMap: Map<String, Uri>,
+    ): ResolvedMemoImages {
+        val callCache = HashMap<ImageResolveCacheKey, String>()
+        fun resolve(url: String): String = resolveCached(url, rootPath, imagePath, imageMap, callCache)
+        return ResolvedMemoImages(
+            document =
+                document.copy(
+                    attachmentDestinations = document.attachmentDestinations.map(::resolve),
+                    blocks = document.blocks.map { block -> block.resolveImages(::resolve) },
+                ),
+            imageUrls =
+                imageUrls
+                    .asSequence()
+                    .filterNot(::isAudioAttachmentPath)
+                    .map(::resolve)
+                    .toList()
+                    .toImmutableList(),
+        )
+    }
+
     fun resolveRenderDocumentImages(
         document: MarkdownRenderDocument,
         rootPath: String?,
         imagePath: String?,
         imageMap: Map<String, Uri>,
     ): MarkdownRenderDocument =
-        document.copy(
-            attachmentDestinations =
-                document.attachmentDestinations.map { destination ->
-                    resolveDestination(destination, rootPath, imagePath, imageMap)
-                },
-            blocks = document.blocks.map { block -> block.resolveImages(rootPath, imagePath, imageMap) },
-        )
+        resolveMemoImages(
+            document = document,
+            imageUrls = emptyList(),
+            rootPath = rootPath,
+            imagePath = imagePath,
+            imageMap = imageMap,
+        ).document
 
     fun resolveProjectedImageUrls(
         imageUrls: List<String>,
@@ -42,21 +81,43 @@ internal class MemoUiImageContentResolver {
         imagePath: String?,
         imageMap: Map<String, Uri>,
     ): ImmutableList<String> =
-        imageUrls
-            .asSequence()
-            .filterNot(::isAudioAttachmentPath)
-            .map { imageUrl ->
-                val resolved =
-                    resolveImageModel(
-                        imageUrl = imageUrl,
-                        isWikiStyle = false,
-                        rootPath = rootPath,
-                        imagePath = imagePath,
-                        imageMap = imageMap,
-                    )
-                ((resolved as? File)?.absolutePath ?: resolved.toString())
-            }.toList()
-            .toImmutableList()
+        resolveMemoImages(
+            document =
+                MarkdownRenderDocument(
+                    sourceByteLength = 0uL,
+                    plainText = "",
+                    tagNames = emptyList(),
+                    attachmentDestinations = emptyList(),
+                    blocks = emptyList(),
+                ),
+            imageUrls = imageUrls,
+            rootPath = rootPath,
+            imagePath = imagePath,
+            imageMap = imageMap,
+        ).imageUrls
+
+    private fun resolveCached(
+        url: String,
+        rootPath: String?,
+        imagePath: String?,
+        imageMap: Map<String, Uri>,
+        callCache: MutableMap<ImageResolveCacheKey, String>,
+    ): String {
+        if (isAudioAttachmentPath(url)) {
+            return url
+        }
+        val mappedUri = findCachedImageUri(normalizeImageUrl(url), imageMap)?.toString()
+        val key = ImageResolveCacheKey(url, rootPath, imagePath, mappedUri)
+        callCache[key]?.let { return it }
+        resolvedPathCache[key]?.let { cached ->
+            callCache[key] = cached
+            return cached
+        }
+        val resolved = resolveDestination(url, rootPath, imagePath, imageMap)
+        resolvedPathCache.put(key, resolved)
+        callCache[key] = resolved
+        return resolved
+    }
 
     private fun resolveImageModel(
         imageUrl: String,
@@ -93,68 +154,6 @@ internal class MemoUiImageContentResolver {
             )
         return (resolved as? File)?.absolutePath ?: resolved.toString()
     }
-
-    private fun MarkdownRenderBlock.resolveImages(
-        rootPath: String?,
-        imagePath: String?,
-        imageMap: Map<String, Uri>,
-    ): MarkdownRenderBlock =
-        when (this) {
-            is MarkdownRenderBlock.Paragraph -> copy(inlines = inlines.resolveImages(rootPath, imagePath, imageMap))
-            is MarkdownRenderBlock.Heading -> copy(inlines = inlines.resolveImages(rootPath, imagePath, imageMap))
-            is MarkdownRenderBlock.BlockQuote ->
-                copy(blocks = blocks.map { it.resolveImages(rootPath, imagePath, imageMap) })
-            is MarkdownRenderBlock.ListBlock ->
-                copy(
-                    items =
-                        items.map { item ->
-                            item.copy(blocks = item.blocks.map { it.resolveImages(rootPath, imagePath, imageMap) })
-                        },
-                )
-            is MarkdownRenderBlock.Table ->
-                copy(
-                    header =
-                        header.map { cell ->
-                            cell.copy(inlines = cell.inlines.resolveImages(rootPath, imagePath, imageMap))
-                        },
-                    rows =
-                        rows.map { row ->
-                            row.map { cell ->
-                                cell.copy(inlines = cell.inlines.resolveImages(rootPath, imagePath, imageMap))
-                            }
-                        },
-                )
-            is MarkdownRenderBlock.CodeBlock,
-            is MarkdownRenderBlock.ThematicBreak,
-            is MarkdownRenderBlock.HtmlBlock,
-            -> this
-        }
-
-    private fun List<MarkdownRenderInline>.resolveImages(
-        rootPath: String?,
-        imagePath: String?,
-        imageMap: Map<String, Uri>,
-    ): List<MarkdownRenderInline> =
-        map { inline ->
-            when (inline) {
-                is MarkdownRenderInline.Strong ->
-                    inline.copy(inlines = inline.inlines.resolveImages(rootPath, imagePath, imageMap))
-                is MarkdownRenderInline.Emphasis ->
-                    inline.copy(inlines = inline.inlines.resolveImages(rootPath, imagePath, imageMap))
-                is MarkdownRenderInline.Strikethrough ->
-                    inline.copy(inlines = inline.inlines.resolveImages(rootPath, imagePath, imageMap))
-                is MarkdownRenderInline.Highlight ->
-                    inline.copy(inlines = inline.inlines.resolveImages(rootPath, imagePath, imageMap))
-                is MarkdownRenderInline.Link ->
-                    inline.copy(inlines = inline.inlines.resolveImages(rootPath, imagePath, imageMap))
-                is MarkdownRenderInline.Image ->
-                    inline.copy(destination = resolveDestination(inline.destination, rootPath, imagePath, imageMap))
-                is MarkdownRenderInline.WikiReference ->
-                    inline.copy(inlines = inline.inlines.resolveImages(rootPath, imagePath, imageMap))
-                else -> inline
-            }
-        }
-
 
     private fun resolveDirectImageModel(
         normalizedImageUrl: String,
@@ -216,9 +215,6 @@ internal class MemoUiImageContentResolver {
     }
 
 }
-
-private fun containsContentUriBase(candidateBasePaths: List<String>): Boolean =
-    candidateBasePaths.any { basePath -> basePath.startsWith(CONTENT_URI_PREFIX) }
 
 private fun resolveRelativeContentUri(
     candidateBasePaths: List<String>,

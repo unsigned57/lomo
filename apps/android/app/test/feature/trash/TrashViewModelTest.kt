@@ -215,7 +215,7 @@ class TrashViewModelTest : AppFunSpec() {
         test("trash paging stays closed until the active projection is verified") {
             runTest {
                 engineReadinessRepository.publishProjectionFreshness(
-                    com.lomo.domain.model.ProjectionFreshness.Building(0uL),
+                    com.lomo.domain.model.ProjectionFreshness.Unavailable,
                 )
 
                 val viewModel = createViewModel()

@@ -1,5 +1,6 @@
 package com.lomo.app.feature.common
 
+import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.Memo
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.memo.MemoEditorSubmissionStateMachine
@@ -41,6 +42,7 @@ class MemoCollectionActionStateHolder(
         MemoCollectionActions(
             exitAnimationRegistry = exitAnimationRegistry,
             errors = errors,
+            draftId = DraftId(java.util.UUID.randomUUID().toString()),
             editorSubmissionStateMachine = editorSubmissionStateMachine,
             capabilities = capabilities,
             scope = scope,

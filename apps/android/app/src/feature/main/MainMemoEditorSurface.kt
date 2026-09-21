@@ -69,7 +69,6 @@ internal fun rememberMainMemoEditorSurface(
                             interactionCallbacks.onCreateMemo(
                                 submissionId,
                                 content,
-                                null,
                                 timestampMillis,
                             )
                         if (!accepted) {

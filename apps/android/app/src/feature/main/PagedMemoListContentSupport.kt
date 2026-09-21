@@ -24,7 +24,7 @@ internal fun memoListItemKey(
         visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
         visiblePagedMemos = visiblePagedMemos,
         pagedMemos = pagedMemos,
-    )?.memo?.id
+    )?.run { memo.id }
         ?: "$PAGING_PLACEHOLDER_KEY_PREFIX$index"
 
 internal fun memoListItemContentType(

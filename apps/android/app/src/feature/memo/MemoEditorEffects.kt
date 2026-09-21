@@ -12,8 +12,9 @@ import com.lomo.domain.model.MemoEditDraft
 import com.lomo.domain.model.markdown.MarkdownRenderContractException
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import com.lomo.domain.repository.MemoEditDraftRepository
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.ui.component.markdown.MarkdownRenderState
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -74,6 +75,8 @@ internal fun rememberMemoEditorPreviewState(
     session: MemoEditorSessionState,
 ): MarkdownRenderState {
     val imageContentResolver = remember { com.lomo.app.feature.main.MemoUiImageContentResolver() }
+    val dispatcherProvider =
+        org.koin.compose.koinInject<com.lomo.domain.usecase.DispatcherProvider>()
     var previewState by remember { mutableStateOf<MarkdownRenderState>(MarkdownRenderState.Pending) }
     LaunchedEffect(
         controller,
@@ -89,7 +92,7 @@ internal fun rememberMemoEditorPreviewState(
         delay(MEMO_EDITOR_PREVIEW_DEBOUNCE_MILLIS)
         previewState = MarkdownRenderState.Pending
         previewState =
-            withContext(Dispatchers.Default) {
+            withContext(dispatcherProvider.default) {
                 try {
                     MarkdownRenderState.Ready(
                         imageContentResolver.resolveRenderDocumentImages(

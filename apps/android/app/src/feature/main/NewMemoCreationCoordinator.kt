@@ -1,12 +1,30 @@
 package com.lomo.app.feature.main
 
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.ui.component.common.EnterRequestId
 import com.lomo.ui.component.common.HeadEnterBaseline
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+
+private const val DEFAULT_BASELINE_TIMEOUT_MILLIS = 250L
+
+/** Inputs for one new-memo reveal cycle: the scroll/enter handles plus the bounded timeout policy. */
+internal data class NewMemoCreationCoordinatorDependencies<T>(
+    val scope: CoroutineScope,
+    val isListAtAbsoluteTop: () -> Boolean,
+    val scrollListToAbsoluteTop: suspend () -> Unit,
+    val awaitTopBaseline: suspend () -> HeadEnterBaseline,
+    val prepareNewTopEnter: (HeadEnterBaseline) -> EnterRequestId,
+    val createMemo: suspend (request: T, wasAtTop: Boolean) -> Boolean,
+    val awaitNewTopItem: suspend (HeadEnterBaseline) -> String?,
+    val revealNewTopItem: suspend (newTopId: String) -> Unit,
+    val cancelPreparedEnter: (EnterRequestId) -> Unit,
+    val baselineTimeoutMillis: Long = DEFAULT_BASELINE_TIMEOUT_MILLIS,
+    val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+)
 
 /**
  * Coordinates the full new-memo insert lifecycle:
@@ -22,17 +40,19 @@ import kotlinx.coroutines.withTimeoutOrNull
  * it can never prevent the workspace mutation from being submitted.
  */
 internal class NewMemoCreationCoordinator<T>(
-    private val scope: CoroutineScope,
-    private val isListAtAbsoluteTop: () -> Boolean,
-    private val scrollListToAbsoluteTop: suspend () -> Unit,
-    private val awaitTopBaseline: suspend () -> HeadEnterBaseline,
-    private val prepareNewTopEnter: (HeadEnterBaseline) -> EnterRequestId,
-    private val createMemo: suspend (request: T, wasAtTop: Boolean) -> Boolean,
-    private val awaitNewTopItem: suspend (HeadEnterBaseline) -> String?,
-    private val revealNewTopItem: suspend (newTopId: String) -> Unit,
-    private val cancelPreparedEnter: (EnterRequestId) -> Unit,
-    private val baselineTimeoutMillis: Long = DEFAULT_BASELINE_TIMEOUT_MILLIS,
+    dependencies: NewMemoCreationCoordinatorDependencies<T>,
 ) {
+    private val scope = dependencies.scope
+    private val isListAtAbsoluteTop = dependencies.isListAtAbsoluteTop
+    private val scrollListToAbsoluteTop = dependencies.scrollListToAbsoluteTop
+    private val awaitTopBaseline = dependencies.awaitTopBaseline
+    private val prepareNewTopEnter = dependencies.prepareNewTopEnter
+    private val createMemo = dependencies.createMemo
+    private val awaitNewTopItem = dependencies.awaitNewTopItem
+    private val revealNewTopItem = dependencies.revealNewTopItem
+    private val cancelPreparedEnter = dependencies.cancelPreparedEnter
+    private val baselineTimeoutMillis = dependencies.baselineTimeoutMillis
+    private val dispatcherProvider = dependencies.dispatcherProvider
     private var submissionInFlight = false
 
     fun submit(request: T): Boolean {
@@ -41,7 +61,7 @@ internal class NewMemoCreationCoordinator<T>(
         }
 
         submissionInFlight = true
-        scope.launch(context = Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+        scope.launch(context = dispatcherProvider.unconfined, start = CoroutineStart.UNDISPATCHED) {
             var preparedEnterRequest: EnterRequestId? = null
             var preparedEnterResolved = false
             try {
@@ -71,9 +91,5 @@ internal class NewMemoCreationCoordinator<T>(
             }
         }
         return true
-    }
-
-    private companion object {
-        const val DEFAULT_BASELINE_TIMEOUT_MILLIS = 250L
     }
 }

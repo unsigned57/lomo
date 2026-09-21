@@ -15,7 +15,9 @@ import com.lomo.app.feature.common.MemoCollectionCapabilities
 import com.lomo.app.feature.common.MemoCollectionUiState
 import com.lomo.app.feature.common.PendingUiEvent
 import com.lomo.app.feature.common.UiEventQueueCoordinator
+import com.lomo.app.feature.common.UiEventEnqueueResult
 import com.lomo.app.feature.common.appWhileSubscribed
+import com.lomo.app.feature.common.newMemoOperationId
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.memo.MemoActionId
 import com.lomo.app.feature.memo.MemoEditorSubmissionId
@@ -27,10 +29,8 @@ import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.ReminderMarker
 import com.lomo.domain.model.EngineReadiness
-import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.RecoveryDiagnosticReport
 import com.lomo.domain.model.canRebuildDerivedIndex
-import com.lomo.domain.model.permitsReadsAt
 import com.lomo.domain.usecase.MainMemoListQueryUseCase
 import com.lomo.domain.usecase.MarkReminderDoneUseCase
 import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
@@ -59,27 +59,48 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.sync.Mutex
 import timber.log.Timber
 import java.time.LocalDate
+import java.util.concurrent.atomic.AtomicReference
 
 private const val IMAGE_DIRECTORY_SYNC_DEBOUNCE_MILLIS = 300L
 private const val MANUAL_REFRESH_TIMEOUT_MILLIS = 30_000L
 
+/** Collaborators of the main screen. */
+data class MainViewModelDependencies(
+    val mainMemoListQueryUseCase: MainMemoListQueryUseCase,
+    val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
+    val setMemoPinnedUseCase: SetMemoPinnedUseCase,
+    val appConfigStateProvider: AppConfigStateProvider,
+    val appConfigUiCoordinator: AppConfigUiCoordinator,
+    val sidebarStateHolder: MainSidebarStateHolder,
+    val versionHistoryCoordinator: MainVersionHistoryCoordinator,
+    val memoUiMapper: MemoUiMapper,
+    val imageMapProvider: ImageMapProvider,
+    val mainMemoMutationCoordinator: MainMemoMutationCoordinator,
+    val workspaceCoordinator: MainWorkspaceCoordinator,
+    val startupCoordinator: MainStartupCoordinator,
+    val markReminderDoneUseCase: MarkReminderDoneUseCase,
+    val dispatcherProvider: com.lomo.domain.usecase.DispatcherProvider,
+    val externalAppCommandStore: ExternalAppCommandStore,
+)
+
 class MainViewModel(
-    private val mainMemoListQueryUseCase: MainMemoListQueryUseCase,
-    private val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
-    private val setMemoPinnedUseCase: SetMemoPinnedUseCase,
-    private val appConfigStateProvider: AppConfigStateProvider,
-    private val appConfigUiCoordinator: AppConfigUiCoordinator,
-    private val sidebarStateHolder: MainSidebarStateHolder,
-    private val versionHistoryCoordinator: MainVersionHistoryCoordinator,
-    private val memoUiMapper: MemoUiMapper,
-    private val imageMapProvider: ImageMapProvider,
-    private val mainMemoMutationCoordinator: MainMemoMutationCoordinator,
-    private val workspaceCoordinator: MainWorkspaceCoordinator,
-    private val startupCoordinator: MainStartupCoordinator,
-    private val markReminderDoneUseCase: MarkReminderDoneUseCase,
-    private val dispatcherProvider: com.lomo.domain.usecase.DispatcherProvider,
-    private val externalAppCommandStore: ExternalAppCommandStore,
+    dependencies: MainViewModelDependencies,
 ) : ViewModel() {
+        private val mainMemoListQueryUseCase = dependencies.mainMemoListQueryUseCase
+        private val observeActiveDayCountUseCase = dependencies.observeActiveDayCountUseCase
+        private val setMemoPinnedUseCase = dependencies.setMemoPinnedUseCase
+        private val appConfigStateProvider = dependencies.appConfigStateProvider
+        private val appConfigUiCoordinator = dependencies.appConfigUiCoordinator
+        private val sidebarStateHolder = dependencies.sidebarStateHolder
+        private val versionHistoryCoordinator = dependencies.versionHistoryCoordinator
+        private val memoUiMapper = dependencies.memoUiMapper
+        private val imageMapProvider = dependencies.imageMapProvider
+        private val mainMemoMutationCoordinator = dependencies.mainMemoMutationCoordinator
+        private val workspaceCoordinator = dependencies.workspaceCoordinator
+        private val startupCoordinator = dependencies.startupCoordinator
+        private val markReminderDoneUseCase = dependencies.markReminderDoneUseCase
+        private val dispatcherProvider = dependencies.dispatcherProvider
+        private val externalAppCommandStore = dependencies.externalAppCommandStore
         private val _errorMessage = MutableStateFlow<String?>(null)
         private val collectionActionStateHolder =
             MemoCollectionActionStateHolder(
@@ -102,8 +123,6 @@ class MainViewModel(
                 }
             )
 
-        val collectionUiState: StateFlow<MemoCollectionUiState> = collectionActionStateHolder.uiState
-
         val errorMessage: StateFlow<String?> =
             combine(collectionActionStateHolder.errorMessage, _errorMessage) { collectionError, mainError ->
                 mainError ?: collectionError
@@ -115,6 +134,7 @@ class MainViewModel(
                 .stateIn(viewModelScope, appWhileSubscribed(), false)
 
         private val refreshMutex = Mutex()
+        private val lastFocusReanchorId = AtomicReference<String?>(null)
         private val manualRefreshInProgress = MutableStateFlow(false)
         val isRefreshing: StateFlow<Boolean> =
             combine(manualRefreshInProgress, isSyncing) { manual, syncing -> manual || syncing }
@@ -128,8 +148,6 @@ class MainViewModel(
             data object Loading : MainScreenState
 
             data object NoDirectory : MainScreenState
-
-            data object InitialImporting : MainScreenState
 
             data object OpeningEngine : MainScreenState
 
@@ -192,17 +210,18 @@ class MainViewModel(
 
         private val memoListStateHolder =
             MainMemoListStateHolder(
-                scope = viewModelScope,
-                mainMemoListQueryUseCase = mainMemoListQueryUseCase,
-                memoUiMapper = memoUiMapper,
-                searchQuery = searchQuery,
-                memoListFilter = memoListFilter,
-                workspaceAuthority = workspaceCoordinator.workspaceAuthority,
-                projectionFreshness = workspaceCoordinator.projectionFreshness,
-                rootDirectory = rootDirectory,
-                imageDirectory = imageDirectory,
-                imageMap = imageMap,
-                dispatcherProvider = dispatcherProvider,
+                MainMemoListStateHolderDependencies(
+                    scope = viewModelScope,
+                    mainMemoListQueryUseCase = mainMemoListQueryUseCase,
+                    memoUiMapper = memoUiMapper,
+                    searchQuery = searchQuery,
+                    memoListFilter = memoListFilter,
+                    mount = workspaceCoordinator.mount,
+                    rootDirectory = rootDirectory,
+                    imageDirectory = imageDirectory,
+                    imageMap = imageMap,
+                    dispatcherProvider = dispatcherProvider,
+                ),
             )
 
     val engineReadiness: StateFlow<EngineReadiness> = workspaceCoordinator.engineReadiness
@@ -215,41 +234,25 @@ class MainViewModel(
             combine(
                 _hasResolvedInitialRoot,
                 rootDirectory,
-                engineReadiness,
-                workspaceCoordinator.workspaceAuthority,
-                workspaceCoordinator.projectionFreshness,
-            ) {
-                hasResolvedInitialRoot,
-                directory,
-                readiness,
-                authority,
-                projectionFreshness,
-                ->
+                workspaceCoordinator.mount,
+            ) { hasResolvedInitialRoot, directory, mount ->
+                val readiness = mount.readiness
+                val authority = mount.authority
                 when {
                     !hasResolvedInitialRoot -> MainScreenState.Loading
-                    directory == null -> MainScreenState.NoDirectory
                     readiness is EngineReadiness.ReadOnlyRecovery ->
                         MainScreenState.ReadOnlyRecovery(
                             code = readiness.code,
                             diagnostic = readiness.diagnostic,
                             canRebuildDerivedIndex = readiness.canRebuildDerivedIndex(),
                         )
+                    directory == null -> MainScreenState.NoDirectory
                     readiness is EngineReadiness.Opening ||
                         readiness is EngineReadiness.ShuttingDown ->
                         MainScreenState.OpeningEngine
                     authority == null -> MainScreenState.OpeningEngine
-                    projectionFreshness is ProjectionFreshness.Building ->
-                        MainScreenState.InitialImporting
-                    projectionFreshness is ProjectionFreshness.Failed ->
-                        MainScreenState.ReadOnlyRecovery(
-                            code = projectionFreshness.reasonCode,
-                            diagnostic = "Workspace projection build failed",
-                            canRebuildDerivedIndex = false,
-                        )
-                    readiness is EngineReadiness.Ready &&
-                        projectionFreshness.permitsReadsAt(authority.projectionRevision) ->
+                    mount.admitsProjectionReads ->
                         MainScreenState.Ready
-                    // Awaiting with a configured directory: still opening / cold restore in flight.
                     else -> MainScreenState.OpeningEngine
                 }
             }.stateIn(
@@ -264,24 +267,21 @@ class MainViewModel(
 
 
         init {
-            // P1-002 Fix: Consolidated initialization to prevent race condition
-            // First get initial value synchronously, then listen for subsequent updates
             viewModelScope.launch {
-                // Step 1: Get initial value and set state immediately
-                val initialDir = startupCoordinator.initializeRootDirectory()
-                updateRootDirectoryUiState(initialDir)
-
-                // Step 2: Listen for persisted root updates; unchanged restored values are ignored below.
-                startupCoordinator
-                    .observeRootDirectoryChanges()
-                    .collect { dir ->
-                        handleObservedRootDirectoryChange(dir)
-                    }
+                combine(
+                    workspaceCoordinator.engineReadiness,
+                    workspaceCoordinator.activeWorkspaceLocation,
+                ) { readiness, location ->
+                    readiness to location
+                }.filter { (readiness, _) ->
+                    readiness !is EngineReadiness.Opening
+                }.collect { (_, location) ->
+                    updateRootDirectoryUiState(location?.raw)
+                }
             }
-            // Voice directory collector - pass to AudioPlayerManager for voice file resolution
+            startupCoordinator.observeRootDirectoryChanges().launchIn(viewModelScope)
             startupCoordinator.observeVoiceDirectoryChanges().launchIn(viewModelScope)
 
-            // Initial image load
             loadImageMap()
         }
 
@@ -301,11 +301,11 @@ class MainViewModel(
         val versionHistoryState: StateFlow<MainVersionHistoryState> = versionHistoryCoordinator.state
 
         val handleSharedText: (String) -> Unit = { text ->
-            sharedContentQueue.enqueue(SharedContent.Text(text))
+            enqueueUiCommand(sharedContentQueue, SharedContent.Text(text))
         }
 
         val handleSharedImage: (android.net.Uri) -> Unit = { uri ->
-            pendingSharedImageQueue.enqueue(uri)
+            enqueueUiCommand(pendingSharedImageQueue, uri)
         }
 
         val consumeSharedContentEvent: (Long) -> Unit = { eventId ->
@@ -318,13 +318,13 @@ class MainViewModel(
 
         val requestOpenMemo: (String) -> Unit = { memoId ->
             if (memoId.isNotBlank()) {
-                appActionQueue.enqueue(AppAction.OpenMemo(memoId))
+                enqueueUiCommand(appActionQueue, AppAction.OpenMemo(memoId))
             }
         }
 
         val requestFocusMemo: (String) -> Unit = { memoId ->
             if (memoId.isNotBlank()) {
-                appActionQueue.enqueue(AppAction.FocusMemo(memoId))
+                enqueueUiCommand(appActionQueue, AppAction.FocusMemo(memoId))
             }
         }
 
@@ -332,7 +332,7 @@ class MainViewModel(
             if (memoId.isNotBlank()) {
                 sidebarStateHolder.clearFilters()
                 memoListFilterController.clear()
-                appActionQueue.enqueue(AppAction.FocusMemo(memoId))
+                enqueueUiCommand(appActionQueue, AppAction.FocusMemo(memoId))
             }
         }
 
@@ -353,22 +353,21 @@ class MainViewModel(
         internal fun requestPendingNewMemoCreation(
             submissionId: MemoEditorSubmissionId,
             content: String,
-            geoLocation: String? = null,
             timestampMillis: Long? = null,
         ): Boolean {
             if (pendingNewMemoCreationQueue.events.value.isNotEmpty()) {
                 return false
             }
-            return pendingNewMemoCreationCoordinator
+            val request = pendingNewMemoCreationCoordinator
                 .submit(
                     submissionId = submissionId,
                     content = content,
-                    geoLocation = geoLocation,
                     timestampMillis = timestampMillis,
                 )
-                ?.also { request ->
-                    pendingNewMemoCreationQueue.enqueue(request)
-                } != null
+                ?: return false
+            if (enqueueUiCommand(pendingNewMemoCreationQueue, request)) return true
+            pendingNewMemoCreationCoordinator.cancel(request.requestId)
+            return false
         }
 
         internal val consumePendingNewMemoCreationEvent: (Long) -> PendingNewMemoCreationRequest? =
@@ -409,13 +408,12 @@ class MainViewModel(
 
         val createDefaultDirectories: (Boolean, Boolean) -> Unit = { forImage, forVoice ->
             viewModelScope.launch {
-                runCatching {
+                try {
                     workspaceCoordinator.createDefaultDirectories(forImage, forVoice)
-                }.onFailure { throwable ->
-                    if (throwable is kotlinx.coroutines.CancellationException) {
-                        throw throwable
-                    }
-                    _errorMessage.value = throwable.toUserMessage("Failed to create directories")
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    _errorMessage.value = error.toUserMessage("Failed to create directories")
                 }
             }
         }
@@ -423,11 +421,13 @@ class MainViewModel(
         val onDirectorySelected: (String) -> Unit = { path ->
             viewModelScope.launch {
                 withContext(dispatcherProvider.io) {
-                    runCatching {
+                    try {
                         workspaceCoordinator.switchRootAndRefresh(path)
-                    }.onFailure { throwable ->
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
                         handleRefreshFailure(
-                            throwable = throwable,
+                            throwable = error,
                             fallbackMessage = "Failed to switch storage folder",
                         )
                     }
@@ -447,24 +447,22 @@ class MainViewModel(
         val updateMemoHasUrl: (Boolean?) -> Unit = memoListFilterController.onHasUrlChanged
         val filterMemosByDate: (LocalDate) -> Unit = memoListFilterController.filterByDate
         val clearMemoDateRange: () -> Unit = memoListFilterController.clearDateRange
-    val clearMemoFilter: () -> Unit = memoListFilterController.clearFilter
+        val clearMemoFilter: () -> Unit = memoListFilterController.clearFilter
         val clearMemoListFilter: () -> Unit = memoListFilterController.clear
-
-        val clearFilters: () -> Unit = {
-            sidebarStateHolder.clearFilters()
-        }
 
         val refresh: suspend () -> Unit = refresh@{
             if (!refreshMutex.tryLock()) return@refresh
             manualRefreshInProgress.value = true
             try {
                 withContext(dispatcherProvider.io) {
-                    runCatching {
+                    try {
                         withTimeout(MANUAL_REFRESH_TIMEOUT_MILLIS) {
                             workspaceCoordinator.refreshMemos()
                         }
-                    }.onFailure { throwable ->
-                        handleRefreshFailure(throwable = throwable, fallbackMessage = "Failed to refresh memos")
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        handleRefreshFailure(throwable = error, fallbackMessage = "Failed to refresh memos")
                     }
                 }
             } finally {
@@ -481,11 +479,16 @@ class MainViewModel(
 
         val resolveDefaultMainListIndex: suspend (String) -> Int? = { memoId ->
             withContext(dispatcherProvider.io) {
-                mainMemoListQueryUseCase.getDefaultMainListIndexInWindow(
-                    id = memoId,
-                    limit = DEFAULT_MAIN_LIST_DIRECT_FOCUS_WINDOW_LIMIT,
-                )
+                val rank = mainMemoListQueryUseCase.rankInDefaultMainList(memoId)
+                if (rank != null && lastFocusReanchorId.getAndSet(memoId) != memoId) {
+                    mainMemoListQueryUseCase.reanchorMainListToIdentity(memoId)
+                }
+                rank
             }
+        }
+
+        fun clearMainListFocusReanchor() {
+            lastFocusReanchorId.set(null)
         }
 
         val deleteMemo: (Memo, String?) -> Unit = { memo, anchoredAfterKey ->
@@ -500,34 +503,30 @@ class MainViewModel(
 
         val markReminderDone: (String, String) -> Unit = { memoId, reminderId ->
             viewModelScope.launch(dispatcherProvider.io) {
-                runCatching {
+                try {
                     markReminderDoneUseCase(memoId, reminderId)
-                }.onFailure { throwable ->
-                    if (throwable is CancellationException) throw throwable
-                    Timber.w(throwable, "Failed to mark reminder done: memoId=$memoId, reminderId=$reminderId")
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Timber.w(error, "Failed to mark reminder done: memoId=$memoId, reminderId=$reminderId")
                 }
             }
         }
 
         val setMemoPinned: (Memo, Boolean) -> Unit = { memo, pinned ->
             viewModelScope.launch(dispatcherProvider.io) {
-                runCatching {
-                    setMemoPinnedUseCase(memo.id, pinned)
-                }.onFailure { throwable ->
-                    if (throwable is kotlinx.coroutines.CancellationException) {
-                        throw throwable
-                    }
-                    _errorMessage.value = throwable.toUserMessage("Failed to update pin status")
+                try {
+                    setMemoPinnedUseCase(memo.id, pinned, newMemoOperationId())
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    _errorMessage.value = error.toUserMessage("Failed to update pin status")
                 }
             }
         }
 
         val updateMemo: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit = { memo, actionSpan ->
             collectionActionStateHolder.actions.toggleTodo(memo, actionSpan)
-        }
-
-        val syncImageCacheNow: () -> Unit = {
-            requestImageCacheSync("Failed to sync image cache")
         }
 
         private fun requestImageCacheSync(fallbackMessage: String) {
@@ -537,13 +536,12 @@ class MainViewModel(
             imageCacheSyncJob =
                 viewModelScope.launch {
                     try {
-                        runCatching {
+                        try {
                             workspaceCoordinator.syncImageCache()
-                        }.onFailure { throwable ->
-                            if (throwable is kotlinx.coroutines.CancellationException) {
-                                throw throwable
-                            }
-                            _errorMessage.value = throwable.toUserMessage(fallbackMessage)
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            _errorMessage.value = error.toUserMessage(fallbackMessage)
                         }
                     } finally {
                         imageCacheSyncJob = null
@@ -553,41 +551,38 @@ class MainViewModel(
 
         val loadVersionHistory: (Memo) -> Unit = { memo ->
             viewModelScope.launch(dispatcherProvider.io) {
-                runCatching {
+                try {
                     versionHistoryCoordinator.load(memo)
-                }.onFailure { throwable ->
-                    if (throwable is kotlinx.coroutines.CancellationException) {
-                        throw throwable
-                    }
-                    Timber.w(throwable, "Failed to load version history")
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Timber.w(error, "Failed to load version history")
                     versionHistoryCoordinator.hide()
-                    _errorMessage.value = throwable.toUserMessage("Failed to load version history")
+                    _errorMessage.value = error.toUserMessage("Failed to load version history")
                 }
             }
         }
 
         val loadMoreVersionHistory: () -> Unit = {
             viewModelScope.launch(dispatcherProvider.io) {
-                runCatching {
+                try {
                     versionHistoryCoordinator.loadMore()
-                }.onFailure { throwable ->
-                    if (throwable is kotlinx.coroutines.CancellationException) {
-                        throw throwable
-                    }
-                    _errorMessage.value = throwable.toUserMessage("Failed to load more version history")
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    _errorMessage.value = error.toUserMessage("Failed to load more version history")
                 }
             }
         }
 
         val restoreVersion: (Memo, MemoRevision) -> Unit = { memo, version ->
             viewModelScope.launch(dispatcherProvider.io) {
-                runCatching {
+                try {
                     versionHistoryCoordinator.restore(memo, version)
-                }.onFailure { throwable ->
-                    if (throwable is kotlinx.coroutines.CancellationException) {
-                        throw throwable
-                    }
-                    _errorMessage.value = throwable.toUserMessage("Failed to restore version")
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    _errorMessage.value = error.toUserMessage("Failed to restore version")
                 }
             }
         }
@@ -646,14 +641,8 @@ class MainViewModel(
 
         @OptIn(FlowPreview::class)
         private fun loadImageMap() {
-            // Image map now provided by ImageMapProvider (P2-001 refactor)
-            // No need to collect here - imageMap exposed directly from provider
             viewModelScope.launch {
                 val initialConfiguredImageDirectory = appConfigStateProvider.currentImageDirectory()
-                if (initialConfiguredImageDirectory != null) {
-                    requestImageCacheSync("Failed to sync image cache")
-                }
-
                 imageDirectory
                     .filterNotNull()
                     .distinctUntilChanged()
@@ -663,49 +652,57 @@ class MainViewModel(
             }
         }
 
-        private suspend fun handleObservedRootDirectoryChange(directory: String?) {
-            updateRootDirectoryUiState(directory)
-        }
-
         val retryEngineOpen: () -> Unit = {
             viewModelScope.launch {
-                runCatching {
-                    if (workspaceCoordinator.projectionFreshness.value is ProjectionFreshness.Failed) {
-                        workspaceCoordinator.retryProjectionBuild()
-                    } else {
-                        val location = _rootDirectory.value ?: return@runCatching
+                try {
+                    val location = _rootDirectory.value
+                    if (location != null) {
                         workspaceCoordinator.retryEngineOpen(location)
                     }
-                }.onFailure { throwable ->
-                    Timber.w(throwable, "Engine reopen failed")
-                    _errorMessage.value = throwable.toUserMessage("Failed to reopen workspace")
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Timber.w(error, "Engine reopen failed")
+                    _errorMessage.value = error.toUserMessage("Failed to reopen workspace")
                 }
             }
         }
 
         val rebuildDerivedIndex: () -> Unit = {
             viewModelScope.launch(dispatcherProvider.io) {
-                runCatching {
+                try {
                     workspaceCoordinator.rebuildDerivedIndex()
-                }.onFailure { throwable ->
-                    Timber.w(throwable, "Derived index rebuild failed")
-                    _errorMessage.value = throwable.toUserMessage("Failed to rebuild the derived index")
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Timber.w(error, "Derived index rebuild failed")
+                    _errorMessage.value = error.toUserMessage("Failed to rebuild the derived index")
                 }
             }
         }
 
         val exportRecoveryDiagnostics: () -> Unit = {
             viewModelScope.launch(dispatcherProvider.io) {
-                runCatching {
-                    workspaceCoordinator.createRecoveryDiagnosticReport()
-                }.onSuccess { report ->
-                    diagnosticExportQueue.enqueue(report)
-                }.onFailure { throwable ->
-                    Timber.w(throwable, "Recovery diagnostic export failed")
-                    _errorMessage.value = throwable.toUserMessage("Failed to prepare recovery diagnostics")
+                try {
+                    val report = workspaceCoordinator.createRecoveryDiagnosticReport()
+                    enqueueUiCommand(diagnosticExportQueue, report)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Timber.w(error, "Recovery diagnostic export failed")
+                    _errorMessage.value = error.toUserMessage("Failed to prepare recovery diagnostics")
                 }
             }
         }
+
+        private fun <T> enqueueUiCommand(queue: UiEventQueueCoordinator<T>, payload: T): Boolean =
+            when (queue.enqueue(payload)) {
+                is UiEventEnqueueResult.Accepted -> true
+                is UiEventEnqueueResult.Rejected -> {
+                    _errorMessage.value = "Too many pending actions. Complete an earlier action and try again."
+                    false
+                }
+            }
 
         private fun handleRefreshFailure(
             throwable: Throwable,

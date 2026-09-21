@@ -57,7 +57,6 @@ import com.lomo.ui.component.common.HeadEnterBaseline
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
@@ -68,6 +67,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.filterNotNull
+import timber.log.Timber
 
 internal const val DRAFT_AUTOSAVE_DEBOUNCE_MILLIS = 500L
 internal const val MAIN_SCREEN_LIST_SCROLL_SETTLE_INDEX = 10
@@ -133,20 +133,9 @@ fun MainScreen(
         dependencies.mainViewModel.pagedUiMemos.collectAsLazyPagingItems()
     val pagedItemSnapshotList = pagedUiMemos.itemSnapshotList
     val displayedVisibleUiMemoStartIndex = pagedItemSnapshotList.placeholdersBefore
-    val displayedVisibleUiMemos =
-        remember(pagedItemSnapshotList) {
-            pagedItemSnapshotList.items.toImmutableList()
-        }
-    val renderState =
-        remember(screenState, displayedVisibleUiMemos) {
-            screenState.copy(
-                uiMemos = displayedVisibleUiMemos,
-                visibleUiMemos = displayedVisibleUiMemos,
-                hasRawItems = displayedVisibleUiMemos.isNotEmpty(),
-            )
-        }
-    val currentListTopMemoId = displayedVisibleUiMemos.firstOrNull()?.memo?.id
+    val displayedVisibleUiMemos = pagedItemSnapshotList.items
     val unknownErrorMessage = stringResource(R.string.error_unknown)
+    val memoNotFoundMessage = stringResource(R.string.main_list_focus_memo_missing)
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
 
     MainScreenDraftAutosaveEffect(
@@ -154,7 +143,7 @@ fun MainScreen(
         dependencies = dependencies,
     )
     MainScreenPendingNewMemoCreationEffect(
-        pendingRequestEvent = renderState.pendingNewMemoCreationEvent,
+        pendingRequestEvent = screenState.pendingNewMemoCreationEvent,
         listState = hostState.listState,
         pagedUiMemos = pagedUiMemos,
         dependencies = dependencies,
@@ -165,24 +154,25 @@ fun MainScreen(
         visibleUiMemos = displayedVisibleUiMemos,
         visibleUiMemoStartIndex = displayedVisibleUiMemoStartIndex,
         canResolveOffscreenMainListFocus =
-            renderState.searchQuery.isBlank() &&
-                !renderState.memoListFilter.isActive &&
-                !renderState.memoListFilter.hasSortOverride,
+            screenState.searchQuery.isBlank() &&
+                !screenState.memoListFilter.isActive &&
+                !screenState.memoListFilter.hasSortOverride,
         listState = hostState.listState,
         editorController = hostState.editorController,
         directoryGuideController = hostState.directoryGuideController,
         snackbarHostState = hostState.snackbarHostState,
         unknownErrorMessage = unknownErrorMessage,
+        memoNotFoundMessage = memoNotFoundMessage,
         canOpenCreateMemo =
-            renderState.uiState is MainViewModel.MainScreenState.Ready &&
-                renderState.pendingNewMemoCreationEvent == null,
+            screenState.uiState is MainViewModel.MainScreenState.Ready &&
+                screenState.pendingNewMemoCreationEvent == null,
         foregroundEntryId = foregroundEntryId,
-        autoOpenInputOnForeground = renderState.autoOpenInputOnForeground,
-        pendingNewMemoCreationEvent = renderState.pendingNewMemoCreationEvent,
+        autoOpenInputOnForeground = screenState.autoOpenInputOnForeground,
+        pendingNewMemoCreationEvent = screenState.pendingNewMemoCreationEvent,
     )
     MainScreenConflictHost(dependencies = dependencies)
     MainScreenContentHost(
-        screenState = renderState,
+        screenState = screenState,
         pagedUiMemos = pagedUiMemos,
         hostState = hostState,
         dependencies = dependencies,
@@ -209,6 +199,8 @@ private fun RecoveryDiagnosticExportEffect(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val dispatcherProvider =
+        org.koin.compose.koinInject<com.lomo.domain.usecase.DispatcherProvider>()
     val savedMessage = stringResource(R.string.engine_recovery_diagnostics_saved)
     val failedMessage = stringResource(R.string.engine_recovery_diagnostics_failed)
     var pendingReport by remember { mutableStateOf<RecoveryDiagnosticReport?>(null) }
@@ -221,7 +213,7 @@ private fun RecoveryDiagnosticExportEffect(
             if (uri != null && report != null) {
                 scope.launch {
                     try {
-                        withContext(Dispatchers.IO) {
+                        withContext(dispatcherProvider.io) {
                             val output =
                                 checkNotNull(context.contentResolver.openOutputStream(uri)) {
                                     "Document provider did not open the diagnostic destination"
@@ -231,8 +223,10 @@ private fun RecoveryDiagnosticExportEffect(
                             }
                         }
                         snackbarHostState.showSnackbar(savedMessage)
+                    } catch (error: CancellationException) {
+                        throw error
                     } catch (error: Exception) {
-                        if (error is CancellationException) throw error
+                        Timber.w(error, "Recovery diagnostic destination write failed")
                         snackbarHostState.showSnackbar(failedMessage)
                     }
                 }
@@ -260,77 +254,79 @@ private fun MainScreenPendingNewMemoCreationEffect(
     val creationCoordinator =
         remember(listState, scope) {
             NewMemoCreationCoordinator<PendingUiEvent<PendingNewMemoCreationRequest>>(
-                scope = scope,
-                isListAtAbsoluteTop = {
-                    listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
-                },
-                scrollListToAbsoluteTop = {
-                    listState.animateScrollToItem(0)
-                },
-                awaitTopBaseline = {
-                    snapshotFlow { pagedUiMemos.resolveHeadEnterBaseline() }
-                        .filterNotNull()
-                        .first()
-                },
-                prepareNewTopEnter = { baseline ->
-                    latestDependencies.value.mainViewModel.enterAnimationRegistry
-                        .beginPendingHeadEnter(baseline)
-                },
-                createMemo = { event, _ ->
-                    // The feed renders loaded rows from the paging snapshot and only calls
-                    // pagedUiMemos[index] for placeholders, so scrolling up to the top never updates
-                    // Paging's anchorPosition. Register a top access here so the create-triggered
-                    // The Rust commit publication invalidates this source. Anchor that refresh at
-                    // the top (placeholdersBefore=0) instead of the stale deep position; otherwise
-                    // the top rows briefly become placeholders and the whole list appears to flash.
-                    if (pagedUiMemos.itemCount > 0) {
-                        pagedUiMemos[0]
-                    }
-                    val consumedRequest =
-                        latestDependencies.value.mainViewModel.consumePendingNewMemoCreationEvent(event.id)
-                    if (consumedRequest == null) {
-                        latestDependencies.value.editorViewModel.submissions.reject(
-                            event.payload.submissionId,
-                            IllegalStateException("Pending memo request was already consumed or cancelled"),
-                        )
-                        false
-                    } else {
-                        try {
-                            latestDependencies.value.editorViewModel.submissions.create(
-                                submissionId = consumedRequest.submissionId,
-                                content = consumedRequest.content,
-                                geoLocation = consumedRequest.geoLocation,
-                                timestampMillis = consumedRequest.timestampMillis,
-                            )
-                            latestDependencies.value.editorViewModel.submissions.await(
-                                consumedRequest.submissionId,
-                            )
-                        } catch (error: Exception) {
-                            if (error is CancellationException) throw error
-                            latestDependencies.value.editorViewModel.submissions.reject(
-                                consumedRequest.submissionId,
-                                error,
-                            )
-                            // behavior-contract: silent-result-ok: create failure is published on
-                            // the editor submission machine; false only stops waiting for a new head
-                            false
+                NewMemoCreationCoordinatorDependencies<PendingUiEvent<PendingNewMemoCreationRequest>>(
+                    scope = scope,
+                    isListAtAbsoluteTop = {
+                        listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+                    },
+                    scrollListToAbsoluteTop = {
+                        listState.animateScrollToItem(0)
+                    },
+                    awaitTopBaseline = {
+                        snapshotFlow { pagedUiMemos.resolveHeadEnterBaseline() }
+                            .filterNotNull()
+                            .first()
+                    },
+                    prepareNewTopEnter = { baseline ->
+                        latestDependencies.value.mainViewModel.enterAnimationRegistry
+                            .beginPendingHeadEnter(baseline)
+                    },
+                    createMemo = { event, _ ->
+                        // The feed renders loaded rows from the paging snapshot and only calls
+                        // pagedUiMemos[index] for placeholders, so scrolling up to the top never updates
+                        // Paging's anchorPosition. Register a top access here so the create-triggered
+                        // Rust commit publication invalidates this source. Anchor that refresh at
+                        // the top (placeholdersBefore=0) instead of the stale deep position; otherwise
+                        // the top rows briefly become placeholders and the whole list appears to flash.
+                        if (pagedUiMemos.itemCount > 0) {
+                            pagedUiMemos[0]
                         }
-                    }
-                },
-                awaitNewTopItem = { baseline ->
-                    withTimeoutOrNull(NEW_MEMO_REVEAL_TIMEOUT_MS) {
-                        snapshotFlow { pagedUiMemos.itemSnapshotList.items.firstOrNull()?.memo?.id }
-                            .first { topId -> topId != null && baseline.isResolvedByHeadId(topId) }
-                    }
-                },
-                revealNewTopItem = {
-                    // Pin the freshly-inserted row to the viewport top so its two-phase enter
-                    // (expand then fade) plays in view instead of above the fold.
-                    listState.scrollToItem(0)
-                },
-                cancelPreparedEnter = { requestId ->
-                    latestDependencies.value.mainViewModel.enterAnimationRegistry.cancelEnterRequest(requestId)
-                },
+                        val consumedRequest =
+                            latestDependencies.value.mainViewModel.consumePendingNewMemoCreationEvent(event.id)
+                        if (consumedRequest == null) {
+                            latestDependencies.value.editorViewModel.submissions.reject(
+                                event.payload.submissionId,
+                                IllegalStateException("Pending memo request was already consumed or cancelled"),
+                            )
+                            false
+                        } else {
+                            try {
+                                latestDependencies.value.editorViewModel.submissions.create(
+                                    submissionId = consumedRequest.submissionId,
+                                    content = consumedRequest.content,
+                                    timestampMillis = consumedRequest.timestampMillis,
+                                )
+                                latestDependencies.value.editorViewModel.submissions.await(
+                                    consumedRequest.submissionId,
+                                )
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (error: Exception) {
+                                latestDependencies.value.editorViewModel.submissions.reject(
+                                    consumedRequest.submissionId,
+                                    error,
+                                )
+                                // behavior-contract: silent-result-ok: create failure is published on
+                                // the editor submission machine; false only stops waiting for a new head
+                                false
+                            }
+                        }
+                    },
+                    awaitNewTopItem = { baseline ->
+                        withTimeoutOrNull(NEW_MEMO_REVEAL_TIMEOUT_MS) {
+                            snapshotFlow { pagedUiMemos.itemSnapshotList.items.firstOrNull()?.let { it.memo.id } }
+                                .first { topId -> topId != null && baseline.isResolvedByHeadId(topId) }
+                        }
+                    },
+                    revealNewTopItem = {
+                        // Pin the freshly-inserted row to the viewport top so its two-phase enter
+                        // (expand then fade) plays in view instead of above the fold.
+                        listState.scrollToItem(0)
+                    },
+                    cancelPreparedEnter = { requestId ->
+                        latestDependencies.value.mainViewModel.enterAnimationRegistry.cancelEnterRequest(requestId)
+                    },
+                ),
             )
         }
 
@@ -349,7 +345,7 @@ private fun MainScreenPendingNewMemoCreationEffect(
 
 private fun LazyPagingItems<MemoUiModel>.resolveHeadEnterBaseline(): HeadEnterBaseline? {
     val snapshot = itemSnapshotList
-    val firstLoadedHeadId = snapshot.items.firstOrNull()?.memo?.id
+    val firstLoadedHeadId = snapshot.items.firstOrNull()?.let { it.memo.id }
     return when {
         snapshot.placeholdersBefore == 0 && firstLoadedHeadId != null ->
             HeadEnterBaseline.ExistingHead(firstLoadedHeadId)
@@ -368,9 +364,6 @@ internal data class DraftAutosaveState(
 )
 
 internal data class MainScreenUiSnapshot(
-    val uiMemos: ImmutableList<MemoUiModel>,
-    val visibleUiMemos: ImmutableList<MemoUiModel>,
-    val hasRawItems: Boolean,
     val searchQuery: String,
     val memoListFilter: MemoListFilter,
     val sidebarUiState: SidebarViewModel.SidebarUiState,
@@ -410,7 +403,7 @@ internal typealias MainScreenInteractionContent =
     @Composable ((MemoMenuSelection) -> Unit, (Memo) -> Unit) -> Unit
 
 internal data class MainScreenInteractionCallbacks(
-    val onCreateMemo: (MemoEditorSubmissionId, String, String?, Long?) -> Boolean,
+    val onCreateMemo: (MemoEditorSubmissionId, String, Long?) -> Boolean,
     val onCameraCaptureError: (Throwable) -> Unit,
     val onStartRecording: () -> Unit,
     val onStopRecording: () -> Unit,
@@ -439,7 +432,7 @@ private fun rememberInputHints(showInputHints: Boolean): ImmutableList<String> {
 @Composable
 private fun MainScreenTransientEffects(
     dependencies: MainScreenDependencies,
-    visibleUiMemos: ImmutableList<MemoUiModel>,
+    visibleUiMemos: List<MemoUiModel>,
     visibleUiMemoStartIndex: Int,
     canResolveOffscreenMainListFocus: Boolean,
     listState: androidx.compose.foundation.lazy.LazyListState,
@@ -447,6 +440,7 @@ private fun MainScreenTransientEffects(
     directoryGuideController: MainDirectoryGuideController,
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
+    memoNotFoundMessage: String,
     canOpenCreateMemo: Boolean,
     foregroundEntryId: Long,
     autoOpenInputOnForeground: Boolean,
@@ -500,6 +494,7 @@ private fun MainScreenTransientEffects(
         editorErrorMessage = editorErrorMessage,
         snackbarHostState = snackbarHostState,
         unknownErrorMessage = unknownErrorMessage,
+        memoNotFoundMessage = memoNotFoundMessage,
         onAppendMarkdown = editorController::appendMarkdownBlock,
         onAppendImageMarkdown = editorController::appendImageMarkdown,
         onEnsureEditorVisible = editorController::ensureVisible,
@@ -514,6 +509,7 @@ private fun MainScreenTransientEffects(
                 positioner = MainScreenFocusPositioner { index -> listState.scrollToItem(index) },
             )
         },
+        onMainListFocusConsumed = dependencies.mainViewModel::clearMainListFocusReanchor,
         focusRetryKey =
             remember(visibleUiMemos, visibleUiMemoStartIndex, listState) {
                 derivedStateOf {
@@ -561,7 +557,6 @@ internal fun MainScreenInteractionBindings(
     lanShareEnabled: Boolean,
     content: MainScreenInteractionContent,
 ) {
-    val gitSyncEnabled by dependencies.mainViewModel.gitSyncEnabled.collectAsStateWithLifecycle()
     val versionHistoryState by dependencies.mainViewModel.versionHistoryState.collectAsStateWithLifecycle()
     val rootDirectory by dependencies.mainViewModel.rootDirectory.collectAsStateWithLifecycle()
     val imageDirectory by dependencies.mainViewModel.imageDirectory.collectAsStateWithLifecycle()
@@ -682,11 +677,10 @@ private fun rememberMainScreenInteractionCallbacks(
         unknownErrorMessage,
     ) {
         MainScreenInteractionCallbacks(
-            onCreateMemo = { submissionId, contentText, geoLocation, timestampMillis ->
+            onCreateMemo = { submissionId, contentText, timestampMillis ->
                 dependencies.mainViewModel.requestPendingNewMemoCreation(
                     submissionId = submissionId,
                     content = contentText,
-                    geoLocation = geoLocation,
                     timestampMillis = timestampMillis,
                 )
             },
@@ -747,6 +741,8 @@ private fun VersionHistoryOverlay(
 ) {
     val markdownWorkspaceRepository =
         org.koin.compose.koinInject<com.lomo.domain.repository.MarkdownWorkspaceRepository>()
+    val dispatcherProvider =
+        org.koin.compose.koinInject<com.lomo.domain.usecase.DispatcherProvider>()
     val mapper = remember(markdownWorkspaceRepository) { MemoVersionHistoryUiMapper(markdownWorkspaceRepository) }
     when (state) {
         is MainVersionHistoryState.Loading -> {
@@ -779,7 +775,7 @@ private fun VersionHistoryOverlay(
             LaunchedEffect(state.versions, rootPath, imagePath, imageMap) {
                 val revisions = state.versions
                 versionUiModels =
-                    withContext(Dispatchers.Default) {
+                    withContext(dispatcherProvider.default) {
                         mapper.mapToUiModels(
                             revisions = revisions,
                             rootPath = rootPath,

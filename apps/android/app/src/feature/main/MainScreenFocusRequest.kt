@@ -8,6 +8,14 @@ internal sealed interface MainScreenFocusRequest {
     data object NotFound : MainScreenFocusRequest
 }
 
+internal sealed interface MainScreenFocusAttempt {
+    data object Placed : MainScreenFocusAttempt
+
+    data object WaitingForPage : MainScreenFocusAttempt
+
+    data object Missing : MainScreenFocusAttempt
+}
+
 internal fun interface MainScreenFocusPositioner {
     suspend fun requestPositionAtItem(index: Int)
 }
@@ -54,7 +62,7 @@ internal suspend fun focusMemoInMainScreenWithFallback(
     canResolveOffscreenMainListFocus: Boolean,
     resolveOffscreenIndex: suspend (String) -> Int?,
     positioner: MainScreenFocusPositioner,
-): Boolean {
+): MainScreenFocusAttempt {
     if (
         focusMemoInMainScreen(
             memoId = memoId,
@@ -63,12 +71,12 @@ internal suspend fun focusMemoInMainScreenWithFallback(
             positioner = positioner,
         )
     ) {
-        return true
+        return MainScreenFocusAttempt.Placed
     }
     if (!canResolveOffscreenMainListFocus) {
-        return false
+        return MainScreenFocusAttempt.Missing
     }
-    val offscreenIndex = resolveOffscreenIndex(memoId) ?: return false
+    val offscreenIndex = resolveOffscreenIndex(memoId) ?: return MainScreenFocusAttempt.Missing
     positioner.requestPositionAtItem(offscreenIndex)
-    return false
+    return MainScreenFocusAttempt.WaitingForPage
 }

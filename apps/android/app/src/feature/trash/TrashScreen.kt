@@ -42,7 +42,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import com.lomo.ui.component.common.rememberUniqueExitRenderListKeys
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lomo.app.util.injectedKoinViewModel
@@ -59,6 +58,8 @@ import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.card.MemoCard
 import com.lomo.ui.component.common.LomoListExitRenderEntry
 import com.lomo.ui.component.common.LomoListExitPhase
+import com.lomo.ui.component.common.computeExitRenderKeyWindow
+import com.lomo.ui.component.common.computeItemKeyWindow
 import com.lomo.ui.component.common.lomoListItemExitPhaseMotion
 import com.lomo.ui.component.common.lomoListItemMotion
 import com.lomo.ui.component.common.rememberLomoListExitState
@@ -125,7 +126,7 @@ fun TrashScreen(
 
     TrashScreenScaffold(
         snackbarHostState = snackbarHostState,
-        hasItems = trashExitState.renderList.isNotEmpty() || pagedItems.itemCount > 0,
+        hasItems = snapshotMemos.isNotEmpty() || pagedItems.itemCount > 0,
         onBackClick = {
             haptic.medium()
             onBackClick()
@@ -137,6 +138,8 @@ fun TrashScreen(
     ) { paddingValues ->
         TrashScreenContent(
             pagedItems = pagedItems,
+            overlayIdle = trashExitState.overlayIdle,
+            snapshotMemos = snapshotMemos,
             renderList = trashExitState.renderList,
             snapshotStartIndex = snapshotStartIndex,
             onExitSettled = onTrashExitSettled,
@@ -152,6 +155,12 @@ fun TrashScreen(
         )
     }
 
+    val overlayItems =
+        trashOverlayItems(
+            overlayIdle = trashExitState.overlayIdle,
+            snapshotMemos = snapshotMemos,
+            renderList = trashExitState.renderList,
+        )
     TrashScreenDialogs(
         selectedMemo = selectedMemo,
         showClearTrashDialog = showClearTrashDialog,
@@ -159,27 +168,23 @@ fun TrashScreen(
         timeFormat = appPreferences.timeFormat,
         onDismissActionSheet = { selectedMemo = null },
         onRestoreMemo = { memo ->
-            val index = trashExitState.renderList.indexOfFirst { it.item.memo.id == memo.id }
-            val anchor = if (index > 0) trashExitState.renderList[index - 1].item.memo.id else null
-            viewModel.restoreMemo(memo, anchor)
+            viewModel.restoreMemo(memo, trashAnchorAfter(overlayItems, memo.id))
         },
         onDeletePermanently = { memo ->
-            val index = trashExitState.renderList.indexOfFirst { it.item.memo.id == memo.id }
-            val anchor = if (index > 0) trashExitState.renderList[index - 1].item.memo.id else null
-            viewModel.deletePermanently(memo, anchor)
+            viewModel.deletePermanently(memo, trashAnchorAfter(overlayItems, memo.id))
         },
         onDismissClearTrashDialog = { showClearTrashDialog = false },
         onConfirmClearTrash = {
             haptic.heavy()
             showClearTrashDialog = false
-            val items = trashExitState.renderList.mapIndexed { index, entry ->
-                val anchor = if (index > 0) trashExitState.renderList[index - 1].item.memo.id else null
-                DeleteAnimationItem(
-                    id = entry.item.memo.id,
-                    snapshot = entry.item.memo,
-                    anchoredAfterKey = anchor,
-                )
-            }
+            val items =
+                overlayItems.mapIndexed { index, uiModel ->
+                    DeleteAnimationItem(
+                        id = uiModel.memo.id,
+                        snapshot = uiModel.memo,
+                        anchoredAfterKey = if (index > 0) overlayItems[index - 1].memo.id else null,
+                    )
+                }
             viewModel.clearTrash(items)
         },
     )
@@ -253,6 +258,8 @@ private fun TrashScreenScaffold(
 @Composable
 private fun TrashScreenContent(
     pagedItems: LazyPagingItems<MemoUiModel>,
+    overlayIdle: Boolean,
+    snapshotMemos: ImmutableList<MemoUiModel>,
     renderList: ImmutableList<LomoListExitRenderEntry<MemoUiModel>>,
     snapshotStartIndex: Int,
     onExitSettled: (String) -> Unit,
@@ -264,11 +271,13 @@ private fun TrashScreenContent(
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
-        if (renderList.isEmpty() && pagedItems.itemCount == 0) {
+        if (snapshotMemos.isEmpty() && renderList.isEmpty() && pagedItems.itemCount == 0) {
             TrashEmptyState(modifier = Modifier.fillMaxSize())
         } else {
             TrashMemoList(
                 pagedItems = pagedItems,
+                overlayIdle = overlayIdle,
+                snapshotMemos = snapshotMemos,
                 renderList = renderList,
                 snapshotStartIndex = snapshotStartIndex,
                 onExitSettled = onExitSettled,
@@ -297,6 +306,8 @@ private fun TrashEmptyState(modifier: Modifier = Modifier) {
 @Composable
 private fun TrashMemoList(
     pagedItems: LazyPagingItems<MemoUiModel>,
+    overlayIdle: Boolean,
+    snapshotMemos: ImmutableList<MemoUiModel>,
     renderList: ImmutableList<LomoListExitRenderEntry<MemoUiModel>>,
     snapshotStartIndex: Int,
     onExitSettled: (String) -> Unit,
@@ -307,13 +318,23 @@ private fun TrashMemoList(
     onMemoMenuClick: (Memo) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val totalItemCount = maxOf(snapshotStartIndex + renderList.size, pagedItems.itemCount)
-    val uniqueKeys = rememberUniqueExitRenderListKeys(
-        snapshotStartIndex = snapshotStartIndex,
-        renderList = renderList,
-        itemKey = { it.memo.id },
-        itemSnapshotList = pagedItems.itemSnapshotList
-    )
+    val loadedCount = if (overlayIdle) snapshotMemos.size else renderList.size
+    val totalItemCount = maxOf(snapshotStartIndex + loadedCount, pagedItems.itemCount)
+    val uniqueKeys =
+        remember(overlayIdle, snapshotStartIndex, snapshotMemos, renderList, pagedItems.itemSnapshotList) {
+            if (overlayIdle) {
+                computeItemKeyWindow(
+                    snapshotStartIndex = snapshotStartIndex,
+                    keys = snapshotMemos.map { uiModel -> uiModel.memo.id },
+                )
+            } else {
+                computeExitRenderKeyWindow(
+                    snapshotStartIndex = snapshotStartIndex,
+                    renderList = renderList,
+                    itemKey = { uiModel -> uiModel.memo.id },
+                )
+            }
+        }
     LazyColumn(
         state = listState,
         contentPadding = PaddingValues(TRASH_LIST_CONTENT_PADDING),
@@ -327,12 +348,13 @@ private fun TrashMemoList(
             if (index < pagedItems.itemCount) {
                 pagedItems[index]
             }
-            val entry = renderList.getOrNull(index - snapshotStartIndex)
-            val uiModel = entry?.item
+            val loadedIndex = index - snapshotStartIndex
+            val entry = if (overlayIdle) null else renderList.getOrNull(loadedIndex)
+            val uiModel = entry?.item ?: snapshotMemos.getOrNull(loadedIndex)
             if (uiModel != null) {
                 val isLast = index == totalItemCount - 1
-                val memoId = entry.snapshotMemo.memo.id
-                val exitPhase = entry.exitPhase
+                val memoId = (entry?.snapshotMemo ?: uiModel).memo.id
+                val exitPhase = entry?.exitPhase
                 val isExiting = exitPhase != null
                 TrashMemoCardItem(
                     uiModel = uiModel,
@@ -373,7 +395,6 @@ private fun TrashMemoCardItem(
     onExitSettled: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val isExiting = exitPhase != null
     Box(
         modifier = modifier
             .padding(bottom = bottomSpacing)

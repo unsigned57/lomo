@@ -9,7 +9,6 @@ import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownRenderInline
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
-import com.lomo.domain.repository.MarkdownReminderRepository
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.ui.component.card.buildMemoCardCollapsedSummary
@@ -27,7 +26,6 @@ import java.util.LinkedHashMap
 class MemoUiMapper(
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
     private val markdownWorkspaceRepository: MarkdownWorkspaceRepository,
-    private val markdownReminderRepository: MarkdownReminderRepository,
 ) {
         private val backgroundDispatcher = dispatcherProvider.default
 
@@ -99,27 +97,32 @@ class MemoUiMapper(
         ): MemoUiModel {
             val displayContent = appendLegacyMemoGeoLocation(memo.content, memo.geoLocation)
             val processedContent = displayContent
-            val renderDocument =
-                imageContentResolver.resolveRenderDocumentImages(
+            val resolvedImages =
+                imageContentResolver.resolveMemoImages(
                     document = renderDocumentFor(memo, displayContent),
-                    rootPath = rootPath,
-                    imagePath = imagePath,
-                    imageMap = imageMap,
-                )
-            val imageUrls =
-                imageContentResolver.resolveProjectedImageUrls(
                     imageUrls = memo.imageUrls,
                     rootPath = rootPath,
                     imagePath = imagePath,
                     imageMap = imageMap,
                 )
+            val renderDocument = resolvedImages.document
+            val imageUrls = resolvedImages.imageUrls
             val presentationPlan =
                 com.lomo.ui.component.markdown.buildMarkdownIrPresentationPlan(
                     document = renderDocument,
                     policy = com.lomo.ui.component.markdown.MarkdownPresentationPolicy.MEMO_CARD,
                 )
-            val shouldShowExpand = shouldShowMemoCardExpand(displayContent)
-            val collapsedSummary = buildMemoCardCollapsedSummary(presentationPlan)
+            val shouldShowExpand =
+                shouldShowMemoCardExpand(
+                    content = displayContent,
+                    projectedCharCount = memo.projectedCharCount,
+                )
+            val collapsedSummary =
+                if (processedContent.isBlank()) {
+                    buildMemoCardCollapsedSummary(presentationPlan)
+                } else {
+                    ""
+                }
 
             return MemoUiModel(
                 memo = memo,
@@ -141,7 +144,6 @@ class MemoUiMapper(
             imageMap: Map<String, Uri>,
             reminders: List<com.lomo.domain.model.ReminderMarker>,
         ): MemoUiModel {
-            val displayContent = appendLegacyMemoGeoLocation(memo.content, memo.geoLocation)
             val cacheKey =
                 MemoUiCacheKey(
                     memoId = memo.id,
@@ -166,6 +168,7 @@ class MemoUiMapper(
                     },
                     rootPath = rootPath,
                     imagePath = imagePath,
+                    projectedCharCount = memo.projectedCharCount,
                     imageDependencySignature =
                         buildImageMapDependencySignatureForPaths(
                             imagePaths = memo.imageUrls.filterNot(::isAudioAttachmentPath).toSet(),
@@ -261,6 +264,7 @@ private data class MemoUiCacheKey(
     val reminderIdentities: List<Pair<String, String>>,
     val rootPath: String?,
     val imagePath: String?,
+    val projectedCharCount: Long?,
     val imageDependencySignature: String,
 )
 

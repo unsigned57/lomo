@@ -9,7 +9,7 @@ import com.lomo.domain.model.Memo
 import kotlinx.collections.immutable.ImmutableList
 
 @Composable
-fun MainScreenEventEffectsHost(
+internal fun MainScreenEventEffectsHost(
     sharedContentEvents: ImmutableList<PendingUiEvent<MainViewModel.SharedContent>>,
     appActionEvents: ImmutableList<PendingUiEvent<MainViewModel.AppAction>>,
     pendingSharedImageEvents: ImmutableList<PendingUiEvent<Uri>>,
@@ -18,11 +18,13 @@ fun MainScreenEventEffectsHost(
     editorErrorMessage: String?,
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
+    memoNotFoundMessage: String,
     onAppendMarkdown: (String) -> Unit,
     onAppendImageMarkdown: (String) -> Unit,
     onEnsureEditorVisible: () -> Unit,
     onOpenEditMemo: (Memo) -> Unit,
-    onFocusMemoInList: suspend (String) -> Boolean,
+    onFocusMemoInList: suspend (String) -> MainScreenFocusAttempt,
+    onMainListFocusConsumed: () -> Unit,
     focusRetryKey: Any?,
     onResolveMemoById: suspend (String) -> Memo?,
     onSaveImage: (Uri, (String) -> Unit, () -> Unit) -> Unit,
@@ -51,6 +53,8 @@ fun MainScreenEventEffectsHost(
         onConsume = onConsumeAppActionEvent,
         snackbarHostState = snackbarHostState,
         unknownErrorMessage = unknownErrorMessage,
+        memoNotFoundMessage = memoNotFoundMessage,
+        onMainListFocusConsumed = onMainListFocusConsumed,
     )
 
     HandlePendingSharedImageEvents(
@@ -89,36 +93,45 @@ fun HandleSharedContentEvents(
 }
 
 @Composable
-fun HandleAppActionEvents(
+internal fun HandleAppActionEvents(
     events: ImmutableList<PendingUiEvent<MainViewModel.AppAction>>,
-    focusMemoInList: suspend (String) -> Boolean,
+    focusMemoInList: suspend (String) -> MainScreenFocusAttempt,
     resolveMemoById: suspend (String) -> com.lomo.domain.model.Memo?,
     openEdit: (com.lomo.domain.model.Memo) -> Unit,
     focusRetryKey: Any?,
     onConsume: (Long) -> Unit,
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
+    memoNotFoundMessage: String,
+    onMainListFocusConsumed: () -> Unit,
 ) {
     LaunchedEffect(events, focusRetryKey) {
         events.forEach { event ->
             val action = event.payload
-            val handled =
+            val attempt =
                 when (action) {
-                is MainViewModel.AppAction.OpenMemo -> {
-                    val memo = resolveMemoById(action.memoId)
-                    if (memo != null) {
-                        openEdit(memo)
-                    } else {
-                        snackbarHostState.showSnackbar(unknownErrorMessage)
+                    is MainViewModel.AppAction.OpenMemo -> {
+                        val memo = resolveMemoById(action.memoId)
+                        if (memo != null) {
+                            openEdit(memo)
+                        } else {
+                            snackbarHostState.showSnackbar(unknownErrorMessage)
+                        }
+                        null
                     }
-                    true
-                }
 
-                is MainViewModel.AppAction.FocusMemo -> {
-                    focusMemoInList(action.memoId)
+                    is MainViewModel.AppAction.FocusMemo -> {
+                        val result = focusMemoInList(action.memoId)
+                        if (result == MainScreenFocusAttempt.Missing) {
+                            snackbarHostState.showSnackbar(memoNotFoundMessage)
+                        }
+                        result
+                    }
                 }
-            }
-            if (shouldConsumeAppActionAfterHandling(action = action, handled = handled)) {
+            if (shouldConsumeAppActionAfterHandling(action = action, attempt = attempt)) {
+                if (action is MainViewModel.AppAction.FocusMemo) {
+                    onMainListFocusConsumed()
+                }
                 onConsume(event.id)
             }
         }
@@ -127,12 +140,12 @@ fun HandleAppActionEvents(
 
 internal fun shouldConsumeAppActionAfterHandling(
     action: MainViewModel.AppAction,
-    handled: Boolean,
+    attempt: MainScreenFocusAttempt?,
 ): Boolean =
     when (action) {
-        is MainViewModel.AppAction.FocusMemo -> handled
-        is MainViewModel.AppAction.OpenMemo,
-        -> true
+        is MainViewModel.AppAction.FocusMemo ->
+            attempt == MainScreenFocusAttempt.Placed || attempt == MainScreenFocusAttempt.Missing
+        is MainViewModel.AppAction.OpenMemo -> true
     }
 
 @Composable

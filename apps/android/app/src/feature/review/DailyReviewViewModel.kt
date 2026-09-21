@@ -6,7 +6,9 @@ import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.feature.common.appWhileSubscribed
+import com.lomo.app.feature.common.newMemoOperationId
 import com.lomo.app.feature.common.toUserMessage
+import com.lomo.app.util.runSuspendCatching
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.main.mapToUiModels
@@ -51,19 +53,35 @@ sealed interface DailyReviewScreenState {
     ) : DailyReviewScreenState
 }
 
+/** Collaborators of the daily-review screen. */
+data class DailyReviewViewModelDependencies(
+    val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
+    val appConfigStateProvider: AppConfigStateProvider,
+    val appConfigUiCoordinator: AppConfigUiCoordinator,
+    val imageMapProvider: ImageMapProvider,
+    val memoUiMapper: MemoUiMapper,
+    val deleteMemoUseCase: DeleteMemoUseCase,
+    val updateMemoContentUseCase: UpdateMemoContentUseCase,
+    val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
+    val saveImageUseCase: SaveImageUseCase,
+    val dailyReviewQueryUseCase: DailyReviewQueryUseCase,
+    val dailyReviewSessionUseCase: DailyReviewSessionUseCase,
+)
+
 class DailyReviewViewModel(
-    private val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
-    private val appConfigStateProvider: AppConfigStateProvider,
-    private val appConfigUiCoordinator: AppConfigUiCoordinator,
-    private val imageMapProvider: ImageMapProvider,
-    private val memoUiMapper: MemoUiMapper,
-    private val deleteMemoUseCase: DeleteMemoUseCase,
-    private val updateMemoContentUseCase: UpdateMemoContentUseCase,
-    private val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
-    private val saveImageUseCase: SaveImageUseCase,
-    private val dailyReviewQueryUseCase: DailyReviewQueryUseCase,
-    private val dailyReviewSessionUseCase: DailyReviewSessionUseCase,
+    dependencies: DailyReviewViewModelDependencies,
 ) : ViewModel() {
+    private val observeActiveDayCountUseCase = dependencies.observeActiveDayCountUseCase
+    private val appConfigStateProvider = dependencies.appConfigStateProvider
+    private val appConfigUiCoordinator = dependencies.appConfigUiCoordinator
+    private val imageMapProvider = dependencies.imageMapProvider
+    private val memoUiMapper = dependencies.memoUiMapper
+    private val deleteMemoUseCase = dependencies.deleteMemoUseCase
+    private val updateMemoContentUseCase = dependencies.updateMemoContentUseCase
+    private val toggleMemoCheckboxUseCase = dependencies.toggleMemoCheckboxUseCase
+    private val saveImageUseCase = dependencies.saveImageUseCase
+    private val dailyReviewQueryUseCase = dependencies.dailyReviewQueryUseCase
+    private val dailyReviewSessionUseCase = dependencies.dailyReviewSessionUseCase
     private val rawMemos = MutableStateFlow<List<Memo>?>(null)
     private val _isLoadingMore = MutableStateFlow(false)
     private val _restoredPageIndex = MutableStateFlow(0)
@@ -72,8 +90,10 @@ class DailyReviewViewModel(
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
     private val loadFailure = MutableStateFlow<DailyReviewScreenState.Failed?>(null)
     private val memoUpdater = DailyReviewMemoUpdater(updateMemoContentUseCase, rawMemos)
+    private val draftId = com.lomo.app.feature.common.newDraftId()
     internal val editorSubmission =
         MemoEditorUpdateSubmission(
+            draftId = draftId,
             scope = viewModelScope,
             updateMemo = memoUpdater::update,
             onFailure = { throwable ->
@@ -146,7 +166,7 @@ class DailyReviewViewModel(
                 rawMemos.value = null
                 loadFailure.value = null
                 loadCursor.value = DailyReviewLoadCursor()
-                runCatching {
+                runSuspendCatching {
                     val session = dailyReviewSessionUseCase.prepareSession()
                     val page =
                         dailyReviewQueryUseCase.loadPage(
@@ -154,9 +174,6 @@ class DailyReviewViewModel(
                         )
                     session to page
                 }.onFailure { throwable ->
-                    if (throwable is kotlinx.coroutines.CancellationException) {
-                        throw throwable
-                    }
                     loadFailure.value =
                         DailyReviewScreenState.Failed("Failed to load daily review", throwable)
                 }.onSuccess { (session, page) ->
@@ -194,12 +211,9 @@ class DailyReviewViewModel(
         loadJob =
             viewModelScope.launch {
                 _isLoadingMore.value = true
-                runCatching {
+                runSuspendCatching {
                     dailyReviewQueryUseCase.loadPage(source)
                 }.onFailure { throwable ->
-                    if (throwable is kotlinx.coroutines.CancellationException) {
-                        throw throwable
-                    }
                     _errorMessage.value = throwable.toUserMessage("Failed to load more memos")
                 }.onSuccess { page ->
                     val newMemos = page.memos
@@ -254,28 +268,12 @@ class DailyReviewViewModel(
         }
     }
 
-    fun updateMemo(
-        memo: Memo,
-        newContent: String,
-    ) {
-        viewModelScope.launch {
-            runCatching {
-                memoUpdater.update(memo, newContent)
-            }.onFailure { throwable ->
-                if (throwable is kotlinx.coroutines.CancellationException) {
-                    throw throwable
-                }
-                _errorMessage.value = throwable.toUserMessage("Failed to update memo")
-            }
-        }
-    }
-
     fun toggleTodo(
         memo: Memo,
         actionSpan: com.lomo.domain.model.markdown.MarkdownSourceSpan,
     ) {
         viewModelScope.launch {
-            runCatching {
+            runSuspendCatching {
                 toggleMemoCheckboxUseCase(memo, actionSpan)
             }.onSuccess { newContent ->
                 // The review list is a frozen random-walk snapshot, so mirror the persisted
@@ -292,9 +290,6 @@ class DailyReviewViewModel(
                         }
                     }
             }.onFailure { throwable ->
-                if (throwable is kotlinx.coroutines.CancellationException) {
-                    throw throwable
-                }
                 _errorMessage.value = throwable.toUserMessage("Failed to update todo")
             }
         }
@@ -307,18 +302,16 @@ class DailyReviewViewModel(
         anchoredAfterKey?.let {
             // behavior-contract: silent-result-ok: no-op for non-animated daily review list
         }
+        val operationId = newMemoOperationId()
         viewModelScope.launch {
-            runCatching {
-                deleteMemoUseCase(memo)
+            runSuspendCatching {
+                deleteMemoUseCase(memo, operationId)
             }.onSuccess {
                 rawMemos.value =
                     rawMemos.value?.filterNot { current ->
                         current.id == memo.id
                     }
             }.onFailure { throwable ->
-                if (throwable is kotlinx.coroutines.CancellationException) {
-                    throw throwable
-                }
                 _errorMessage.value = throwable.toUserMessage("Failed to delete memo")
             }
         }
@@ -330,22 +323,14 @@ class DailyReviewViewModel(
         onError: (() -> Unit)? = null,
     ) {
         viewModelScope.launch {
-            runCatching {
+            runSuspendCatching {
                 val path =
-                    when (
-                        val result =
-                            saveImageUseCase.saveWithCacheSyncStatus(
-                                StorageLocation(uri.toString()),
-                            )
-                    ) {
-                        is SaveImageResult.SavedAndCacheSynced -> result.location.raw
-                        is SaveImageResult.SavedButCacheSyncFailed -> throw result.cause
-                    }
+                    saveImageUseCase.saveWithCacheSyncStatus(
+                        StorageLocation(uri.toString()),
+                        draftId,
+                    ).location.raw
                 onResult(path)
             }.onFailure { throwable ->
-                if (throwable is kotlinx.coroutines.CancellationException) {
-                    throw throwable
-                }
                 _errorMessage.value = throwable.toUserMessage("Failed to save image")
                 onError?.invoke()
             }
@@ -400,10 +385,11 @@ private class DailyReviewMemoUpdater(
     private val rawMemos: MutableStateFlow<List<Memo>?>,
 ) {
     suspend fun update(
-        memo: Memo,
-        newContent: String,
+        attempt: com.lomo.domain.model.MemoUpdateAttempt,
     ) {
-        updateMemoContentUseCase(memo, newContent)
+        val memo = attempt.snapshot.memo
+        val newContent = attempt.content
+        updateMemoContentUseCase(attempt)
         rawMemos.value =
             rawMemos.value?.map { current ->
                 if (current.id == memo.id) {

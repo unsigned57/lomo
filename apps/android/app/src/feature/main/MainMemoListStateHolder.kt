@@ -10,9 +10,8 @@ import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.memoPager
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
-import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.WorkspaceAuthority
-import com.lomo.domain.model.permitsReadsAt
+import com.lomo.domain.model.WorkspaceMount
 import com.lomo.domain.usecase.MainMemoListQueryUseCase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -32,7 +31,6 @@ internal const val DEFAULT_MAIN_LIST_PAGE_SIZE = 20
 private const val DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE = DEFAULT_MAIN_LIST_PAGE_SIZE * 3
 private const val DEFAULT_MAIN_LIST_PREFETCH_DISTANCE = 10
 private const val DEFAULT_MAIN_LIST_ENABLE_PLACEHOLDERS = true
-internal const val DEFAULT_MAIN_LIST_DIRECT_FOCUS_WINDOW_LIMIT = DEFAULT_MAIN_LIST_PAGE_SIZE * 3
 
 sealed interface GalleryUiMemosState {
     data object Loading : GalleryUiMemosState
@@ -42,19 +40,33 @@ sealed interface GalleryUiMemosState {
     ) : GalleryUiMemosState
 }
 
+/** Inputs for the main memo list state holder: the query sources plus the current media mapping. */
+internal data class MainMemoListStateHolderDependencies(
+    val scope: CoroutineScope,
+    val mainMemoListQueryUseCase: MainMemoListQueryUseCase,
+    val memoUiMapper: MemoUiMapper,
+    val searchQuery: StateFlow<String>,
+    val memoListFilter: StateFlow<MemoListFilter>,
+    val mount: StateFlow<WorkspaceMount>,
+    val rootDirectory: StateFlow<String?>,
+    val imageDirectory: StateFlow<String?>,
+    val imageMap: StateFlow<Map<String, android.net.Uri>>,
+    val dispatcherProvider: com.lomo.domain.usecase.DispatcherProvider,
+)
+
 internal class MainMemoListStateHolder(
-    scope: CoroutineScope,
-    mainMemoListQueryUseCase: MainMemoListQueryUseCase,
-    memoUiMapper: MemoUiMapper,
-    searchQuery: StateFlow<String>,
-    memoListFilter: StateFlow<MemoListFilter>,
-    workspaceAuthority: StateFlow<WorkspaceAuthority?>,
-    projectionFreshness: StateFlow<ProjectionFreshness>,
-    rootDirectory: StateFlow<String?>,
-    imageDirectory: StateFlow<String?>,
-    imageMap: StateFlow<Map<String, android.net.Uri>>,
-    dispatcherProvider: com.lomo.domain.usecase.DispatcherProvider,
+    dependencies: MainMemoListStateHolderDependencies,
 ) {
+    private val scope = dependencies.scope
+    private val mainMemoListQueryUseCase = dependencies.mainMemoListQueryUseCase
+    private val memoUiMapper = dependencies.memoUiMapper
+    private val searchQuery = dependencies.searchQuery
+    private val memoListFilter = dependencies.memoListFilter
+    private val mount = dependencies.mount
+    private val rootDirectory = dependencies.rootDirectory
+    private val imageDirectory = dependencies.imageDirectory
+    private val imageMap = dependencies.imageMap
+    private val dispatcherProvider = dependencies.dispatcherProvider
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     private val mainMemoQueryInput: StateFlow<MemoQueryInput> =
         combine(
@@ -79,7 +91,6 @@ internal class MainMemoListStateHolder(
                 rootDirectory = rootDir,
                 imageDirectory = imageDir,
                 imageMap = currentImageMap,
-                imageDependencySignature = currentImageMap.toPagingImageDependencySignature(),
             )
         }.distinctUntilChanged { old, new ->
             old.hasSameUiDependencies(new)
@@ -88,14 +99,10 @@ internal class MainMemoListStateHolder(
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     // behavior-contract: uncached-paging-ok: private intermediate; public surfaces use cachedIn
     private val memoPagingData: StateFlow<PagingData<Memo>?> =
-        combine(workspaceAuthority, projectionFreshness, mainMemoQueryInput) {
-            authority,
-            freshness,
-            queryInput,
-            ->
-            authority
-                ?.takeIf { active -> freshness.permitsReadsAt(active.projectionRevision) }
-                ?.let { active -> AuthorizedMemoQueryInput(authority = active, query = queryInput) }
+        combine(mount, mainMemoQueryInput) { session, queryInput ->
+            session.admittedAuthority?.let { active ->
+                AuthorizedMemoQueryInput(authority = active, query = queryInput)
+            }
         }.filterNotNull()
             .distinctUntilChanged()
             .flatMapLatest { authorizedInput ->
@@ -135,13 +142,12 @@ internal class MainMemoListStateHolder(
     @OptIn(ExperimentalCoroutinesApi::class)
     val galleryPagedUiMemos: Flow<PagingData<MemoUiModel>> =
         combine(
-            workspaceAuthority,
-            projectionFreshness,
+            mount,
             rootDirectory,
             imageDirectory,
             imageMap,
-        ) { authority, freshness, rootDir, imageDir, currentImageMap ->
-            if (authority == null || !freshness.permitsReadsAt(authority.projectionRevision)) {
+        ) { session, rootDir, imageDir, currentImageMap ->
+            if (session.admittedAuthority == null) {
                 null
             } else {
                 GalleryPagingInput(
@@ -194,9 +200,3 @@ private data class GalleryPagingInput(
     val imageDirectory: String?,
     val imageMap: Map<String, android.net.Uri>,
 )
-
-private fun Map<String, android.net.Uri>.toPagingImageDependencySignature(): String =
-    entries
-        .asSequence()
-        .sortedBy { (key, _) -> key }
-        .joinToString(separator = "\n") { (key, uri) -> "$key=$uri" }

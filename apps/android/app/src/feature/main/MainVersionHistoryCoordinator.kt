@@ -1,11 +1,11 @@
 package com.lomo.app.feature.main
 
+import com.lomo.app.feature.common.newMemoOperationId
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoRevisionCursor
 import com.lomo.domain.usecase.LoadMemoRevisionHistoryUseCase
 import com.lomo.domain.usecase.RestoreMemoRevisionUseCase
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -56,6 +56,7 @@ class MainVersionHistoryCoordinator(
                 return
             }
             _state.value = current.copy(isLoadingMore = true)
+            var completed = false
             try {
                 val page = loadMemoRevisionHistoryUseCase(current.memo, cursor)
                 _state.value =
@@ -64,13 +65,11 @@ class MainVersionHistoryCoordinator(
                         nextCursor = page.nextCursor,
                         isLoadingMore = false,
                     )
-            } catch (throwable: Exception) {
-                if (throwable is CancellationException) {
+                completed = true
+            } finally {
+                if (!completed) {
                     _state.value = current.copy(isLoadingMore = false)
-                    throw throwable
                 }
-                _state.value = current.copy(isLoadingMore = false)
-                throw throwable
             }
         }
 
@@ -92,28 +91,19 @@ class MainVersionHistoryCoordinator(
                         restoringRevisionId = version.revisionId,
                     )
             }
+            var completed = false
             try {
-                restoreMemoRevisionUseCase(memo, version)
+                restoreMemoRevisionUseCase(memo, version, newMemoOperationId())
                 _state.value = MainVersionHistoryState.Hidden
-            } catch (throwable: Exception) {
-                if (throwable is CancellationException) {
-                    if (current != null) {
-                        _state.value =
-                            current.copy(
-                                isRestoring = false,
-                                restoringRevisionId = null,
-                            )
-                    }
-                    throw throwable
-                }
-                if (current != null) {
+                completed = true
+            } finally {
+                if (!completed && current != null) {
                     _state.value =
                         current.copy(
                             isRestoring = false,
                             restoringRevisionId = null,
                         )
                 }
-                throw throwable
             }
         }
 

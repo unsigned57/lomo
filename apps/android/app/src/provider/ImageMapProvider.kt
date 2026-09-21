@@ -4,8 +4,9 @@ import android.net.Uri
 import androidx.core.net.toUri
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.domain.repository.MediaRepository
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -19,10 +20,11 @@ import kotlinx.coroutines.flow.stateIn
  * identical mapping pipelines.
  */
 open class ImageMapProvider(
-    private val repository: MediaRepository,
+    repository: MediaRepository,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) {
         // behavior-contract: unmanaged-scope-ok: process-lifetime app-scoped image map
-        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        private val scope = CoroutineScope(SupervisorJob() + dispatcherProvider.default)
 
         open val imageMap: StateFlow<Map<String, Uri>> =
             repository

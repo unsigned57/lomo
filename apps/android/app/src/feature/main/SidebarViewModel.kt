@@ -5,11 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.domain.model.MemoTagCount
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.domain.usecase.ObserveSidebarStatisticsUseCase
 import com.lomo.ui.component.navigation.SidebarStats
 import com.lomo.ui.component.navigation.SidebarTag
 
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
@@ -19,9 +20,10 @@ import java.time.LocalDate
 
 
 class SidebarViewModel(
-    private val observeSidebarStatisticsUseCase: ObserveSidebarStatisticsUseCase,
+    observeSidebarStatisticsUseCase: ObserveSidebarStatisticsUseCase,
     private val stateHolder: MainSidebarStateHolder,
     private val appConfigCoordinator: AppConfigUiCoordinator,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : ViewModel() {
         data class SidebarUiState(
             val stats: SidebarStats = SidebarStats(),
@@ -51,7 +53,7 @@ class SidebarViewModel(
                             .map { tagCount -> SidebarTag(name = tagCount.name, count = tagCount.count) },
                     rootTagOrder = tagOrder,
                 )
-            }.flowOn(Dispatchers.Default)
+                }.flowOn(dispatcherProvider.default)
                 .stateIn(viewModelScope, appWhileSubscribed(), SidebarUiState())
 
         fun onSearch(query: String) {

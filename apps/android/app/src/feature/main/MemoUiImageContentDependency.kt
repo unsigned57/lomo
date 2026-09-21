@@ -1,7 +1,6 @@
 package com.lomo.app.feature.main
 
 import android.net.Uri
-import com.lomo.domain.model.Memo
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 
@@ -12,20 +11,6 @@ internal fun buildMemoUiImageDependencySignature(
         .map { (key, uri) -> "$key=$uri" }
         .sorted()
         .joinToString(separator = "\n")
-
-internal fun buildMemoListImageDependencySignature(
-    memos: List<Memo>,
-    imageMap: Map<String, Uri>,
-): String =
-    memos
-        .asSequence()
-        .map { memo ->
-            buildImageMapDependencySignatureForPaths(
-                imagePaths = memo.imageUrls.toSet(),
-                imageMap = imageMap,
-            )
-        }.filter(String::isNotBlank)
-        .joinToString(separator = "\n---\n")
 
 internal fun buildImageMapDependencySignatureForPaths(
     imagePaths: Set<String>,
@@ -43,6 +28,7 @@ internal fun buildImageMapCandidates(imageUrl: String): List<String> {
     val candidates = LinkedHashSet<String>()
 
     fun decodeUrlComponent(value: String): String =
+        // behavior-contract: silent-result-ok: malformed percent-encoding is still a lookup token
         runCatching {
             URLDecoder.decode(value, StandardCharsets.UTF_8.name())
         }.getOrDefault(value)

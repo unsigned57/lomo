@@ -1,14 +1,20 @@
 package com.lomo.app.feature.common
 
 import android.net.Uri
+import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoOperationId
 import com.lomo.app.feature.memo.MemoEditorSubmissionId
 import com.lomo.app.feature.memo.MemoEditorSubmissionStateMachine
+import com.lomo.app.feature.memo.MemoEditorSubmissionState
+import com.lomo.app.feature.memo.MemoEditorAttemptStore
+import com.lomo.domain.model.MemoUpdateAttempt
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.ui.component.common.ExitAnimationRegistry
 import com.lomo.domain.model.StorageLocation
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.domain.usecase.SaveImageResult
+import com.lomo.app.util.runSuspendCatching
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,37 +22,40 @@ import kotlinx.coroutines.launch
 
 sealed interface MemoCollectionCapabilities {
     data class DeletableTodo(
-        val deleteMemo: suspend (Memo) -> Unit,
+        val deleteMemo: suspend (Memo, MemoOperationId) -> Unit,
         val toggleTodo: suspend (Memo, MarkdownSourceSpan) -> String,
     ) : MemoCollectionCapabilities
 
     data class Editable(
-        val deleteMemo: suspend (Memo) -> Unit,
-        val updateMemo: suspend (Memo, String) -> Unit,
+        val deleteMemo: suspend (Memo, MemoOperationId) -> Unit,
+        val updateMemo: suspend (MemoUpdateAttempt) -> Unit,
         val toggleTodo: suspend (Memo, MarkdownSourceSpan) -> String,
-        val saveImage: suspend (StorageLocation) -> SaveImageResult,
+        val saveImage: suspend (StorageLocation, DraftId) -> SaveImageResult,
     ) : MemoCollectionCapabilities
 
     data class Trash(
-        val restoreMemo: suspend (Memo) -> Unit,
-        val deletePermanently: suspend (Memo) -> Unit,
-        val clearTrash: suspend () -> Unit,
+        val restoreMemo: suspend (Memo, MemoOperationId) -> Unit,
+        val deletePermanently: suspend (Memo, MemoOperationId) -> Unit,
+        val clearTrash: suspend (MemoOperationId) -> Unit,
     ) : MemoCollectionCapabilities
 }
 
 class MemoCollectionActions internal constructor(
     private val exitAnimationRegistry: ExitAnimationRegistry<MemoUiModel>,
     private val errors: MemoCollectionErrors,
+    private val draftId: DraftId,
     private val editorSubmissionStateMachine: MemoEditorSubmissionStateMachine =
         MemoEditorSubmissionStateMachine(),
     private val capabilities: MemoCollectionCapabilities,
     private val scope: CoroutineScope,
     private val mapToUiModel: suspend (Memo) -> MemoUiModel,
 ) {
+    private val editorAttempts = MemoEditorAttemptStore(draftId)
     fun delete(
         memo: Memo,
         anchoredAfterKey: String?,
     ) {
+        val operationId = newMemoOperationId()
         launchAnimatedMutation(
             memo = memo,
             anchoredAfterKey = anchoredAfterKey,
@@ -56,7 +65,7 @@ class MemoCollectionActions internal constructor(
                 "Cannot delete memo in Trash. Use restore or deletePermanently instead."
             }
             val deleteMemo = capabilities.deleteMemo("delete")
-            deleteMemo(memo)
+            deleteMemo(memo, operationId)
         }
     }
 
@@ -66,7 +75,7 @@ class MemoCollectionActions internal constructor(
     ) {
         launchMutation(fallbackMessage = "Failed to update memo") {
             val editable = capabilities.editable("update memo")
-            editable.updateMemo(memo, newContent)
+            editable.updateMemo(editorAttempts.update(memo, newContent, MemoEditorSubmissionState.Idle))
         }
     }
 
@@ -79,9 +88,9 @@ class MemoCollectionActions internal constructor(
             scope = scope,
             submissionId = submissionId,
             onFailure = { throwable -> errors.report(throwable, "Failed to update memo") },
-        ) {
+        ) { previous ->
             val editable = capabilities.editable("update memo")
-            editable.updateMemo(memo, newContent)
+            editable.updateMemo(editorAttempts.update(memo, newContent, previous))
         }
         return editorSubmissionStateMachine.await(submissionId)
     }
@@ -101,13 +110,9 @@ class MemoCollectionActions internal constructor(
         onError: (() -> Unit)? = null,
     ) {
         scope.launch {
-            runCatching {
+            runSuspendCatching {
                 val editable = capabilities.editable("save image")
-                val path =
-                    when (val result = editable.saveImage(StorageLocation(uri.toString()))) {
-                        is SaveImageResult.SavedAndCacheSynced -> result.location.raw
-                        is SaveImageResult.SavedButCacheSyncFailed -> throw result.cause
-                    }
+                val path = editable.saveImage(StorageLocation(uri.toString()), draftId).location.raw
                 onResult(path)
             }.onFailure { throwable ->
                 errors.report(throwable, "Failed to save image")
@@ -120,6 +125,7 @@ class MemoCollectionActions internal constructor(
         memo: Memo,
         anchoredAfterKey: String?,
     ) {
+        val operationId = newMemoOperationId()
         launchAnimatedMutation(
             memo = memo,
             anchoredAfterKey = anchoredAfterKey,
@@ -129,7 +135,7 @@ class MemoCollectionActions internal constructor(
                 "Cannot restore memo. Collection is not Trash."
             }
             val trash = capabilities.trash("restore memo")
-            trash.restoreMemo(memo)
+            trash.restoreMemo(memo, operationId)
         }
     }
 
@@ -137,6 +143,7 @@ class MemoCollectionActions internal constructor(
         memo: Memo,
         anchoredAfterKey: String?,
     ) {
+        val operationId = newMemoOperationId()
         launchAnimatedMutation(
             memo = memo,
             anchoredAfterKey = anchoredAfterKey,
@@ -146,12 +153,13 @@ class MemoCollectionActions internal constructor(
                 "Cannot permanently delete memo. Collection is not Trash."
             }
             val trash = capabilities.trash("delete permanently")
-            trash.deletePermanently(memo)
+            trash.deletePermanently(memo, operationId)
         }
     }
 
     fun clearTrash(items: List<DeleteAnimationItem<Memo>>) {
         if (items.isEmpty()) return
+        val operationId = newMemoOperationId()
         launchAnimatedMutationBulk(
             items = items,
             fallbackMessage = "Failed to clear trash",
@@ -160,7 +168,7 @@ class MemoCollectionActions internal constructor(
                 "Cannot clear trash. Collection is not Trash."
             }
             val trash = capabilities.trash("clear trash")
-            trash.clearTrash()
+            trash.clearTrash(operationId)
         }
     }
 
@@ -170,7 +178,7 @@ class MemoCollectionActions internal constructor(
         mutation: suspend () -> Unit,
     ) {
         scope.launch {
-            runCatching {
+            runSuspendCatching {
                 mutation()
             }.onFailure { throwable ->
                 errors.report(throwable, fallbackMessage)
@@ -185,7 +193,7 @@ class MemoCollectionActions internal constructor(
         mutation: suspend () -> Unit,
     ) {
         scope.launch {
-            runCatching {
+            runSuspendCatching {
                 val uiModel = mapToUiModel(memo)
                 runDeleteAnimationWithRollback(
                     itemId = memo.id,
@@ -206,7 +214,7 @@ class MemoCollectionActions internal constructor(
         mutation: suspend () -> Unit,
     ) {
         scope.launch {
-            runCatching {
+            runSuspendCatching {
                 val mappedItems = items.map { item ->
                     DeleteAnimationItem(
                         id = item.id,
@@ -226,7 +234,9 @@ class MemoCollectionActions internal constructor(
     }
 
     private companion object {
-        private fun MemoCollectionCapabilities.deleteMemo(action: String): suspend (Memo) -> Unit =
+        private fun MemoCollectionCapabilities.deleteMemo(
+            action: String,
+        ): suspend (Memo, MemoOperationId) -> Unit =
             when (this) {
                 is MemoCollectionCapabilities.DeletableTodo -> deleteMemo
                 is MemoCollectionCapabilities.Editable -> deleteMemo

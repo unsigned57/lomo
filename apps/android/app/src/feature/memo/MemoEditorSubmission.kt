@@ -4,7 +4,13 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.lomo.app.feature.common.newMemoOperationId
+import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.EditableMemoSnapshot
+import com.lomo.domain.model.MemoCreateAttempt
+import com.lomo.domain.model.MemoOperationId
+import com.lomo.domain.model.MemoUpdateAttempt
 import com.lomo.ui.component.input.InputSheetOwnerSubmission
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -138,11 +144,12 @@ internal class MemoEditorSubmissionStateMachine {
         scope: CoroutineScope,
         submissionId: MemoEditorSubmissionId,
         onFailure: (Exception) -> Unit,
-        block: suspend () -> Unit,
+        block: suspend (MemoEditorSubmissionState) -> Unit,
     ) {
-        val shouldLaunch =
+        val previousState =
             synchronized(transitionLock) {
-                when (val current = _state.value) {
+                val current = _state.value
+                val shouldLaunch = when (current) {
                     is MemoEditorSubmissionState.Submitting -> {
                         check(current.submissionId == submissionId) {
                             "A different memo editor submission is already in flight"
@@ -152,17 +159,18 @@ internal class MemoEditorSubmissionStateMachine {
                     is MemoEditorSubmissionState.Committed -> current.submissionId != submissionId
                     is MemoEditorSubmissionState.Failed -> current.submissionId != submissionId
                     MemoEditorSubmissionState.Idle -> true
-                }.also { launch ->
-                    if (launch) {
-                        _state.value = MemoEditorSubmissionState.Submitting(submissionId)
-                    }
                 }
-            }
-        if (!shouldLaunch) return
+                if (shouldLaunch) {
+                    _state.value = MemoEditorSubmissionState.Submitting(submissionId)
+                    current
+                } else {
+                    null
+                }
+            } ?: return
 
         scope.launch {
             try {
-                block()
+                block(previousState)
                 transitionTerminal(
                     submissionId = submissionId,
                     terminal = MemoEditorSubmissionState.Committed(submissionId),
@@ -221,26 +229,27 @@ internal class MemoEditorSubmissionStateMachine {
 
 /** Executes create/update mutations and exposes the exact durable acknowledgement to editor hosts. */
 internal class MemoEditorCommitCoordinator(
+    draftId: DraftId,
     private val scope: CoroutineScope,
-    private val createMemo: suspend (content: String, geoLocation: String?, timestampMillis: Long?) -> Unit,
-    private val updateMemo: suspend (memo: Memo, newContent: String) -> Unit,
+    private val createMemo: suspend (MemoCreateAttempt) -> Unit,
+    private val updateMemo: suspend (MemoUpdateAttempt) -> Unit,
     private val onCreateCommitted: () -> Unit,
     private val onUpdateCommitted: () -> Unit,
     private val onStarted: () -> Unit,
     private val onFailure: (Exception) -> Unit,
 ) {
+    private val attempts = MemoEditorAttemptStore(draftId)
     private val stateMachine = MemoEditorSubmissionStateMachine()
     val state: StateFlow<MemoEditorSubmissionState> = stateMachine.state
 
     fun create(
         submissionId: MemoEditorSubmissionId,
         content: String,
-        geoLocation: String? = null,
         timestampMillis: Long? = null,
     ) {
         onStarted()
-        stateMachine.launch(scope, submissionId, onFailure) {
-            createMemo(content, geoLocation, timestampMillis)
+        stateMachine.launch(scope, submissionId, onFailure) { previous ->
+            createMemo(attempts.create(content, timestampMillis, previous))
             onCreateCommitted()
         }
     }
@@ -251,8 +260,8 @@ internal class MemoEditorCommitCoordinator(
         newContent: String,
     ) {
         onStarted()
-        stateMachine.launch(scope, submissionId, onFailure) {
-            updateMemo(memo, newContent)
+        stateMachine.launch(scope, submissionId, onFailure) { previous ->
+            updateMemo(attempts.update(memo, newContent, previous))
             onUpdateCommitted()
         }
     }
@@ -269,10 +278,12 @@ internal class MemoEditorCommitCoordinator(
 
 /** Adapts one screen-owned memo projection update to the shared submission acknowledgement law. */
 internal class MemoEditorUpdateSubmission(
+    draftId: DraftId,
     private val scope: CoroutineScope,
-    private val updateMemo: suspend (memo: Memo, newContent: String) -> Unit,
+    private val updateMemo: suspend (MemoUpdateAttempt) -> Unit,
     private val onFailure: (Exception) -> Unit,
 ) {
+    private val attempts = MemoEditorAttemptStore(draftId)
     private val stateMachine = MemoEditorSubmissionStateMachine()
     val state: StateFlow<MemoEditorSubmissionState> = stateMachine.state
 
@@ -281,9 +292,55 @@ internal class MemoEditorUpdateSubmission(
         memo: Memo,
         newContent: String,
     ): Boolean {
-        stateMachine.launch(scope, submissionId, onFailure) {
-            updateMemo(memo, newContent)
+        stateMachine.launch(scope, submissionId, onFailure) { previous ->
+            updateMemo(attempts.update(memo, newContent, previous))
         }
         return stateMachine.await(submissionId)
     }
+}
+
+/** Owns the frozen payload and retry identity of the active editor draft. */
+internal class MemoEditorAttemptStore(
+    private val draftId: DraftId,
+) {
+    private sealed interface Frozen {
+        data class Create(val requestedTime: Long?, val command: MemoCreateAttempt) : Frozen
+        data class Update(val command: MemoUpdateAttempt) : Frozen
+    }
+    private var frozen: Frozen? = null
+
+    fun create(content: String, timestampMillis: Long?, previous: MemoEditorSubmissionState): MemoCreateAttempt {
+        val existing = frozen as? Frozen.Create
+        if (previous is MemoEditorSubmissionState.Failed && existing != null &&
+            existing.command.content == content && existing.requestedTime == timestampMillis
+        ) return existing.command
+        val command =
+            MemoCreateAttempt(
+                operationId = nextOperationId(),
+                draftId = draftId,
+                content = content,
+                timestampMillis = timestampMillis ?: System.currentTimeMillis(),
+            )
+        frozen = Frozen.Create(timestampMillis, command)
+        return command
+    }
+
+    fun update(memo: Memo, content: String, previous: MemoEditorSubmissionState): MemoUpdateAttempt {
+        val snapshot = EditableMemoSnapshot.fromFullSnapshot(memo)
+        val existing = frozen as? Frozen.Update
+        if (previous is MemoEditorSubmissionState.Failed && existing != null &&
+            existing.command.snapshot == snapshot && existing.command.content == content
+        ) return existing.command
+        val command =
+            MemoUpdateAttempt(
+                operationId = nextOperationId(),
+                draftId = draftId,
+                snapshot = snapshot,
+                content = content,
+            )
+        frozen = Frozen.Update(command)
+        return command
+    }
+
+    private fun nextOperationId(): MemoOperationId = newMemoOperationId()
 }

@@ -33,7 +33,6 @@ import com.lomo.app.feature.memo.rememberMemoEditorController
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.app.feature.memo.MemoMenuSelection
-import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
@@ -82,9 +81,6 @@ internal fun collectMainScreenUiSnapshot(
     val pendingNewMemoCreationEvent = pendingNewMemoCreationEvents.lastOrNull()
 
     return MainScreenUiSnapshot(
-        uiMemos = persistentListOf(),
-        visibleUiMemos = persistentListOf(),
-        hasRawItems = false,
         searchQuery = searchQuery,
         memoListFilter = memoListFilter,
         sidebarUiState = sidebarUiState,

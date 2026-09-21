@@ -66,19 +66,35 @@ sealed interface SearchScreenState {
     ) : SearchScreenState
 }
 
+/** Collaborators of the search screen. */
+data class SearchViewModelDependencies(
+    val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
+    val appConfigStateProvider: AppConfigStateProvider,
+    val appConfigUiCoordinator: AppConfigUiCoordinator,
+    val imageMapProvider: ImageMapProvider,
+    val projectionMapper: MemoCollectionProjectionMapper,
+    val searchMemosPageUseCase: SearchMemosPageUseCase,
+    val deleteMemoUseCase: DeleteMemoUseCase,
+    val updateMemoContentUseCase: UpdateMemoContentUseCase,
+    val saveImageUseCase: SaveImageUseCase,
+    val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
+    val workspaceCoordinator: MainWorkspaceCoordinator,
+)
+
 class SearchViewModel(
-    private val observeActiveDayCountUseCase: ObserveActiveDayCountUseCase,
-    private val appConfigStateProvider: AppConfigStateProvider,
-    private val appConfigUiCoordinator: AppConfigUiCoordinator,
-    private val imageMapProvider: ImageMapProvider,
-    private val projectionMapper: MemoCollectionProjectionMapper,
-    private val searchMemosPageUseCase: SearchMemosPageUseCase,
-    private val deleteMemoUseCase: DeleteMemoUseCase,
-    private val updateMemoContentUseCase: UpdateMemoContentUseCase,
-    private val saveImageUseCase: SaveImageUseCase,
-    private val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
-    workspaceCoordinator: MainWorkspaceCoordinator,
+    dependencies: SearchViewModelDependencies,
 ) : ViewModel() {
+    private val observeActiveDayCountUseCase = dependencies.observeActiveDayCountUseCase
+    private val appConfigStateProvider = dependencies.appConfigStateProvider
+    private val appConfigUiCoordinator = dependencies.appConfigUiCoordinator
+    private val imageMapProvider = dependencies.imageMapProvider
+    private val projectionMapper = dependencies.projectionMapper
+    private val searchMemosPageUseCase = dependencies.searchMemosPageUseCase
+    private val deleteMemoUseCase = dependencies.deleteMemoUseCase
+    private val updateMemoContentUseCase = dependencies.updateMemoContentUseCase
+    private val saveImageUseCase = dependencies.saveImageUseCase
+    private val toggleMemoCheckboxUseCase = dependencies.toggleMemoCheckboxUseCase
+    private val workspaceCoordinator = dependencies.workspaceCoordinator
         private val _searchQuery = MutableStateFlow("")
         val searchQuery: StateFlow<String> = _searchQuery
         val searchFilterController = com.lomo.app.feature.common.MemoListFilterController()
@@ -187,7 +203,9 @@ class SearchViewModel(
                         toggleTodo = { memo, actionSpan ->
                             toggleMemoCheckboxUseCase(memo = memo, actionSpan = actionSpan)
                         },
-                        saveImage = saveImageUseCase::saveWithCacheSyncStatus,
+                        saveImage = { source, draftId ->
+                            saveImageUseCase.saveWithCacheSyncStatus(source, draftId)
+                        },
                     ),
                 scope = viewModelScope,
                 mapToUiModel = { memo ->

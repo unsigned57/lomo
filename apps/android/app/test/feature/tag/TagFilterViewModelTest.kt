@@ -105,6 +105,7 @@ class TagFilterViewModelTest : AppFunSpec() {
             memoRepository.deleteMemoFailure = null
             memoRepository.updateMemoFailure = null
             saveImageUseCase.saveResult = null
+            saveImageUseCase.saveException = null
         }
 
         test("memos are loaded for tagName and exposed through state") {
@@ -205,7 +206,9 @@ class TagFilterViewModelTest : AppFunSpec() {
         test("updateMemo exposes mapped error message on failure") {
             runTest {
                 val viewModel = createViewModel(tagName = "work")
-                val memo = sampleMemo(id = "memo-update")
+                val memo =
+                    sampleMemo(id = "memo-update")
+                        .copy(contentRevision = 1L, fileFingerprint = "fingerprint-1")
                 memoRepository.setActiveMemos(listOf(memo))
                 memoRepository.updateMemoFailure = IllegalStateException("update failed")
 
@@ -250,11 +253,7 @@ class TagFilterViewModelTest : AppFunSpec() {
                 val viewModel = createViewModel(tagName = "work")
                 val inputUri = mockk<android.net.Uri>()
                 every { inputUri.toString() } returns "content://images/photo-2"
-                saveImageUseCase.saveResult =
-                    SaveImageResult.SavedButCacheSyncFailed(
-                        location = StorageLocation("images/photo-2.jpg"),
-                        cause = IllegalStateException("cache sync failed"),
-                    )
+                saveImageUseCase.saveException = IllegalStateException("cache sync failed")
                 var savedPath: String? = null
                 var onErrorCalled = false
 
@@ -294,29 +293,31 @@ class TagFilterViewModelTest : AppFunSpec() {
 
     private fun TestScope.createViewModel(savedStateHandle: SavedStateHandle): TagFilterViewModel =
         TagFilterViewModel(
+            TagFilterViewModelDependencies(
+                getMemosByTagPageUseCase =
+                    GetMemosByTagPageUseCase(
+                        com.lomo.app.testing.fakes.FakeMemoSearchRepository(memoRepository),
+                    ),
+                observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
+                appConfigStateProvider =
+                    com.lomo.app.feature.common.AppConfigStateProvider(
+                        appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+                        appPreferencesSnapshotRepository = appConfigRepository,
+                        customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                        appScope = CoroutineScope(SupervisorJob() + testDispatcher),
+                    ),
+                appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+                imageMapProvider = imageMapProvider,
+                memoUiMapper = testMemoUiMapper(),
+                deleteMemoUseCase = deleteMemoUseCase,
+                updateMemoContentUseCase = updateMemoContentUseCase,
+                toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
+                saveImageUseCase = saveImageUseCase,
+                workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
+                    every { workspaceAuthority } returns engineReadinessRepository.workspaceAuthority
+                },
+            ),
             savedStateHandle = savedStateHandle,
-            getMemosByTagPageUseCase =
-                GetMemosByTagPageUseCase(
-                    com.lomo.app.testing.fakes.FakeMemoSearchRepository(memoRepository),
-                ),
-            observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
-            appConfigStateProvider =
-                com.lomo.app.feature.common.AppConfigStateProvider(
-                    appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-                    appPreferencesSnapshotRepository = appConfigRepository,
-                    customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
-                    appScope = CoroutineScope(SupervisorJob() + testDispatcher),
-                ),
-            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-            imageMapProvider = imageMapProvider,
-            memoUiMapper = testMemoUiMapper(),
-            deleteMemoUseCase = deleteMemoUseCase,
-            updateMemoContentUseCase = updateMemoContentUseCase,
-            toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
-            saveImageUseCase = saveImageUseCase,
-            workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
-                every { workspaceAuthority } returns engineReadinessRepository.workspaceAuthority
-            },
         ).also { viewModel ->
             collectWhileSubscribed(viewModel.deletingMemoIds)
         }

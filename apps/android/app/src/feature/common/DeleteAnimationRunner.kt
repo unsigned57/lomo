@@ -1,7 +1,6 @@
 package com.lomo.app.feature.common
 
 import com.lomo.ui.component.common.ExitAnimationRegistry
-import kotlinx.coroutines.CancellationException
 
 internal suspend fun <T> runDeleteAnimationWithRollback(
     itemId: String,
@@ -34,22 +33,19 @@ internal suspend fun <T> runDeleteAnimationWithRollback(
         )
     }
 
+    var committed = false
     try {
         mutation()
         items.forEach { item ->
             registry.markExitMutationCommitted(item.id)
         }
-    } catch (throwable: Exception) {
-        if (throwable is CancellationException) {
+        committed = true
+    } finally {
+        if (!committed) {
             items.forEach { item ->
                 registry.rollbackExit(item.id)
             }
-            throw throwable
         }
-        items.forEach { item ->
-            registry.rollbackExit(item.id)
-        }
-        throw throwable
     }
 }
 

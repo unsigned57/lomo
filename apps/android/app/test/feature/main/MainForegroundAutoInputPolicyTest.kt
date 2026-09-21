@@ -29,20 +29,30 @@ import io.kotest.matchers.shouldBe
  *
  * Excludes:
  * - Compose lifecycle dispatch, keyboard rendering, DataStore persistence, and settings UI.
+ * Test Change Justification:
+ * - Reason category: production signature refactor (parameter object).
+ * - Old behavior/assertion being replaced: policy inputs passed as a flat parameter list.
+ * - Why old assertion is no longer correct: the policy entry point now takes
+ *   MainForegroundAutoInputFacts; calls were updated to the typed facts object.
+ * - Coverage preserved by: every scenario and observable outcome is unchanged.
+ * - Why this is not fitting the test to the implementation: only the input shape changed; the
+ *   same policy decisions are asserted identically.
  */
 class MainForegroundAutoInputPolicyTest : AppFunSpec() {
     init {
         test("given enabled ready main when foreground entry is new then draft editor opens") {
             val decision =
                 resolveMainForegroundAutoInputDecision(
-                    foregroundEntryId = 7L,
-                    handledForegroundEntryId = 6L,
-                    enabled = true,
-                    isReady = true,
-                    explicitEntryPending = false,
-                    editorVisible = false,
-                    isRecording = false,
-                    hasPendingNewMemoCreation = false,
+                    MainForegroundAutoInputFacts(
+                        foregroundEntryId = 7L,
+                        handledForegroundEntryId = 6L,
+                        enabled = true,
+                        isReady = true,
+                        explicitEntryPending = false,
+                        editorVisible = false,
+                        isRecording = false,
+                        hasPendingNewMemoCreation = false,
+                    ),
                 )
 
             decision shouldBe MainForegroundAutoInputPolicy.OpenDraftEditor
@@ -51,14 +61,16 @@ class MainForegroundAutoInputPolicyTest : AppFunSpec() {
         test("given visible editor when foreground entry is new then editor is refocused") {
             val decision =
                 resolveMainForegroundAutoInputDecision(
-                    foregroundEntryId = 7L,
-                    handledForegroundEntryId = 6L,
-                    enabled = true,
-                    isReady = true,
-                    explicitEntryPending = false,
-                    editorVisible = true,
-                    isRecording = false,
-                    hasPendingNewMemoCreation = false,
+                    MainForegroundAutoInputFacts(
+                        foregroundEntryId = 7L,
+                        handledForegroundEntryId = 6L,
+                        enabled = true,
+                        isReady = true,
+                        explicitEntryPending = false,
+                        editorVisible = true,
+                        isRecording = false,
+                        hasPendingNewMemoCreation = false,
+                    ),
                 )
 
             decision shouldBe MainForegroundAutoInputPolicy.RefocusEditor
@@ -67,36 +79,42 @@ class MainForegroundAutoInputPolicyTest : AppFunSpec() {
         test("given explicit entry or busy editor state when foreground entry is new then auto input is suppressed") {
             val explicitEntryDecision =
                 resolveMainForegroundAutoInputDecision(
-                    foregroundEntryId = 7L,
-                    handledForegroundEntryId = 6L,
-                    enabled = true,
-                    isReady = true,
-                    explicitEntryPending = true,
-                    editorVisible = false,
-                    isRecording = false,
-                    hasPendingNewMemoCreation = false,
+                    MainForegroundAutoInputFacts(
+                        foregroundEntryId = 7L,
+                        handledForegroundEntryId = 6L,
+                        enabled = true,
+                        isReady = true,
+                        explicitEntryPending = true,
+                        editorVisible = false,
+                        isRecording = false,
+                        hasPendingNewMemoCreation = false,
+                    ),
                 )
             val recordingDecision =
                 resolveMainForegroundAutoInputDecision(
-                    foregroundEntryId = 7L,
-                    handledForegroundEntryId = 6L,
-                    enabled = true,
-                    isReady = true,
-                    explicitEntryPending = false,
-                    editorVisible = false,
-                    isRecording = true,
-                    hasPendingNewMemoCreation = false,
+                    MainForegroundAutoInputFacts(
+                        foregroundEntryId = 7L,
+                        handledForegroundEntryId = 6L,
+                        enabled = true,
+                        isReady = true,
+                        explicitEntryPending = false,
+                        editorVisible = false,
+                        isRecording = true,
+                        hasPendingNewMemoCreation = false,
+                    ),
                 )
             val pendingCreationDecision =
                 resolveMainForegroundAutoInputDecision(
-                    foregroundEntryId = 7L,
-                    handledForegroundEntryId = 6L,
-                    enabled = true,
-                    isReady = true,
-                    explicitEntryPending = false,
-                    editorVisible = false,
-                    isRecording = false,
-                    hasPendingNewMemoCreation = true,
+                    MainForegroundAutoInputFacts(
+                        foregroundEntryId = 7L,
+                        handledForegroundEntryId = 6L,
+                        enabled = true,
+                        isReady = true,
+                        explicitEntryPending = false,
+                        editorVisible = false,
+                        isRecording = false,
+                        hasPendingNewMemoCreation = true,
+                    ),
                 )
 
             explicitEntryDecision shouldBe MainForegroundAutoInputPolicy.Suppress
@@ -107,14 +125,16 @@ class MainForegroundAutoInputPolicyTest : AppFunSpec() {
         test("given not ready main when foreground entry is new then policy waits without consuming") {
             val decision =
                 resolveMainForegroundAutoInputDecision(
-                    foregroundEntryId = 7L,
-                    handledForegroundEntryId = 6L,
-                    enabled = true,
-                    isReady = false,
-                    explicitEntryPending = false,
-                    editorVisible = false,
-                    isRecording = false,
-                    hasPendingNewMemoCreation = false,
+                    MainForegroundAutoInputFacts(
+                        foregroundEntryId = 7L,
+                        handledForegroundEntryId = 6L,
+                        enabled = true,
+                        isReady = false,
+                        explicitEntryPending = false,
+                        editorVisible = false,
+                        isRecording = false,
+                        hasPendingNewMemoCreation = false,
+                    ),
                 )
 
             decision shouldBe MainForegroundAutoInputPolicy.WaitForReady
@@ -123,25 +143,29 @@ class MainForegroundAutoInputPolicyTest : AppFunSpec() {
         test("given disabled or already handled foreground entry then no editor command is requested") {
             val disabledDecision =
                 resolveMainForegroundAutoInputDecision(
-                    foregroundEntryId = 7L,
-                    handledForegroundEntryId = 6L,
-                    enabled = false,
-                    isReady = true,
-                    explicitEntryPending = false,
-                    editorVisible = false,
-                    isRecording = false,
-                    hasPendingNewMemoCreation = false,
+                    MainForegroundAutoInputFacts(
+                        foregroundEntryId = 7L,
+                        handledForegroundEntryId = 6L,
+                        enabled = false,
+                        isReady = true,
+                        explicitEntryPending = false,
+                        editorVisible = false,
+                        isRecording = false,
+                        hasPendingNewMemoCreation = false,
+                    ),
                 )
             val handledDecision =
                 resolveMainForegroundAutoInputDecision(
-                    foregroundEntryId = 7L,
-                    handledForegroundEntryId = 7L,
-                    enabled = true,
-                    isReady = true,
-                    explicitEntryPending = false,
-                    editorVisible = false,
-                    isRecording = false,
-                    hasPendingNewMemoCreation = false,
+                    MainForegroundAutoInputFacts(
+                        foregroundEntryId = 7L,
+                        handledForegroundEntryId = 7L,
+                        enabled = true,
+                        isReady = true,
+                        explicitEntryPending = false,
+                        editorVisible = false,
+                        isRecording = false,
+                        hasPendingNewMemoCreation = false,
+                    ),
                 )
 
             disabledDecision shouldBe MainForegroundAutoInputPolicy.Suppress
