@@ -5,8 +5,10 @@
 //! tree/commit + non-force CAS ref push (`WholeBatchRef`). Does **not** own direction, conflict,
 //! baseline, tombstone, or retry policy (`lomo-sync` remains the sole planner).
 //!
-//! Production composition: `lomo-sync::run_composed_sync_cycle` may construct this adapter.
-//! `lomo-native` must **not** depend on this crate (conversion stays over `lomo-sync` free-functions).
+//! Production composition: `lomo-native` constructs this adapter at the conversion edge
+//! (`connect_workspace_git`) and injects it into
+//! [`lomo_sync::run_composed_sync_cycle_with_remote_port`]. `lomo-sync` production must **not**
+//! depend on this crate (planner stays provider-neutral; Git is a `RemoteSyncPort` only).
 //!
 //! Never force-pushes, never checkout/resets user worktrees, never writes user files except via
 //! the unified store/workspace expected-revision path (this adapter only mutates Git objects/refs).

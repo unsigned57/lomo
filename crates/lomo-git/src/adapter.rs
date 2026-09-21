@@ -15,9 +15,10 @@ use crate::lock::{DEFAULT_STALE_LOCK_THRESHOLD, ensure_index_lock_clear};
 use crate::mirror::open_local_repository;
 use lomo_core::LomoError;
 use lomo_sync::{
-    BatchAtomicity, ContentDigest, PathPublishStatus, PreparedRemoteBatch, ProviderNeutralIntent,
-    PublishReceipt, RemotePathEntry, RemoteSnapshot, RemoteSyncPort, SnapshotCompleteness,
-    SyncPath, VerifiedRemoteState, VerifyStatus,
+    BatchAtomicity, ContentDigest, MAX_ACTION_PAGE_ITEMS, PathPublishStatus, PreparedRemoteBatch,
+    ProviderNeutralIntent, PublishReceipt, RemoteDigestFact, RemoteListingStream, RemotePathEntry,
+    RemoteResolvedObject, RemoteSnapshot, RemoteSyncPort, RemoteValidator, SnapshotCompleteness,
+    SyncPath, VerifiedRemoteState, VerifyExpectation, VerifyStatus,
 };
 
 /// Git remote adapter implementing the public [`RemoteSyncPort`].
@@ -165,22 +166,113 @@ impl<S: GitObjectSource> GitAdapter<S> {
             let Ok(sync_path) = SyncPath::parse(&path_str) else {
                 return TreeWalkResult::Ok;
             };
-            let Ok(blob) = repo.find_blob(entry.id()) else {
-                return TreeWalkResult::Ok;
-            };
-            let digest_hex = format!("{:x}", Sha256::digest(blob.content()));
-            let Ok(digest) = ContentDigest::parse(&digest_hex) else {
-                return TreeWalkResult::Ok;
-            };
+            // Metadata-only listing: the blob OID is the strong conditional-update validator;
+            // blob bytes stay unread until on-demand digest resolution.
             entries.push(RemotePathEntry {
                 path: sync_path,
-                digest,
-                revision_token: entry.id().to_string(),
+                digest: RemoteDigestFact::Unresolved,
+                validator: RemoteValidator::Strong(entry.id().to_string()),
             });
             TreeWalkResult::Ok
         });
         walk_result.map_err(|error| from_git2("git_tree_walk_failed", &error))?;
         Ok(entries)
+    }
+
+    /// Token-first verify for one path against the fetched remote tip tree.
+    ///
+    /// A blob OID equal to `expected_token` verifies without a blob re-read (receipt + validator
+    /// equality is the postcondition); otherwise the blob is read once and digests compared.
+    fn verify_expectation(
+        repo: &Repository,
+        tree: Option<&git2::Tree<'_>>,
+        expectation: &VerifyExpectation,
+    ) -> VerifyStatus {
+        let path = &expectation.path;
+        let entry = match tree {
+            None => None,
+            Some(tree) => match tree.get_path(std::path::Path::new(path.as_str())) {
+                Ok(entry) => Some(entry),
+                Err(error) if error.code() == ErrorCode::NotFound => None,
+                Err(_error) => {
+                    return VerifyStatus::Failed {
+                        path: path.clone(),
+                        code: "git_tree_path_lookup_failed".to_owned(),
+                    };
+                }
+            },
+        };
+        let Some(entry) = entry else {
+            return match expectation.expected_digest {
+                Some(_) => VerifyStatus::Failed {
+                    path: path.clone(),
+                    code: "verify_expected_present_missing".to_owned(),
+                },
+                None => VerifyStatus::AbsentVerified { path: path.clone() },
+            };
+        };
+        let Some(expected_digest) = expectation.expected_digest.as_ref() else {
+            return VerifyStatus::Failed {
+                path: path.clone(),
+                code: "verify_expected_absent_present".to_owned(),
+            };
+        };
+        let observed_token = entry.id().to_string();
+        if expectation.expected_token.as_deref() == Some(observed_token.as_str()) {
+            return VerifyStatus::Verified {
+                path: path.clone(),
+                digest: expected_digest.clone(),
+                remote_token: observed_token,
+            };
+        }
+        match repo.find_blob(entry.id()) {
+            Ok(blob) => {
+                let digest_hex = format!("{:x}", Sha256::digest(blob.content()));
+                if digest_hex == expected_digest.as_str() {
+                    VerifyStatus::Verified {
+                        path: path.clone(),
+                        digest: expected_digest.clone(),
+                        remote_token: observed_token,
+                    }
+                } else {
+                    VerifyStatus::Failed {
+                        path: path.clone(),
+                        code: "verify_digest_mismatch".to_owned(),
+                    }
+                }
+            }
+            Err(_error) => VerifyStatus::Failed {
+                path: path.clone(),
+                code: "git_blob_lookup_failed".to_owned(),
+            },
+        }
+    }
+
+    /// Reads one remote blob at the fetched remote tip: `(body bytes, blob oid)` when present.
+    fn read_remote_blob(&self, path: &SyncPath) -> Result<Option<(Vec<u8>, String)>, LomoError> {
+        let repo = self.open()?;
+        self.ensure_lock_clear(&repo)?;
+        self.fetch_remote(&repo)?;
+        let Some(tip) = self.resolve_remote_tip(&repo)? else {
+            return Ok(None);
+        };
+        let commit = repo
+            .find_commit(tip)
+            .map_err(|error| from_git2("git_commit_lookup_failed", &error))?;
+        let tree = commit
+            .tree()
+            .map_err(|error| from_git2("git_tree_lookup_failed", &error))?;
+        let entry = match tree.get_path(std::path::Path::new(path.as_str())) {
+            Ok(entry) => entry,
+            Err(error) if error.code() == ErrorCode::NotFound => return Ok(None),
+            Err(error) => {
+                return Err(from_git2("git_tree_path_lookup_failed", &error));
+            }
+        };
+        let blob = repo
+            .find_blob(entry.id())
+            .map_err(|error| from_git2("git_blob_lookup_failed", &error))?;
+        Ok(Some((blob.content().to_vec(), entry.id().to_string())))
     }
 
     fn apply_intents_to_tree(
@@ -205,7 +297,8 @@ impl<S: GitObjectSource> GitAdapter<S> {
                 }
                 ProviderNeutralIntent::PullPresent { .. }
                 | ProviderNeutralIntent::OpenConflict { .. }
-                | ProviderNeutralIntent::ReportUnrecognized { .. } => {}
+                | ProviderNeutralIntent::ReportUnrecognized { .. }
+                | ProviderNeutralIntent::Hold { .. } => {}
             }
         }
 
@@ -356,11 +449,58 @@ impl<S: GitObjectSource> RemoteSyncPort for GitAdapter<S> {
         self.ensure_lock_clear(&repo)?;
         self.fetch_remote(&repo)?;
         let tip = self.resolve_remote_tip(&repo)?;
+        let snapshot_revision = tip.map(|oid| oid.to_string());
         let Some(commit_oid) = tip else {
-            return RemoteSnapshot::new(SnapshotCompleteness::Complete, Vec::new());
+            return RemoteSnapshot::with_snapshot_revision(
+                SnapshotCompleteness::Complete,
+                Vec::new(),
+                None,
+            );
         };
         let entries = Self::tree_entries_from_commit(&repo, commit_oid)?;
-        RemoteSnapshot::new(SnapshotCompleteness::Complete, entries)
+        if entries.len() > MAX_ACTION_PAGE_ITEMS {
+            let page = entries.into_iter().take(MAX_ACTION_PAGE_ITEMS).collect();
+            return RemoteSnapshot::with_snapshot_revision(
+                SnapshotCompleteness::Incomplete,
+                page,
+                snapshot_revision,
+            );
+        }
+        RemoteSnapshot::with_snapshot_revision(
+            SnapshotCompleteness::Complete,
+            entries,
+            snapshot_revision,
+        )
+    }
+
+    fn list_remote_pages(&self) -> Result<RemoteListingStream, LomoError> {
+        let repo = self.open()?;
+        self.ensure_lock_clear(&repo)?;
+        self.fetch_remote(&repo)?;
+        let tip = self.resolve_remote_tip(&repo)?;
+        let snapshot_revision = tip.map(|oid| oid.to_string());
+        let entries = if let Some(commit_oid) = tip {
+            Self::tree_entries_from_commit(&repo, commit_oid)?
+        } else {
+            Vec::new()
+        };
+        let pages = if entries.is_empty() {
+            Vec::new()
+        } else {
+            entries
+                .chunks(MAX_ACTION_PAGE_ITEMS)
+                .map(<[RemotePathEntry]>::to_vec)
+                .collect()
+        };
+        RemoteListingStream::from_pages_with_revision(
+            SnapshotCompleteness::Complete,
+            pages,
+            snapshot_revision,
+        )
+    }
+
+    fn batch_atomicity(&self) -> BatchAtomicity {
+        BatchAtomicity::WholeBatchRef
     }
 
     fn publish(&self, batch: &PreparedRemoteBatch) -> Result<PublishReceipt, LomoError> {
@@ -375,30 +515,23 @@ impl<S: GitObjectSource> RemoteSyncPort for GitAdapter<S> {
         self.fetch_remote(&repo)?;
 
         let remote_tip = self.resolve_remote_tip(&repo)?;
-        let expected_token = batch.intents.iter().find_map(|intent| match intent {
-            ProviderNeutralIntent::EnsurePresent {
-                expected_remote_token: Some(token),
-                ..
-            } => Some(token.as_str()),
-            ProviderNeutralIntent::EnsureAbsent {
-                expected_remote_token,
-                ..
-            } => Some(expected_remote_token.as_str()),
-            ProviderNeutralIntent::EnsurePresent {
-                expected_remote_token: None,
-                ..
+        match (batch.expected_snapshot_token.as_deref(), remote_tip) {
+            (Some(token), Some(tip)) if !token.is_empty() && tip.to_string() != token => {
+                return Ok(PublishReceipt {
+                    path_results: path_statuses(batch, &PathPublishStatus::PreconditionFailed),
+                });
             }
-            | ProviderNeutralIntent::PullPresent { .. }
-            | ProviderNeutralIntent::OpenConflict { .. }
-            | ProviderNeutralIntent::ReportUnrecognized { .. } => None,
-        });
-        if let (Some(token), Some(tip)) = (expected_token, remote_tip)
-            && !token.is_empty()
-            && tip.to_string() != token
-        {
-            return Ok(PublishReceipt {
-                path_results: path_statuses(batch, &PathPublishStatus::PreconditionFailed),
-            });
+            (None, Some(_)) => {
+                return Ok(PublishReceipt {
+                    path_results: path_statuses(batch, &PathPublishStatus::PreconditionFailed),
+                });
+            }
+            (Some(token), None) if !token.is_empty() => {
+                return Ok(PublishReceipt {
+                    path_results: path_statuses(batch, &PathPublishStatus::PreconditionFailed),
+                });
+            }
+            _ => {}
         }
 
         let baseline_tree = if let Some(tip) = remote_tip {
@@ -463,34 +596,55 @@ impl<S: GitObjectSource> RemoteSyncPort for GitAdapter<S> {
         }
     }
 
-    fn verify(&self, paths: &[SyncPath]) -> Result<VerifiedRemoteState, LomoError> {
+    fn verify(&self, expectations: &[VerifyExpectation]) -> Result<VerifiedRemoteState, LomoError> {
         let repo = self.open()?;
         self.ensure_lock_clear(&repo)?;
         self.fetch_remote(&repo)?;
         let tip = self.resolve_remote_tip(&repo)?;
-        let entries = if let Some(oid) = tip {
-            Self::tree_entries_from_commit(&repo, oid)?
-        } else {
-            Vec::new()
-        };
-        let by_path: BTreeMap<&str, &RemotePathEntry> = entries
-            .iter()
-            .map(|entry| (entry.path.as_str(), entry))
-            .collect();
-        let results = paths
-            .iter()
-            .map(|path| {
-                by_path.get(path.as_str()).map_or_else(
-                    || VerifyStatus::AbsentVerified { path: path.clone() },
-                    |entry| VerifyStatus::Verified {
-                        path: path.clone(),
-                        digest: entry.digest.clone(),
-                        remote_token: entry.revision_token.clone(),
-                    },
-                )
+        let tree = tip
+            .map(|oid| {
+                repo.find_commit(oid)
+                    .and_then(|commit| commit.tree())
+                    .map_err(|error| from_git2("git_tree_lookup_failed", &error))
             })
+            .transpose()?;
+        let results = expectations
+            .iter()
+            .map(|expectation| Self::verify_expectation(&repo, tree.as_ref(), expectation))
             .collect();
         Ok(VerifiedRemoteState { results })
+    }
+
+    fn resolve_remote_object(
+        &self,
+        path: &SyncPath,
+    ) -> Result<Option<RemoteResolvedObject>, LomoError> {
+        Ok(self
+            .read_remote_blob(path)?
+            .map(|(bytes, _oid)| RemoteResolvedObject {
+                digest: ContentDigest::from_bytes(&bytes),
+                body: bytes,
+            }))
+    }
+
+    fn load_object(
+        &self,
+        path: &SyncPath,
+        expected_digest: &ContentDigest,
+    ) -> Result<Option<Vec<u8>>, LomoError> {
+        match self.read_remote_blob(path)? {
+            Some((bytes, _oid)) => {
+                let digest_hex = format!("{:x}", Sha256::digest(&bytes));
+                if digest_hex != expected_digest.as_str() {
+                    return Err(validation(
+                        "git_object_digest_mismatch",
+                        "git object digest does not match the conflict candidate digest",
+                    ));
+                }
+                Ok(Some(bytes))
+            }
+            None => Ok(None),
+        }
     }
 }
 
@@ -506,7 +660,8 @@ fn path_statuses(
             | ProviderNeutralIntent::EnsureAbsent { path, .. } => (path.clone(), status.clone()),
             ProviderNeutralIntent::PullPresent { path, .. }
             | ProviderNeutralIntent::OpenConflict { path, .. }
-            | ProviderNeutralIntent::ReportUnrecognized { path } => {
+            | ProviderNeutralIntent::ReportUnrecognized { path }
+            | ProviderNeutralIntent::Hold { path, .. } => {
                 (path.clone(), PathPublishStatus::Skipped)
             }
         })

@@ -42,7 +42,7 @@ mod tests {
     use lomo_sync::{
         BatchAtomicity, ContentDigest, PathPublishStatus, PreparedRemoteBatch,
         ProviderNeutralIntent, PublishReceipt, RemoteSyncPort, SyncPath, VerifiedRemoteState,
-        VerifyStatus,
+        VerifyExpectation, VerifyStatus,
     };
 
     const SMOKE_TIMEOUT: Duration = Duration::from_mins(2);
@@ -222,7 +222,18 @@ mod tests {
         assert_all_applied(&publish, 2);
 
         let verified = adapter
-            .verify(&[markdown.clone(), media.clone()])
+            .verify(&[
+                VerifyExpectation {
+                    path: markdown.clone(),
+                    expected_digest: Some(ContentDigest::from_bytes(MARKDOWN_BODY)),
+                    expected_token: None,
+                },
+                VerifyExpectation {
+                    path: media.clone(),
+                    expected_digest: Some(ContentDigest::from_bytes(MEDIA_BODY)),
+                    expected_token: None,
+                },
+            ])
             .expect("verify must re-read the pushed ref/tree");
         assert_verified_present(
             &verified,
@@ -235,7 +246,18 @@ mod tests {
         assert_all_applied(&cleanup, 2);
 
         let absent = adapter
-            .verify(&[markdown.clone(), media.clone()])
+            .verify(&[
+                VerifyExpectation {
+                    path: markdown.clone(),
+                    expected_digest: None,
+                    expected_token: None,
+                },
+                VerifyExpectation {
+                    path: media.clone(),
+                    expected_digest: None,
+                    expected_token: None,
+                },
+            ])
             .expect("verify must re-read the ref/tree after delete");
         assert_all_absent(&absent, &[&markdown, &media]);
     }

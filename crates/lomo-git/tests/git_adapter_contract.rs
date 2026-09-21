@@ -21,6 +21,11 @@
 //! - Given unrelated local HEAD vs remote tip (no merge-base), when publish runs, then
 //!   `git_merge_base_unproven` blocks (no guess / no force).
 //! - Given `PerPath` batch atomicity, when publish runs, then validation `git_batch_atomicity`.
+//! - Given a planner-shaped `WholeBatchRef` batch whose path tokens are blob OIDs and whose
+//!   snapshot token is the branch tip, when publish runs against a non-empty remote, then Applied
+//!   (CAS compares tip to tip).
+//! - Given a remote tree larger than the 512-item page, when `list_remote_pages` runs, then a
+//!   Complete multi-page stream; `list_remote` stays one Incomplete page.
 //! - Given diverged local HEAD and remote tip that share a proven merge-base (conflict-resolve
 //!   shape), when `KeepLocal` body publishes, then the resulting commit is a dual-parent merge
 //!   commit (first parent = remote tip for CAS; second parent = local HEAD) and tree carries the
@@ -52,8 +57,10 @@ mod tests {
         redact_diagnostic, try_reclaim_stale_index_lock, write_index_lock,
     };
     use lomo_sync::{
-        BatchAtomicity, ContentDigest, PathPublishStatus, PreparedRemoteBatch,
-        ProviderNeutralIntent, RemoteSyncPort, SyncPath,
+        BaselineHead, BatchAtomicity, ContentDigest, LocalPathEntry, LocalSnapshot,
+        MAX_ACTION_PAGE_ITEMS, PathPublishStatus, PreparedRemoteBatch, ProviderNeutralIntent,
+        RemoteDigestFact, RemotePublishContract, RemoteSyncPort, SessionKind, SyncIdentityFence,
+        SyncPath, TombstoneSet, VerifyExpectation, plan_intents_with_atomicity,
     };
     use sha2::{Digest, Sha256};
     use tempfile::tempdir;
@@ -121,6 +128,18 @@ mod tests {
             author_email: "git@lomo.local",
         })
         .expect("adapter")
+    }
+
+    fn whole_batch(
+        intents: Vec<ProviderNeutralIntent>,
+        expected_snapshot_token: Option<String>,
+    ) -> PreparedRemoteBatch {
+        PreparedRemoteBatch::with_snapshot_token(
+            BatchAtomicity::WholeBatchRef,
+            intents,
+            expected_snapshot_token,
+        )
+        .expect("batch")
     }
 
     #[test]
@@ -193,15 +212,14 @@ mod tests {
             .insert("memo/2024-01-02.md".to_owned(), body.to_vec());
         let adapter = adapter_mirror(&bare, &mirror, objects);
 
-        let batch = PreparedRemoteBatch::new(
-            BatchAtomicity::WholeBatchRef,
+        let batch = whole_batch(
             vec![ProviderNeutralIntent::EnsurePresent {
                 path: path("memo/2024-01-02.md"),
                 digest: digest_of(body),
                 expected_remote_token: None,
             }],
-        )
-        .expect("batch");
+            None,
+        );
         let receipt = adapter.publish(&batch).expect("publish");
         assert!(
             matches!(receipt.path_results[0].1, PathPublishStatus::Applied { .. }),
@@ -212,10 +230,27 @@ mod tests {
         let snap = adapter.list_remote().expect("list");
         assert_eq!(snap.entries.len(), 1);
         assert_eq!(snap.entries[0].path.as_str(), "memo/2024-01-02.md");
-        assert_eq!(snap.entries[0].digest.as_str(), digest_of(body).as_str());
+        // Metadata-only listing: digest resolves on demand; blob OID is the validator.
+        assert_eq!(snap.entries[0].digest, RemoteDigestFact::Unresolved);
+        let resolved = adapter
+            .resolve_remote_object(&snap.entries[0].path)
+            .expect("resolve")
+            .expect("present");
+        assert_eq!(resolved.digest.as_str(), digest_of(body).as_str());
 
         let verified = adapter
-            .verify(&[path("memo/2024-01-02.md"), path("memo/missing.md")])
+            .verify(&[
+                VerifyExpectation {
+                    path: path("memo/2024-01-02.md"),
+                    expected_digest: Some(digest_of(body)),
+                    expected_token: None,
+                },
+                VerifyExpectation {
+                    path: path("memo/missing.md"),
+                    expected_digest: None,
+                    expected_token: None,
+                },
+            ])
             .expect("verify");
         assert!(matches!(
             verified.results[0],
@@ -242,15 +277,14 @@ mod tests {
             .insert("memo/a.md".to_owned(), body.to_vec());
         let adapter = adapter_mirror(&bare, &mirror, objects);
 
-        let batch = PreparedRemoteBatch::new(
-            BatchAtomicity::WholeBatchRef,
+        let batch = whole_batch(
             vec![ProviderNeutralIntent::EnsurePresent {
                 path: path("memo/a.md"),
                 digest: digest_of(body),
                 expected_remote_token: Some("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef".to_owned()),
             }],
-        )
-        .expect("batch");
+            Some("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef".to_owned()),
+        );
         let receipt = adapter.publish(&batch).expect("publish receipt");
         assert!(
             matches!(
@@ -268,7 +302,7 @@ mod tests {
         let bare = root.path().join("remote.git");
         let mirror = root.path().join("mirror.git");
         init_bare(&bare);
-        let _seed: String = seed_remote_with_file(&bare, "memo/a.md", b"v1\n");
+        let seed_tip = seed_remote_with_file(&bare, "memo/a.md", b"v1\n");
 
         // First adapter publishes an update.
         let body2 = b"v2\n";
@@ -277,15 +311,14 @@ mod tests {
             .objects
             .insert("memo/a.md".to_owned(), body2.to_vec());
         let adapter = adapter_mirror(&bare, &mirror, objects);
-        let batch = PreparedRemoteBatch::new(
-            BatchAtomicity::WholeBatchRef,
+        let batch = whole_batch(
             vec![ProviderNeutralIntent::EnsurePresent {
                 path: path("memo/a.md"),
                 digest: digest_of(body2),
                 expected_remote_token: None,
             }],
-        )
-        .expect("batch");
+            Some(seed_tip),
+        );
         let receipt = adapter.publish(&batch).expect("publish v2");
         assert!(matches!(
             receipt.path_results[0].1,
@@ -310,15 +343,14 @@ mod tests {
             .objects
             .insert("memo/a.md".to_owned(), body3.to_vec());
         let adapter3 = adapter_mirror(&bare, &root.path().join("mirror3.git"), objects3);
-        let batch3 = PreparedRemoteBatch::new(
-            BatchAtomicity::WholeBatchRef,
+        let batch3 = whole_batch(
             vec![ProviderNeutralIntent::EnsurePresent {
                 path: path("memo/a.md"),
                 digest: digest_of(body3),
-                expected_remote_token: Some(applied_token),
+                expected_remote_token: Some(applied_token.clone()),
             }],
-        )
-        .expect("batch3");
+            Some(applied_token),
+        );
         let receipt3 = adapter3.publish(&batch3).expect("publish3");
         assert!(
             matches!(
@@ -472,16 +504,13 @@ mod tests {
         let adapter = adapter_mirror(&bare, &mirror, MapGitObjectSource::default());
         let snap = adapter.list_remote().expect("list");
         assert_eq!(snap.entries.len(), 1);
-        // Obtain commit tip via push staging: list uses blob tokens; publish EnsureAbsent with empty
-        // expected token still works when remote tip is used as parent.
-        let batch = PreparedRemoteBatch::new(
-            BatchAtomicity::WholeBatchRef,
+        let batch = whole_batch(
             vec![ProviderNeutralIntent::EnsureAbsent {
                 path: path("memo/gone.md"),
                 expected_remote_token: String::new(),
             }],
-        )
-        .expect("batch");
+            snap.snapshot_revision,
+        );
         let receipt = adapter.publish(&batch).expect("publish");
         assert!(
             matches!(receipt.path_results[0].1, PathPublishStatus::Applied { .. }),
@@ -547,7 +576,7 @@ mod tests {
         let bare = root.path().join("remote.git");
         let mirror = root.path().join("mirror.git");
         init_bare(&bare);
-        let _seed: String = seed_remote_with_file(&bare, "memo/a.md", b"remote-only\n");
+        let seed_tip: String = seed_remote_with_file(&bare, "memo/a.md", b"remote-only\n");
 
         // Build app-private bare mirror, then plant an *unrelated* local HEAD commit so
         // require_merge_base(local_head, remote_tip) cannot prove a common ancestor.
@@ -588,15 +617,14 @@ mod tests {
         })
         .expect("adapter");
 
-        let batch = PreparedRemoteBatch::new(
-            BatchAtomicity::WholeBatchRef,
+        let batch = whole_batch(
             vec![ProviderNeutralIntent::EnsurePresent {
                 path: path("memo/a.md"),
                 digest: digest_of(body),
                 expected_remote_token: None,
             }],
-        )
-        .expect("batch");
+            Some(seed_tip),
+        );
         let err = adapter.publish(&batch).expect_err("must block");
         assert_eq!(
             err.code(),
@@ -681,15 +709,14 @@ mod tests {
             .objects
             .insert("memo/a.md".to_owned(), local_body.to_vec());
         let adapter = adapter_mirror(&bare, &mirror, objects);
-        let batch = PreparedRemoteBatch::new(
-            BatchAtomicity::WholeBatchRef,
+        let batch = whole_batch(
             vec![ProviderNeutralIntent::EnsurePresent {
                 path: path("memo/a.md"),
                 digest: digest_of(local_body),
                 expected_remote_token: None,
             }],
-        )
-        .expect("batch");
+            Some(remote_tip_str),
+        );
         let receipt = adapter.publish(&batch).expect("publish merge resolve");
         let new_token = match &receipt.path_results[0].1 {
             PathPublishStatus::Applied { new_token } => new_token.clone(),
@@ -742,9 +769,152 @@ mod tests {
         // list/verify observe local digest.
         let snap = adapter.list_remote().expect("list");
         assert_eq!(snap.entries.len(), 1);
-        assert_eq!(
-            snap.entries[0].digest.as_str(),
-            digest_of(local_body).as_str()
+        let resolved = adapter
+            .resolve_remote_object(&snap.entries[0].path)
+            .expect("resolve")
+            .expect("present");
+        assert_eq!(resolved.digest.as_str(), digest_of(local_body).as_str());
+    }
+
+    fn fence() -> SyncIdentityFence {
+        SyncIdentityFence {
+            workspace_generation: "ab".repeat(32),
+            remote_dataset_id: "ds".to_owned(),
+            remote_identity_digest: "cd".repeat(32),
+        }
+    }
+
+    #[test]
+    fn planner_batch_with_blob_oid_intents_publishes_against_tip_cas() {
+        let root = tempdir().expect("tmp");
+        let bare = root.path().join("remote.git");
+        let mirror = root.path().join("mirror.git");
+        init_bare(&bare);
+        let original = b"remote-a\n";
+        let local_body = b"local-new\n";
+        let _tip = seed_remote_with_file(&bare, "memo/a.md", original);
+
+        let mut objects = MapGitObjectSource::default();
+        objects
+            .objects
+            .insert("memo/a.md".to_owned(), local_body.to_vec());
+        let adapter = adapter_mirror(&bare, &mirror, objects);
+        let snap = adapter.list_remote().expect("list");
+        assert_eq!(snap.entries.len(), 1);
+        let blob_oid = snap.entries[0]
+            .validator
+            .strong_token()
+            .expect("git listing carries blob OID validator")
+            .to_owned();
+        let tip = snap
+            .snapshot_revision
+            .clone()
+            .expect("git listing carries tip");
+        assert_ne!(
+            blob_oid, tip,
+            "path token is blob OID; snapshot CAS is branch tip"
         );
+
+        let mut baseline = BaselineHead::empty();
+        baseline.fence = Some(fence());
+        baseline.upsert(&path("memo/a.md"), &digest_of(original), blob_oid.clone());
+        let local = LocalSnapshot {
+            entries: vec![LocalPathEntry {
+                path: path("memo/a.md"),
+                digest: digest_of(local_body),
+            }],
+            workspace_generation: None,
+        };
+        let batch = plan_intents_with_atomicity(
+            SessionKind::Incremental,
+            &local,
+            &snap,
+            &baseline,
+            &TombstoneSet::empty(),
+            RemotePublishContract::whole_batch(Some(tip.clone())),
+        )
+        .expect("plan");
+        assert_eq!(batch.atomicity, BatchAtomicity::WholeBatchRef);
+        assert_eq!(batch.expected_snapshot_token.as_deref(), Some(tip.as_str()));
+        match &batch.intents[..] {
+            [
+                ProviderNeutralIntent::EnsurePresent {
+                    expected_remote_token: Some(token),
+                    ..
+                },
+            ] => assert_eq!(token, &blob_oid),
+            other => panic!("expected EnsurePresent with blob oid, got {other:?}"),
+        }
+
+        let receipt = adapter.publish(&batch).expect("publish planner batch");
+        assert!(
+            matches!(receipt.path_results[0].1, PathPublishStatus::Applied { .. }),
+            "blob-OID path tokens must not CAS against branch tip: {:?}",
+            receipt.path_results[0].1
+        );
+    }
+
+    #[test]
+    fn list_remote_pages_covers_complete_tree_past_page_ceiling() {
+        let root = tempdir().expect("tmp");
+        let bare = root.path().join("remote.git");
+        let mirror = root.path().join("mirror.git");
+        init_bare(&bare);
+        let count = MAX_ACTION_PAGE_ITEMS + 1;
+        seed_remote_with_many_markdown(&bare, count);
+        let adapter = adapter_mirror(&bare, &mirror, MapGitObjectSource::default());
+
+        let snap = adapter.list_remote().expect("single-shot list");
+        assert!(
+            matches!(
+                snap.completeness,
+                lomo_sync::SnapshotCompleteness::Incomplete
+            ),
+            "list_remote is a page, not a complete-tree budget"
+        );
+        assert_eq!(snap.entries.len(), MAX_ACTION_PAGE_ITEMS);
+
+        let pages = adapter.list_remote_pages().expect("pages");
+        assert!(matches!(
+            pages.overall_completeness,
+            lomo_sync::SnapshotCompleteness::Complete
+        ));
+        let total: usize = pages.pages.iter().map(Vec::len).sum();
+        assert_eq!(total, count);
+        assert!(
+            pages.pages.len() >= 2,
+            "tree larger than one page must stream"
+        );
+        assert!(pages.snapshot_revision.is_some());
+    }
+
+    fn seed_remote_with_many_markdown(bare: &Path, count: usize) {
+        let tmp = tempdir().expect("tmp");
+        let work = tmp.path().join("seed");
+        fs::create_dir_all(&work).expect("work");
+        let mut opts = RepositoryInitOptions::new();
+        opts.initial_head("main");
+        let repo = Repository::init_opts(&work, &opts).expect("work init");
+        let sig = Signature::now("seed", "seed@lomo.local").expect("sig");
+        let mut index = repo.index().expect("index");
+        for i in 0..count {
+            let relative = format!("memo/p{i:04}.md");
+            let file = work.join(&relative);
+            if let Some(parent) = file.parent() {
+                fs::create_dir_all(parent).expect("parent");
+            }
+            fs::write(&file, format!("- 10:00:00\nbody-{i}\n")).expect("write");
+            index.add_path(Path::new(&relative)).expect("add");
+        }
+        index.write().expect("index write");
+        let tree_id = index.write_tree().expect("tree");
+        let tree = repo.find_tree(tree_id).expect("find tree");
+        repo.commit(Some("HEAD"), &sig, &sig, "seed many", &tree, &[])
+            .expect("commit");
+        let url = bare.to_str().expect("utf8 bare").to_owned();
+        let mut remote = repo.remote("origin", &url).expect("remote");
+        remote
+            .push(&["refs/heads/main:refs/heads/main"], None)
+            .expect("push seed");
     }
 }
