@@ -139,8 +139,8 @@ internal fun MutableMap<String, String>.putFloat(
 }
 
 internal fun Map<String, String>.getBoolean(key: String): Boolean? =
-    get(key)?.lowercase(Locale.ROOT)?.let { value ->
-        when (value) {
+    get(key)?.let { value ->
+        when (value.lowercase(Locale.ROOT)) {
             "true" -> true
             "false" -> false
             else -> null

@@ -27,7 +27,7 @@ import io.kotest.matchers.nulls.shouldBeNull
  * - Capability: persist non-sensitive settings while limiting legacy credential access to one drain-only migration path.
  *
  * Scenarios:
- * - Given legacy root and media directories, when content URIs are set, then URI values take precedence and legacy directory values are cleared.
+ * - Given a stored content URI, when a filesystem path is written, then the path replaces the URI as the single location.
  * - Given invalid storage formats, when settings are persisted, then storage format defaults are exposed.
  * - Given blank nullable settings, when values are persisted, then nullable settings are removed.
  * - Given sync and draft settings, when stores are updated, then persisted flow values reflect the updates.
@@ -55,7 +55,7 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
 
         test("storage display and interaction stores persist normalized values") { `storage display and interaction stores persist normalized values`() }
 
-        test("git webdav and draft stores persist configuration and clear empty draft") { `git webdav and draft stores persist configuration and clear empty draft`() }
+        test("git webdav and create draft stores persist configuration and clear empty draft") { `git webdav and create draft stores persist configuration and clear empty draft`() }
     }
 
 
@@ -85,6 +85,15 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
             mediaStore.imageDirectory.first().shouldBeNull()
             mediaStore.voiceUri.first() shouldBe "content://tree/voice"
             mediaStore.voiceDirectory.first().shouldBeNull()
+
+            rootStore.updateRootDirectory("/vault/root-replaced")
+            mediaStore.updateImageDirectory("/vault/images-replaced")
+
+            rootStore.rootUri.first().shouldBeNull()
+            rootStore.rootDirectory.first() shouldBe "/vault/root-replaced"
+            rootStore.getRootDirectoryOnce() shouldBe "/vault/root-replaced"
+            mediaStore.imageUri.first().shouldBeNull()
+            mediaStore.imageDirectory.first() shouldBe "/vault/images-replaced"
         }
 
     private fun `storage display and interaction stores persist normalized values`() =
@@ -117,7 +126,7 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
             (interactionStore.quickSaveOnBackEnabled.first()).shouldBeFalse()
         }
 
-    private fun `git webdav and draft stores persist configuration and clear empty draft`() =
+    private fun `git webdav and create draft stores persist configuration and clear empty draft`() =
         runTest {
             val dataStore = newDataStore(backgroundScope)
             val gitBehaviorStore = GitSyncBehaviorStoreImpl(dataStore)
@@ -127,18 +136,21 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
             val webDavScheduleStore = WebDavScheduleStoreImpl(dataStore)
             val s3ConnectionStore = S3ConnectionStoreImpl(dataStore)
             val s3ScheduleStore = S3ScheduleStoreImpl(dataStore)
-            val draftStore = DraftStoreImpl(dataStore)
+            val createDraftStore = CreateDraftStoreImpl(dataStore)
 
-            gitBehaviorStore.updateGitSyncEnabled(true)
+            gitBehaviorStore.setRemoteSyncBackendFlags(
+                backendType = "git",
+                gitEnabled = true,
+                webdavEnabled = true,
+                s3Enabled = true,
+            )
             gitBehaviorStore.updateGitAutoSyncEnabled(true)
             gitBehaviorStore.updateGitAutoSyncInterval("30m")
             gitBehaviorStore.updateGitSyncOnRefresh(true)
-            gitBehaviorStore.updateSyncBackendType("git")
             gitIdentityStore.updateGitRemoteUrl("https://example.com/repo.git")
             gitIdentityStore.updateGitAuthorName("Lomo")
             gitIdentityStore.updateGitAuthorEmail("lomo@example.com")
             gitStatusStore.updateGitLastSyncTime(1234L)
-            webDavConnectionStore.updateWebDavSyncEnabled(true)
             webDavConnectionStore.updateWebDavProvider("custom")
             webDavConnectionStore.updateWebDavBaseUrl("https://dav.example.com")
             webDavConnectionStore.updateWebDavEndpointUrl("https://dav.example.com/notes")
@@ -147,7 +159,6 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
             webDavScheduleStore.updateWebDavAutoSyncInterval("2h")
             webDavScheduleStore.updateWebDavLastSyncTime(5678L)
             webDavScheduleStore.updateWebDavSyncOnRefresh(true)
-            s3ConnectionStore.updateS3SyncEnabled(true)
             s3ConnectionStore.updateS3EndpointUrl("https://s3.example.com")
             s3ConnectionStore.updateS3Bucket("vault")
             s3ConnectionStore.updateS3LocalSyncDirectory("content://tree/primary%3AObsidian")
@@ -155,7 +166,7 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
             s3ScheduleStore.updateS3AutoSyncInterval("6h")
             s3ScheduleStore.updateS3LastSyncTime(6789L)
             s3ScheduleStore.updateS3SyncOnRefresh(true)
-            draftStore.updateDraftText("draft body")
+            createDraftStore.updateMemoCreateDraft("draft body")
 
             (gitBehaviorStore.gitSyncEnabled.first()).shouldBeTrue()
             (gitBehaviorStore.gitAutoSyncEnabled.first()).shouldBeTrue()
@@ -183,21 +194,21 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
             s3ScheduleStore.s3AutoSyncInterval.first() shouldBe "6h"
             s3ScheduleStore.s3LastSyncTime.first() shouldBe 6789L
             (s3ScheduleStore.s3SyncOnRefresh.first()).shouldBeTrue()
-            draftStore.draftText.first() shouldBe "draft body"
+            createDraftStore.memoCreateDraft.first() shouldBe "draft body"
 
             gitIdentityStore.updateGitRemoteUrl(" ")
             webDavConnectionStore.updateWebDavBaseUrl(" ")
             webDavConnectionStore.updateWebDavEndpointUrl(null)
             webDavConnectionStore.updateWebDavUsername("")
             s3ConnectionStore.updateS3LocalSyncDirectory(" ")
-            draftStore.updateDraftText("")
+            createDraftStore.updateMemoCreateDraft(null)
 
             gitIdentityStore.gitRemoteUrl.first().shouldBeNull()
             webDavConnectionStore.webDavBaseUrl.first().shouldBeNull()
             webDavConnectionStore.webDavEndpointUrl.first().shouldBeNull()
             webDavConnectionStore.webDavUsername.first().shouldBeNull()
             s3ConnectionStore.s3LocalSyncDirectory.first().shouldBeNull()
-            draftStore.draftText.first() shouldBe ""
+            createDraftStore.memoCreateDraft.first().shouldBeNull()
         }
 
     private fun newDataStore(scope: CoroutineScope): androidx.datastore.core.DataStore<Preferences> {

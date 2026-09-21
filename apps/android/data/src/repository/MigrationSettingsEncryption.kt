@@ -2,7 +2,6 @@ package com.lomo.data.repository
 
 import com.lomo.domain.usecase.MigrationPasswordException
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerializationException
 import java.security.GeneralSecurityException
 import java.security.SecureRandom
 import java.util.Base64
@@ -21,6 +20,8 @@ private const val SETTINGS_GCM_TAG_BITS = 128
 private const val SETTINGS_SALT_BYTES = 16
 private const val SETTINGS_NONCE_BYTES = 12
 private const val SETTINGS_KDF_ITERATIONS = 120_000
+private const val SETTINGS_MAX_CIPHER_TEXT_BYTES = 1 shl 20
+private const val SETTINGS_MAX_ENVELOPE_CHARS = 4 shl 20
 
 @Serializable
 private data class EncryptedMigrationSettingsEnvelope(
@@ -61,24 +62,36 @@ internal fun decryptSettings(
     password: String,
 ): ByteArray =
     try {
+        require(envelopeText.length <= SETTINGS_MAX_ENVELOPE_CHARS) {
+            "Migration settings envelope exceeds its size budget"
+        }
         val envelope = migrationJson.decodeFromString<EncryptedMigrationSettingsEnvelope>(envelopeText)
         require(envelope.version == SETTINGS_VERSION) {
             "Unsupported migration settings version: ${envelope.version}"
         }
         require(envelope.kdf == SETTINGS_KDF) { "Unsupported migration settings KDF: ${envelope.kdf}" }
         require(envelope.cipher == SETTINGS_CIPHER) { "Unsupported migration settings cipher: ${envelope.cipher}" }
+        require(envelope.iterations == SETTINGS_KDF_ITERATIONS) {
+            "Unsupported migration settings KDF iterations: ${envelope.iterations}"
+        }
+        val salt = envelope.saltBase64.fromBase64()
+        val nonce = envelope.nonceBase64.fromBase64()
+        val cipherText = envelope.cipherTextBase64.fromBase64()
+        require(salt.size == SETTINGS_SALT_BYTES) { "Migration settings salt has an invalid length" }
+        require(nonce.size == SETTINGS_NONCE_BYTES) { "Migration settings nonce has an invalid length" }
+        require(cipherText.size in 1..SETTINGS_MAX_CIPHER_TEXT_BYTES) {
+            "Migration settings payload has an invalid length"
+        }
         val cipher = Cipher.getInstance(SETTINGS_CIPHER)
         cipher.init(
             Cipher.DECRYPT_MODE,
-            deriveSettingsKey(password, envelope.saltBase64.fromBase64(), envelope.iterations),
-            GCMParameterSpec(SETTINGS_GCM_TAG_BITS, envelope.nonceBase64.fromBase64()),
+            deriveSettingsKey(password, salt, envelope.iterations),
+            GCMParameterSpec(SETTINGS_GCM_TAG_BITS, nonce),
         )
-        cipher.doFinal(envelope.cipherTextBase64.fromBase64())
+        cipher.doFinal(cipherText)
     } catch (exception: AEADBadTagException) {
         throw MigrationPasswordException(cause = exception)
     } catch (exception: IllegalArgumentException) {
-        throw MigrationPasswordException("Migration settings file is not valid", exception)
-    } catch (exception: SerializationException) {
         throw MigrationPasswordException("Migration settings file is not valid", exception)
     } catch (exception: GeneralSecurityException) {
         throw MigrationPasswordException(cause = exception)

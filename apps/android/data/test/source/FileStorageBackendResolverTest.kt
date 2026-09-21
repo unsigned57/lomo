@@ -20,12 +20,8 @@ package com.lomo.data.source
 
 import android.content.Context
 import android.net.Uri
-import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
-import androidx.datastore.preferences.core.Preferences
 import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.local.datastore.LomoDataStoreKeys
-import com.lomo.data.local.datastore.editPreferences
 import com.lomo.data.testing.DataFunSpec
 import io.mockk.every
 import io.mockk.mockk
@@ -133,15 +129,10 @@ class FileStorageBackendResolverTest : DataFunSpec() {
             }
         }
 
-        test("media backend prefers typed uri when both typed uri and typed path are configured") {
+        test("media backend uses typed uri when the unified location is a content uri") {
             runTest {
                 setUpResolver()
-                // The store's update API clears the sibling slot, so seed both keys the way the
-                // migration/restore path does to exercise the uri-over-path precedence policy.
-                backingPreferences.editPreferences {
-                    this[LomoDataStoreKeys.IMAGE_URI] = "content://tree/images"
-                    this[LomoDataStoreKeys.IMAGE_DIRECTORY] = "/typed/images"
-                }
+                dataStore.updateImageUri("content://tree/images")
 
                 val imageRoot = resolver.resolvedMediaRoot(StorageRootType.IMAGE).shouldNotBeNull()
 
@@ -155,7 +146,6 @@ class FileStorageBackendResolverTest : DataFunSpec() {
     private val uriCache = linkedMapOf<String, Uri>()
 
     private lateinit var dataStore: LomoDataStore
-    private lateinit var backingPreferences: DataStore<Preferences>
     private lateinit var resolver: FileStorageBackendResolver
 
     private fun setUp() {
@@ -169,9 +159,7 @@ class FileStorageBackendResolverTest : DataFunSpec() {
     }
 
     private fun TestScope.setUpResolver() {
-        val (store, backing) = createLomoDataStore(backgroundScope)
-        dataStore = store
-        backingPreferences = backing
+        dataStore = createLomoDataStore(backgroundScope)
         resolver = FileStorageBackendResolver(context, dataStore)
     }
 
@@ -183,7 +171,7 @@ class FileStorageBackendResolverTest : DataFunSpec() {
             }
         }
 
-    private fun createLomoDataStore(scope: CoroutineScope): Pair<LomoDataStore, DataStore<Preferences>> {
+    private fun createLomoDataStore(scope: CoroutineScope): LomoDataStore {
         val backingFile = Files.createTempFile("lomo-datastore", ".preferences_pb").toFile().apply {
             deleteOnExit()
         }
@@ -193,6 +181,6 @@ class FileStorageBackendResolverTest : DataFunSpec() {
         )
         val constructor = LomoDataStore::class.java.getDeclaredConstructor(androidx.datastore.core.DataStore::class.java)
         constructor.isAccessible = true
-        return Pair(constructor.newInstance(realDataStore), realDataStore)
+        return constructor.newInstance(realDataStore)
     }
 }

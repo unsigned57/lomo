@@ -72,13 +72,27 @@ class FileWorkspaceConfigSourceDelegateMoreTest : DataFunSpec() {
             }
         }
 
-        test("getRootFlow prefers voice uri over voice path when both exist") {
+        // Test Change Justification
+        // Reason category: storage-location single-key unification.
+        // Old behavior/assertion being replaced: a dual-key "uri beats path" preference for one area.
+        // Why old assertion is no longer correct: an area now persists one unified location, so a uri
+        //   and a path cannot coexist; a later write replaces the earlier one.
+        // Coverage preserved by: asserting the runtime replacement semantics (last write wins and the
+        //   stale kind reads null); the one-time legacy migration stays covered by
+        //   UnifyStorageLocationMigrationTest.
+        // Why this is not fitting the test to the implementation: the unified location is the area's
+        //   single source of truth, and the assertion still checks the public root flow.
+        test("given a voice uri then a voice path when read then the latest runtime location wins") {
             runTest {
                 val (delegate, dataStore) = setUpDelegate()
                 dataStore.updateVoiceUri("content://tree/voice")
                 dataStore.updateVoiceDirectory("/voice/path")
 
-                delegate.getRootFlow(StorageRootType.VOICE).first() shouldBe "content://tree/voice"
+                delegate.getRootFlow(StorageRootType.VOICE).first() shouldBe "/voice/path"
+                dataStore.voiceUri.first() shouldBe null
+
+                dataStore.updateVoiceUri("content://tree/voice-2")
+                delegate.getRootFlow(StorageRootType.VOICE).first() shouldBe "content://tree/voice-2"
             }
         }
 

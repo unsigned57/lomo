@@ -34,7 +34,7 @@ private const val LOMO_DATA_STORE_TAG = "LomoDataStore"
 private val Context.dataStore: DataStore<Preferences> by
     preferencesDataStore(
         name = PreferenceKeys.PREFS_NAME,
-        produceMigrations = { emptyList() },
+        produceMigrations = { listOf(UnifyStorageLocationMigration) },
         corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
     )
 
@@ -166,6 +166,10 @@ interface LomoAppSecurityStore {
     val checkUpdatesOnStartup: Flow<Boolean>
     val appLockEnabled: Flow<Boolean>
 
+    fun observeAppLockPreference(): Flow<com.lomo.domain.model.AppLockPreference>
+
+    suspend fun readAppLockPreference(): com.lomo.domain.model.AppLockPreference
+
     suspend fun updateCheckUpdatesOnStartup(enabled: Boolean)
 
     suspend fun updateAppLockEnabled(enabled: Boolean)
@@ -229,15 +233,11 @@ interface LomoGitSyncBehaviorStore {
     val gitSyncOnRefresh: Flow<Boolean>
     val syncBackendType: Flow<String>
 
-    suspend fun updateGitSyncEnabled(enabled: Boolean)
-
     suspend fun updateGitAutoSyncEnabled(enabled: Boolean)
 
     suspend fun updateGitAutoSyncInterval(interval: String)
 
     suspend fun updateGitSyncOnRefresh(enabled: Boolean)
-
-    suspend fun updateSyncBackendType(type: String)
 
     /**
      * Atomically persists the backend type together with the three enabled flags in a single
@@ -276,8 +276,6 @@ interface LomoWebDavConnectionStore {
     val webDavEndpointUrl: Flow<String?>
     val webDavUsername: Flow<String?>
 
-    suspend fun updateWebDavSyncEnabled(enabled: Boolean)
-
     suspend fun updateWebDavProvider(provider: String)
 
     suspend fun updateWebDavBaseUrl(url: String?)
@@ -314,8 +312,6 @@ interface LomoS3ConnectionStateStore {
 }
 
 interface LomoS3ConnectionMutationStore {
-    suspend fun updateS3SyncEnabled(enabled: Boolean)
-
     suspend fun updateS3EndpointUrl(url: String?)
 
     suspend fun updateS3Region(region: String?)
@@ -369,13 +365,23 @@ interface LomoS3ScheduleStore {
     suspend fun updateS3SyncOnRefresh(enabled: Boolean)
 }
 
-interface LomoDraftStore {
-    val draftText: Flow<String>
+/**
+ * Durable new-memo draft, stored as the modeled create-draft record.
+ *
+ * [retiredDraftText] and [clearRetiredDraftText] exist only for the one-way import of the retired
+ * plain-text key; no production read path uses the blob after that import.
+ */
+interface LomoCreateDraftStore {
+    val memoCreateDraft: Flow<String?>
 
-    suspend fun updateDraftText(text: String?)
+    suspend fun updateMemoCreateDraft(payload: String?)
+
+    val retiredDraftText: Flow<String>
+
+    suspend fun clearRetiredDraftText()
 }
 
-/** Durable editor-session payload kept separate from the create-draft text. */
+/** Durable editor-session payload kept separate from the create-draft slot. */
 interface LomoMemoEditDraftStore {
     val memoEditDraft: Flow<String?>
 
@@ -426,7 +432,7 @@ class LomoDataStore private constructor(
     LomoWebDavScheduleStore by WebDavScheduleStoreImpl(dataStore),
     LomoS3ConnectionStore by S3ConnectionStoreImpl(dataStore),
     LomoS3ScheduleStore by S3ScheduleStoreImpl(dataStore),
-    LomoDraftStore by DraftStoreImpl(dataStore),
+    LomoCreateDraftStore by CreateDraftStoreImpl(dataStore),
     LomoMemoEditDraftStore by MemoEditDraftStoreImpl(dataStore),
     LomoTypographyPreferencesStore by TypographyPreferencesStoreImpl(dataStore) {
     constructor(
@@ -540,6 +546,7 @@ class LomoDataStore private constructor(
 internal object LomoDataStoreKeys {
     val ROOT_URI = stringPreferencesKey(PreferenceKeys.ROOT_URI)
     val ROOT_DIRECTORY = stringPreferencesKey(PreferenceKeys.ROOT_DIRECTORY)
+    val ROOT_LOCATION = stringPreferencesKey(PreferenceKeys.ROOT_LOCATION)
     val ROOT_TRANSITION_ID = stringPreferencesKey("root_transition_id")
     val ROOT_TRANSITION_PREVIOUS = stringPreferencesKey("root_transition_previous")
     val ROOT_TRANSITION_PREVIOUS_PRESENT = booleanPreferencesKey("root_transition_previous_present")
@@ -547,10 +554,13 @@ internal object LomoDataStoreKeys {
     val ROOT_TRANSITION_PHASE = stringPreferencesKey("root_transition_phase")
     val IMAGE_URI = stringPreferencesKey(PreferenceKeys.IMAGE_URI)
     val IMAGE_DIRECTORY = stringPreferencesKey(PreferenceKeys.IMAGE_DIRECTORY)
+    val IMAGE_LOCATION = stringPreferencesKey(PreferenceKeys.IMAGE_LOCATION)
     val VOICE_URI = stringPreferencesKey(PreferenceKeys.VOICE_URI)
     val VOICE_DIRECTORY = stringPreferencesKey(PreferenceKeys.VOICE_DIRECTORY)
+    val VOICE_LOCATION = stringPreferencesKey(PreferenceKeys.VOICE_LOCATION)
     val SYNC_INBOX_URI = stringPreferencesKey(PreferenceKeys.SYNC_INBOX_URI)
     val SYNC_INBOX_DIRECTORY = stringPreferencesKey(PreferenceKeys.SYNC_INBOX_DIRECTORY)
+    val SYNC_INBOX_LOCATION = stringPreferencesKey(PreferenceKeys.SYNC_INBOX_LOCATION)
     val STORAGE_FILENAME_FORMAT = stringPreferencesKey(PreferenceKeys.STORAGE_FILENAME_FORMAT)
     val STORAGE_TIMESTAMP_FORMAT = stringPreferencesKey(PreferenceKeys.STORAGE_TIMESTAMP_FORMAT)
     val DATE_FORMAT = stringPreferencesKey(PreferenceKeys.DATE_FORMAT)
@@ -625,7 +635,9 @@ internal object LomoDataStoreKeys {
     val S3_AUTO_SYNC_INTERVAL = stringPreferencesKey(PreferenceKeys.S3_AUTO_SYNC_INTERVAL)
     val S3_LAST_SYNC_TIME = longPreferencesKey(PreferenceKeys.S3_LAST_SYNC_TIME)
     val S3_SYNC_ON_REFRESH = booleanPreferencesKey(PreferenceKeys.S3_SYNC_ON_REFRESH)
-    val DRAFT_TEXT = stringPreferencesKey(PreferenceKeys.DRAFT_TEXT)
+    /** Retired plain-text draft key: read once by the create-draft import, then removed. */
+    val RETIRED_DRAFT_TEXT = stringPreferencesKey(PreferenceKeys.DRAFT_TEXT)
+    val MEMO_CREATE_DRAFT = stringPreferencesKey("memo_create_draft")
     val MEMO_EDIT_DRAFT = stringPreferencesKey("memo_edit_draft")
     val TYPOGRAPHY_FONT_SIZE_SCALE = floatPreferencesKey(PreferenceKeys.TYPOGRAPHY_FONT_SIZE_SCALE)
     val TYPOGRAPHY_LINE_HEIGHT_SCALE = floatPreferencesKey(PreferenceKeys.TYPOGRAPHY_LINE_HEIGHT_SCALE)

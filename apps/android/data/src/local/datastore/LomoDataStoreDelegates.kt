@@ -11,40 +11,35 @@ import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceRootTransition
 import com.lomo.domain.model.WorkspaceRootTransitionCorruptionException
+import com.lomo.domain.model.AppLockPreference
 import com.lomo.domain.model.WorkspaceRootTransitionPhase
-import com.lomo.data.source.isContentStorageUri
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import java.io.IOException
 import java.util.UUID
 
 internal class RootLocationStoreImpl(
     private val dataStore: DataStore<Preferences>,
 ) : LomoRootLocationStore {
     override val rootUri: Flow<String?> =
-        dataStore.nullableStringFlow(LomoDataStoreKeys.ROOT_URI, "rootUri")
+        dataStore.uriLocationFlow(LomoDataStoreKeys.ROOT_LOCATION, "rootUri")
 
     override val rootDirectory: Flow<String?> =
-        dataStore.nullableStringFlow(LomoDataStoreKeys.ROOT_DIRECTORY, "rootDirectory")
+        dataStore.pathLocationFlow(LomoDataStoreKeys.ROOT_LOCATION, "rootDirectory")
 
     override suspend fun updateRootUri(uri: String?) {
-        dataStore.editPreferences {
-            if (uri != null) {
-                this[LomoDataStoreKeys.ROOT_URI] = uri
-                remove(LomoDataStoreKeys.ROOT_DIRECTORY)
-            } else {
-                remove(LomoDataStoreKeys.ROOT_URI)
-            }
-        }
+        dataStore.updateUnifiedLocation(LomoDataStoreKeys.ROOT_LOCATION, uri, asUri = true)
     }
 
     override suspend fun updateRootDirectory(path: String?) {
-        dataStore.setOrRemove(LomoDataStoreKeys.ROOT_DIRECTORY, path)
+        dataStore.updateUnifiedLocation(LomoDataStoreKeys.ROOT_LOCATION, path, asUri = false)
     }
 
     override suspend fun getRootDirectoryOnce(): String? =
         dataStore.firstValue("getRootDirectoryOnce", null) { prefs ->
-            prefs[LomoDataStoreKeys.ROOT_URI] ?: prefs[LomoDataStoreKeys.ROOT_DIRECTORY]
+            prefs[LomoDataStoreKeys.ROOT_LOCATION]
         }
 }
 
@@ -127,17 +122,11 @@ internal class WorkspaceRootTransitionStoreImpl(
 }
 
 private fun MutablePreferences.putCommittedRoot(location: StorageLocation) {
-    if (isContentStorageUri(location.raw)) {
-        this[LomoDataStoreKeys.ROOT_URI] = location.raw
-        remove(LomoDataStoreKeys.ROOT_DIRECTORY)
-    } else {
-        remove(LomoDataStoreKeys.ROOT_URI)
-        this[LomoDataStoreKeys.ROOT_DIRECTORY] = location.raw
-    }
+    this[LomoDataStoreKeys.ROOT_LOCATION] = location.raw
 }
 
 private fun Preferences.committedRoot(): StorageLocation? =
-    (this[LomoDataStoreKeys.ROOT_URI] ?: this[LomoDataStoreKeys.ROOT_DIRECTORY])?.let(::StorageLocation)
+    this[LomoDataStoreKeys.ROOT_LOCATION]?.let(::StorageLocation)
 
 private fun requireCommittedRoot(
     preferences: Preferences,
@@ -230,66 +219,45 @@ internal class MediaLocationStoreImpl(
     private val dataStore: DataStore<Preferences>,
 ) : LomoMediaLocationStore {
     override val imageUri: Flow<String?> =
-        dataStore.nullableStringFlow(LomoDataStoreKeys.IMAGE_URI, "imageUri")
+        dataStore.uriLocationFlow(LomoDataStoreKeys.IMAGE_LOCATION, "imageUri")
 
     override val imageDirectory: Flow<String?> =
-        dataStore.nullableStringFlow(LomoDataStoreKeys.IMAGE_DIRECTORY, "imageDirectory")
+        dataStore.pathLocationFlow(LomoDataStoreKeys.IMAGE_LOCATION, "imageDirectory")
 
     override val voiceUri: Flow<String?> =
-        dataStore.nullableStringFlow(LomoDataStoreKeys.VOICE_URI, "voiceUri")
+        dataStore.uriLocationFlow(LomoDataStoreKeys.VOICE_LOCATION, "voiceUri")
 
     override val voiceDirectory: Flow<String?> =
-        dataStore.nullableStringFlow(LomoDataStoreKeys.VOICE_DIRECTORY, "voiceDirectory")
+        dataStore.pathLocationFlow(LomoDataStoreKeys.VOICE_LOCATION, "voiceDirectory")
 
     override val syncInboxUri: Flow<String?> =
-        dataStore.nullableStringFlow(LomoDataStoreKeys.SYNC_INBOX_URI, "syncInboxUri")
+        dataStore.uriLocationFlow(LomoDataStoreKeys.SYNC_INBOX_LOCATION, "syncInboxUri")
 
     override val syncInboxDirectory: Flow<String?> =
-        dataStore.nullableStringFlow(LomoDataStoreKeys.SYNC_INBOX_DIRECTORY, "syncInboxDirectory")
+        dataStore.pathLocationFlow(LomoDataStoreKeys.SYNC_INBOX_LOCATION, "syncInboxDirectory")
 
     override suspend fun updateImageUri(uri: String?) {
-        dataStore.editPreferences {
-            if (uri != null) {
-                this[LomoDataStoreKeys.IMAGE_URI] = uri
-                remove(LomoDataStoreKeys.IMAGE_DIRECTORY)
-            } else {
-                remove(LomoDataStoreKeys.IMAGE_URI)
-            }
-        }
+        dataStore.updateUnifiedLocation(LomoDataStoreKeys.IMAGE_LOCATION, uri, asUri = true)
     }
 
     override suspend fun updateImageDirectory(path: String?) {
-        dataStore.setOrRemove(LomoDataStoreKeys.IMAGE_DIRECTORY, path)
+        dataStore.updateUnifiedLocation(LomoDataStoreKeys.IMAGE_LOCATION, path, asUri = false)
     }
 
     override suspend fun updateVoiceUri(uri: String?) {
-        dataStore.editPreferences {
-            if (uri != null) {
-                this[LomoDataStoreKeys.VOICE_URI] = uri
-                remove(LomoDataStoreKeys.VOICE_DIRECTORY)
-            } else {
-                remove(LomoDataStoreKeys.VOICE_URI)
-            }
-        }
+        dataStore.updateUnifiedLocation(LomoDataStoreKeys.VOICE_LOCATION, uri, asUri = true)
     }
 
     override suspend fun updateVoiceDirectory(path: String?) {
-        dataStore.setOrRemove(LomoDataStoreKeys.VOICE_DIRECTORY, path)
+        dataStore.updateUnifiedLocation(LomoDataStoreKeys.VOICE_LOCATION, path, asUri = false)
     }
 
     override suspend fun updateSyncInboxUri(uri: String?) {
-        dataStore.editPreferences {
-            if (uri != null) {
-                this[LomoDataStoreKeys.SYNC_INBOX_URI] = uri
-                remove(LomoDataStoreKeys.SYNC_INBOX_DIRECTORY)
-            } else {
-                remove(LomoDataStoreKeys.SYNC_INBOX_URI)
-            }
-        }
+        dataStore.updateUnifiedLocation(LomoDataStoreKeys.SYNC_INBOX_LOCATION, uri, asUri = true)
     }
 
     override suspend fun updateSyncInboxDirectory(path: String?) {
-        dataStore.setOrRemove(LomoDataStoreKeys.SYNC_INBOX_DIRECTORY, path)
+        dataStore.updateUnifiedLocation(LomoDataStoreKeys.SYNC_INBOX_LOCATION, path, asUri = false)
     }
 }
 
@@ -573,6 +541,34 @@ internal class AppSecurityStoreImpl(
             default = PreferenceKeys.Defaults.APP_LOCK_ENABLED,
         )
 
+    override fun observeAppLockPreference(): Flow<AppLockPreference> =
+        dataStore.data
+            .map { prefs ->
+                if (prefs[LomoDataStoreKeys.APP_LOCK_ENABLED] == true) {
+                    AppLockPreference.Enabled
+                } else {
+                    AppLockPreference.Disabled
+                }
+            }.catch { throwable ->
+                if (throwable is IOException) {
+                    emit(AppLockPreference.Unreadable)
+                } else {
+                    throw throwable
+                }
+            }
+
+    override suspend fun readAppLockPreference(): AppLockPreference =
+        try {
+            val prefs = dataStore.data.first()
+            if (prefs[LomoDataStoreKeys.APP_LOCK_ENABLED] == true) {
+                AppLockPreference.Enabled
+            } else {
+                AppLockPreference.Disabled
+            }
+        } catch (_: IOException) {
+            AppLockPreference.Unreadable
+        }
+
     override suspend fun updateCheckUpdatesOnStartup(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.CHECK_UPDATES_ON_STARTUP] = enabled }
     }
@@ -788,10 +784,6 @@ internal class GitSyncBehaviorStoreImpl(
             default = PreferenceKeys.Defaults.SYNC_BACKEND_TYPE,
         )
 
-    override suspend fun updateGitSyncEnabled(enabled: Boolean) {
-        dataStore.editPreferences { this[LomoDataStoreKeys.GIT_SYNC_ENABLED] = enabled }
-    }
-
     override suspend fun updateGitAutoSyncEnabled(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.GIT_AUTO_SYNC_ENABLED] = enabled }
     }
@@ -802,10 +794,6 @@ internal class GitSyncBehaviorStoreImpl(
 
     override suspend fun updateGitSyncOnRefresh(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.GIT_SYNC_ON_REFRESH] = enabled }
-    }
-
-    override suspend fun updateSyncBackendType(type: String) {
-        dataStore.editPreferences { this[LomoDataStoreKeys.SYNC_BACKEND_TYPE] = type }
     }
 
     override suspend fun setRemoteSyncBackendFlags(
@@ -896,10 +884,6 @@ internal class WebDavConnectionStoreImpl(
 
     override val webDavUsername: Flow<String?> =
         dataStore.nullableStringFlow(LomoDataStoreKeys.WEBDAV_USERNAME, "webDavUsername")
-
-    override suspend fun updateWebDavSyncEnabled(enabled: Boolean) {
-        dataStore.editPreferences { this[LomoDataStoreKeys.WEBDAV_SYNC_ENABLED] = enabled }
-    }
 
     override suspend fun updateWebDavProvider(provider: String) {
         dataStore.editPreferences { this[LomoDataStoreKeys.WEBDAV_PROVIDER] = provider }
@@ -1040,10 +1024,6 @@ internal class S3ConnectionStoreImpl(
             default = PreferenceKeys.Defaults.S3_RCLONE_ENCRYPTED_SUFFIX,
         )
 
-    override suspend fun updateS3SyncEnabled(enabled: Boolean) {
-        dataStore.editPreferences { this[LomoDataStoreKeys.S3_SYNC_ENABLED] = enabled }
-    }
-
     override suspend fun updateS3EndpointUrl(url: String?) {
         dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.S3_ENDPOINT_URL, url)
     }
@@ -1141,24 +1121,25 @@ internal class S3ScheduleStoreImpl(
     }
 }
 
-internal class DraftStoreImpl(
+internal class CreateDraftStoreImpl(
     private val dataStore: DataStore<Preferences>,
-) : LomoDraftStore {
-    override val draftText: Flow<String> =
+) : LomoCreateDraftStore {
+    override val memoCreateDraft: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.MEMO_CREATE_DRAFT, "memoCreateDraft")
+
+    override suspend fun updateMemoCreateDraft(payload: String?) {
+        dataStore.setOrRemove(LomoDataStoreKeys.MEMO_CREATE_DRAFT, payload)
+    }
+
+    override val retiredDraftText: Flow<String> =
         dataStore.stringFlow(
-            key = LomoDataStoreKeys.DRAFT_TEXT,
-            flowName = "draftText",
+            key = LomoDataStoreKeys.RETIRED_DRAFT_TEXT,
+            flowName = "retiredDraftText",
             default = "",
         )
 
-    override suspend fun updateDraftText(text: String?) {
-        dataStore.editPreferences {
-            if (text.isNullOrEmpty()) {
-                remove(LomoDataStoreKeys.DRAFT_TEXT)
-            } else {
-                this[LomoDataStoreKeys.DRAFT_TEXT] = text
-            }
-        }
+    override suspend fun clearRetiredDraftText() {
+        dataStore.editPreferences { remove(LomoDataStoreKeys.RETIRED_DRAFT_TEXT) }
     }
 }
 

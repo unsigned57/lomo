@@ -36,9 +36,7 @@ internal suspend fun LomoDataStore.updateStorageRoot(
     val access = storageRootAccess(type)
     if (isContentStorageUri(pathOrUri)) {
         access.updateUri(pathOrUri)
-        access.updatePath(null)
     } else {
-        access.updateUri(null)
         access.updatePath(pathOrUri)
     }
 }

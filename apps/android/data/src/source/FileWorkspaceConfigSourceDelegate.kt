@@ -7,7 +7,8 @@ import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.engine.uriTreesMatch
 import com.lomo.data.local.datastore.LomoDataStore
-import kotlinx.coroutines.Dispatchers
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -18,6 +19,7 @@ class FileWorkspaceConfigSourceDelegate(
     private val context: Context,
     private val dataStore: LomoDataStore,
     private val backendResolver: FileStorageBackendResolver,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : WorkspaceConfigSource {
         override suspend fun setRoot(
             type: StorageRootType,
@@ -35,7 +37,7 @@ class FileWorkspaceConfigSourceDelegate(
                 when {
                     uriOrPath == null -> null
                     isContentStorageUri(uriOrPath) ->
-                        withContext(Dispatchers.IO) {
+                        withContext(dispatcherProvider.io) {
                             displayNameForUri(uriOrPath.toUri())
                         }
                     else -> uriOrPath

@@ -33,8 +33,7 @@ internal fun Map<String, String>.legacyDrainSensitiveKeys(
 
 internal fun Map<String, String>.legacyWebDavUsernameCredentialValue(): String? =
     get(SettingsKey.WEBDAV_USERNAME)
-        ?.trim()
-        ?.takeIf(String::isNotBlank)
+        ?.run { trim().takeIf(String::isNotBlank) }
 
 internal fun CredentialField.migrationSensitiveKey(): String =
     when (this) {
@@ -64,4 +63,4 @@ private fun Map<String, String>.providerSettingRequiresS3EncryptionCredential():
     get(SettingsKey.S3_ENCRYPTION_MODE).equalsBackend("rclone_crypt")
 
 private fun String?.equalsBackend(expected: String): Boolean =
-    this?.trim()?.lowercase(Locale.ROOT) == expected
+    this?.run { trim().lowercase(Locale.ROOT) } == expected

@@ -2,6 +2,8 @@ package com.lomo.data.source
 
 import android.content.Context
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -10,6 +12,7 @@ import kotlinx.coroutines.sync.withLock
 class FileStorageBackendResolver(
     private val context: Context,
     private val dataStore: LomoDataStore,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) {
         private val backendCacheMutex = Mutex()
         private var currentMarkdownBackend: MarkdownStorageBackend? = null
@@ -39,6 +42,7 @@ class FileStorageBackendResolver(
             buildResolvedMediaRoot(
                 rootConfig = dataStore.readStorageRootConfig(type),
                 context = context,
+                dispatcherProvider = dispatcherProvider,
             )
 
         private suspend fun resolveRootBackendsLocked() {
@@ -53,6 +57,7 @@ class FileStorageBackendResolver(
                     VfsStorageBackend(
                         context = context,
                         rootVfs = it,
+                        dispatcherProvider = dispatcherProvider,
                     )
                 }
             currentMarkdownBackend = backend
@@ -66,6 +71,7 @@ class FileStorageBackendResolver(
 private fun buildResolvedMediaRoot(
     rootConfig: StorageRootConfig,
     context: Context,
+    dispatcherProvider: DispatcherProvider,
 ): ResolvedMediaRoot? {
     val vfs = rootConfig.toWorkspaceVfs() ?: return null
     return ResolvedMediaRoot(
@@ -73,6 +79,7 @@ private fun buildResolvedMediaRoot(
             VfsStorageBackend(
                 context = context,
                 rootVfs = vfs,
+                dispatcherProvider = dispatcherProvider,
             ),
         vfs = vfs,
         configuredUriMarker = rootConfig.configuredUri,

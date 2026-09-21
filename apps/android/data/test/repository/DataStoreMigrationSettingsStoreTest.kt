@@ -545,8 +545,7 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             runTest {
                 val fixture = setUpStore()
                 fixture.credentials.gitToken = "old-git-token"
-                fixture.dataStore.updateGitSyncEnabled(false)
-                fixture.dataStore.updateSyncBackendType("none")
+                fixture.dataStore.setRemoteSyncBackendFlags("none", gitEnabled = false, webdavEnabled = false, s3Enabled = false)
                 fixture.preferenceUpdates.reset()
 
                 val failure =
@@ -578,8 +577,7 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 val fixture = setUpStore()
                 fixture.credentials.webDavUsername = "old-dav-user"
                 fixture.credentials.webDavPassword = "old-dav-password"
-                fixture.dataStore.updateWebDavSyncEnabled(false)
-                fixture.dataStore.updateSyncBackendType("none")
+                fixture.dataStore.setRemoteSyncBackendFlags("none", gitEnabled = false, webdavEnabled = false, s3Enabled = false)
                 fixture.preferenceUpdates.reset()
 
                 val failure =
@@ -617,8 +615,7 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 val fixture = setUpStore()
                 fixture.credentials.webDavUsername = "old-dav-user"
                 fixture.credentials.webDavPassword = "old-dav-password"
-                fixture.dataStore.updateWebDavSyncEnabled(false)
-                fixture.dataStore.updateSyncBackendType("none")
+                fixture.dataStore.setRemoteSyncBackendFlags("none", gitEnabled = false, webdavEnabled = false, s3Enabled = false)
                 fixture.preferenceUpdates.reset()
                 val operationLogBeforeRestore = fixture.operationLog.toList()
 
@@ -658,8 +655,7 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 val fixture = setUpStore()
                 fixture.credentials.s3AccessKeyId = "old-s3-access-key"
                 fixture.credentials.s3SecretAccessKey = "old-s3-secret-key"
-                fixture.dataStore.updateS3SyncEnabled(false)
-                fixture.dataStore.updateSyncBackendType("none")
+                fixture.dataStore.setRemoteSyncBackendFlags("none", gitEnabled = false, webdavEnabled = false, s3Enabled = false)
                 fixture.preferenceUpdates.reset()
 
                 val failure =
@@ -695,8 +691,7 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
         test("given required credential import fails when restore is attempted then ordinary provider settings are not written") {
             runTest {
                 val fixture = setUpStore()
-                fixture.dataStore.updateSyncBackendType("none")
-                fixture.dataStore.updateWebDavSyncEnabled(false)
+                fixture.dataStore.setRemoteSyncBackendFlags("none", gitEnabled = false, webdavEnabled = false, s3Enabled = false)
                 fixture.credentials.webDavPasswordFailures += IllegalStateException("webdav password staging failed")
                 fixture.preferenceUpdates.reset()
 
@@ -1019,7 +1014,11 @@ private data class CredentialFixtureState(
 private object AuthorizedSecuritySessionPolicy : SecuritySessionPolicy {
     override suspend fun authorizeCredentialRead(): CredentialReadAuthorization = CredentialReadAuthorization.Authorized
 
-    override suspend fun isAppLockSatisfied(): Boolean = true
+    override suspend fun current(): com.lomo.domain.model.SecuritySessionState =
+        com.lomo.domain.model.SecuritySessionState.LockOff
+
+    override fun observe(): kotlinx.coroutines.flow.StateFlow<com.lomo.domain.model.SecuritySessionState> =
+        kotlinx.coroutines.flow.MutableStateFlow(com.lomo.domain.model.SecuritySessionState.LockOff)
 }
 
 private class FakeCredentialRepository(

@@ -45,13 +45,14 @@ constructor(
                 ordinaryRestoreAttempted = true
                 restorePreferences(ordinaryPlan)
                 clearMissingSensitive(sensitiveSettings)
+            } catch (exception: CancellationException) {
+                throw exception
             } catch (exception: Exception) {
                 rollbackRestore(
                     rollbackSnapshot = rollbackSnapshot,
                     restoreOrdinary = ordinaryRestoreAttempted,
                     originalFailure = exception,
                 )
-                if (exception is CancellationException) throw exception
                 throw exception
             }
         }
@@ -63,8 +64,9 @@ constructor(
             if (restoreOrdinary) {
                 try {
                     restorePreferences(rollbackSnapshot.toOrdinaryRestorePlan())
+                } catch (error: CancellationException) {
+                    throw error
                 } catch (error: Exception) {
-                    if (error is CancellationException) throw error
                     originalFailure.addSuppressed(error)
                 }
             }
@@ -73,8 +75,9 @@ constructor(
                     sensitive = rollbackSnapshot.sensitive,
                     clearMissing = true,
                 )
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
-                if (error is CancellationException) throw error
                 originalFailure.addSuppressed(error)
             }
         }
@@ -215,7 +218,7 @@ constructor(
             }
         }
         private suspend fun drainLegacyWebDavUsername(): String? {
-            val legacyUsername = dataStore.webDavUsername.first()?.trim()?.takeIf(String::isNotBlank)
+            val legacyUsername = dataStore.webDavUsername.first()?.run { trim().takeIf(String::isNotBlank) }
             if (legacyUsername != null) {
                 credentialRepository.writeSecret(CredentialField.WEBDAV_USERNAME, legacyUsername)
                 dataStore.updateWebDavUsername(null)

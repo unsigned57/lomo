@@ -103,11 +103,10 @@ class FileWorkspaceConfigSourceDelegateTest : DataFunSpec() {
             }
         }
 
-        test("getRootFlow prefers uri and getRootDisplayNameFlow returns raw path when not using saf") {
+        test("getRootFlow classifies a content uri and getRootDisplayNameFlow returns a filesystem path") {
             runTest {
                 val (delegate, dataStore) = setUpDelegate()
                 dataStore.updateRootUri("content://tree/root")
-                dataStore.updateRootDirectory("/memo/root")
                 dataStore.updateVoiceDirectory("/voice/root")
 
                 delegate.getRootFlow(StorageRootType.MAIN).first() shouldBe "content://tree/root"

@@ -15,7 +15,7 @@ package com.lomo.data.repository
  * - Given an active transition, when a new writer asks for admission, then withWrite fails closed
  *   and withWriteOrNull reports the refusal without running its block.
  * - Given a non-Ready engine, when withWrite runs, then it fails closed before the block runs.
- * - Given a newly promoted workspace whose first projection is still building, when a writer asks
+ * - Given a newly promoted workspace whose first projection is still unavailable, when a writer asks
  *   for admission, then it fails closed until the projection is verified.
  * - Given a transition body that throws, when it fails, then admissions reopen.
  * - Given a writer that nests another withWrite, when the inner admission is requested, then it
@@ -33,11 +33,15 @@ package com.lomo.data.repository
  * - Engine activation itself, durable selection persistence, and file writes.
  *
  * Test Change Justification:
- * - Reason category: authority contract expansion.
- * - Old behavior/assertion being replaced: workspace authority contained only identity and generation.
- * - Why old assertion is no longer correct: reads and mutations now bind to a verified projection revision.
- * - Coverage preserved by: admission, drain, nesting, and failure-recovery scenarios remain unchanged.
- * - Why this is not fitting the test to the implementation: the assertion verifies the published authority value.
+ * - Reason category: authority contract expansion and A02 freshness collapse.
+ * - Old behavior/assertion being replaced: workspace authority contained only identity and generation;
+ *   first-projection unreadability used ProjectionFreshness.Building.
+ * - Why old assertion is no longer correct: reads and mutations now bind to a verified projection
+ *   revision, and Building is no longer a freshness state.
+ * - Coverage preserved by: admission, drain, nesting, failure-recovery, and unverified-projection
+ *   scenarios remain unchanged.
+ * - Why this is not fitting the test to the implementation: the assertion verifies the published
+ *   authority value and write-closed unverified freshness.
  */
 
 import com.lomo.data.testing.DataFunSpec
@@ -160,12 +164,12 @@ class ProcessWorkspaceMutationLeaseTest : DataFunSpec() {
             }
         }
 
-        test("given initial projection building when withWrite runs then it fails closed until verified") {
+        test("given initial projection unavailable when withWrite runs then it fails closed until verified") {
             runTest {
                 val readiness = FakeEngineReadinessRepository()
                 val lease = ProcessWorkspaceMutationLease(readiness)
                 var blockRan = false
-                readiness.publishProjectionFreshness(ProjectionFreshness.Building(baseRevision = 0uL))
+                readiness.publishProjectionFreshness(ProjectionFreshness.Unavailable)
 
                 val error =
                     shouldThrow<IllegalStateException> {

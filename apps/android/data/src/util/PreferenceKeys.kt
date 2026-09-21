@@ -12,12 +12,16 @@ object PreferenceKeys {
     // Storage
     const val ROOT_URI = "root_uri"
     const val ROOT_DIRECTORY = "root_directory"
+    const val ROOT_LOCATION = "root_location"
     const val IMAGE_URI = "image_uri"
     const val IMAGE_DIRECTORY = "image_directory"
+    const val IMAGE_LOCATION = "image_location"
     const val VOICE_URI = "voice_uri"
     const val VOICE_DIRECTORY = "voice_directory"
+    const val VOICE_LOCATION = "voice_location"
     const val SYNC_INBOX_URI = "sync_inbox_uri"
     const val SYNC_INBOX_DIRECTORY = "sync_inbox_directory"
+    const val SYNC_INBOX_LOCATION = "sync_inbox_location"
 
     // Storage Formats (New)
     const val STORAGE_FILENAME_FORMAT = "storage_filename_format"

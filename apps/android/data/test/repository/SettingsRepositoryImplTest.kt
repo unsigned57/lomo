@@ -115,21 +115,27 @@ class SettingsRepositoryImplTest : DataFunSpec() {
                 directoryRepository = DirectorySettingsRepositoryImpl(dataSource, dataStore),
                 preferencesRepository =
                     PreferencesRepositoryImpl(
-                        dateTimePreferencesRepository = DateTimePreferencesRepositoryImpl(dataStore),
-                        storagePreferencesRepository = StoragePreferencesRepositoryImpl(dataStore),
-                        interactionPreferencesRepository = InteractionPreferencesRepositoryImpl(dataStore),
-                        interactionBehaviorPreferencesRepository =
-                            InteractionBehaviorPreferencesRepositoryImpl(dataStore),
-                        memoActionPreferencesRepository = MemoActionPreferencesRepositoryImpl(dataStore),
-                        inputToolbarPreferencesRepository = InputToolbarPreferencesRepositoryImpl(dataStore),
-                        securityPreferencesRepository = SecurityPreferencesRepositoryImpl(dataStore),
-                        shareCardPreferencesRepository = ShareCardPreferencesRepositoryImpl(dataStore),
-                        syncInboxPreferencesRepository = SyncInboxPreferencesRepositoryImpl(dataStore),
-                        draftPreferencesRepository = DraftPreferencesRepositoryImpl(dataStore),
-                        typographyPreferencesRepository = TypographyPreferencesRepositoryImpl(dataStore),
-                        sidebarTagOrderPreferencesRepository = SidebarTagOrderPreferencesRepositoryImpl(dataStore),
-                        colorSchemePreferencesRepository = ColorSchemePreferencesRepositoryImpl(dataStore),
-                        fontPreferencesRepository = FontPreferencesRepositoryImpl(dataStore),
+                        preferences =
+                            PreferencesRepositoryDelegates(
+                                dateTimePreferencesRepository = DateTimePreferencesRepositoryImpl(dataStore),
+                                storagePreferencesRepository = StoragePreferencesRepositoryImpl(dataStore),
+                                interactionPreferencesRepository = InteractionPreferencesRepositoryImpl(dataStore),
+                                interactionBehaviorPreferencesRepository =
+                                    InteractionBehaviorPreferencesRepositoryImpl(dataStore),
+                                memoActionPreferencesRepository = MemoActionPreferencesRepositoryImpl(dataStore),
+                                inputToolbarPreferencesRepository = InputToolbarPreferencesRepositoryImpl(dataStore),
+                                sidebarTagOrderPreferencesRepository =
+                                    SidebarTagOrderPreferencesRepositoryImpl(dataStore),
+                            ),
+                        securityAndDisplay =
+                            SecurityAndDisplayPreferencesDelegates(
+                                securityPreferencesRepository = SecurityPreferencesRepositoryImpl(dataStore),
+                                shareCardPreferencesRepository = ShareCardPreferencesRepositoryImpl(dataStore),
+                                syncInboxPreferencesRepository = SyncInboxPreferencesRepositoryImpl(dataStore),
+                                typographyPreferencesRepository = TypographyPreferencesRepositoryImpl(dataStore),
+                                colorSchemePreferencesRepository = ColorSchemePreferencesRepositoryImpl(dataStore),
+                                fontPreferencesRepository = FontPreferencesRepositoryImpl(dataStore),
+                            ),
                     ),
             )
         return Triple(dataSource, dataStore, repository)

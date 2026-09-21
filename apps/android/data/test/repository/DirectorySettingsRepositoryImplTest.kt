@@ -40,8 +40,8 @@ import kotlinx.coroutines.CoroutineScope
 /*
  * Behavior Contract:
  * - Unit under test: DirectorySettingsRepositoryImpl
- * - Behavior focus: storage-area to root-type mapping, uri-vs-path precedence for current location, and display/apply delegation.
- * - Observable outcomes: observed StorageLocation raw values, null fallthrough, selected datastore field priority, and setRoot arguments.
+ * - Behavior focus: storage-area to root-type mapping, current location from the config source, and display/apply delegation.
+ * - Observable outcomes: observed StorageLocation raw values, null fallthrough, and setRoot arguments.
  * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: filesystem/SAF validity checks and DataStore persistence internals.
  */
@@ -67,32 +67,26 @@ class DirectorySettingsRepositoryImplTest : DataFunSpec() {
             }
         }
 
-        test("currentLocation prefers uri over directory for each storage area") {
+        test("currentLocation reads the stored location for each storage area") {
+            runTest {
+                val (_, dataStore, repository) = setUpTest()
+                dataStore.updateRootUri("content://root")
+                dataStore.updateImageUri("content://images")
+                dataStore.updateVoiceDirectory("/voice-only")
+
+                repository.currentLocation(StorageArea.ROOT)?.raw shouldBe "content://root"
+                repository.currentLocation(StorageArea.IMAGE)?.raw shouldBe "content://images"
+                repository.currentLocation(StorageArea.VOICE)?.raw shouldBe "/voice-only"
+            }
+        }
+
+        test("writing a path after a uri replaces the stored location") {
             runTest {
                 val (_, dataStore, repository) = setUpTest()
                 dataStore.updateRootUri("content://root")
                 dataStore.updateRootDirectory("/root")
-                dataStore.updateImageUri("content://images")
-                dataStore.updateImageDirectory("/images")
-                dataStore.updateVoiceUri("content://voice")
-                dataStore.updateVoiceDirectory("/voice")
 
-                repository.currentLocation(StorageArea.ROOT)?.raw shouldBe "content://root"
-                repository.currentLocation(StorageArea.IMAGE)?.raw shouldBe "content://images"
-                repository.currentLocation(StorageArea.VOICE)?.raw shouldBe "content://voice"
-            }
-        }
-
-        test("currentLocation falls back to directory when uri is null") {
-            runTest {
-                val (_, dataStore, repository) = setUpTest()
-                dataStore.updateRootDirectory("/root-only")
-                dataStore.updateImageDirectory("/images-only")
-                dataStore.updateVoiceDirectory("/voice-only")
-
-                repository.currentLocation(StorageArea.ROOT)?.raw shouldBe "/root-only"
-                repository.currentLocation(StorageArea.IMAGE)?.raw shouldBe "/images-only"
-                repository.currentLocation(StorageArea.VOICE)?.raw shouldBe "/voice-only"
+                repository.currentLocation(StorageArea.ROOT)?.raw shouldBe "/root"
             }
         }
 

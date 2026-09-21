@@ -8,7 +8,6 @@ import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.ColorSchemePreferencesRepository
 import com.lomo.domain.repository.DateTimePreferencesRepository
-import com.lomo.domain.repository.DraftPreferencesRepository
 import com.lomo.domain.repository.FontPreferencesRepository
 import com.lomo.domain.repository.InteractionBehaviorPreferencesRepository
 import com.lomo.domain.repository.InteractionPreferencesRepository
@@ -26,37 +25,43 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+data class PreferencesRepositoryDelegates(
+    val dateTimePreferencesRepository: DateTimePreferencesRepositoryImpl,
+    val storagePreferencesRepository: StoragePreferencesRepositoryImpl,
+    val interactionPreferencesRepository: InteractionPreferencesRepositoryImpl,
+    val interactionBehaviorPreferencesRepository: InteractionBehaviorPreferencesRepositoryImpl,
+    val memoActionPreferencesRepository: MemoActionPreferencesRepositoryImpl,
+    val inputToolbarPreferencesRepository: InputToolbarPreferencesRepositoryImpl,
+    val sidebarTagOrderPreferencesRepository: SidebarTagOrderPreferencesRepositoryImpl,
+)
+
+data class SecurityAndDisplayPreferencesDelegates(
+    val securityPreferencesRepository: SecurityPreferencesRepositoryImpl,
+    val shareCardPreferencesRepository: ShareCardPreferencesRepositoryImpl,
+    val syncInboxPreferencesRepository: SyncInboxPreferencesRepositoryImpl,
+    val typographyPreferencesRepository: TypographyPreferencesRepositoryImpl,
+    val colorSchemePreferencesRepository: ColorSchemePreferencesRepositoryImpl,
+    val fontPreferencesRepository: FontPreferencesRepositoryImpl,
+)
+
 class PreferencesRepositoryImpl
 constructor(
-        dateTimePreferencesRepository: DateTimePreferencesRepositoryImpl,
-        storagePreferencesRepository: StoragePreferencesRepositoryImpl,
-        interactionPreferencesRepository: InteractionPreferencesRepositoryImpl,
-        interactionBehaviorPreferencesRepository: InteractionBehaviorPreferencesRepositoryImpl,
-        memoActionPreferencesRepository: MemoActionPreferencesRepositoryImpl,
-        inputToolbarPreferencesRepository: InputToolbarPreferencesRepositoryImpl,
-        sidebarTagOrderPreferencesRepository: SidebarTagOrderPreferencesRepositoryImpl,
-        securityPreferencesRepository: SecurityPreferencesRepositoryImpl,
-        shareCardPreferencesRepository: ShareCardPreferencesRepositoryImpl,
-        syncInboxPreferencesRepository: SyncInboxPreferencesRepositoryImpl,
-        draftPreferencesRepository: DraftPreferencesRepositoryImpl,
-        typographyPreferencesRepository: TypographyPreferencesRepositoryImpl,
-        colorSchemePreferencesRepository: ColorSchemePreferencesRepositoryImpl,
-        fontPreferencesRepository: FontPreferencesRepositoryImpl,
+        preferences: PreferencesRepositoryDelegates,
+        securityAndDisplay: SecurityAndDisplayPreferencesDelegates,
     ) : PreferencesRepository,
-        DateTimePreferencesRepository by dateTimePreferencesRepository,
-        StoragePreferencesRepository by storagePreferencesRepository,
-        InteractionPreferencesRepository by interactionPreferencesRepository,
-        InteractionBehaviorPreferencesRepository by interactionBehaviorPreferencesRepository,
-        MemoActionPreferencesRepository by memoActionPreferencesRepository,
-        InputToolbarPreferencesRepository by inputToolbarPreferencesRepository,
-        SidebarTagOrderPreferencesRepository by sidebarTagOrderPreferencesRepository,
-        SecurityPreferencesRepository by securityPreferencesRepository,
-        ShareCardPreferencesRepository by shareCardPreferencesRepository,
-        SyncInboxPreferencesRepository by syncInboxPreferencesRepository,
-        DraftPreferencesRepository by draftPreferencesRepository,
-        TypographyPreferencesRepository by typographyPreferencesRepository,
-        ColorSchemePreferencesRepository by colorSchemePreferencesRepository,
-        FontPreferencesRepository by fontPreferencesRepository
+        DateTimePreferencesRepository by preferences.dateTimePreferencesRepository,
+        StoragePreferencesRepository by preferences.storagePreferencesRepository,
+        InteractionPreferencesRepository by preferences.interactionPreferencesRepository,
+        InteractionBehaviorPreferencesRepository by preferences.interactionBehaviorPreferencesRepository,
+        MemoActionPreferencesRepository by preferences.memoActionPreferencesRepository,
+        InputToolbarPreferencesRepository by preferences.inputToolbarPreferencesRepository,
+        SidebarTagOrderPreferencesRepository by preferences.sidebarTagOrderPreferencesRepository,
+        SecurityPreferencesRepository by securityAndDisplay.securityPreferencesRepository,
+        ShareCardPreferencesRepository by securityAndDisplay.shareCardPreferencesRepository,
+        SyncInboxPreferencesRepository by securityAndDisplay.syncInboxPreferencesRepository,
+        TypographyPreferencesRepository by securityAndDisplay.typographyPreferencesRepository,
+        ColorSchemePreferencesRepository by securityAndDisplay.colorSchemePreferencesRepository,
+        FontPreferencesRepository by securityAndDisplay.fontPreferencesRepository
 class DateTimePreferencesRepositoryImpl
 constructor(
         private val dataStore: LomoDataStore,
@@ -232,15 +237,6 @@ constructor(
         override fun getShareCardSignatureText(): Flow<String> = dataStore.shareCardSignatureText
         override suspend fun setShareCardSignatureText(text: String) {
             dataStore.updateShareCardSignatureText(text)
-        }
-    }
-class DraftPreferencesRepositoryImpl
-constructor(
-        private val dataStore: LomoDataStore,
-    ) : DraftPreferencesRepository {
-        override fun getDraftText(): Flow<String> = dataStore.draftText
-        override suspend fun setDraftText(text: String?) {
-            dataStore.updateDraftText(text)
         }
     }
 class SyncInboxPreferencesRepositoryImpl
