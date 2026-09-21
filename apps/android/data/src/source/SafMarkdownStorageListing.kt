@@ -14,7 +14,7 @@ internal suspend fun safListMetadata(
     rootUri: Uri,
     documentAccess: SafDocumentAccess,
 ): List<FileMetadata> =
-    withContext(SAF_IO_DISPATCHER) {
+    withContext(documentAccess.ioDispatcher) {
         // behavior-contract: silent-result-ok: fast recursive query may fail; falls to safListMetadataSlow
         runCatching { safQueryMainMarkdownMetadataRecursive(context, rootUri) }
             .getOrNull()
@@ -34,7 +34,7 @@ internal fun safListMetadataSlow(documentAccess: SafDocumentAccess): List<FileMe
 internal suspend fun safListTrashMetadata(
     documentAccess: SafDocumentAccess,
 ): List<FileMetadata> =
-    withContext(SAF_IO_DISPATCHER) {
+    withContext(documentAccess.ioDispatcher) {
         val trashDir = documentAccess.trashDir() ?: return@withContext emptyList()
         trashDir.listFiles().mapNotNull { file ->
             val name = file.name
@@ -51,44 +51,40 @@ internal suspend fun safListTrashMetadata(
     }
 
 internal suspend fun safListMetadataWithIds(
-    context: Context,
     rootUri: Uri,
     documentAccess: SafDocumentAccess,
 ): List<FileMetadataWithId> =
-    safStreamMetadataWithIds(context, rootUri, documentAccess).toList()
+    safStreamMetadataWithIds(rootUri, documentAccess).toList()
 
 internal suspend fun safListTrashMetadataWithIds(
-    context: Context,
     rootUri: Uri,
     documentAccess: SafDocumentAccess,
 ): List<FileMetadataWithId> =
-    safStreamTrashMetadataWithIds(context, rootUri, documentAccess).toList()
+    safStreamTrashMetadataWithIds(rootUri, documentAccess).toList()
 
 internal fun safStreamMetadataWithIds(
-    context: Context,
     rootUri: Uri,
     documentAccess: SafDocumentAccess,
 ): Flow<FileMetadataWithId> {
     documentAccess.root() ?: return kotlinx.coroutines.flow.emptyFlow()
     val rootDocId = DocumentsContract.getTreeDocumentId(rootUri)
-    return safStreamChildDocumentsWithIdsRecursive(context, rootUri, rootDocId)
+    return safStreamChildDocumentsWithIdsRecursive(documentAccess, rootUri, rootDocId)
 }
 
 internal fun safStreamTrashMetadataWithIds(
-    context: Context,
     rootUri: Uri,
     documentAccess: SafDocumentAccess,
 ): Flow<FileMetadataWithId> {
     val trashDir = documentAccess.trashDir() ?: return kotlinx.coroutines.flow.emptyFlow()
     val trashDocId = DocumentsContract.getDocumentId(trashDir.uri)
-    return safStreamChildDocumentsWithIds(context, rootUri, trashDocId)
+    return safStreamChildDocumentsWithIds(documentAccess, rootUri, trashDocId)
 }
 
 internal suspend fun safGetFileMetadata(
     documentAccess: SafDocumentAccess,
     filename: String,
 ): FileMetadata? =
-    withContext(SAF_IO_DISPATCHER) {
+    withContext(documentAccess.ioDispatcher) {
         safResolveRelative(documentAccess.root(), filename)?.let { file ->
             FileMetadata(filename = filename, lastModified = file.lastModified(), size = file.length())
         }
@@ -98,7 +94,7 @@ internal suspend fun safGetTrashFileMetadata(
     documentAccess: SafDocumentAccess,
     filename: String,
 ): FileMetadata? =
-    withContext(SAF_IO_DISPATCHER) {
+    withContext(documentAccess.ioDispatcher) {
         documentAccess.trashDir()?.findFile(filename)?.let { file ->
             FileMetadata(filename = filename, lastModified = file.lastModified(), size = file.length())
         }

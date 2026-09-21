@@ -12,7 +12,7 @@ internal suspend fun safReadFile(
     documentAccess: SafDocumentAccess,
     filename: String,
 ): String? =
-    withContext(SAF_IO_DISPATCHER) {
+    withContext(documentAccess.ioDispatcher) {
         val file = safResolveRelative(documentAccess.root(), filename) ?: return@withContext null
         documentAccess.readTextFromUri(file.uri)
     }
@@ -21,7 +21,7 @@ internal suspend fun safReadFileUri(
     documentAccess: SafDocumentAccess,
     uri: Uri,
 ): String? =
-    withContext(SAF_IO_DISPATCHER) {
+    withContext(documentAccess.ioDispatcher) {
         documentAccess.readTextFromUri(uri)
     }
 
@@ -29,7 +29,7 @@ internal suspend fun safReadTrashFile(
     documentAccess: SafDocumentAccess,
     filename: String,
 ): String? =
-    withContext(SAF_IO_DISPATCHER) {
+    withContext(documentAccess.ioDispatcher) {
         val file = documentAccess.trashDir()?.findFile(filename) ?: return@withContext null
         documentAccess.readTextFromUri(file.uri)
     }
@@ -38,7 +38,7 @@ internal suspend fun safFingerprintFile(
     documentAccess: SafDocumentAccess,
     filename: String,
 ): String? =
-    withContext(SAF_IO_DISPATCHER) {
+    withContext(documentAccess.ioDispatcher) {
         val file = safResolveRelative(documentAccess.root(), filename) ?: return@withContext null
         documentAccess.contentResolver.openInputStream(file.uri)?.use { input -> input.md5Hex() }
     }
@@ -47,7 +47,7 @@ internal suspend fun safFingerprintTrashFile(
     documentAccess: SafDocumentAccess,
     filename: String,
 ): String? =
-    withContext(SAF_IO_DISPATCHER) {
+    withContext(documentAccess.ioDispatcher) {
         val file = documentAccess.trashDir()?.findFile(filename) ?: return@withContext null
         documentAccess.contentResolver.openInputStream(file.uri)?.use { input -> input.md5Hex() }
     }
@@ -57,7 +57,7 @@ internal suspend fun safReadFileByDocumentId(
     documentAccess: SafDocumentAccess,
     documentId: String,
 ): String? =
-    withContext(SAF_IO_DISPATCHER) {
+    withContext(documentAccess.ioDispatcher) {
         try {
             val fileUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, documentId)
             documentAccess.readTextFromUri(fileUri)
@@ -92,7 +92,7 @@ internal suspend fun safReadTrashFileByDocumentId(
     documentAccess: SafDocumentAccess,
     documentId: String,
 ): String? =
-    withContext(SAF_IO_DISPATCHER) {
+    withContext(documentAccess.ioDispatcher) {
         try {
             val fileUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, documentId)
             documentAccess.readTextFromUri(fileUri)

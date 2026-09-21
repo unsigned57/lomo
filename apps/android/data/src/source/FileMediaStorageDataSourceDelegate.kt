@@ -4,7 +4,7 @@ class FileMediaStorageDataSourceDelegate(
     private val backendResolver: FileStorageBackendResolver,
 ) : MediaStorageDataSource {
     override suspend fun listImageFiles(): List<Pair<String, String>> =
-        resolvedImageBackend()?.listImageFiles() ?: emptyList()
+        resolvedImageBackend()?.listImageFiles().orEmpty()
 
     override suspend fun getImageLocation(filename: String): String? =
         resolvedImageBackend()?.getImageLocation(filename)

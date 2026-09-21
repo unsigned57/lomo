@@ -1,7 +1,8 @@
 package com.lomo.data.source
 
 import com.lomo.data.util.md5Hex
-import kotlinx.coroutines.Dispatchers
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -15,8 +16,9 @@ import java.util.UUID
 internal suspend fun directReadFile(
     rootDir: File,
     filename: String,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): String? =
-    withContext(Dispatchers.IO) {
+    withContext(dispatcherProvider.io) {
         val file = File(rootDir, filename)
         ensureWithinDirectory(rootDir, file)
         if (file.exists()) {
@@ -29,8 +31,9 @@ internal suspend fun directReadFile(
 internal suspend fun directReadTrashFile(
     rootDir: File,
     filename: String,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): String? =
-    withContext(Dispatchers.IO) {
+    withContext(dispatcherProvider.io) {
         val trashDir = directTrashDir(rootDir)
         val file = File(trashDir, filename)
         ensureWithinDirectory(trashDir, file)
@@ -44,8 +47,9 @@ internal suspend fun directReadTrashFile(
 internal suspend fun directFingerprintFile(
     rootDir: File,
     filename: String,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): String? =
-    withContext(Dispatchers.IO) {
+    withContext(dispatcherProvider.io) {
         val file = File(rootDir, filename)
         ensureWithinDirectory(rootDir, file)
         if (file.exists() && file.isFile) file.md5Hex() else null
@@ -54,8 +58,9 @@ internal suspend fun directFingerprintFile(
 internal suspend fun directFingerprintTrashFile(
     rootDir: File,
     filename: String,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): String? =
-    withContext(Dispatchers.IO) {
+    withContext(dispatcherProvider.io) {
         val trashDir = directTrashDir(rootDir)
         val file = File(trashDir, filename)
         ensureWithinDirectory(trashDir, file)
@@ -67,8 +72,9 @@ internal suspend fun directSaveFile(
     filename: String,
     content: String,
     append: Boolean,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): String? =
-    withContext(Dispatchers.IO) {
+    withContext(dispatcherProvider.io) {
         directEnsureRootExists(rootDir)
         val file = File(rootDir, filename)
         ensureWithinDirectory(rootDir, file)
@@ -85,7 +91,8 @@ internal suspend fun directSaveTrashFile(
     filename: String,
     content: String,
     append: Boolean,
-) = withContext(Dispatchers.IO) {
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+) = withContext(dispatcherProvider.io) {
     directEnsureTrashExists(rootDir)
     val trashDir = directTrashDir(rootDir)
     val file = File(trashDir, filename)
@@ -161,8 +168,9 @@ internal fun directWriteTextAtomically(
 internal suspend fun directDeleteFile(
     rootDir: File,
     filename: String,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
     secureWipe: (File) -> Unit = ::secureWipeFileBeforeDelete,
-) = withContext(Dispatchers.IO) {
+) = withContext(dispatcherProvider.io) {
     val file = File(rootDir, filename)
     ensureWithinDirectory(rootDir, file)
     if (file.exists()) {
@@ -175,8 +183,9 @@ internal suspend fun directDeleteFile(
 internal suspend fun directDeleteTrashFile(
     rootDir: File,
     filename: String,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
     secureWipe: (File) -> Unit = ::secureWipeFileBeforeDelete,
-) = withContext(Dispatchers.IO) {
+) = withContext(dispatcherProvider.io) {
     val trashDir = directTrashDir(rootDir)
     val file = File(trashDir, filename)
     ensureWithinDirectory(trashDir, file)

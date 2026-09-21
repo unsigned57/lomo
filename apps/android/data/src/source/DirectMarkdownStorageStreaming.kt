@@ -1,6 +1,7 @@
 package com.lomo.data.source
 
-import kotlinx.coroutines.Dispatchers
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -9,6 +10,7 @@ import java.io.File
 internal fun directStreamFile(
     rootDir: File,
     filename: String,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): Flow<String> =
     flow {
         val file = File(rootDir, filename)
@@ -18,11 +20,12 @@ internal fun directStreamFile(
                 lines.forEach { line -> emit(line) }
             }
         }
-    }.flowOn(Dispatchers.IO)
+    }.flowOn(dispatcherProvider.io)
 
 internal fun directStreamTrashFile(
     rootDir: File,
     filename: String,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): Flow<String> =
     flow {
         val trashDir = directTrashDir(rootDir)
@@ -33,4 +36,4 @@ internal fun directStreamTrashFile(
                 lines.forEach { line -> emit(line) }
             }
         }
-    }.flowOn(Dispatchers.IO)
+    }.flowOn(dispatcherProvider.io)

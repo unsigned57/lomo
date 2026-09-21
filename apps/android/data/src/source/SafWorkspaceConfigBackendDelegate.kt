@@ -13,7 +13,7 @@ private suspend fun safCreateDirectory(
     documentAccess: SafDocumentAccess,
     name: String,
 ): String =
-    withContext(SAF_IO_DISPATCHER) {
+    withContext(documentAccess.ioDispatcher) {
         val root = documentAccess.root() ?: throw IOException("Cannot access root directory")
         val dir =
             root.findFile(name)

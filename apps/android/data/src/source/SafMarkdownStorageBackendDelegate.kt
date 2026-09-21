@@ -19,15 +19,15 @@ internal class SafMarkdownStorageBackendDelegate(
     override suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId> =
         routeMarkdownDirectory(
             directory = directory,
-            onMain = { safListMetadataWithIds(context, rootUri, documentAccess) },
-            onTrash = { safListTrashMetadataWithIds(context, rootUri, documentAccess) },
+            onMain = { safListMetadataWithIds(rootUri, documentAccess) },
+            onTrash = { safListTrashMetadataWithIds(rootUri, documentAccess) },
         )
 
     override fun streamMetadataWithIdsIn(directory: MemoDirectoryType): Flow<FileMetadataWithId> =
         routeMarkdownDirectory(
             directory = directory,
-            onMain = { safStreamMetadataWithIds(context, rootUri, documentAccess) },
-            onTrash = { safStreamTrashMetadataWithIds(context, rootUri, documentAccess) },
+            onMain = { safStreamMetadataWithIds(rootUri, documentAccess) },
+            onTrash = { safStreamTrashMetadataWithIds(rootUri, documentAccess) },
         )
 
     override suspend fun getFileMetadataIn(

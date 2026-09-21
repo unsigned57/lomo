@@ -1,31 +1,34 @@
 package com.lomo.data.source
 
 import android.net.Uri
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.flow.Flow
 import java.io.File
 
 internal class DirectMarkdownStorageBackendDelegate(
     private val rootDir: File,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : MarkdownStorageBackend {
     override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> =
         routeMarkdownDirectory(
             directory = directory,
-            onMain = { directListMetadata(rootDir) },
-            onTrash = { directListTrashMetadata(rootDir) },
+            onMain = { directListMetadata(rootDir, dispatcherProvider) },
+            onTrash = { directListTrashMetadata(rootDir, dispatcherProvider) },
         )
 
     override suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId> =
         routeMarkdownDirectory(
             directory = directory,
-            onMain = { directListMetadataWithIds(rootDir) },
-            onTrash = { directListTrashMetadataWithIds(rootDir) },
+            onMain = { directListMetadataWithIds(rootDir, dispatcherProvider) },
+            onTrash = { directListTrashMetadataWithIds(rootDir, dispatcherProvider) },
         )
 
     override fun streamMetadataWithIdsIn(directory: MemoDirectoryType): Flow<FileMetadataWithId> =
         routeMarkdownDirectory(
             directory = directory,
-            onMain = { directStreamMetadataWithIds(rootDir) },
-            onTrash = { directStreamTrashMetadataWithIds(rootDir) },
+            onMain = { directStreamMetadataWithIds(rootDir, dispatcherProvider) },
+            onTrash = { directStreamTrashMetadataWithIds(rootDir, dispatcherProvider) },
         )
 
     override suspend fun getFileMetadataIn(
@@ -34,8 +37,8 @@ internal class DirectMarkdownStorageBackendDelegate(
     ): FileMetadata? =
         routeMarkdownDirectory(
             directory = directory,
-            onMain = { directGetFileMetadata(rootDir, filename) },
-            onTrash = { directGetTrashFileMetadata(rootDir, filename) },
+            onMain = { directGetFileMetadata(rootDir, filename, dispatcherProvider) },
+            onTrash = { directGetTrashFileMetadata(rootDir, filename, dispatcherProvider) },
         )
 
     override suspend fun readFileIn(
@@ -44,8 +47,8 @@ internal class DirectMarkdownStorageBackendDelegate(
     ): String? =
         routeMarkdownDirectory(
             directory = directory,
-            onMain = { directReadFile(rootDir, filename) },
-            onTrash = { directReadTrashFile(rootDir, filename) },
+            onMain = { directReadFile(rootDir, filename, dispatcherProvider) },
+            onTrash = { directReadTrashFile(rootDir, filename, dispatcherProvider) },
         )
 
     override suspend fun fingerprintFileIn(
@@ -54,8 +57,8 @@ internal class DirectMarkdownStorageBackendDelegate(
     ): String? =
         routeMarkdownDirectory(
             directory = directory,
-            onMain = { directFingerprintFile(rootDir, filename) },
-            onTrash = { directFingerprintTrashFile(rootDir, filename) },
+            onMain = { directFingerprintFile(rootDir, filename, dispatcherProvider) },
+            onTrash = { directFingerprintTrashFile(rootDir, filename, dispatcherProvider) },
         )
 
     override suspend fun readFileByDocumentIdIn(
@@ -64,8 +67,8 @@ internal class DirectMarkdownStorageBackendDelegate(
     ): String? =
         routeMarkdownDirectory(
             directory = directory,
-            onMain = { directReadFile(rootDir, documentId) },
-            onTrash = { directReadTrashFile(rootDir, documentId) },
+            onMain = { directReadFile(rootDir, documentId, dispatcherProvider) },
+            onTrash = { directReadTrashFile(rootDir, documentId, dispatcherProvider) },
         )
 
     override fun streamFileByDocumentIdIn(
@@ -74,11 +77,11 @@ internal class DirectMarkdownStorageBackendDelegate(
     ): Flow<String> =
         routeMarkdownDirectory(
             directory = directory,
-            onMain = { directStreamFile(rootDir, documentId) },
-            onTrash = { directStreamTrashFile(rootDir, documentId) },
+            onMain = { directStreamFile(rootDir, documentId, dispatcherProvider) },
+            onTrash = { directStreamTrashFile(rootDir, documentId, dispatcherProvider) },
         )
 
-    override suspend fun readFile(uri: Uri): String? = directReadFileUri(uri)
+    override suspend fun readFile(uri: Uri): String? = directReadFileUri(uri, dispatcherProvider)
 
     override suspend fun saveFileIn(
         directory: MemoDirectoryType,
@@ -89,9 +92,9 @@ internal class DirectMarkdownStorageBackendDelegate(
     ): String? =
         routeMarkdownDirectory(
             directory = directory,
-            onMain = { directSaveFile(rootDir, filename, content, append) },
+            onMain = { directSaveFile(rootDir, filename, content, append, dispatcherProvider) },
             onTrash = {
-                directSaveTrashFile(rootDir, filename, content, append)
+                directSaveTrashFile(rootDir, filename, content, append, dispatcherProvider)
                 null
             },
         )
@@ -107,8 +110,12 @@ internal class DirectMarkdownStorageBackendDelegate(
     ) {
         routeMarkdownDirectory(
             directory = directory,
-            onMain = { directDeleteFile(rootDir = rootDir, filename = filename) },
-            onTrash = { directDeleteTrashFile(rootDir = rootDir, filename = filename) },
+            onMain = {
+                directDeleteFile(rootDir = rootDir, filename = filename, dispatcherProvider = dispatcherProvider)
+            },
+            onTrash = {
+                directDeleteTrashFile(rootDir = rootDir, filename = filename, dispatcherProvider = dispatcherProvider)
+            },
         )
     }
 }

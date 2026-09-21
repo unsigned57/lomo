@@ -17,7 +17,7 @@ internal suspend fun safSaveFile(
     append: Boolean,
     uri: Uri?,
 ): String? =
-    withContext(SAF_IO_DISPATCHER) {
+    withContext(documentAccess.ioDispatcher) {
         documentAccess.withSecurityRetryOrThrow(operation = "saveFile($filename)") {
             safWriteUsingKnownUri(documentAccess, uri, content, append)
                 ?: safWriteUsingResolvedFile(rootUri, documentAccess, filename, content, append)
@@ -29,7 +29,7 @@ internal suspend fun safSaveTrashFile(
     filename: String,
     content: String,
     append: Boolean,
-) = withContext(SAF_IO_DISPATCHER) {
+) = withContext(documentAccess.ioDispatcher) {
     documentAccess.withSecurityRetryOrThrow(operation = "saveTrashFile($filename)") {
         val trash =
             documentAccess.orCreateTrashDir()
@@ -44,7 +44,7 @@ internal suspend fun safDeleteFile(
     documentAccess: SafDocumentAccess,
     filename: String,
     uri: Uri?,
-) = withContext(SAF_IO_DISPATCHER) {
+) = withContext(documentAccess.ioDispatcher) {
     documentAccess.withSecurityRetry(
         operation = "deleteFile($filename)",
         fallbackValue = Unit,
@@ -74,7 +74,7 @@ internal suspend fun safDeleteFile(
 internal suspend fun safDeleteTrashFile(
     documentAccess: SafDocumentAccess,
     filename: String,
-) = withContext(SAF_IO_DISPATCHER) {
+) = withContext(documentAccess.ioDispatcher) {
     documentAccess.trashDir()?.findFile(filename)?.delete()
     Unit
 }

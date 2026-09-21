@@ -13,7 +13,7 @@ internal class SafMediaStorageBackendDelegate(
 private suspend fun safListImageFiles(
     documentAccess: SafDocumentAccess,
 ): List<Pair<String, String>> =
-    withContext(SAF_IO_DISPATCHER) {
+    withContext(documentAccess.ioDispatcher) {
         val root = documentAccess.root() ?: return@withContext emptyList()
         root.listFiles().mapNotNull { file ->
             val name = file.name
@@ -33,6 +33,6 @@ private suspend fun safGetImageLocation(
     documentAccess: SafDocumentAccess,
     filename: String,
 ): String? =
-    withContext(SAF_IO_DISPATCHER) {
-        documentAccess.root()?.findFile(filename)?.takeIf { it.isFile }?.uri?.toString()
+    withContext(documentAccess.ioDispatcher) {
+        documentAccess.root()?.findFile(filename)?.takeIf { it.isFile }?.run { uri.toString() }
     }

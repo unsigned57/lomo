@@ -1,6 +1,8 @@
 package com.lomo.data.source
 
 import android.content.Context
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 
 internal class VfsStorageBackend private constructor(
     markdownDelegate: MarkdownStorageBackend,
@@ -12,7 +14,8 @@ internal class VfsStorageBackend private constructor(
     constructor(
         context: Context,
         rootVfs: WorkspaceVfs,
-    ) : this(createVfsStorageDelegateBundle(context, rootVfs))
+        dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+    ) : this(createVfsStorageDelegateBundle(context, rootVfs, dispatcherProvider))
 
     private constructor(
         bundle: VfsStorageDelegateBundle,
@@ -32,17 +35,18 @@ private data class VfsStorageDelegateBundle(
 private fun createVfsStorageDelegateBundle(
     context: Context,
     rootVfs: WorkspaceVfs,
+    dispatcherProvider: DispatcherProvider,
 ): VfsStorageDelegateBundle =
     when (rootVfs) {
         is WorkspaceVfs.Direct ->
             VfsStorageDelegateBundle(
-                markdownDelegate = DirectMarkdownStorageBackendDelegate(rootVfs.rootDir),
-                workspaceDelegate = DirectWorkspaceConfigBackendDelegate(rootVfs.rootDir),
-                mediaDelegate = DirectMediaStorageBackendDelegate(rootVfs.rootDir),
+                markdownDelegate = DirectMarkdownStorageBackendDelegate(rootVfs.rootDir, dispatcherProvider),
+                workspaceDelegate = DirectWorkspaceConfigBackendDelegate(rootVfs.rootDir, dispatcherProvider),
+                mediaDelegate = DirectMediaStorageBackendDelegate(rootVfs.rootDir, dispatcherProvider),
             )
 
         is WorkspaceVfs.Saf -> {
-            val documentAccess = SafDocumentAccess(context, rootVfs.rootUri)
+            val documentAccess = SafDocumentAccess(context, rootVfs.rootUri, dispatcherProvider = dispatcherProvider)
             VfsStorageDelegateBundle(
                 markdownDelegate = SafMarkdownStorageBackendDelegate(context, rootVfs.rootUri, documentAccess),
                 workspaceDelegate = SafWorkspaceConfigBackendDelegate(documentAccess),

@@ -1,13 +1,15 @@
 package com.lomo.data.source
 
 import com.lomo.domain.model.MediaFileExtensions
-import kotlinx.coroutines.Dispatchers
+import com.lomo.domain.usecase.DispatcherProvider
+import kotlinx.coroutines.CoroutineDispatcher
 
 internal const val SAF_MARKDOWN_SUFFIX = ".md"
 internal const val SAF_TRASH_DIR_NAME = ".trash"
 private const val SAF_MAX_IO_PARALLELISM = 4
 
-internal val SAF_IO_DISPATCHER = Dispatchers.IO.limitedParallelism(SAF_MAX_IO_PARALLELISM)
+internal fun safIoDispatcher(dispatcherProvider: DispatcherProvider): CoroutineDispatcher =
+    dispatcherProvider.io.limitedParallelism(SAF_MAX_IO_PARALLELISM)
 
 internal fun safMatchesMarkdownTarget(
     name: String?,

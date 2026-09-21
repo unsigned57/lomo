@@ -4,6 +4,9 @@ import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.util.runNonFatalCatching
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
+import kotlinx.coroutines.CoroutineDispatcher
 import okio.buffer
 import okio.sink
 import okio.source
@@ -14,7 +17,10 @@ internal class SafDocumentAccess(
     private val context: Context,
     private val rootUri: Uri,
     private val subDir: String? = null,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) {
+    internal val ioDispatcher: CoroutineDispatcher = safIoDispatcher(dispatcherProvider)
+
     private var cachedTrashDir: DocumentFile? = null
 
     internal val contentResolver
@@ -83,7 +89,7 @@ internal class SafDocumentAccess(
 
     fun readTextFromUri(uri: Uri): String? =
         try {
-            context.contentResolver.openInputStream(uri)?.source()?.buffer()?.use { it.readUtf8() }
+            context.contentResolver.openInputStream(uri)?.run { source().buffer().use { it.readUtf8() } }
         } catch (_: Exception) {
             // behavior-contract: silent-result-ok: unreadable SAF document is treated as absent optional content
             null

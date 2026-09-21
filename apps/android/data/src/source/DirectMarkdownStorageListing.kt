@@ -1,6 +1,7 @@
 package com.lomo.data.source
 
-import kotlinx.coroutines.Dispatchers
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -24,28 +25,39 @@ private fun walkTrashMarkdownFiles(rootDir: File): Sequence<File> {
     if (!trashDir.exists() || !trashDir.isDirectory) return emptySequence()
     return trashDir
         .listFiles { _, name -> name.endsWith(DIRECT_MARKDOWN_SUFFIX) }
-        ?.asSequence()
-        ?.filter(File::isFile)
+        ?.run {
+            asSequence()
+                .filter(File::isFile)
+        }
         .orEmpty()
 }
 
-internal suspend fun directListMetadata(rootDir: File): List<FileMetadata> =
-    withContext(Dispatchers.IO) {
+internal suspend fun directListMetadata(
+    rootDir: File,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+): List<FileMetadata> =
+    withContext(dispatcherProvider.io) {
         walkMainMarkdownFiles(rootDir)
             .map { file ->
                 FileMetadata(file.relativeLomoPath(rootDir), file.lastModified(), file.length())
             }.toList()
     }
 
-internal suspend fun directListTrashMetadata(rootDir: File): List<FileMetadata> =
-    withContext(Dispatchers.IO) {
+internal suspend fun directListTrashMetadata(
+    rootDir: File,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+): List<FileMetadata> =
+    withContext(dispatcherProvider.io) {
         walkTrashMarkdownFiles(rootDir)
             .map { file -> FileMetadata(file.name, file.lastModified(), file.length()) }
             .toList()
     }
 
-internal suspend fun directListMetadataWithIds(rootDir: File): List<FileMetadataWithId> =
-    directListMetadata(rootDir).map {
+internal suspend fun directListMetadataWithIds(
+    rootDir: File,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+): List<FileMetadataWithId> =
+    directListMetadata(rootDir, dispatcherProvider).map {
         FileMetadataWithId(
             filename = it.filename,
             lastModified = it.lastModified,
@@ -54,7 +66,10 @@ internal suspend fun directListMetadataWithIds(rootDir: File): List<FileMetadata
         )
     }
 
-internal fun directStreamMetadataWithIds(rootDir: File): Flow<FileMetadataWithId> =
+internal fun directStreamMetadataWithIds(
+    rootDir: File,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+): Flow<FileMetadataWithId> =
     flow {
         walkMainMarkdownFiles(rootDir).forEach { file ->
             val filename = file.relativeLomoPath(rootDir)
@@ -67,11 +82,14 @@ internal fun directStreamMetadataWithIds(rootDir: File): Flow<FileMetadataWithId
                 ),
             )
         }
-    }.flowOn(Dispatchers.IO)
+    }.flowOn(dispatcherProvider.io)
 
-internal suspend fun directListTrashMetadataWithIds(rootDir: File): List<FileMetadataWithId> {
+internal suspend fun directListTrashMetadataWithIds(
+    rootDir: File,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+): List<FileMetadataWithId> {
     val trashDir = directTrashDir(rootDir)
-    return directListTrashMetadata(rootDir).map {
+    return directListTrashMetadata(rootDir, dispatcherProvider).map {
         FileMetadataWithId(
             filename = it.filename,
             lastModified = it.lastModified,
@@ -81,7 +99,10 @@ internal suspend fun directListTrashMetadataWithIds(rootDir: File): List<FileMet
     }
 }
 
-internal fun directStreamTrashMetadataWithIds(rootDir: File): Flow<FileMetadataWithId> {
+internal fun directStreamTrashMetadataWithIds(
+    rootDir: File,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+): Flow<FileMetadataWithId> {
     val trashDir = directTrashDir(rootDir)
     return flow {
         walkTrashMarkdownFiles(rootDir).forEach { file ->
@@ -94,14 +115,15 @@ internal fun directStreamTrashMetadataWithIds(rootDir: File): Flow<FileMetadataW
                 ),
             )
         }
-    }.flowOn(Dispatchers.IO)
+    }.flowOn(dispatcherProvider.io)
 }
 
 internal suspend fun directGetFileMetadata(
     rootDir: File,
     filename: String,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): FileMetadata? =
-    withContext(Dispatchers.IO) {
+    withContext(dispatcherProvider.io) {
         val file = File(rootDir, filename)
         if (file.exists()) {
             FileMetadata(filename, file.lastModified(), file.length())
@@ -113,8 +135,9 @@ internal suspend fun directGetFileMetadata(
 internal suspend fun directGetTrashFileMetadata(
     rootDir: File,
     filename: String,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): FileMetadata? =
-    withContext(Dispatchers.IO) {
+    withContext(dispatcherProvider.io) {
         val file = File(directTrashDir(rootDir), filename)
         if (file.exists()) {
             FileMetadata(filename, file.lastModified(), file.length())

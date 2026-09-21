@@ -46,8 +46,9 @@ interface MarkdownStorageDataSource {
     ): Flow<String> =
         flow {
             readFileByDocumentIdIn(directory, documentId)
-                ?.lineSequence()
-                ?.forEach { line -> emit(line) }
+                ?.run {
+                    lineSequence().forEach { line -> emit(line) }
+                }
         }
 
     suspend fun readFileIn(

@@ -13,10 +13,10 @@ class FileMarkdownStorageDataSourceDelegate(
     private val writeLease: WorkspaceMutationLease,
 ) : MarkdownStorageDataSource {
         override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> =
-            backendResolver.markdownBackend()?.listMetadataIn(directory) ?: emptyList()
+            backendResolver.markdownBackend()?.listMetadataIn(directory).orEmpty()
 
         override suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId> =
-            backendResolver.markdownBackend()?.listMetadataWithIdsIn(directory) ?: emptyList()
+            backendResolver.markdownBackend()?.listMetadataWithIdsIn(directory).orEmpty()
 
         override fun streamMetadataWithIdsIn(directory: MemoDirectoryType): Flow<FileMetadataWithId> =
             flow {

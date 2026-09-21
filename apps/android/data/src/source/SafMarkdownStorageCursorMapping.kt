@@ -36,7 +36,7 @@ internal fun safQueryChildDocumentsWithIds(
 }
 
 internal fun safStreamChildDocumentsWithIds(
-    context: Context,
+    documentAccess: SafDocumentAccess,
     rootUri: Uri,
     parentDocId: String,
 ): Flow<FileMetadataWithId> =
@@ -48,7 +48,7 @@ internal fun safStreamChildDocumentsWithIds(
                 DocumentsContract.Document.COLUMN_DISPLAY_NAME,
                 DocumentsContract.Document.COLUMN_LAST_MODIFIED,
             )
-        context.contentResolver.query(childUri, projection, null, null, null)?.use { cursor ->
+        documentAccess.contentResolver.query(childUri, projection, null, null, null)?.use { cursor ->
             val indexes =
                 SafCursorColumnIndexes(
                     documentId = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
@@ -61,7 +61,7 @@ internal fun safStreamChildDocumentsWithIds(
                 }
             }
         }
-    }.flowOn(SAF_IO_DISPATCHER)
+    }.flowOn(documentAccess.ioDispatcher)
 
 private fun safMapCursorToMetadataWithId(
     cursor: Cursor,
