@@ -1,6 +1,7 @@
 //! Executable ownership policies. Inputs are parsed facts; malformed or unowned input is an error.
 
 mod config;
+pub mod ffi;
 mod inventory;
 mod kotlin;
 mod rust_graph;

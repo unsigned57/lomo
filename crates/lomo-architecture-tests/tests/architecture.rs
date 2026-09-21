@@ -11,6 +11,8 @@
 //! Excludes: migration status claims and behavioral tests owned by the runtime crates.
 
 #[cfg(test)]
+mod ffi_contracts;
+#[cfg(test)]
 mod policy;
 #[cfg(test)]
 mod policy_contracts;
@@ -32,6 +34,31 @@ mod tests {
             .join("../..")
             .canonicalize()
             .expect("root")
+    }
+
+    #[test]
+    fn ffi_surface_comes_from_explicit_native_exports() {
+        let exports = policy::ffi::workspace_exports(&root()).expect("native exports must parse");
+        assert!(!exports.is_empty());
+        assert!(
+            exports
+                .iter()
+                .all(|export| !export.rust.starts_with("Store::"))
+        );
+    }
+
+    #[test]
+    #[ignore = "requires generated bindings and full Kotlin symbol facts; the verification planner schedules this boundary explicitly"]
+    fn ffi_generated_contract_has_reachable_adapters() {
+        let root = root();
+        let facts = std::env::var_os("LOMO_FFI_FACTS")
+            .map(PathBuf::from)
+            .expect("planner must provide current FFI symbol facts");
+        let exports = policy::ffi::workspace_exports(&root).expect("explicit native exports");
+        let (generated, graph) =
+            policy::ffi::load_graph(&root, &facts).expect("complete current Kotlin symbol graph");
+        let violations = policy::ffi::contract_violations(&exports, &generated, &graph);
+        assert!(violations.is_empty(), "{violations:#?}");
     }
 
     fn read(path: &str) -> String {

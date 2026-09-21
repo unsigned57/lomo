@@ -9,11 +9,13 @@ autotests = false
 
 [dev-dependencies]
 serde_json.workspace = true
+sha2.workspace = true
 tempfile.workspace = true
 proc-macro2 = { version = "=1.0.107", features = ["span-locations"] }
 syn = { version = "=2.0.119", features = ["full", "visit"] }
 toml = "=1.1.4"
-yaml-rust2 = { version = "=0.13.0", default-features = false }
+# Shares the workspace's admitted hashbrown/foldhash family; keep parser contracts enabled.
+yaml-rust2 = { version = "=0.10.4", default-features = false }
 
 [[test]]
 name = "architecture"

@@ -106,6 +106,7 @@ const OWNERS: &[Owner] = &[
             "lomo-sync",
             "lomo-git",
             "lomo-lan",
+            "lomo-platform-fs",
             "serde_json",
         ],
     },
@@ -133,7 +134,14 @@ const OWNERS: &[Owner] = &[
     Owner {
         name: "lomo-xtask",
         directory: "crates/lomo-xtask",
-        dependencies: &["anyhow", "lomo-feasibility", "serde_json"],
+        dependencies: &[
+            "anyhow",
+            "lomo-feasibility",
+            "serde",
+            "serde_json",
+            "sha2",
+            "yaml-rust2",
+        ],
     },
     Owner {
         name: "lomo-architecture-tests",

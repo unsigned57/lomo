@@ -6,7 +6,8 @@
 //! given ordinary strings/comments and a legal dependency, no violation is invented.
 //! Observable outcomes: structured rule IDs, offending owners/paths and parser errors.
 //! TDD proof: `architecture::module_dependency_syntax_cannot_hide_edges` failed before the parser
-//! replacement with `left=[]` and `right=["data"]`. Runtime rule RED/GREEN evidence is in audit-09.
+//! replacement with `left=[]` and `right=["data"]`. Historical rule RED/GREEN evidence:
+//! audit/03-客户端与工程门禁修复计划.md#history-evidence.
 //! Excludes: product transactions, platform drivers, compiler type inference and performance timing.
 
 #[cfg(test)]
