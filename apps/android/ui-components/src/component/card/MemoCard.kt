@@ -169,22 +169,25 @@ fun MemoCard(
             Spacer(modifier = Modifier.height(AppSpacing.Small))
             MemoCardBody(
                 processedContent = processedContent,
-                renderDocument = renderDocument,
-                presentationPlan = presentationPlan,
                 shouldShowExpand = shouldShowExpand,
                 isCollapsedPreview = isCollapsedPreview,
                 collapsedPreviewMode = collapsedPreviewMode,
                 collapsedSummary = collapsedSummary,
                 isExpanded = effectiveExpanded,
-                allowFreeTextCopy = allowFreeTextCopy,
-                onTapFeedback = memoCardTapFeedback,
-                onBodyClick = effectiveOnClick,
-                onDoubleClick = quickEditOnDoubleClick,
-                onLongClick = textLongClick,
-                onTodoClick = onTodoClick,
-                onImageClick = onImageClick,
-                mediaPresentationResolver = mediaPresentationResolver,
-                mediaContent = mediaContent,
+                state =
+                    MemoCardBodyState(
+                        renderDocument = renderDocument,
+                        presentationPlan = presentationPlan,
+                        allowFreeTextCopy = allowFreeTextCopy,
+                        onTapFeedback = memoCardTapFeedback,
+                        onBodyClick = effectiveOnClick,
+                        onDoubleClick = quickEditOnDoubleClick,
+                        onLongClick = textLongClick,
+                        onTodoClick = onTodoClick,
+                        onImageClick = onImageClick,
+                        mediaPresentationResolver = mediaPresentationResolver,
+                        mediaContent = mediaContent,
+                    ),
             )
             MemoCardFooter(
                 tags = tags,
@@ -363,22 +366,12 @@ private fun MemoCardHeaderActions(
 @Composable
 private fun MemoCardBody(
     processedContent: String,
-    renderDocument: MarkdownRenderDocument,
-    presentationPlan: MarkdownIrPresentationPlan?,
     shouldShowExpand: Boolean,
     isCollapsedPreview: Boolean,
     collapsedPreviewMode: MemoCardCollapsedPreviewMode,
     collapsedSummary: String,
     isExpanded: Boolean,
-    allowFreeTextCopy: Boolean,
-    onTapFeedback: (() -> Unit)?,
-    onBodyClick: (() -> Unit)?,
-    onDoubleClick: (() -> Unit)?,
-    onLongClick: (() -> Unit)?,
-    onTodoClick: ((MarkdownSourceSpan) -> Unit)?,
-    onImageClick: ((String) -> Unit)?,
-    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
-    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
+    state: MemoCardBodyState,
 ) {
     val bodyTransitionMode = resolveMemoCardBodyTransitionMode(shouldShowExpand = shouldShowExpand)
 
@@ -396,21 +389,11 @@ private fun MemoCardBody(
         MemoCardBodyContent(
             collapsedPreviewMode = collapsedPreviewMode,
             collapsedSummary = collapsedSummary,
-            allowFreeTextCopy = allowFreeTextCopy,
-            onTapFeedback = onTapFeedback,
-            onBodyClick = onBodyClick,
-            onDoubleClick = onDoubleClick,
-            onLongClick = onLongClick,
             processedContent = processedContent,
-            renderDocument = renderDocument,
-            presentationPlan = presentationPlan,
             isExpanded = isExpanded,
             isCollapsedPreview = isCollapsedPreview,
-            onTodoClick = onTodoClick,
-            onImageClick = onImageClick,
-            mediaPresentationResolver = mediaPresentationResolver,
-            mediaContent = mediaContent,
             bodyTransitionMode = bodyTransitionMode,
+            state = state,
         )
     }
 }

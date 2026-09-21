@@ -46,17 +46,16 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
 
-internal fun LazyListScope.sidebarTags(
-    tags: List<SidebarTag>,
-    visibleRows: List<VisibleTagRow>,
-    tagTree: SnapshotStateList<TagNode>,
-    expandedNodes: SnapshotStateMap<String, Boolean>,
-    selectedTagPath: String?,
-    onTagClick: (String) -> Unit,
-    anchorTagForPath: (String) -> String?,
-    reorderableLazyListState: ReorderableLazyListState,
-    onReorderComplete: (List<String>) -> Unit,
-) {
+internal fun LazyListScope.sidebarTags(input: SidebarTagsInput) {
+    val tags = input.tags
+    val visibleRows = input.visibleRows
+    val tagTree = input.tagTree
+    val expandedNodes = input.expandedNodes
+    val selectedTagPath = input.selectedTagPath
+    val onTagClick = input.onTagClick
+    val anchorTagForPath = input.anchorTagForPath
+    val reorderableLazyListState = input.reorderableLazyListState
+    val onReorderComplete = input.onReorderComplete
     if (tags.isEmpty()) return
 
     item(key = "sidebar_tags_header") {
@@ -150,7 +149,7 @@ private fun TagTreeItem(
     modifier: Modifier = Modifier,
 ) {
     val node = row.node
-    val isExpanded = expandedNodes[node.fullPath] ?: false
+    val isExpanded = expandedNodes[node.fullPath] == true
     val hasChildren = node.children.isNotEmpty()
 
     SidebarTagRow(
@@ -160,7 +159,7 @@ private fun TagTreeItem(
         hasChildren = hasChildren,
         isExpanded = isExpanded,
         onTagClick = onTagClick,
-        onToggleExpand = { path -> expandedNodes[path] = !(expandedNodes[path] ?: false) },
+        onToggleExpand = { path -> expandedNodes[path] = !(expandedNodes[path] == true) },
         anchorTag = anchorTagForPath(node.fullPath),
         modifier = modifier,
     )

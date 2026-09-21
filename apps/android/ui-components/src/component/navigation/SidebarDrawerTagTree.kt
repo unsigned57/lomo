@@ -81,29 +81,28 @@ private fun insertTagPath(
     tag: SidebarTag,
     tagMap: Map<String, Int>,
 ) {
-    var currentLevelNodes = rootNodes
-    var currentPath = ""
+    val parts = tag.name.split("/")
 
-    tag.name.split("/").forEachIndexed { index, part ->
-        if (index > 0) {
-            currentPath += "/"
-        }
-        currentPath += part
+    fun insertAt(levelNodes: MutableList<MutableTagNode>, index: Int, currentPath: String) {
+        if (index >= parts.size) return
+        val part = parts[index]
+        val path = if (index == 0) part else "$currentPath/$part"
 
-        val existingByName = currentLevelNodes.associateBy { it.name }
-        val existingNode = existingByName[part]
+        val existingNode = levelNodes.firstOrNull { it.name == part }
         val node =
             existingNode ?: MutableTagNode(
                 name = part,
-                fullPath = currentPath,
-                count = resolveTagNodeCount(currentPath, tag, tagMap),
-            ).also(currentLevelNodes::add)
+                fullPath = path,
+                count = resolveTagNodeCount(path, tag, tagMap),
+            ).also(levelNodes::add)
 
-        if (currentPath == tag.name) {
+        if (path == tag.name) {
             node.count = tag.count
         }
-        currentLevelNodes = node.children
+        insertAt(levelNodes = node.children, index = index + 1, currentPath = path)
     }
+
+    insertAt(levelNodes = rootNodes, index = 0, currentPath = "")
 }
 
 private fun resolveTagNodeCount(

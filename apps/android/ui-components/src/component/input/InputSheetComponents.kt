@@ -72,27 +72,16 @@ import kotlinx.coroutines.delay
 
 @Composable
 internal fun InputEditorPanel(
-    presentationState: InputSheetPresentationState,
-    inputValue: TextFieldValue,
-    hintText: String,
-    availableTags: ImmutableList<String>,
-    showTagSelector: Boolean,
-    focusRequester: FocusRequester,
-    onTextChange: (TextFieldValue) -> Unit,
-    onTagSelected: (String) -> Unit,
-    onToggleExpanded: () -> Unit,
-    onDisplayModeChange: (InputEditorDisplayMode) -> Unit,
-    surface: InputEditorSurfaceState,
-    onEditorCommand: (InputEditorCommand) -> Unit,
-    onToolbarOrderChanged: (List<InputToolbarActionId>) -> Unit,
-    onSubmit: () -> Unit,
+    presentation: InputEditorPanelState,
+    callbacks: InputEditorPanelCallbacks,
     benchmarkEditorTag: String?,
     benchmarkSubmitTag: String?,
-    slots: InputSheetSlots,
     haptic: AppHapticFeedback,
 ) {
-    val motionStage = presentationState.surfaceMotionStage()
-    val isExpanded = motionStage != InputSheetMotionStage.Compact
+    val presentationState = presentation.presentationState
+    val inputValue = presentation.inputValue
+    val hintText = presentation.hintText
+    val isExpanded = presentationState.surfaceMotionStage() != InputSheetMotionStage.Compact
     val displayMode = presentationState.effectiveDisplayMode()
     val typography = MaterialTheme.typography
     val baseInputTextStyle = typography.memoEditorTextStyle()
@@ -133,52 +122,53 @@ internal fun InputEditorPanel(
         ) { chromeModifier ->
             InputEditorDisplayModeBar(
                 displayMode = displayMode,
-                onDisplayModeChange = onDisplayModeChange,
-                onCollapse = onToggleExpanded,
+                onDisplayModeChange = callbacks.onDisplayModeChange,
+                onCollapse = callbacks.onToggleExpanded,
                 enabled = chromeState.displayModeBar.isInteractive,
                 haptic = haptic,
                 modifier = chromeModifier,
             )
         }
-        val actionBadge = surface.actionBadge
-        InputEditorActionBadgeContent(
-            badge = actionBadge,
-            onClick = {
-                if (actionBadge != null) {
-                    onEditorCommand(actionBadge.command)
-                }
-            },
+        InputEditorActionBadgeHost(
+            badge = presentation.surface.actionBadge,
+            onEditorCommand = callbacks.onEditorCommand,
         )
         InputEditorBodyContent(
-            isExpanded = isExpanded,
-            chromeState = chromeState,
-            inputValue = inputValue,
-            previewState = surface.previewState,
-            hintText = hintText,
-            focusRequester = focusRequester,
-            onTextChange = onTextChange,
-            inputTextStyle = inputTextStyle,
-            hintTextStyle = hintTextStyle,
+            state =
+                InputEditorBodyState(
+                    isExpanded = isExpanded,
+                    chromeState = chromeState,
+                    inputValue = inputValue,
+                    previewState = presentation.surface.previewState,
+                    hintText = hintText,
+                    focusRequester = presentation.focusRequester,
+                    inputTextStyle = inputTextStyle,
+                    hintTextStyle = hintTextStyle,
+                ),
             editorAlpha = editorAlpha,
             previewAlpha = previewAlpha,
             benchmarkEditorTag = benchmarkEditorTag,
+            onTextChange = callbacks.onTextChange,
         )
         InputEditorTagSelector(
-            availableTags = availableTags,
-            showTagSelector = showTagSelector && chromeState.formattingToolbar.isInteractive,
-            slots = slots,
-            onTagSelected = onTagSelected,
+            availableTags = presentation.availableTags,
+            showTagSelector = presentation.showTagSelector && chromeState.formattingToolbar.isInteractive,
+            slots = presentation.slots,
+            onTagSelected = callbacks.onTagSelected,
         )
         InputEditorToolbarSection(
             chromeState = chromeState,
-            showTagSelector = showTagSelector,
+            showTagSelector = presentation.showTagSelector,
             isExpanded = isExpanded,
             isSubmitEnabled = inputValue.text.isNotBlank(),
-            onToggleExpanded = onToggleExpanded,
-            surface = surface,
-            onEditorCommand = onEditorCommand,
-            onToolbarOrderChanged = onToolbarOrderChanged,
-            onSubmit = onSubmit,
+            surface = presentation.surface,
+            callbacks =
+                InputEditorToolbarCallbacks(
+                    onToggleExpanded = callbacks.onToggleExpanded,
+                    onEditorCommand = callbacks.onEditorCommand,
+                    onToolbarOrderChanged = callbacks.onToolbarOrderChanged,
+                    onSubmit = callbacks.onSubmit,
+                ),
             benchmarkSubmitTag = benchmarkSubmitTag,
             haptic = haptic,
         )
@@ -186,49 +176,60 @@ internal fun InputEditorPanel(
 }
 
 @Composable
+private fun InputEditorActionBadgeHost(
+    badge: InputEditorActionBadge?,
+    onEditorCommand: (InputEditorCommand) -> Unit,
+) {
+    InputEditorActionBadgeContent(
+        badge = badge,
+        onClick = {
+            if (badge != null) {
+                onEditorCommand(badge.command)
+            }
+        },
+    )
+}
+
+@Composable
 private fun ColumnScope.InputEditorBodyContent(
-    isExpanded: Boolean,
-    chromeState: InputEditorChromeState,
-    inputValue: TextFieldValue,
-    previewState: MarkdownRenderState,
-    hintText: String,
-    focusRequester: FocusRequester,
-    onTextChange: (TextFieldValue) -> Unit,
-    inputTextStyle: androidx.compose.ui.text.TextStyle,
-    hintTextStyle: androidx.compose.ui.text.TextStyle,
+    state: InputEditorBodyState,
     editorAlpha: Float,
     previewAlpha: Float,
     benchmarkEditorTag: String?,
+    onTextChange: (TextFieldValue) -> Unit,
 ) {
     Box(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .then(if (isExpanded) Modifier.weight(1f) else Modifier),
+                .then(if (state.isExpanded) Modifier.weight(1f) else Modifier),
     ) {
         InputEditorTextField(
-            isExpanded = isExpanded,
-            showsPlaceholder = chromeState.showsPlaceholder,
-            inputValue = inputValue,
-            hintText = hintText,
-            focusRequester = focusRequester,
-            textStyle = inputTextStyle,
-            placeholderTextStyle = hintTextStyle,
-            benchmarkEditorTag = benchmarkEditorTag,
+            state =
+                InputEditorTextFieldState(
+                    isExpanded = state.isExpanded,
+                    showsPlaceholder = state.chromeState.showsPlaceholder,
+                    inputValue = state.inputValue,
+                    hintText = state.hintText,
+                    focusRequester = state.focusRequester,
+                    textStyle = state.inputTextStyle,
+                    placeholderTextStyle = state.hintTextStyle,
+                    benchmarkEditorTag = benchmarkEditorTag,
+                ),
+            onTextChange = onTextChange,
             modifier =
-                if (isExpanded) {
+                if (state.isExpanded) {
                     Modifier
                         .fillMaxSize()
                         .alpha(editorAlpha)
                 } else {
                     Modifier.alpha(editorAlpha)
                 },
-            onTextChange = onTextChange,
         )
-        if (chromeState.showsPreviewContent) {
+        if (state.chromeState.showsPreviewContent) {
             InputEditorPreviewContent(
-                inputText = inputValue.text,
-                renderState = previewState,
+                inputText = state.inputValue.text,
+                renderState = state.previewState,
                 modifier =
                     Modifier
                         .fillMaxSize()
@@ -244,11 +245,8 @@ private fun InputEditorToolbarSection(
     showTagSelector: Boolean,
     isExpanded: Boolean,
     isSubmitEnabled: Boolean,
-    onToggleExpanded: () -> Unit,
     surface: InputEditorSurfaceState,
-    onEditorCommand: (InputEditorCommand) -> Unit,
-    onToolbarOrderChanged: (List<InputToolbarActionId>) -> Unit,
-    onSubmit: () -> Unit,
+    callbacks: InputEditorToolbarCallbacks,
     benchmarkSubmitTag: String?,
     haptic: AppHapticFeedback,
 ) {
@@ -282,17 +280,17 @@ private fun InputEditorToolbarSection(
         transitionState = chromeState.formattingToolbar,
     ) { chromeModifier ->
         InputEditorToolbar(
-            toggleIcon = chromeState.toggleIcon,
-            isExpanded = isExpanded,
-            isSubmitEnabled = isSubmitEnabled,
-            enabled = chromeState.formattingToolbar.isInteractive,
-            onToggleExpanded = onToggleExpanded,
-            tools = toolbarTools,
-            onEditorCommand = onEditorCommand,
-            onToolbarOrderChanged = onToolbarOrderChanged,
-            onSubmit = onSubmit,
-            benchmarkSubmitTag = benchmarkSubmitTag,
-            haptic = haptic,
+            state =
+                InputEditorToolbarState(
+                    toggleIcon = chromeState.toggleIcon,
+                    isExpanded = isExpanded,
+                    isSubmitEnabled = isSubmitEnabled,
+                    enabled = chromeState.formattingToolbar.isInteractive,
+                    tools = toolbarTools,
+                    benchmarkSubmitTag = benchmarkSubmitTag,
+                    haptic = haptic,
+                ),
+            callbacks = callbacks,
             modifier = chromeModifier.padding(top = InputSheetTokens.ToolbarTopPadding),
         )
     }

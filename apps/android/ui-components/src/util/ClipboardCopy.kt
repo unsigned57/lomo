@@ -2,6 +2,7 @@ package com.lomo.ui.util
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -20,8 +21,9 @@ fun ClipboardManager.copyPlainTextAsync(
     scope: CoroutineScope,
     label: String,
     text: String,
+    dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    scope.launch(Dispatchers.IO) {
+    scope.launch(dispatcher) {
         setPrimaryClip(ClipData.newPlainText(label, text))
     }
 }

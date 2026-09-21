@@ -293,7 +293,8 @@ private fun Modifier.rememberImageBlockModifier(
 }
 
 private fun AsyncImagePainter.State.resolvedAspectRatio(): Float? =
-    (this as? AsyncImagePainter.State.Success)?.painter?.intrinsicSize?.let { size ->
+    (this as? AsyncImagePainter.State.Success)?.let { success ->
+        val size = success.painter.intrinsicSize
         if (size.width > 0f && size.height > 0f) {
             size.width / size.height
         } else {
@@ -377,19 +378,3 @@ private fun ImageEmptyPlaceholder(modifier: Modifier = Modifier) {
     )
 }
 
-@Preview(showBackground = true)
-@Composable
-private fun MarkdownImagePlaceholdersPreview() {
-    LomoTheme {
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(MarkdownImageTokens.PlaceholderContentPadding),
-        ) {
-            ImageLoadingPlaceholder()
-            ImageErrorPlaceholder()
-            ImageEmptyPlaceholder()
-        }
-    }
-}

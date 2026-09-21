@@ -85,35 +85,6 @@ import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 
-private const val PREVIEW_MEMO_COUNT = 196
-private const val PREVIEW_TAG_COUNT = 14
-private const val PREVIEW_DAY_COUNT = 88
-private const val PREVIEW_WORK_TAG_COUNT = 42
-private const val PREVIEW_WORK_ROADMAP_TAG_COUNT = 8
-private const val PREVIEW_WORK_RETRO_TAG_COUNT = 5
-private const val PREVIEW_PERSONAL_TAG_COUNT = 39
-private const val PREVIEW_PERSONAL_BOOKS_TAG_COUNT = 12
-private const val PREVIEW_TRAVEL_TAG_COUNT = 11
-private const val PREVIEW_MEMO_RANGE_DAYS = 90
-private const val PREVIEW_HEATMAP_DIVISOR_LARGE = 13
-private const val PREVIEW_HEATMAP_VALUE_LARGE = 7
-private const val PREVIEW_HEATMAP_DIVISOR_MEDIUM = 6
-private const val PREVIEW_HEATMAP_VALUE_MEDIUM = 4
-private const val PREVIEW_HEATMAP_DIVISOR_SMALL = 3
-private const val PREVIEW_HEATMAP_VALUE_SMALL = 2
-private const val PREVIEW_TAG_SELECTED_PROJECT_COUNT = 22
-private const val PREVIEW_TAG_SELECTED_ANDROID_COUNT = 9
-private const val PREVIEW_TAG_SELECTED_WAVE4_COUNT = 4
-private const val PREVIEW_TAG_SELECTED_JOURNAL_COUNT = 17
-private const val PREVIEW_TAG_SELECTED_RANGE_DAYS = 45
-private const val PREVIEW_TAG_SELECTED_EVEN_DIVISOR = 2
-private const val PREVIEW_TAG_SELECTED_BUCKET_DIVISOR = 5
-private const val PREVIEW_TAG_SELECTED_BUCKET_OFFSET = 1
-private const val PREVIEW_TAG_SELECTED_MEMO_COUNT = 94
-private const val PREVIEW_TAG_SELECTED_TAG_COUNT = 7
-private const val PREVIEW_TAG_SELECTED_DAY_COUNT = 36
-private val PREVIEW_TODAY: LocalDate = LocalDate.of(2025, 1, 15)
-
 data class SidebarStats(
     val memoCount: Int = 0,
     val tagCount: Int = 0,
@@ -228,16 +199,17 @@ fun SidebarDrawer(
                     onStatisticsClick = onStatisticsClick,
                 )
                 sidebarTags(
-                    tags = tags,
-                    visibleRows = visibleTagRows,
-                    tagTree = reorderableTree,
-                    expandedNodes = expandedNodes,
-                    selectedTagPath = selectedTagPath,
-                    onTagClick = onTagClick,
-                    anchorTagForPath = tagAnchorForPath,
-                    reorderableLazyListState = reorderableLazyListState,
-
-                    onReorderComplete = onTagReorder,
+                    SidebarTagsInput(
+                        tags = tags,
+                        visibleRows = visibleTagRows,
+                        tagTree = reorderableTree,
+                        expandedNodes = expandedNodes,
+                        selectedTagPath = selectedTagPath,
+                        onTagClick = onTagClick,
+                        anchorTagForPath = tagAnchorForPath,
+                        reorderableLazyListState = reorderableLazyListState,
+                        onReorderComplete = onTagReorder,
+                    ),
                 )
             }
 
@@ -592,102 +564,3 @@ internal fun rememberLightHapticClick(onClick: () -> Unit): () -> Unit {
     }
 }
 
-@Composable
-private fun rememberMediumHapticClick(onClick: () -> Unit): () -> Unit {
-    val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
-    return remember(onClick, haptic) {
-        {
-            haptic.medium()
-            onClick()
-        }
-    }
-}
-
-@Preview(showBackground = true, widthDp = 360, heightDp = 780)
-@Composable
-private fun SidebarDrawerPreviewMemo() {
-    val today = PREVIEW_TODAY
-    val sampleStats =
-        SidebarStats(
-            memoCount = PREVIEW_MEMO_COUNT,
-            tagCount = PREVIEW_TAG_COUNT,
-            dayCount = PREVIEW_DAY_COUNT,
-        )
-    val sampleTags =
-        listOf(
-            SidebarTag("work", PREVIEW_WORK_TAG_COUNT),
-            SidebarTag("work/roadmap", PREVIEW_WORK_ROADMAP_TAG_COUNT),
-            SidebarTag("work/retro", PREVIEW_WORK_RETRO_TAG_COUNT),
-            SidebarTag("personal", PREVIEW_PERSONAL_TAG_COUNT),
-            SidebarTag("personal/books", PREVIEW_PERSONAL_BOOKS_TAG_COUNT),
-            SidebarTag("travel", PREVIEW_TRAVEL_TAG_COUNT),
-        )
-    val memoCountByDate =
-        buildMap {
-            for (index in 0..PREVIEW_MEMO_RANGE_DAYS) {
-                val date = today.minusDays(index.toLong())
-                val count =
-                    when {
-                        index % PREVIEW_HEATMAP_DIVISOR_LARGE == 0 -> PREVIEW_HEATMAP_VALUE_LARGE
-                        index % PREVIEW_HEATMAP_DIVISOR_MEDIUM == 0 -> PREVIEW_HEATMAP_VALUE_MEDIUM
-                        index % PREVIEW_HEATMAP_DIVISOR_SMALL == 0 -> PREVIEW_HEATMAP_VALUE_SMALL
-                        else -> 0
-                    }
-                if (count > 0) put(date, count)
-            }
-        }
-
-    LomoTheme {
-        SidebarDrawer(
-            stats = sampleStats,
-            memoCountByDate = memoCountByDate.toImmutableMap(),
-            today = today,
-            tags = sampleTags.toImmutableList(),
-            calendarHeatmapThresholds = CalendarHeatmapThresholds.default(),
-            currentDestination = SidebarDestination.Memo,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}
-
-@Preview(showBackground = true, widthDp = 360, heightDp = 780)
-@Composable
-private fun SidebarDrawerPreviewTagSelected() {
-    val today = PREVIEW_TODAY
-    val sampleTags =
-        listOf(
-            SidebarTag("project", PREVIEW_TAG_SELECTED_PROJECT_COUNT),
-            SidebarTag("project/android", PREVIEW_TAG_SELECTED_ANDROID_COUNT),
-            SidebarTag("project/android/wave4", PREVIEW_TAG_SELECTED_WAVE4_COUNT),
-            SidebarTag("journal", PREVIEW_TAG_SELECTED_JOURNAL_COUNT),
-        )
-    val memoCountByDate =
-        buildMap {
-            for (index in 0..PREVIEW_TAG_SELECTED_RANGE_DAYS) {
-                val date = today.minusDays(index.toLong())
-                if (index % PREVIEW_TAG_SELECTED_EVEN_DIVISOR == 0) {
-                    put(
-                        date,
-                        (index % PREVIEW_TAG_SELECTED_BUCKET_DIVISOR) + PREVIEW_TAG_SELECTED_BUCKET_OFFSET,
-                    )
-                }
-            }
-        }
-
-    LomoTheme {
-        SidebarDrawer(
-            stats =
-                SidebarStats(
-                    memoCount = PREVIEW_TAG_SELECTED_MEMO_COUNT,
-                    tagCount = PREVIEW_TAG_SELECTED_TAG_COUNT,
-                    dayCount = PREVIEW_TAG_SELECTED_DAY_COUNT,
-                ),
-            memoCountByDate = memoCountByDate.toImmutableMap(),
-            today = today,
-            tags = sampleTags.toImmutableList(),
-            calendarHeatmapThresholds = CalendarHeatmapThresholds.default(),
-            currentDestination = SidebarDestination.Tag("project/android"),
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}

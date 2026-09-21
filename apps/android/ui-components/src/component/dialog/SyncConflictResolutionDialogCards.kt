@@ -11,14 +11,10 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.SyncConflictAutoResolutionAdvisor
 import com.lomo.domain.model.SyncConflictFile
-import com.lomo.domain.model.SyncConflictResolutionChoice
-import com.lomo.domain.model.SyncReviewAutoResolutionAdvisor
 import com.lomo.domain.model.SyncReviewItem
 import com.lomo.domain.model.SyncReviewResolutionChoice
 import com.lomo.ui.theme.AppShapes
@@ -28,29 +24,20 @@ import com.lomo.ui.theme.AppSpacing
 internal fun ConflictFileCard(
     source: SyncBackendType,
     file: SyncConflictFile,
-    choice: SyncConflictResolutionChoice?,
-    suggestedChoice: SyncConflictResolutionChoice?,
-    supportsSkip: Boolean,
-    isExpanded: Boolean,
-    reviewMessage: String?,
-    onChoiceChanged: (SyncConflictResolutionChoice) -> Unit,
-    onToggleExpanded: () -> Unit,
+    state: ConflictFileCardState,
 ) {
-    val mergedText =
-        remember(file.localContent, file.remoteContent, file.isBinary) {
-            SyncConflictAutoResolutionAdvisor.mergedText(file)
-        }
+    val mergedText = file.suggestion?.mergedText
     val mergeAvailable = mergedText != null && mergedText != file.localContent && mergedText != file.remoteContent
 
-    ConflictReviewCard(choiceSelected = choice != null, label = "cardColor") {
-        ConflictFileHeader(source, file, isExpanded, suggestedChoice, onToggleExpanded)
-        reviewMessage?.let { message ->
+    ConflictReviewCard(choiceSelected = state.choice != null, label = "cardColor") {
+        ConflictFileHeader(source, file, state.isExpanded, state.suggestedChoice, state.onToggleExpanded)
+        state.reviewMessage?.let { message ->
             Spacer(modifier = Modifier.height(AppSpacing.Small))
             ReviewMessage(message = message)
         }
         Spacer(modifier = Modifier.height(AppSpacing.Medium))
-        CustomChoiceToggle(source, choice, mergeAvailable, supportsSkip, onChoiceChanged)
-        ConflictDiffSection(file, isExpanded, mergedText, mergeAvailable)
+        CustomChoiceToggle(source, state.choice, mergeAvailable, state.supportsSkip, state.onChoiceChanged)
+        ConflictDiffSection(file, state.isExpanded, mergedText, mergeAvailable)
     }
 }
 
@@ -65,10 +52,7 @@ internal fun ReviewFileCard(
     onChoiceChanged: (SyncReviewResolutionChoice) -> Unit,
     onToggleExpanded: () -> Unit,
 ) {
-    val mergedText =
-        remember(item.localContent, item.incomingContent, item.isBinary) {
-            SyncReviewAutoResolutionAdvisor.mergedText(item)
-        }
+    val mergedText = item.suggestion?.mergedText
     val mergeAvailable = mergedText != null && mergedText != item.localContent && mergedText != item.incomingContent
 
     ConflictReviewCard(choiceSelected = choice != null, label = "reviewCardColor") {

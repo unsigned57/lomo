@@ -97,18 +97,22 @@ internal fun MemoComposeParagraphText(
                         selectable = selectable,
                         selectionState = bindings.selectionState,
                         paragraphLayout = paragraphLayout,
-                        onSelectionChange = bindings.onSelectionChange,
                         scopeHasSelection = scopeHasSelection,
-                        clearScopeSelection = { scope?.clear() },
-                        onOpenUrl = { url -> runCatching { uriHandler.openUri(url) } },
-                        onTapFeedback = onTapFeedback,
-                        onBodyClick = onBodyClick,
-                        onDoubleClick = onDoubleClick?.let { doubleClick ->
-                            { _: Offset ->
-                                doubleClick()
-                            }
-                        },
-                        onLongClick = onLongClick,
+                        callbacks =
+                            MemoParagraphCallbacks(
+                                onSelectionChange = bindings.onSelectionChange,
+                                clearScopeSelection = { scope?.clear() },
+                                onOpenUrl = { url -> runCatching { uriHandler.openUri(url) } },
+                                onTapFeedback = onTapFeedback,
+                                onBodyClick = onBodyClick,
+                                onDoubleClick =
+                                    onDoubleClick?.let { doubleClick ->
+                                        { _: Offset ->
+                                            doubleClick()
+                                        }
+                                    },
+                                onLongClick = onLongClick,
+                            ),
                     ),
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
@@ -264,33 +268,35 @@ private fun rememberResolvedPlatformTypeface(style: TextStyle): android.graphics
     return resolvedTypeface.value as? android.graphics.Typeface
 }
 
+/** Interaction handlers for one memo paragraph's pointer input. */
+private data class MemoParagraphCallbacks(
+    val onSelectionChange: (MemoTextSelectionState) -> Unit,
+    val clearScopeSelection: () -> Unit,
+    val onOpenUrl: (String) -> Unit,
+    val onTapFeedback: (() -> Unit)?,
+    val onBodyClick: (() -> Unit)?,
+    val onDoubleClick: ((Offset) -> Unit)?,
+    val onLongClick: (() -> Unit)?,
+)
+
 private fun Modifier.memoParagraphPointerInput(
     selectable: Boolean,
     selectionState: MemoTextSelectionState,
     paragraphLayout: MemoComposeParagraphLayout,
-    onSelectionChange: (MemoTextSelectionState) -> Unit,
     scopeHasSelection: Boolean,
-    clearScopeSelection: () -> Unit,
-    onOpenUrl: (String) -> Unit,
-    onTapFeedback: (() -> Unit)?,
-    onBodyClick: (() -> Unit)?,
-    onDoubleClick: ((Offset) -> Unit)?,
-    onLongClick: (() -> Unit)?,
+    callbacks: MemoParagraphCallbacks,
 ): Modifier =
     pointerInput(
         paragraphLayout,
         selectable,
         selectionState,
         scopeHasSelection,
-        onTapFeedback,
-        onBodyClick,
-        onDoubleClick,
-        onLongClick,
+        callbacks,
     ) {
         detectTapGestures(
             onPress = {
                 if (!selectionState.hasSelection && !scopeHasSelection) {
-                    onTapFeedback?.invoke()
+                    callbacks.onTapFeedback?.invoke()
                 }
             },
             onTap = { position ->
@@ -303,24 +309,24 @@ private fun Modifier.memoParagraphPointerInput(
                         scopeHasSelection = scopeHasSelection,
                     )
                 when (outcome) {
-                    is MemoParagraphTapOutcome.OpenLink -> onOpenUrl(outcome.url)
+                    is MemoParagraphTapOutcome.OpenLink -> callbacks.onOpenUrl(outcome.url)
                     MemoParagraphTapOutcome.ClearSelection -> {
                         // When the current paragraph owns the selection we clear via the binding so
                         // its own selectionState reflects the change; otherwise we go straight to
                         // the scope-level clear so cross-paragraph selections collapse from a tap
                         // on any block in the memo body.
                         if (selectionState.hasSelection) {
-                            onSelectionChange(selectionState.clear())
+                            callbacks.onSelectionChange(selectionState.clear())
                         } else {
-                            clearScopeSelection()
+                            callbacks.clearScopeSelection()
                         }
                     }
 
-                    MemoParagraphTapOutcome.InvokeBodyClick -> onBodyClick?.invoke()
+                    MemoParagraphTapOutcome.InvokeBodyClick -> callbacks.onBodyClick?.invoke()
                     MemoParagraphTapOutcome.Ignore -> Unit
                 }
             },
-            onDoubleTap = onDoubleClick?.let { doubleClick ->
+            onDoubleTap = callbacks.onDoubleClick?.let { doubleClick ->
                 { position ->
                     val outcome =
                         resolveMemoParagraphDoubleTapOutcome(
@@ -332,9 +338,9 @@ private fun Modifier.memoParagraphPointerInput(
                         is MemoParagraphDoubleTapOutcome.OpenEditor -> {
                             if (outcome.clearSelectionFirst) {
                                 if (selectionState.hasSelection) {
-                                    onSelectionChange(selectionState.clear())
+                                    callbacks.onSelectionChange(selectionState.clear())
                                 } else {
-                                    clearScopeSelection()
+                                    callbacks.clearScopeSelection()
                                 }
                             }
                             doubleClick(position)
@@ -348,14 +354,14 @@ private fun Modifier.memoParagraphPointerInput(
                 if (selectable) {
                     val offset = paragraphLayout.offsetForPosition(position)
                     val range = paragraphLayout.layout.selectionRangeAtOffset(offset)
-                    onSelectionChange(
+                    callbacks.onSelectionChange(
                         MemoTextSelectionState(
                             anchorOffset = range.first,
                             focusOffset = range.last + 1,
                         ),
                     )
                 } else {
-                    onLongClick?.invoke()
+                    callbacks.onLongClick?.invoke()
                 }
             },
         )

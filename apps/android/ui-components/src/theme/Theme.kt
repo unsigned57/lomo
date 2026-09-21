@@ -365,34 +365,3 @@ private tailrec fun Context.findActivity(): Activity? =
         else -> null
     }
 
-@Preview(name = "Theme Light", showBackground = true)
-@Composable
-private fun LomoThemeLightPreview() {
-    LomoTheme(themeMode = ThemeMode.LIGHT, colorSource = ColorSource.Preset(ColorPresetId.INDIGO)) {
-        Surface(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.padding(24.dp)) {
-                Text(
-                    text = stringResource(Res.string.sidebar_memo),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-        }
-    }
-}
-
-@Preview(name = "Theme Dark", showBackground = true)
-@Composable
-private fun LomoThemeDarkPreview() {
-    LomoTheme(themeMode = ThemeMode.DARK, colorSource = ColorSource.Preset(ColorPresetId.INDIGO)) {
-        Surface(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.padding(24.dp)) {
-                Text(
-                    text = stringResource(Res.string.sidebar_memo),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-        }
-    }
-}

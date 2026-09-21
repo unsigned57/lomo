@@ -225,17 +225,23 @@ fun InputSheet(
         )
 
     InputSheetLifecycle(
-        sessionState = sessionState,
-        state = state,
-        inputText = inputValue.text,
-        presentationState = presentationState,
-        focusRequester = focusRequester,
-        focusParkingRequester = focusParkingRequester,
-        focusRequestToken = surface.focusRequestToken,
-        keyboardController = keyboardController,
-        onCollapse = callbacks.onCollapse,
-        onConsumeBackPress = callbacks.onConsumeBackPress,
-        onRequestDismiss = requestDismiss,
+        state =
+            InputSheetLifecycleState(
+                sessionState = sessionState,
+                sheetState = state,
+                inputText = inputValue.text,
+                presentationState = presentationState,
+                focusRequester = focusRequester,
+                focusParkingRequester = focusParkingRequester,
+                focusRequestToken = surface.focusRequestToken,
+                keyboardController = keyboardController,
+            ),
+        callbacks =
+            InputSheetLifecycleCallbacks(
+                onCollapse = callbacks.onCollapse,
+                onConsumeBackPress = callbacks.onConsumeBackPress,
+                onRequestDismiss = requestDismiss,
+            ),
     )
 
     val handleTextChange =
@@ -249,23 +255,26 @@ fun InputSheet(
         )
 
     InputSheetContent(
-        state = state,
-        callbacks = callbacks,
-        slots = slots,
-        sessionState = sessionState,
-        presentationState = presentationState,
-        inputValue = inputValue,
-        hintText = hintText,
-        focusRequester = focusRequester,
-        focusParkingRequester = focusParkingRequester,
-        haptic = haptic,
-        dismissSheet = dismissSheet,
-        requestDismiss = requestDismiss,
-        handleTextChange = handleTextChange,
-        submitWithLock = submitWithLock,
-        benchmarkRootTag = benchmarkRootTag,
-        benchmarkEditorTag = benchmarkEditorTag,
-        benchmarkSubmitTag = benchmarkSubmitTag,
+        params =
+            InputSheetContentParams(
+                state = state,
+                callbacks = callbacks,
+                slots = slots,
+                sessionState = sessionState,
+                presentationState = presentationState,
+                inputValue = inputValue,
+                hintText = hintText,
+                focusRequester = focusRequester,
+                focusParkingRequester = focusParkingRequester,
+                haptic = haptic,
+                dismissSheet = dismissSheet,
+                requestDismiss = requestDismiss,
+                handleTextChange = handleTextChange,
+                submitWithLock = submitWithLock,
+                benchmarkRootTag = benchmarkRootTag,
+                benchmarkEditorTag = benchmarkEditorTag,
+                benchmarkSubmitTag = benchmarkSubmitTag,
+            ),
     )
 }
 
@@ -444,53 +453,47 @@ private fun rememberDismissSheetAction(
 
 @Composable
 private fun InputSheetLifecycle(
-    sessionState: InputSheetSessionState,
-    state: InputSheetState,
-    inputText: String,
-    presentationState: InputSheetPresentationState,
-    focusRequester: FocusRequester,
-    focusParkingRequester: FocusRequester,
-    focusRequestToken: Long,
-    keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
-    onCollapse: () -> Unit,
-    onConsumeBackPress: () -> Boolean,
-    onRequestDismiss: () -> Unit,
+    state: InputSheetLifecycleState,
+    callbacks: InputSheetLifecycleCallbacks,
 ) {
     InputSheetVisibilityEffects(
-        focusRequestToken = focusRequestToken,
-        isSheetVisible = sessionState.isSheetVisible,
-        isRecording = state.surface.recordingState.isRecording,
-        isDismissing = sessionState.isDismissing,
-        onSheetVisibleChange = { sessionState.isSheetVisible = it },
-        onSheetEntrySettledChange = { sessionState.isSheetEntrySettled = it },
+        focusRequestToken = state.focusRequestToken,
+        isSheetVisible = state.sessionState.isSheetVisible,
+        isRecording = state.sheetState.surface.recordingState.isRecording,
+        isDismissing = state.sessionState.isDismissing,
+        onSheetVisibleChange = { state.sessionState.isSheetVisible = it },
+        onSheetEntrySettledChange = { state.sessionState.isSheetEntrySettled = it },
     )
     InputSheetFocusRequestEffects(
-        isSheetVisible = sessionState.isSheetVisible,
-        isSheetEntrySettled = sessionState.isSheetEntrySettled,
-        presentationState = presentationState,
-        isRecording = state.surface.recordingState.isRecording,
-        isDismissing = sessionState.isDismissing,
-        focusRequester = focusRequester,
-        focusParkingRequester = focusParkingRequester,
-        focusRequestToken = focusRequestToken,
-        keyboardController = keyboardController,
+        state =
+            InputSheetFocusRequestState(
+                isSheetVisible = state.sessionState.isSheetVisible,
+                isSheetEntrySettled = state.sessionState.isSheetEntrySettled,
+                presentationState = state.presentationState,
+                isRecording = state.sheetState.surface.recordingState.isRecording,
+                isDismissing = state.sessionState.isDismissing,
+                focusRequester = state.focusRequester,
+                focusParkingRequester = state.focusParkingRequester,
+                focusRequestToken = state.focusRequestToken,
+                keyboardController = state.keyboardController,
+            ),
     )
     BackHandler(enabled = true) {
-        if (state.surface.isExpanded) {
-            onCollapse()
-        } else if (!onConsumeBackPress()) {
-            onRequestDismiss()
+        if (state.sheetState.surface.isExpanded) {
+            callbacks.onCollapse()
+        } else if (!callbacks.onConsumeBackPress()) {
+            callbacks.onRequestDismiss()
         }
     }
     InputSheetSubmissionResetEffect(
-        inputText = inputText,
-        isSubmitting = sessionState.isSubmitting,
-        submissionLockSourceText = sessionState.submissionLockSourceText,
-        onClearSubmissionLock = sessionState::clearSubmissionLock,
+        inputText = state.inputText,
+        isSubmitting = state.sessionState.isSubmitting,
+        submissionLockSourceText = state.sessionState.submissionLockSourceText,
+        onClearSubmissionLock = state.sessionState::clearSubmissionLock,
     )
     // The lock is a projection of the owner: an acknowledgement path that died with its scope
     // must never be the only way out of the submitting state.
-    LaunchedEffect(state.ownerSubmission, sessionState.isSubmitting) {
-        applyInputSheetOwnerSubmission(sessionState, state.ownerSubmission)
+    LaunchedEffect(state.sheetState.ownerSubmission, state.sessionState.isSubmitting) {
+        applyInputSheetOwnerSubmission(state.sessionState, state.sheetState.ownerSubmission)
     }
 }

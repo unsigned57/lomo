@@ -2,11 +2,11 @@ package com.lomo.ui.component.common
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 
 /**
@@ -118,10 +118,73 @@ fun <T, R> resolveExitRenderList(
 }
 
 /**
+ * Maintains source keys across paging append/prepend without rebuilding the whole set.
+ *
+ * Refresh and middle edits fall back to a full scan. Paging's common append (stable prefix) and
+ * prepend (stable suffix) only map the new page.
+ */
+fun <T> incrementalSourceKeys(
+    previousKeys: List<String>?,
+    nextItems: List<T>,
+    itemKey: (T) -> String,
+): List<String> {
+    if (nextItems.isEmpty()) {
+        return emptyList()
+    }
+    val previous = previousKeys
+    if (previous.isNullOrEmpty()) {
+        return nextItems.map(itemKey)
+    }
+    val nextSize = nextItems.size
+    val previousSize = previous.size
+    val firstMatches = itemKey(nextItems.first()) == previous.first()
+    if (
+        nextSize == previousSize &&
+        firstMatches &&
+        itemKey(nextItems.last()) == previous.last()
+    ) {
+        val unchanged =
+            nextItems.indices.all { index -> itemKey(nextItems[index]) == previous[index] }
+        if (unchanged) {
+            return previous
+        }
+    }
+    if (
+        nextSize > previousSize &&
+        firstMatches &&
+        itemKey(nextItems[previousSize - 1]) == previous.last()
+    ) {
+        return previous + nextItems.subList(previousSize, nextSize).map(itemKey)
+    }
+    val prependCount = nextSize - previousSize
+    if (
+        nextSize > previousSize &&
+        itemKey(nextItems.last()) == previous.last() &&
+        itemKey(nextItems[prependCount]) == previous.first()
+    ) {
+        return nextItems.subList(0, prependCount).map(itemKey) + previous
+    }
+    return nextItems.map(itemKey)
+}
+
+internal class IncrementalSourceKeyTracker<T>(
+    private val itemKey: (T) -> String,
+) {
+    private var previousKeys: List<String>? = null
+
+    fun keysFor(nextItems: List<T>): Set<String> {
+        val next = incrementalSourceKeys(previousKeys, nextItems, itemKey)
+        previousKeys = next
+        return next.toSet()
+    }
+}
+
+/**
  * Composable state holder that drives list-level exit retention.
  */
 class LomoListExitState<T>(
     val renderList: ImmutableList<LomoListExitRenderEntry<T>>,
+    val overlayIdle: Boolean,
     val onExitSettled: (String) -> Unit,
 )
 
@@ -142,33 +205,32 @@ fun <T, R> rememberLomoListExitState(
     mapExitToItem: (R) -> T,
 ): LomoListExitState<T> {
     val activeExits by registry.entries.collectAsStateWithLifecycle()
-
-    val sourceKeys =
-        remember(allItems) {
-            allItems
-                .asSequence()
-                .map(itemKey)
-                .toSet()
-        }
+    val overlayIdle = activeExits.isEmpty()
+    val keyTracker = remember(itemKey) { IncrementalSourceKeyTracker(itemKey) }
+    val sourceKeys = remember(allItems) { keyTracker.keysFor(allItems) }
 
     LaunchedEffect(sourceKeys, activeExits) {
         registry.updateSourceKeys(sourceKeys)
     }
 
-    val renderList by remember(allItems, activeExits) {
-        derivedStateOf {
-            resolveExitRenderList(
-                allItems = allItems,
-                itemKey = itemKey,
-                activeExits = activeExits,
-                mapExitToItem = mapExitToItem,
-            ).toImmutableList()
+    val renderList =
+        remember(allItems, activeExits, overlayIdle) {
+            if (overlayIdle) {
+                persistentListOf()
+            } else {
+                resolveExitRenderList(
+                    allItems = allItems,
+                    itemKey = itemKey,
+                    activeExits = activeExits,
+                    mapExitToItem = mapExitToItem,
+                ).toImmutableList()
+            }
         }
-    }
 
-    return remember(renderList) {
+    return remember(renderList, overlayIdle) {
         LomoListExitState(
             renderList = renderList,
+            overlayIdle = overlayIdle,
             onExitSettled = { id ->
                 registry.markExitAnimationSettled(id)
             },
@@ -207,20 +269,26 @@ data class ExitRenderKeyWindow(
         keys.getOrNull(index - startIndex) ?: "placeholder-$index"
 }
 
-fun <T> computeExitRenderKeyWindow(
+fun computeItemKeyWindow(
     snapshotStartIndex: Int,
-    renderList: ImmutableList<LomoListExitRenderEntry<T>>,
-    itemKey: (T) -> String,
+    keys: List<String>,
 ): ExitRenderKeyWindow {
     require(snapshotStartIndex >= 0) { "snapshotStartIndex must be non-negative" }
     return ExitRenderKeyWindow(
         startIndex = snapshotStartIndex,
-        keys =
-            uniqueMemoListRenderKeys(
-                List(renderList.size) { offset -> itemKey(renderList[offset].snapshotMemo) },
-            ).toImmutableList(),
+        keys = uniqueMemoListRenderKeys(keys).toImmutableList(),
     )
 }
+
+fun <T> computeExitRenderKeyWindow(
+    snapshotStartIndex: Int,
+    renderList: ImmutableList<LomoListExitRenderEntry<T>>,
+    itemKey: (T) -> String,
+): ExitRenderKeyWindow =
+    computeItemKeyWindow(
+        snapshotStartIndex = snapshotStartIndex,
+        keys = List(renderList.size) { offset -> itemKey(renderList[offset].snapshotMemo) },
+    )
 
 @Composable
 fun <T> rememberUniqueExitRenderListKeys(

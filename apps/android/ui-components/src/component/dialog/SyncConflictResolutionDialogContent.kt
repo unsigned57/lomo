@@ -231,7 +231,7 @@ private fun TextDiffSection(
 ) {
     AnimatedVisibility(visible = isExpanded, enter = expandVertically(), exit = shrinkVertically()) {
         val diffResult = remember(localContent, incomingContent) {
-            SimpleLineDiff.diffResult(localContent ?: "", incomingContent ?: "")
+            SimpleLineDiff.diffResult(localContent.orEmpty(), incomingContent.orEmpty())
         }
         Column(
             modifier = Modifier.fillMaxWidth().padding(top = AppSpacing.Medium),

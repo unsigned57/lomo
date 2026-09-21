@@ -49,9 +49,9 @@ private fun DiffLineRow(line: SimpleLineDiff.DiffLine) {
     }
     val textColor = DiffViewerTokens.lineContentColor(MaterialTheme.colorScheme, line.op)
     val lineNoText = buildString {
-        append((line.oldLineNumber?.toString() ?: "").padStart(DiffViewerTokens.LineNumberWidth))
+        append(line.oldLineNumber?.toString().orEmpty().padStart(DiffViewerTokens.LineNumberWidth))
         append(" ")
-        append((line.newLineNumber?.toString() ?: "").padStart(DiffViewerTokens.LineNumberWidth))
+        append(line.newLineNumber?.toString().orEmpty().padStart(DiffViewerTokens.LineNumberWidth))
     }
 
     Row(

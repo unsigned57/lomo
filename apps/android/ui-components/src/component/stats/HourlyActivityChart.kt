@@ -41,6 +41,7 @@ import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.calendar_heatmap_memo_count
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableMap
+import java.util.Locale
 
 private const val HOURS_IN_DAY = 24
 private const val HOUR_LABEL_INTERVAL = 6
@@ -197,7 +198,7 @@ private fun HourlyBarSelectionPopup(
     }
     if (!transition.currentState && !transition.targetState) return
 
-    val hourLabel = "%d:00".format(data.hour)
+    val hourLabel = "%d:00".format(Locale.getDefault(), data.hour)
     val countLabel = pluralStringResource(Res.plurals.calendar_heatmap_memo_count, data.count, data.count)
 
     val positionProvider = remember(popupOffset, density) {
@@ -266,9 +267,10 @@ private fun rememberBarChartTextPaint(
     val densityScale = density.density
     val fontScale = density.fontScale
     return remember(textColor, densityScale, fontScale) {
+        val labelFontSizePx = with(density) { StatsChartTokens.LabelFontSize.toPx() }
         Paint().apply {
             color = textColor
-            textSize = with(density) { StatsChartTokens.LabelFontSize.toPx() }
+            textSize = labelFontSizePx
             isAntiAlias = true
             textAlign = Paint.Align.LEFT
         }

@@ -57,66 +57,62 @@ internal fun InputSheetVisibilityEffects(
 }
 
 @Composable
-internal fun InputSheetFocusRequestEffects(
-    isSheetVisible: Boolean,
-    isSheetEntrySettled: Boolean,
-    presentationState: InputSheetPresentationState,
-    isRecording: Boolean,
-    isDismissing: Boolean,
-    focusRequester: FocusRequester,
-    focusParkingRequester: FocusRequester,
-    focusRequestToken: Long,
-    keyboardController: SoftwareKeyboardController?,
-) {
+internal fun InputSheetFocusRequestEffects(state: InputSheetFocusRequestState) {
     var lastHandledFocusRequestToken by remember { mutableLongStateOf(Long.MIN_VALUE) }
 
-    LaunchedEffect(isSheetVisible, presentationState, isRecording, isDismissing, keyboardController) {
-        if (!isSheetVisible) return@LaunchedEffect
+    LaunchedEffect(
+        state.isSheetVisible,
+        state.presentationState,
+        state.isRecording,
+        state.isDismissing,
+        state.keyboardController,
+    ) {
+        if (!state.isSheetVisible) return@LaunchedEffect
         when {
-            isDismissing -> {
+            state.isDismissing -> {
                 releaseEditorFocusAndKeyboard(
-                    keyboardController = keyboardController,
-                    focusParkingRequester = focusParkingRequester,
+                    keyboardController = state.keyboardController,
+                    focusParkingRequester = state.focusParkingRequester,
                 )
             }
 
-            presentationState.shouldReleaseEditorFocus() -> {
+            state.presentationState.shouldReleaseEditorFocus() -> {
                 releaseEditorFocusAndKeyboard(
-                    keyboardController = keyboardController,
-                    focusParkingRequester = focusParkingRequester,
+                    keyboardController = state.keyboardController,
+                    focusParkingRequester = state.focusParkingRequester,
                 )
             }
 
-            isRecording -> keyboardController?.hide()
+            state.isRecording -> state.keyboardController?.hide()
         }
     }
 
     LaunchedEffect(
-        isSheetVisible,
-        isSheetEntrySettled,
-        presentationState,
-        isRecording,
-        isDismissing,
-        focusRequestToken,
+        state.isSheetVisible,
+        state.isSheetEntrySettled,
+        state.presentationState,
+        state.isRecording,
+        state.isDismissing,
+        state.focusRequestToken,
     ) {
         if (
             !shouldRequestInputSheetEditorFocus(
-                isSheetVisible = isSheetVisible,
-                isSheetEntrySettled = isSheetEntrySettled,
-                presentationState = presentationState,
-                isRecording = isRecording,
-                isDismissing = isDismissing,
-                focusRequestToken = focusRequestToken,
+                isSheetVisible = state.isSheetVisible,
+                isSheetEntrySettled = state.isSheetEntrySettled,
+                presentationState = state.presentationState,
+                isRecording = state.isRecording,
+                isDismissing = state.isDismissing,
+                focusRequestToken = state.focusRequestToken,
                 lastHandledFocusRequestToken = lastHandledFocusRequestToken,
             )
         ) {
             return@LaunchedEffect
         }
         requestEditorFocusAndKeyboard(
-            focusRequester = focusRequester,
-            keyboardController = keyboardController,
+            focusRequester = state.focusRequester,
+            keyboardController = state.keyboardController,
         )
-        lastHandledFocusRequestToken = focusRequestToken
+        lastHandledFocusRequestToken = state.focusRequestToken
     }
 }
 

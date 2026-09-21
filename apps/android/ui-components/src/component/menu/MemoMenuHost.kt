@@ -36,59 +36,74 @@ fun MemoMenuHost(
         activeState = state
     }
 
-    MemoMenuBottomSheetHost(
-        current = activeState,
-        context = context,
-        sheetState = sheetState,
-        scope = scope,
-        activeStateProvider = { activeState },
-        clearActiveState = {
-            activeState = null
-            onMenuCleared()
-        },
-        actionAutoReorderEnabled = actionAutoReorderEnabled,
-        onActionInvoked = onActionInvoked,
-        onActionOrderChanged = onActionOrderChanged,
-        benchmarkRootTag = benchmarkRootTag,
-        actions = actions,
-    )
+    val current = activeState
+    if (current != null) {
+        MemoMenuBottomSheetHost(
+            current = current,
+            params =
+                MemoMenuBottomSheetParams(
+                    context = context,
+                    sheetState = sheetState,
+                    scope = scope,
+                    activeStateProvider = { activeState },
+                    clearActiveState = {
+                        activeState = null
+                        onMenuCleared()
+                    },
+                    actionAutoReorderEnabled = actionAutoReorderEnabled,
+                    onActionInvoked = onActionInvoked,
+                    onActionOrderChanged = onActionOrderChanged,
+                    benchmarkRootTag = benchmarkRootTag,
+                    actions = actions,
+                ),
+        )
+    }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+private data class MemoMenuBottomSheetParams(
+    val context: Context,
+    val sheetState: SheetState,
+    val scope: CoroutineScope,
+    val activeStateProvider: () -> MemoMenuState?,
+    val clearActiveState: () -> Unit,
+    val actionAutoReorderEnabled: Boolean,
+    val onActionInvoked: (String) -> Unit,
+    val onActionOrderChanged: (List<String>) -> Unit,
+    val benchmarkRootTag: String?,
+    val actions: @Composable (state: MemoMenuState, lifecycle: MemoMenuActionLifecycle) -> ImmutableList<ActionItemUi>,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MemoMenuBottomSheetHost(
-    current: MemoMenuState?,
-    context: Context,
-    sheetState: SheetState,
-    scope: CoroutineScope,
-    activeStateProvider: () -> MemoMenuState?,
-    clearActiveState: () -> Unit,
-    actionAutoReorderEnabled: Boolean,
-    onActionInvoked: (String) -> Unit,
-    onActionOrderChanged: (List<String>) -> Unit,
-    benchmarkRootTag: String?,
-    actions: @Composable (state: MemoMenuState, lifecycle: MemoMenuActionLifecycle) -> ImmutableList<ActionItemUi>,
+    current: MemoMenuState,
+    params: MemoMenuBottomSheetParams,
 ) {
-    current?.let { state ->
-        val lifecycle =
-            remember(context, scope, sheetState, activeStateProvider, clearActiveState) {
-                MemoMenuActionLifecycle(
-                    context = context,
-                    scope = scope,
-                    sheetState = sheetState,
-                    activeStateProvider = activeStateProvider,
-                    clearActiveState = clearActiveState,
-                )
-            }
-        MemoMenuBottomSheet(
-            state = state,
-            sheetState = sheetState,
-            onDismissRequest = clearActiveState,
-            actions = actions(state, lifecycle),
-            actionAutoReorderEnabled = actionAutoReorderEnabled,
-            onActionInvoked = onActionInvoked,
-            onActionOrderChanged = onActionOrderChanged,
-            benchmarkRootTag = benchmarkRootTag,
-        )
-    }
+    val lifecycle =
+        remember(
+            params.context,
+            params.scope,
+            params.sheetState,
+            params.activeStateProvider,
+            params.clearActiveState,
+        ) {
+            MemoMenuActionLifecycle(
+                context = params.context,
+                scope = params.scope,
+                sheetState = params.sheetState,
+                activeStateProvider = params.activeStateProvider,
+                clearActiveState = params.clearActiveState,
+            )
+        }
+    MemoMenuBottomSheet(
+        state = current,
+        sheetState = params.sheetState,
+        onDismissRequest = params.clearActiveState,
+        actions = params.actions(current, lifecycle),
+        actionAutoReorderEnabled = params.actionAutoReorderEnabled,
+        onActionInvoked = params.onActionInvoked,
+        onActionOrderChanged = params.onActionOrderChanged,
+        benchmarkRootTag = params.benchmarkRootTag,
+    )
 }

@@ -36,8 +36,9 @@ internal fun resolveMemoUrlVisualStyle(
             else ->
                 coveringStyles
                     .lastOrNull { it.item.color != Color.Unspecified }
-                    ?.item
-                    ?.color
+                    ?.run {
+                        item.color
+                    }
                     ?: defaultColor
         }
     val underlineDecoration =

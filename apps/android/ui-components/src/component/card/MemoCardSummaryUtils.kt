@@ -13,9 +13,16 @@ private const val EXPAND_LINE_THRESHOLD = 15
 internal const val COLLAPSED_SUMMARY_MAX_LINES = 8
 private const val COLLAPSED_SUMMARY_MAX_CHARS = 420
 
-fun shouldShowMemoCardExpand(content: String): Boolean =
-    content.length > EXPAND_CHAR_THRESHOLD ||
-        content.lineSequence().count() > EXPAND_LINE_THRESHOLD
+fun shouldShowMemoCardExpand(
+    content: String,
+    projectedCharCount: Long? = null,
+): Boolean {
+    val charCount = projectedCharCount ?: content.length.toLong()
+    if (charCount > EXPAND_CHAR_THRESHOLD) {
+        return true
+    }
+    return projectedCharCount == null && content.lineSequence().count() > EXPAND_LINE_THRESHOLD
+}
 
 /** Builds the collapsed preview only from Rust-issued render facts. */
 fun buildMemoCardCollapsedSummary(

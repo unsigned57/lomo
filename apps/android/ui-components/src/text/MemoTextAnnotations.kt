@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import java.util.Locale
 
 internal fun AnnotatedString.withSearchHighlight(
     query: String,
@@ -13,8 +14,8 @@ internal fun AnnotatedString.withSearchHighlight(
 
     val editable = AnnotatedString.Builder()
     editable.append(this)
-    val lowerText = text.lowercase()
-    val lowerQuery = query.lowercase()
+    val lowerText = text.lowercase(Locale.ROOT)
+    val lowerQuery = query.lowercase(Locale.ROOT)
     var startIndex = 0
     while (startIndex < lowerText.length) {
         val foundIndex = lowerText.indexOf(lowerQuery, startIndex)
@@ -40,8 +41,9 @@ internal fun AnnotatedString.resolveBackgroundColor(offset: Int): Color =
         .lastOrNull { range ->
             offset in range.start until range.end && range.item.background != Color.Unspecified
         }
-        ?.item
-        ?.background
+        ?.run {
+            item.background
+        }
         ?: Color.Unspecified
 
 internal fun AnnotatedString.toMemoTextLinkRanges(): List<MemoTextLinkRange> =

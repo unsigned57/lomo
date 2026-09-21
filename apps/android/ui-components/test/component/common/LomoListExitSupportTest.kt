@@ -23,6 +23,9 @@ import kotlinx.collections.immutable.toImmutableList
  * - Given a base key list with duplicates, when uniqueMemoListRenderKeys is called, then it returns deduplicated keys preserving order.
  * - Given an exit render list at a deep placeholder rank, when computeExitRenderKeyWindow is called, then only the window is unique-ified and unloaded ranks stay formulaic.
  * - Given duplicate ids in the loaded window, when computeExitRenderKeyWindow is called, then keys stay unique without scanning placeholders.
+ * - Given a stable prefix after append, when incrementalSourceKeys runs, then it reuses the previous prefix.
+ * - Given a stable suffix after prepend, when incrementalSourceKeys runs, then it reuses the previous suffix.
+ * - Given a same-size middle identity change, when incrementalSourceKeys runs, then it rebuilds instead of reusing the previous list.
  *
  * Observable outcomes:
  * - list of resolved entries with items, snapshot values, and exit phases.
@@ -324,5 +327,33 @@ class LomoListExitSupportTest : FunSpec({
         window.keys.toSet().size shouldBe 3
         window.keyAt(10) shouldBe "a"
         (window.keyAt(12) == "a") shouldBe false
+    }
+
+    test("append reuses the previous prefix and maps only the new page") {
+        val previous = listOf("a", "b", "c")
+        val next = listOf(TestItem("a"), TestItem("b"), TestItem("c"), TestItem("d"), TestItem("e"))
+
+        incrementalSourceKeys(previous, next, ::testKey) shouldContainExactly listOf("a", "b", "c", "d", "e")
+    }
+
+    test("prepend reuses the previous suffix and maps only the new page") {
+        val previous = listOf("c", "d", "e")
+        val next = listOf(TestItem("a"), TestItem("b"), TestItem("c"), TestItem("d"), TestItem("e"))
+
+        incrementalSourceKeys(previous, next, ::testKey) shouldContainExactly listOf("a", "b", "c", "d", "e")
+    }
+
+    test("unchanged identities reuse the previous key list instance") {
+        val previous = listOf("a", "b", "c")
+        val next = listOf(TestItem("a"), TestItem("b"), TestItem("c"))
+
+        incrementalSourceKeys(previous, next, ::testKey) shouldBe previous
+    }
+
+    test("same-size middle identity change rebuilds the key list") {
+        val previous = listOf("a", "b", "c")
+        val next = listOf(TestItem("a"), TestItem("x"), TestItem("c"))
+
+        incrementalSourceKeys(previous, next, ::testKey) shouldContainExactly listOf("a", "x", "c")
     }
 })

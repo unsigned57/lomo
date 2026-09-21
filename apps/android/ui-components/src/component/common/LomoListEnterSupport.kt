@@ -33,6 +33,12 @@ fun <T> resolveEnteringIds(
     allItems: List<T>,
     itemKey: (T) -> String,
 ): LomoListEnterDetection {
+    if (enterState.activeEnters.isEmpty() && enterState.pendingHeadEnters.isEmpty()) {
+        return LomoListEnterDetection(
+            enteringIds = emptySet<String>().toImmutableSet(),
+            resolvedPendingHeadEnters = emptyMap(),
+        )
+    }
     val currentKeys = allItems.map(itemKey).toSet()
     val activeEnteringIds = enterState.activeEnters.filter { it in currentKeys }
     val headId = allItems.firstOrNull()?.let(itemKey)
@@ -43,7 +49,7 @@ fun <T> resolveEnteringIds(
                     .filter { pendingEnter -> pendingEnter.baseline.isResolvedBy(loadedHeadId) }
                     .associate { pendingEnter -> pendingEnter.requestId to loadedHeadId }
             }
-            ?: emptyMap()
+            .orEmpty()
     return LomoListEnterDetection(
         enteringIds = (activeEnteringIds + resolvedPendingHeadEnters.values).toImmutableSet(),
         resolvedPendingHeadEnters = resolvedPendingHeadEnters,

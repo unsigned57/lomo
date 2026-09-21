@@ -12,7 +12,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -26,21 +25,14 @@ import com.lomo.ui.theme.memoPlatformTextHandleColor
 
 @Composable
 internal fun InputEditorTextField(
-    isExpanded: Boolean,
-    showsPlaceholder: Boolean,
-    inputValue: TextFieldValue,
-    hintText: String,
-    focusRequester: FocusRequester,
-    textStyle: TextStyle,
-    placeholderTextStyle: TextStyle,
-    benchmarkEditorTag: String?,
-    modifier: Modifier = Modifier,
+    state: InputEditorTextFieldState,
     onTextChange: (TextFieldValue) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val onSurface = MaterialTheme.colorScheme.onSurface
     val displayStyle =
-        remember(textStyle, onSurface) {
-            textStyle.copy(color = onSurface)
+        remember(state.textStyle, onSurface) {
+            state.textStyle.copy(color = onSurface)
         }
     val colorScheme = MaterialTheme.colorScheme
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -54,12 +46,12 @@ internal fun InputEditorTextField(
     val compactEditorMaxHeight = maximumContentHeight.coerceAtLeast(minimumContentHeight)
     val editorContainerMaxHeight =
         resolveInputEditorMaximumHeight(
-            isExpanded = isExpanded,
+            isExpanded = state.isExpanded,
             compactMaximumHeight = compactContainerMaxHeight,
         )
     val editorContentMaxHeight =
         resolveInputEditorMaximumHeight(
-            isExpanded = isExpanded,
+            isExpanded = state.isExpanded,
             compactMaximumHeight = compactEditorMaxHeight,
         )
 
@@ -77,20 +69,20 @@ internal fun InputEditorTextField(
                     vertical = InputSheetTokens.EditorContainerPaddingVertical,
                 ),
     ) {
-        if (showsPlaceholder) {
+        if (state.showsPlaceholder) {
             InputEditorPlaceholder(
-                hintText = hintText,
-                textStyle = placeholderTextStyle,
+                hintText = state.hintText,
+                textStyle = state.placeholderTextStyle,
                 minimumContentHeight = minimumContentHeight,
             )
         }
         BasicTextField(
-            value = inputValue,
+            value = state.inputValue,
             onValueChange = onTextChange,
             modifier =
                 Modifier
                     .then(
-                        if (isExpanded) {
+                        if (state.isExpanded) {
                             Modifier.fillMaxSize()
                         } else {
                             Modifier
@@ -102,12 +94,12 @@ internal fun InputEditorTextField(
                         },
                     )
                     .verticalScroll(rememberScrollState())
-                    .benchmarkAnchor(benchmarkEditorTag)
-                    .focusRequester(focusRequester),
+                    .benchmarkAnchor(state.benchmarkEditorTag)
+                    .focusRequester(state.focusRequester),
             textStyle = displayStyle,
             cursorBrush = SolidColor(memoPlatformTextHandleColor(colorScheme)),
             minLines = INPUT_EDITOR_MIN_LINES,
-            maxLines = if (isExpanded) Int.MAX_VALUE else INPUT_EDITOR_MAX_LINES,
+            maxLines = if (state.isExpanded) Int.MAX_VALUE else INPUT_EDITOR_MAX_LINES,
             interactionSource = remember { MutableInteractionSource() },
         )
     }

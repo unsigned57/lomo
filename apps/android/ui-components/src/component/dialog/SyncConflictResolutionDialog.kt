@@ -15,13 +15,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.lomo.domain.model.SyncConflictAutoResolutionAdvisor
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
-import com.lomo.domain.model.SyncReviewAutoResolutionAdvisor
 import com.lomo.domain.model.SyncReviewResolutionChoice
 import com.lomo.domain.model.SyncReviewSession
+import com.lomo.domain.model.toConflictChoice
+import com.lomo.domain.model.toReviewChoice
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
@@ -35,13 +35,7 @@ fun SyncConflictResolutionDialog(
     perFileChoices: ImmutableMap<String, SyncConflictResolutionChoice>,
     expandedFilePath: String?,
     isResolving: Boolean,
-    onFileChoiceChanged: (path: String, choice: SyncConflictResolutionChoice) -> Unit,
-    onAllChoicesChanged: (choice: SyncConflictResolutionChoice) -> Unit,
-    onAcceptSuggestions: () -> Unit,
-    onAutoResolveSafeConflicts: () -> Unit,
-    onToggleExpanded: (path: String) -> Unit,
-    onApply: () -> Unit,
-    onDismiss: () -> Unit,
+    callbacks: SyncConflictDialogCallbacks,
     modifier: Modifier = Modifier,
     isInitialImportPreview: Boolean = false,
     reviewMessages: ImmutableMap<String, String> = emptyMap<String, String>().toImmutableMap(),
@@ -51,7 +45,7 @@ fun SyncConflictResolutionDialog(
         remember(conflictSet.files) {
             conflictSet.files
                 .mapNotNull { file ->
-                    SyncConflictAutoResolutionAdvisor.safeAutoResolutionChoice(file)?.let { choice ->
+                    file.suggestion?.run { safe?.toConflictChoice() }?.let { choice ->
                         file.relativePath to choice
                     }
                 }.toMap().toImmutableMap()
@@ -60,7 +54,7 @@ fun SyncConflictResolutionDialog(
         remember(conflictSet.files) {
             conflictSet.files
                 .mapNotNull { file ->
-                    SyncConflictAutoResolutionAdvisor.suggestedChoice(file)?.let { choice ->
+                    file.suggestion?.run { suggested?.toConflictChoice() }?.let { choice ->
                         file.relativePath to choice
                     }
                 }.toMap().toImmutableMap()
@@ -76,7 +70,7 @@ fun SyncConflictResolutionDialog(
     }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = callbacks.onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
         Box(modifier = modifier.fillMaxSize()) {
@@ -85,13 +79,13 @@ fun SyncConflictResolutionDialog(
                     TopBar(
                         source = conflictSet.source,
                         isInitialImportPreview = isInitialImportPreview,
-                        onDismiss = onDismiss,
+                        onDismiss = callbacks.onDismiss,
                     )
                 },
                 bottomBar = {
                     BottomSection(
                         allFilesChosen = allFilesChosen,
-                        onApply = onApply,
+                        onApply = callbacks.onApply,
                     )
                 },
                 containerColor = MaterialTheme.colorScheme.background,
@@ -107,21 +101,24 @@ fun SyncConflictResolutionDialog(
                         perFileChoices = perFileChoices,
                         isInitialImportPreview = isInitialImportPreview,
                         fileCount = conflictSet.files.size,
-                        onAllChoicesChanged = onAllChoicesChanged,
-                        onAcceptSuggestions = onAcceptSuggestions,
-                        onAutoResolveSafeConflicts = onAutoResolveSafeConflicts,
+                        onAllChoicesChanged = callbacks.onAllChoicesChanged,
+                        onAcceptSuggestions = callbacks.onAcceptSuggestions,
+                        onAutoResolveSafeConflicts = callbacks.onAutoResolveSafeConflicts,
                     )
                     ConflictFileList(
                         source = conflictSet.source,
-                        files = conflictFiles,
-                        safeChoices = safeChoices,
-                        suggestedChoices = suggestedChoices,
-                        perFileChoices = perFileChoices,
-                        expandedFilePath = expandedFilePath,
-                        reviewMessages = reviewMessages,
-                        onFileChoiceChanged = onFileChoiceChanged,
+                        state =
+                            ConflictFileListState(
+                                files = conflictFiles,
+                                safeChoices = safeChoices,
+                                suggestedChoices = suggestedChoices,
+                                perFileChoices = perFileChoices,
+                                expandedFilePath = expandedFilePath,
+                                reviewMessages = reviewMessages,
+                                onFileChoiceChanged = callbacks.onFileChoiceChanged,
+                                onToggleExpanded = callbacks.onToggleExpanded,
+                            ),
                         modifier = Modifier.weight(1f),
-                        onToggleExpanded = onToggleExpanded,
                     )
                 }
             }
@@ -145,13 +142,7 @@ fun SyncReviewResolutionDialog(
     blockedPaths: ImmutableSet<String>,
     expandedFilePath: String?,
     isResolving: Boolean,
-    onItemChoiceChanged: (path: String, choice: SyncReviewResolutionChoice) -> Unit,
-    onAllItemChoicesChanged: (choice: SyncReviewResolutionChoice) -> Unit,
-    onAcceptSuggestions: () -> Unit,
-    onAutoResolveSafeReviews: () -> Unit,
-    onToggleExpanded: (path: String) -> Unit,
-    onApply: () -> Unit,
-    onDismiss: () -> Unit,
+    callbacks: SyncReviewDialogCallbacks,
     modifier: Modifier = Modifier,
     isInitialImportPreview: Boolean = false,
 ) {
@@ -161,7 +152,7 @@ fun SyncReviewResolutionDialog(
             reviewSession.items
                 .filterNot { item -> item.relativePath in blockedPaths }
                 .mapNotNull { item ->
-                    SyncReviewAutoResolutionAdvisor.safeAutoResolutionChoice(item)?.let { choice ->
+                    item.suggestion?.run { safe?.toReviewChoice() }?.let { choice ->
                         item.relativePath to choice
                     }
                 }.toMap().toImmutableMap()
@@ -171,7 +162,7 @@ fun SyncReviewResolutionDialog(
             reviewSession.items
                 .filterNot { item -> item.relativePath in blockedPaths }
                 .mapNotNull { item ->
-                    SyncReviewAutoResolutionAdvisor.suggestedChoice(item)?.let { choice ->
+                    item.suggestion?.run { suggested?.toReviewChoice() }?.let { choice ->
                         item.relativePath to choice
                     }
                 }.toMap().toImmutableMap()
@@ -191,7 +182,7 @@ fun SyncReviewResolutionDialog(
             .all { item -> perItemChoices.containsKey(item.relativePath) }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = callbacks.onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
         Box(modifier = modifier.fillMaxSize()) {
@@ -200,13 +191,13 @@ fun SyncReviewResolutionDialog(
                     TopBar(
                         source = reviewSession.source,
                         isInitialImportPreview = isInitialImportPreview,
-                        onDismiss = onDismiss,
+                        onDismiss = callbacks.onDismiss,
                     )
                 },
                 bottomBar = {
                     BottomSection(
                         allFilesChosen = allItemsChosen,
-                        onApply = onApply,
+                        onApply = callbacks.onApply,
                     )
                 },
                 containerColor = MaterialTheme.colorScheme.background,
@@ -222,21 +213,24 @@ fun SyncReviewResolutionDialog(
                         perItemChoices = perItemChoices,
                         isInitialImportPreview = isInitialImportPreview,
                         itemCount = selectableCount,
-                        onAllItemChoicesChanged = onAllItemChoicesChanged,
-                        onAcceptSuggestions = onAcceptSuggestions,
-                        onAutoResolveSafeReviews = onAutoResolveSafeReviews,
+                        onAllItemChoicesChanged = callbacks.onAllItemChoicesChanged,
+                        onAcceptSuggestions = callbacks.onAcceptSuggestions,
+                        onAutoResolveSafeReviews = callbacks.onAutoResolveSafeReviews,
                     )
                     ReviewFileList(
                         source = reviewSession.source,
-                        items = reviewItems,
-                        safeChoices = safeChoices,
-                        suggestedChoices = suggestedChoices,
-                        perItemChoices = perItemChoices,
-                        blockedPaths = blockedPaths,
-                        expandedFilePath = expandedFilePath,
-                        onItemChoiceChanged = onItemChoiceChanged,
+                        state =
+                            ReviewFileListState(
+                                items = reviewItems,
+                                safeChoices = safeChoices,
+                                suggestedChoices = suggestedChoices,
+                                perItemChoices = perItemChoices,
+                                blockedPaths = blockedPaths,
+                                expandedFilePath = expandedFilePath,
+                                onItemChoiceChanged = callbacks.onItemChoiceChanged,
+                                onToggleExpanded = callbacks.onToggleExpanded,
+                            ),
                         modifier = Modifier.weight(1f),
-                        onToggleExpanded = onToggleExpanded,
                     )
                 }
             }

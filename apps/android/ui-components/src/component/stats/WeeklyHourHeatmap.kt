@@ -214,7 +214,7 @@ private fun WeeklyHeatmapCanvas(
                 textPaint,
             )
 
-            val hourMap = weeklyHourDistribution[day] ?: emptyMap()
+            val hourMap = weeklyHourDistribution[day].orEmpty()
             for (hour in 0 until HOURS_IN_DAY) {
                 val count = hourMap[hour] ?: 0
                 val x = leftMarginPx + hour * cellStep
@@ -272,7 +272,7 @@ private fun WeeklyHeatmapSelectionPopup(
     val dayLabel = remember(data.day) {
         data.day.getDisplayName(TextStyle.SHORT, Locale.getDefault())
     }
-    val hourLabel = "%d:00".format(data.hour)
+    val hourLabel = "%d:00".format(Locale.getDefault(), data.hour)
     val countLabel = pluralStringResource(Res.plurals.calendar_heatmap_memo_count, data.count, data.count)
 
     val positionProvider = remember(popupOffset, density) {
@@ -362,9 +362,10 @@ private fun rememberWeeklyHeatmapTextPaint(
     val densityScale = density.density
     val fontScale = density.fontScale
     return remember(textColor, densityScale, fontScale) {
+        val labelFontSizePx = with(density) { StatsChartTokens.LabelFontSize.toPx() }
         Paint().apply {
             color = textColor
-            textSize = with(density) { StatsChartTokens.LabelFontSize.toPx() }
+            textSize = labelFontSizePx
             isAntiAlias = true
             textAlign = Paint.Align.LEFT
         }

@@ -12,9 +12,7 @@ import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
-import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncReviewItem
-import com.lomo.domain.model.SyncReviewResolutionChoice
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.sync_conflict_section_attention
 import com.lomo.ui.generated.resources.sync_conflict_section_auto
@@ -22,31 +20,22 @@ import com.lomo.ui.generated.resources.sync_conflict_section_manual
 import com.lomo.ui.generated.resources.sync_conflict_section_ready
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.ImmutableMap
-import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.toImmutableList
 
 @Composable
 internal fun ConflictFileList(
     source: SyncBackendType,
-    files: ImmutableList<SyncConflictFile>,
-    safeChoices: ImmutableMap<String, SyncConflictResolutionChoice>,
-    suggestedChoices: ImmutableMap<String, SyncConflictResolutionChoice>,
-    perFileChoices: ImmutableMap<String, SyncConflictResolutionChoice>,
-    expandedFilePath: String?,
-    reviewMessages: ImmutableMap<String, String>,
-    onFileChoiceChanged: (path: String, choice: SyncConflictResolutionChoice) -> Unit,
+    state: ConflictFileListState,
     modifier: Modifier = Modifier,
-    onToggleExpanded: (path: String) -> Unit,
 ) {
     val supportsSkip = source.supportsDeferredConflictResolutionUi()
     val autoResolvableFiles =
-        remember(files, safeChoices) {
-            files.filter { file -> safeChoices.containsKey(file.relativePath) }.toImmutableList()
+        remember(state.files, state.safeChoices) {
+            state.files.filter { file -> state.safeChoices.containsKey(file.relativePath) }.toImmutableList()
         }
     val manualFiles =
-        remember(files, safeChoices) {
-            files.filterNot { file -> safeChoices.containsKey(file.relativePath) }.toImmutableList()
+        remember(state.files, state.safeChoices) {
+            state.files.filterNot { file -> state.safeChoices.containsKey(file.relativePath) }.toImmutableList()
         }
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
@@ -57,26 +46,32 @@ internal fun ConflictFileList(
             ConflictFileCard(
                 source = source,
                 file = file,
-                choice = perFileChoices[file.relativePath],
-                suggestedChoice = suggestedChoices[file.relativePath],
-                supportsSkip = supportsSkip,
-                isExpanded = expandedFilePath == file.relativePath,
-                reviewMessage = reviewMessages[file.relativePath],
-                onChoiceChanged = { choice -> onFileChoiceChanged(file.relativePath, choice) },
-                onToggleExpanded = { onToggleExpanded(file.relativePath) },
+                state =
+                    ConflictFileCardState(
+                        choice = state.perFileChoices[file.relativePath],
+                        suggestedChoice = state.suggestedChoices[file.relativePath],
+                        supportsSkip = supportsSkip,
+                        isExpanded = state.expandedFilePath == file.relativePath,
+                        reviewMessage = state.reviewMessages[file.relativePath],
+                        onChoiceChanged = { choice -> state.onFileChoiceChanged(file.relativePath, choice) },
+                        onToggleExpanded = { state.onToggleExpanded(file.relativePath) },
+                    ),
             )
         }
         conflictFileSection(source, manualFiles, false) { file ->
             ConflictFileCard(
                 source = source,
                 file = file,
-                choice = perFileChoices[file.relativePath],
-                suggestedChoice = null,
-                supportsSkip = supportsSkip,
-                isExpanded = expandedFilePath == file.relativePath,
-                reviewMessage = reviewMessages[file.relativePath],
-                onChoiceChanged = { choice -> onFileChoiceChanged(file.relativePath, choice) },
-                onToggleExpanded = { onToggleExpanded(file.relativePath) },
+                state =
+                    ConflictFileCardState(
+                        choice = state.perFileChoices[file.relativePath],
+                        suggestedChoice = null,
+                        supportsSkip = supportsSkip,
+                        isExpanded = state.expandedFilePath == file.relativePath,
+                        reviewMessage = state.reviewMessages[file.relativePath],
+                        onChoiceChanged = { choice -> state.onFileChoiceChanged(file.relativePath, choice) },
+                        onToggleExpanded = { state.onToggleExpanded(file.relativePath) },
+                    ),
             )
         }
     }
@@ -85,26 +80,21 @@ internal fun ConflictFileList(
 @Composable
 internal fun ReviewFileList(
     source: SyncBackendType,
-    items: ImmutableList<SyncReviewItem>,
-    safeChoices: ImmutableMap<String, SyncReviewResolutionChoice>,
-    suggestedChoices: ImmutableMap<String, SyncReviewResolutionChoice>,
-    perItemChoices: ImmutableMap<String, SyncReviewResolutionChoice>,
-    blockedPaths: ImmutableSet<String>,
-    expandedFilePath: String?,
-    onItemChoiceChanged: (path: String, choice: SyncReviewResolutionChoice) -> Unit,
+    state: ReviewFileListState,
     modifier: Modifier = Modifier,
-    onToggleExpanded: (path: String) -> Unit,
 ) {
     val supportsSkip = source.supportsDeferredReviewResolutionUi()
     val autoResolvableItems =
-        remember(items, safeChoices, blockedPaths) {
-            items
-                .filter { item -> item.relativePath !in blockedPaths && safeChoices.containsKey(item.relativePath) }
+        remember(state.items, state.safeChoices, state.blockedPaths) {
+            state.items
+                .filter { item ->
+                    item.relativePath !in state.blockedPaths && state.safeChoices.containsKey(item.relativePath)
+                }
                 .toImmutableList()
         }
     val manualItems =
-        remember(items, safeChoices) {
-            items.filterNot { item -> safeChoices.containsKey(item.relativePath) }.toImmutableList()
+        remember(state.items, state.safeChoices) {
+            state.items.filterNot { item -> state.safeChoices.containsKey(item.relativePath) }.toImmutableList()
         }
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
@@ -115,24 +105,24 @@ internal fun ReviewFileList(
             ReviewFileCard(
                 source = source,
                 item = item,
-                choice = perItemChoices[item.relativePath],
-                suggestedChoice = suggestedChoices[item.relativePath],
+                choice = state.perItemChoices[item.relativePath],
+                suggestedChoice = state.suggestedChoices[item.relativePath],
                 supportsSkip = supportsSkip,
-                isExpanded = expandedFilePath == item.relativePath,
-                onChoiceChanged = { choice -> onItemChoiceChanged(item.relativePath, choice) },
-                onToggleExpanded = { onToggleExpanded(item.relativePath) },
+                isExpanded = state.expandedFilePath == item.relativePath,
+                onChoiceChanged = { choice -> state.onItemChoiceChanged(item.relativePath, choice) },
+                onToggleExpanded = { state.onToggleExpanded(item.relativePath) },
             )
         }
         reviewFileSection(manualItems, false) { item ->
             ReviewFileCard(
                 source = source,
                 item = item,
-                choice = perItemChoices[item.relativePath],
-                suggestedChoice = suggestedChoices[item.relativePath],
+                choice = state.perItemChoices[item.relativePath],
+                suggestedChoice = state.suggestedChoices[item.relativePath],
                 supportsSkip = supportsSkip,
-                isExpanded = expandedFilePath == item.relativePath,
-                onChoiceChanged = { choice -> onItemChoiceChanged(item.relativePath, choice) },
-                onToggleExpanded = { onToggleExpanded(item.relativePath) },
+                isExpanded = state.expandedFilePath == item.relativePath,
+                onChoiceChanged = { choice -> state.onItemChoiceChanged(item.relativePath, choice) },
+                onToggleExpanded = { state.onToggleExpanded(item.relativePath) },
             )
         }
     }

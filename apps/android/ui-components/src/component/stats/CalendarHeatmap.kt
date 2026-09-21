@@ -33,17 +33,6 @@ import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.toImmutableMap
 import kotlin.math.roundToInt
 
-private const val PREVIEW_DAY_RANGE = 120
-private const val PREVIEW_LEVEL_FOUR_INTERVAL = 17
-private const val PREVIEW_LEVEL_THREE_INTERVAL = 9
-private const val PREVIEW_LEVEL_TWO_INTERVAL = 4
-private const val PREVIEW_LEVEL_ONE_INTERVAL = 2
-private const val PREVIEW_LEVEL_FOUR_COUNT = 8
-private const val PREVIEW_LEVEL_THREE_COUNT = 5
-private const val PREVIEW_LEVEL_TWO_COUNT = 2
-private const val PREVIEW_LEVEL_ONE_COUNT = 1
-private val PREVIEW_TODAY: LocalDate = LocalDate.of(2026, 5, 22)
-
 @Composable
 fun CalendarHeatmap(
     memoCountByDate: ImmutableMap<LocalDate, Int>,
@@ -249,9 +238,10 @@ private fun rememberHeatmapTextPaint(
     val densityScale = density.density
     val fontScale = density.fontScale
     return remember(textColor, densityScale, fontScale) {
+        val labelFontSizePx = with(density) { StatsChartTokens.LabelFontSize.toPx() }
         Paint().apply {
             color = textColor
-            textSize = with(density) { StatsChartTokens.LabelFontSize.toPx() }
+            textSize = labelFontSizePx
             isAntiAlias = true
             textAlign = android.graphics.Paint.Align.LEFT
         }
@@ -337,36 +327,3 @@ internal const val MIN_WEEKS = 52
 internal const val DAYS_PER_WEEK = 7
 internal const val LAST_WEEKDAY_INDEX = DAYS_PER_WEEK - 1
 
-@Preview(showBackground = true, widthDp = 360)
-@Composable
-private fun CalendarHeatmapPreview() {
-    val today = PREVIEW_TODAY
-    val sampleMemoCountByDate =
-        remember(today) {
-            buildMap {
-                for (dayOffset in 0..PREVIEW_DAY_RANGE) {
-                    val date = today.minusDays(dayOffset.toLong())
-                    val count =
-                        when {
-                            dayOffset % PREVIEW_LEVEL_FOUR_INTERVAL == 0 -> PREVIEW_LEVEL_FOUR_COUNT
-                            dayOffset % PREVIEW_LEVEL_THREE_INTERVAL == 0 -> PREVIEW_LEVEL_THREE_COUNT
-                            dayOffset % PREVIEW_LEVEL_TWO_INTERVAL == 0 -> PREVIEW_LEVEL_TWO_COUNT
-                            dayOffset % PREVIEW_LEVEL_ONE_INTERVAL == 0 -> PREVIEW_LEVEL_ONE_COUNT
-                            else -> 0
-                        }
-                    if (count > 0) put(date, count)
-                }
-            }
-        }
-
-    LomoTheme {
-        Surface(modifier = Modifier.padding(com.lomo.ui.theme.AppSpacing.Medium)) {
-            CalendarHeatmap(
-                memoCountByDate = sampleMemoCountByDate.toImmutableMap(),
-                today = today,
-                thresholds = CalendarHeatmapThresholds.default(),
-                modifier = Modifier.width(320.dp),
-            )
-        }
-    }
-}

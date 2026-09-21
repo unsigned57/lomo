@@ -97,17 +97,20 @@ internal fun MarkdownIrRenderer(
                 is MarkdownIrPresentationItem.Block ->
                     MarkdownIrBlock(
                         block = item.block,
-                        onTaskClick = onTaskClick,
-                        onImageClick = onImageClick,
-                        mediaPresentationResolver = mediaPresentationResolver,
-                        enableTextSelection = enableTextSelection,
-                        textSelectionRegistrar = textSelectionRegistrar,
-                        onTextTapFeedback = onTextTapFeedback,
-                        onTextBodyClick = onTextBodyClick,
-                        onTextDoubleClick = onTextDoubleClick,
-                        onTextLongClick = onTextLongClick,
-                        hideImages = hideImages,
-                        mediaContent = mediaContent,
+                        context =
+                            MarkdownIrRenderContext(
+                                onTaskClick = onTaskClick,
+                                onImageClick = onImageClick,
+                                mediaPresentationResolver = mediaPresentationResolver,
+                                enableTextSelection = enableTextSelection,
+                                textSelectionRegistrar = textSelectionRegistrar,
+                                onTextTapFeedback = onTextTapFeedback,
+                                onTextBodyClick = onTextBodyClick,
+                                onTextDoubleClick = onTextDoubleClick,
+                                onTextLongClick = onTextLongClick,
+                                hideImages = hideImages,
+                                mediaContent = mediaContent,
+                            ),
                     )
                 is MarkdownIrPresentationItem.Gallery ->
                     if (!hideImages) {
@@ -124,32 +127,13 @@ internal fun MarkdownIrRenderer(
 @Composable
 private fun MarkdownIrBlock(
     block: MarkdownRenderBlock,
-    onTaskClick: ((MarkdownSourceSpan) -> Unit)?,
-    onImageClick: ((String) -> Unit)?,
-    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
-    enableTextSelection: Boolean,
-    textSelectionRegistrar: MemoTextSelectionRegistrar?,
-    onTextTapFeedback: (() -> Unit)?,
-    onTextBodyClick: (() -> Unit)?,
-    onTextDoubleClick: (() -> Unit)?,
-    onTextLongClick: (() -> Unit)?,
-    hideImages: Boolean,
-    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
+    context: MarkdownIrRenderContext,
 ) {
     when (block) {
         is MarkdownRenderBlock.Paragraph ->
             MarkdownIrParagraph(
                 inlines = block.inlines,
-                onImageClick = onImageClick,
-                mediaPresentationResolver = mediaPresentationResolver,
-                enableTextSelection = enableTextSelection,
-                textSelectionRegistrar = textSelectionRegistrar,
-                onTextTapFeedback = onTextTapFeedback,
-                onTextBodyClick = onTextBodyClick,
-                onTextDoubleClick = onTextDoubleClick,
-                onTextLongClick = onTextLongClick,
-                hideImages = hideImages,
-                mediaContent = mediaContent,
+                context = context,
             )
         is MarkdownRenderBlock.Heading ->
             Text(
@@ -166,18 +150,8 @@ private fun MarkdownIrBlock(
             Column(modifier = Modifier.fillMaxWidth().padding(start = 12.dp)) {
                 block.blocks.forEach { child ->
                     MarkdownIrBlock(
-                        child,
-                        onTaskClick,
-                        onImageClick,
-                        mediaPresentationResolver,
-                        enableTextSelection,
-                        textSelectionRegistrar,
-                        onTextTapFeedback,
-                        onTextBodyClick,
-                        onTextDoubleClick,
-                        onTextLongClick,
-                        hideImages,
-                        mediaContent,
+                        block = child,
+                        context = context,
                     )
                 }
             }
@@ -187,13 +161,7 @@ private fun MarkdownIrBlock(
                     MarkdownIrListItem(
                         item = item,
                         marker = if (block.ordered) "${block.startNumber + index.toULong()}." else "•",
-                        onTaskClick = onTaskClick,
-                        onImageClick = onImageClick,
-                        mediaPresentationResolver = mediaPresentationResolver,
-                        enableTextSelection = enableTextSelection,
-                        textSelectionRegistrar = textSelectionRegistrar,
-                        hideImages = hideImages,
-                        mediaContent = mediaContent,
+                        context = context,
                     )
                 }
             }
@@ -218,17 +186,12 @@ private fun MarkdownIrBlock(
 private fun MarkdownIrListItem(
     item: MarkdownRenderListItem,
     marker: String,
-    onTaskClick: ((MarkdownSourceSpan) -> Unit)?,
-    onImageClick: ((String) -> Unit)?,
-    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
-    enableTextSelection: Boolean,
-    textSelectionRegistrar: MemoTextSelectionRegistrar?,
-    hideImages: Boolean,
-    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
+    context: MarkdownIrRenderContext,
 ) {
     Row(modifier = Modifier.fillMaxWidth()) {
         val actionSpan = item.actionSpan
         val checked = item.checked
+        val onTaskClick = context.onTaskClick
         if (actionSpan != null && checked != null) {
             Checkbox(
                 checked = checked,
@@ -238,20 +201,17 @@ private fun MarkdownIrListItem(
             Text(marker, modifier = Modifier.width(28.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
-            item.blocks.forEach { child ->
-                MarkdownIrBlock(
-                    block = child,
-                    onTaskClick = onTaskClick,
-                    onImageClick = onImageClick,
-                    mediaPresentationResolver = mediaPresentationResolver,
-                    enableTextSelection = enableTextSelection,
-                    textSelectionRegistrar = textSelectionRegistrar,
+            val childContext =
+                context.copy(
                     onTextTapFeedback = null,
                     onTextBodyClick = null,
                     onTextDoubleClick = null,
                     onTextLongClick = null,
-                    hideImages = hideImages,
-                    mediaContent = mediaContent,
+                )
+            item.blocks.forEach { child ->
+                MarkdownIrBlock(
+                    block = child,
+                    context = childContext,
                 )
             }
         }
@@ -261,16 +221,7 @@ private fun MarkdownIrListItem(
 @Composable
 private fun MarkdownIrParagraph(
     inlines: List<MarkdownRenderInline>,
-    onImageClick: ((String) -> Unit)?,
-    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
-    enableTextSelection: Boolean,
-    textSelectionRegistrar: MemoTextSelectionRegistrar?,
-    onTextTapFeedback: (() -> Unit)?,
-    onTextBodyClick: (() -> Unit)?,
-    onTextDoubleClick: (() -> Unit)?,
-    onTextLongClick: (() -> Unit)?,
-    hideImages: Boolean,
-    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
+    context: MarkdownIrRenderContext,
 ) {
     val images = inlines.filterIsInstance<MarkdownRenderInline.Image>()
     val text = inlines.filterNot { inline -> inline is MarkdownRenderInline.Image }.toAnnotatedText()
@@ -278,22 +229,22 @@ private fun MarkdownIrParagraph(
         MDText(
             text = text,
             style = null,
-            enableTextSelection = enableTextSelection,
-            selectionRegistrar = textSelectionRegistrar,
-            onTapFeedback = onTextTapFeedback,
-            onBodyClick = onTextBodyClick,
-            onDoubleClick = onTextDoubleClick,
-            onLongClick = onTextLongClick,
+            enableTextSelection = context.enableTextSelection,
+            selectionRegistrar = context.textSelectionRegistrar,
+            onTapFeedback = context.onTextTapFeedback,
+            onBodyClick = context.onTextBodyClick,
+            onDoubleClick = context.onTextDoubleClick,
+            onLongClick = context.onTextLongClick,
         )
     }
-    if (!hideImages) {
+    if (!context.hideImages) {
         images.forEach { image ->
             val presentationImage = image.toPresentationImage()
-            val media = mediaPresentationResolver?.invoke(presentationImage)
-            if (media != null && mediaContent != null) {
-                mediaContent(media)
+            val media = context.mediaPresentationResolver?.invoke(presentationImage)
+            if (media != null && context.mediaContent != null) {
+                context.mediaContent(media)
             } else {
-                MarkdownImageBlock(presentationImage, onImageClick)
+                MarkdownImageBlock(presentationImage, context.onImageClick)
             }
         }
     }

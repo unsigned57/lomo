@@ -40,9 +40,9 @@ class ExitAnimationRegistry<T> {
                     ExitEntry(
                         item = item,
                         anchoredAfterKey = anchoredAfterKey,
-                        animationSettled = previous?.animationSettled ?: false,
-                        mutationCommitted = previous?.mutationCommitted ?: false,
-                        sourceAbsent = previous?.sourceAbsent ?: false,
+                        animationSettled = previous?.animationSettled == true,
+                        mutationCommitted = previous?.mutationCommitted == true,
+                        sourceAbsent = previous?.sourceAbsent == true,
                     )
             )
         }

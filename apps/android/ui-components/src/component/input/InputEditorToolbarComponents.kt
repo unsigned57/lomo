@@ -43,17 +43,8 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @Composable
 internal fun InputEditorToolbar(
-    toggleIcon: InputEditorToggleIcon,
-    isExpanded: Boolean,
-    isSubmitEnabled: Boolean,
-    enabled: Boolean,
-    onToggleExpanded: () -> Unit,
-    tools: ImmutableList<InputToolbarTool>,
-    onEditorCommand: (InputEditorCommand) -> Unit,
-    onToolbarOrderChanged: (List<InputToolbarActionId>) -> Unit,
-    onSubmit: () -> Unit,
-    benchmarkSubmitTag: String?,
-    haptic: AppHapticFeedback,
+    state: InputEditorToolbarState,
+    callbacks: InputEditorToolbarCallbacks,
     modifier: Modifier = Modifier,
 ) {
     var pendingPermissionCommand by remember { mutableStateOf<InputEditorCommand?>(null) }
@@ -62,7 +53,7 @@ internal fun InputEditorToolbar(
             val command = pendingPermissionCommand
             pendingPermissionCommand = null
             if (isGranted) {
-                command?.let(onEditorCommand)
+                command?.let(callbacks.onEditorCommand)
             }
         }
 
@@ -73,30 +64,30 @@ internal fun InputEditorToolbar(
     ) {
         Box(modifier = Modifier.weight(1f)) {
             InputToolbarScrollableTools(
-                enabled = enabled,
-                tools = tools,
+                enabled = state.enabled,
+                tools = state.tools,
                 onToolClick = { tool ->
                     val requiredPermission = tool.requiredPermission
                     if (requiredPermission != null) {
                         pendingPermissionCommand = tool.command
                         permissionLauncher.launch(requiredPermission)
                     } else {
-                        onEditorCommand(tool.command)
+                        callbacks.onEditorCommand(tool.command)
                     }
                 },
-                onToolbarOrderChanged = onToolbarOrderChanged,
-                haptic = haptic,
+                onToolbarOrderChanged = callbacks.onToolbarOrderChanged,
+                haptic = state.haptic,
             )
         }
         InputToolbarTrailingActions(
-            toggleIcon = toggleIcon,
-            isExpanded = isExpanded,
-            isSubmitEnabled = isSubmitEnabled,
-            enabled = enabled,
-            onToggleExpanded = onToggleExpanded,
-            onSubmit = onSubmit,
-            benchmarkSubmitTag = benchmarkSubmitTag,
-            haptic = haptic,
+            toggleIcon = state.toggleIcon,
+            isExpanded = state.isExpanded,
+            isSubmitEnabled = state.isSubmitEnabled,
+            enabled = state.enabled,
+            onToggleExpanded = callbacks.onToggleExpanded,
+            onSubmit = callbacks.onSubmit,
+            benchmarkSubmitTag = state.benchmarkSubmitTag,
+            haptic = state.haptic,
         )
     }
 }

@@ -14,12 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import com.lomo.domain.model.markdown.MarkdownRenderDocument
-import com.lomo.domain.model.markdown.MarkdownSourceSpan
-import com.lomo.ui.component.markdown.MarkdownIrPresentationPlan
 import com.lomo.ui.component.markdown.MarkdownIrRenderer
-import com.lomo.ui.component.markdown.MarkdownMediaPresentation
-import com.lomo.ui.component.markdown.MarkdownMediaPresentationResolver
 import com.lomo.ui.component.markdown.MarkdownPresentationPolicy
 import com.lomo.ui.text.MemoTextSelectionRegistrar
 import com.lomo.ui.text.MemoTextSelectionScope
@@ -28,21 +23,11 @@ import com.lomo.ui.text.MemoTextSelectionScope
 internal fun MemoCardBodyContent(
     collapsedPreviewMode: MemoCardCollapsedPreviewMode,
     collapsedSummary: String,
-    allowFreeTextCopy: Boolean,
-    onTapFeedback: (() -> Unit)?,
-    onBodyClick: (() -> Unit)?,
-    onDoubleClick: (() -> Unit)?,
-    onLongClick: (() -> Unit)?,
     processedContent: String,
-    renderDocument: MarkdownRenderDocument,
-    presentationPlan: MarkdownIrPresentationPlan? = null,
     isExpanded: Boolean,
     isCollapsedPreview: Boolean,
-    onTodoClick: ((MarkdownSourceSpan) -> Unit)?,
-    onImageClick: ((String) -> Unit)?,
-    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     bodyTransitionMode: MemoCardBodyTransitionMode,
-    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
+    state: MemoCardBodyState,
 ) {
     val bodyContent: @Composable (MemoTextSelectionRegistrar?) -> Unit = { selectionRegistrar ->
         when (bodyTransitionMode) {
@@ -55,17 +40,7 @@ internal fun MemoCardBodyContent(
                         ),
                     collapsedPreviewMode = collapsedPreviewMode,
                     collapsedSummary = collapsedSummary,
-                    allowFreeTextCopy = allowFreeTextCopy,
-                    onTapFeedback = onTapFeedback,
-                    onBodyClick = onBodyClick,
-                    onDoubleClick = onDoubleClick,
-                    onLongClick = onLongClick,
-                    renderDocument = renderDocument,
-                    presentationPlan = presentationPlan,
-                    onTodoClick = onTodoClick,
-                    onImageClick = onImageClick,
-                    mediaPresentationResolver = mediaPresentationResolver,
-                    mediaContent = mediaContent,
+                    state = state,
                     selectionRegistrar = selectionRegistrar,
                 )
             }
@@ -86,17 +61,7 @@ internal fun MemoCardBodyContent(
                     visualState = targetVisualState,
                     collapsedPreviewMode = collapsedPreviewMode,
                     collapsedSummary = collapsedSummary,
-                    allowFreeTextCopy = allowFreeTextCopy,
-                    onTapFeedback = onTapFeedback,
-                    onBodyClick = onBodyClick,
-                    onDoubleClick = onDoubleClick,
-                    onLongClick = onLongClick,
-                    renderDocument = renderDocument,
-                    presentationPlan = presentationPlan,
-                    onTodoClick = onTodoClick,
-                    onImageClick = onImageClick,
-                    mediaPresentationResolver = mediaPresentationResolver,
-                    mediaContent = mediaContent,
+                    state = state,
                     selectionRegistrar = selectionRegistrar,
                 )
             }
@@ -104,7 +69,7 @@ internal fun MemoCardBodyContent(
     }
 
     MemoTextSelectionScope(
-        enabled = allowFreeTextCopy,
+        enabled = state.allowFreeTextCopy,
         modifier = Modifier.fillMaxWidth(),
     ) { selectionRegistrar ->
         bodyContent(selectionRegistrar)
@@ -116,34 +81,14 @@ private fun MemoCardBodyStateContent(
     visualState: MemoCardBodyVisualState,
     collapsedPreviewMode: MemoCardCollapsedPreviewMode,
     collapsedSummary: String,
-    allowFreeTextCopy: Boolean,
-    onTapFeedback: (() -> Unit)?,
-    onBodyClick: (() -> Unit)?,
-    onDoubleClick: (() -> Unit)?,
-    onLongClick: (() -> Unit)?,
-    renderDocument: MarkdownRenderDocument,
-    presentationPlan: MarkdownIrPresentationPlan?,
-    onTodoClick: ((MarkdownSourceSpan) -> Unit)?,
-    onImageClick: ((String) -> Unit)?,
-    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
+    state: MemoCardBodyState,
     selectionRegistrar: MemoTextSelectionRegistrar?,
-    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
     when (visualState) {
         MemoCardBodyVisualState.Expanded -> {
             MemoCardMarkdownContent(
-                renderDocument = renderDocument,
-                presentationPlan = presentationPlan,
+                state = state,
                 isCollapsedPreview = false,
-                allowFreeTextCopy = allowFreeTextCopy,
-                onTapFeedback = onTapFeedback,
-                onBodyClick = onBodyClick,
-                onDoubleClick = onDoubleClick,
-                onLongClick = onLongClick,
-                onTodoClick = onTodoClick,
-                onImageClick = onImageClick,
-                mediaPresentationResolver = mediaPresentationResolver,
-                mediaContent = mediaContent,
                 selectionRegistrar = selectionRegistrar,
             )
         }
@@ -152,11 +97,11 @@ private fun MemoCardBodyStateContent(
             MemoCardCollapsedBody {
                 MemoCardCollapsedSummary(
                     collapsedSummary = collapsedSummary,
-                    allowFreeTextCopy = allowFreeTextCopy,
-                    onTapFeedback = onTapFeedback,
-                    onBodyClick = onBodyClick,
-                    onDoubleClick = onDoubleClick,
-                    onLongClick = onLongClick,
+                    allowFreeTextCopy = state.allowFreeTextCopy,
+                    onTapFeedback = state.onTapFeedback,
+                    onBodyClick = state.onBodyClick,
+                    onDoubleClick = state.onDoubleClick,
+                    onLongClick = state.onLongClick,
                     selectionRegistrar = selectionRegistrar,
                 )
             }
@@ -165,18 +110,8 @@ private fun MemoCardBodyStateContent(
         MemoCardBodyVisualState.CollapsedMarkdownPreview -> {
             MemoCardCollapsedBody {
                 MemoCardMarkdownContent(
-                    renderDocument = renderDocument,
-                    presentationPlan = presentationPlan,
+                    state = state,
                     isCollapsedPreview = collapsedPreviewMode == MemoCardCollapsedPreviewMode.MarkdownPreview,
-                    allowFreeTextCopy = allowFreeTextCopy,
-                    onTapFeedback = onTapFeedback,
-                    onBodyClick = onBodyClick,
-                    onDoubleClick = onDoubleClick,
-                    onLongClick = onLongClick,
-                    onTodoClick = onTodoClick,
-                    onImageClick = onImageClick,
-                    mediaPresentationResolver = mediaPresentationResolver,
-                    mediaContent = mediaContent,
                     selectionRegistrar = selectionRegistrar,
                 )
             }
@@ -200,36 +135,26 @@ private fun MemoCardCollapsedBody(content: @Composable BoxScope.() -> Unit) {
 
 @Composable
 private fun MemoCardMarkdownContent(
-    renderDocument: MarkdownRenderDocument,
-    presentationPlan: MarkdownIrPresentationPlan?,
+    state: MemoCardBodyState,
     isCollapsedPreview: Boolean,
-    allowFreeTextCopy: Boolean,
-    onTapFeedback: (() -> Unit)?,
-    onBodyClick: (() -> Unit)?,
-    onDoubleClick: (() -> Unit)?,
-    onLongClick: (() -> Unit)?,
-    onTodoClick: ((MarkdownSourceSpan) -> Unit)?,
-    onImageClick: ((String) -> Unit)?,
-    mediaPresentationResolver: MarkdownMediaPresentationResolver?,
     selectionRegistrar: MemoTextSelectionRegistrar?,
-    mediaContent: (@Composable (MarkdownMediaPresentation) -> Unit)?,
 ) {
     MarkdownIrRenderer(
-        document = renderDocument,
-        presentationPlan = presentationPlan,
+        document = state.renderDocument,
+        presentationPlan = state.presentationPlan,
         presentationPolicy = MarkdownPresentationPolicy.MEMO_CARD,
         modifier = Modifier.fillMaxWidth().padding(vertical = MemoCardTokens.BodyVerticalPadding),
         maxVisibleBlocks = if (isCollapsedPreview) COLLAPSED_MAX_VISIBLE_BLOCKS else Int.MAX_VALUE,
-        onTaskClick = onTodoClick,
-        onImageClick = onImageClick,
-        mediaPresentationResolver = mediaPresentationResolver,
-        enableTextSelection = allowFreeTextCopy,
+        onTaskClick = state.onTodoClick,
+        onImageClick = state.onImageClick,
+        mediaPresentationResolver = state.mediaPresentationResolver,
+        enableTextSelection = state.allowFreeTextCopy,
         textSelectionRegistrar = selectionRegistrar,
-        onTextTapFeedback = onTapFeedback,
-        onTextBodyClick = onBodyClick,
-        onTextDoubleClick = onDoubleClick,
-        onTextLongClick = onLongClick,
-        mediaContent = mediaContent,
+        onTextTapFeedback = state.onTapFeedback,
+        onTextBodyClick = state.onBodyClick,
+        onTextDoubleClick = state.onDoubleClick,
+        onTextLongClick = state.onLongClick,
+        mediaContent = state.mediaContent,
     )
 }
 
