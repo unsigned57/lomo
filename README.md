@@ -76,16 +76,16 @@ Lomo’s S3 sync is compatible with the Obsidian Remotely Save plugin. That plug
 
 ## Why Lomo?
 
-I wanted a Memos / Flomo-style lightweight, timestamped capture flow — but **strictly offline**, with local Markdown as the single source of truth. The name is **Lo**cal Me**mo**. Lomo is fully compatible with **Thino** daily-note format, so you can treat it as a native Android client for Thino data.
+Lomo draws inspiration from excellent predecessors like **Memos**, **Flomo**, **Moe-Memos**, and the **Thino** plugin for Obsidian. The name itself is a nod to "**Lo**cal Me**mo**" (or simply Flomo without the *F*—Foreign/Cloud).
 
-<details>
-<summary>Maintenance & development notes</summary>
+Why build another one?
+Most existing solutions require a server or network connection. I wanted the "Memos experience"—lightweight, timestamped thoughts—but strictly **offline** and based on local Markdown files (proven to be the most universal and portable format).
 
-**Maintenance:** Lomo is tailored to my own workflow and I use it heavily. As long as it stays in my daily toolchain, I plan to keep maintaining it.
+For a long time, I relied on the Thino plugin in Obsidian. While Thino covers the basics, Obsidian's mobile client can feel heavy, and I found the plugin's mobile UI/UX lacking in snappiness and polish.
 
-**Development:** This project was built almost entirely with **Google Antigravity** and **Codex**. If you have concerns about AI-generated code stability, feel free to fork and adapt it.
+**Compatibility**: Lomo is fully compatible with Thino's daily note format. You can effectively treat it as a standalone, native Android client for your Thino data.
 
-</details>
+> **A Note on Development**: This project was built almost entirely using AI-assisted development tools. Since Lomo is tailored to my specific workflow, I plan to maintain it for as long as it remains part of my daily toolchain. If you have concerns about the stability of AI-generated code, feel free to fork and adapt it to your needs.
 
 ## Install
 
@@ -102,7 +102,12 @@ I wanted a Memos / Flomo-style lightweight, timestamped capture flow — but **s
 3. Set `workspace` to your notes directory. Editor priority is that config, then `$VISUAL`, then `$EDITOR` (never a vim default)
 4. `$XDG_RUNTIME_DIR` is required. Missing clipboard or player fails closed instead of pretending success
 
-The home screen is a centered, single-column memo body feed. Enter opens full text and Esc restores the reading position. Use `n` for a recoverable multiline draft, `Ctrl+S` to save, and `Ctrl+E` for external draft editing; `e` edits an existing memo externally. `/`, `t`, and `c` combine search, tag, and date filters. `Ctrl+P` opens the searchable function menu; `.` opens memo actions. Supported terminals render images in full text.
+The home screen is a centered, single-column memo feed.
+
+- `Enter` opens full text; `Esc` restores the reading position
+- `n` opens a recoverable multiline draft; `Ctrl+S` saves; `Ctrl+E` hands the draft to an external editor; `e` edits an existing memo externally
+- `/`, `t`, `c` combine search, tag, and date filters; `Ctrl+P` opens the searchable function menu; `.` opens memo actions
+- Terminals with an image protocol render images in full text
 
 Linux built-in Git/WebDAV/S3 sync and LAN sharing are not in this first round; copy the Markdown workspace (and `.lomo`) or use an external file sync tool.
 
