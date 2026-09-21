@@ -3,6 +3,7 @@ package com.lomo.app
 import android.content.Intent
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.RecordingDeepLink
+import com.lomo.domain.model.SecuritySessionState
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.shouldBe
 import io.mockk.mockk
@@ -166,6 +167,13 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
             state shouldBe EntryFlowState.BlockedByAppLock(
                 request = EntryFlowRequest.PendingCommand(command),
             )
+        }
+
+        test("storage-failure session maps to locked entry so deep links stay queued") {
+            entryAppLockStateFor(SecuritySessionState.StorageFailure) shouldBe EntryAppLockState.Locked
+            entryAppLockStateFor(SecuritySessionState.Unknown) shouldBe EntryAppLockState.Resolving
+            entryAppLockStateFor(SecuritySessionState.LockOff) shouldBe EntryAppLockState.Unlocked
+            entryAppLockStateFor(SecuritySessionState.Unlocked) shouldBe EntryAppLockState.Unlocked
         }
 
         test("entry flow keeps default launch blocked without synthesizing a pending command") {
@@ -364,7 +372,7 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
             entryWorkspaceStateFor(com.lomo.domain.model.EngineReadiness.Opening)
                 .first shouldBe EntryWorkspaceState.Preparing
             entryWorkspaceStateFor(
-                com.lomo.domain.model.EngineReadiness.Ready(coreRevision = 1uL, eventSequence = 2uL),
+                com.lomo.domain.model.EngineReadiness.Ready,
             ).first shouldBe EntryWorkspaceState.Ready
             val recovery =
                 entryWorkspaceStateFor(

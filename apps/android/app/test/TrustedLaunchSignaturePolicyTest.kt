@@ -19,11 +19,22 @@
  *   external command payload.
  *
  * Excludes: Android ShortcutManager publishing, SharedPreferences storage, Activity routing, and HMAC provider internals.
+ *
+ * Test Change Justification:
+ * Reason category: Domain contract change
+ * Old behavior/assertion being replaced: TrustedLaunchSignaturePolicy(secretProvider = { String })
+ * Why old assertion is no longer correct: the install trust root is a non-exportable HMAC key;
+ * callers supply hmacSha256(ByteArray) and never receive the secret string.
+ * Coverage preserved by: the same sign/verify payload matrix against ASCII-byte HMAC material.
+ * Why this is not fitting the test to the implementation: verification still asserts the
+ * observable accept/reject results of the signed command identity.
  */
 package com.lomo.app
 
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 class TrustedLaunchSignaturePolicyTest : AppFunSpec() {
     init {
@@ -81,7 +92,11 @@ class TrustedLaunchSignaturePolicyTest : AppFunSpec() {
 
 private fun policy(): TrustedLaunchSignaturePolicy =
     TrustedLaunchSignaturePolicy(
-        secretProvider = { "install-secret" },
+        hmacSha256 = { payload ->
+            val mac = Mac.getInstance(HMAC_SHA_256)
+            mac.init(SecretKeySpec("install-secret".encodeToByteArray(), HMAC_SHA_256))
+            mac.doFinal(payload)
+        },
         nonceProvider = { "nonce-1" },
     )
 

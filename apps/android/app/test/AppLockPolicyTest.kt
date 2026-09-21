@@ -2,58 +2,65 @@ package com.lomo.app
 
 /*
  * Behavior Contract:
- * - Unit under test: app-lock gate visibility and auto-unlock derivations.
+ * - Unit under test: app-lock gate visibility and auto-unlock derivations from SecuritySessionState.
+ * - Capability: derive the lock-gate visibility and auto-unlock prompt policy purely from the
+ *   shared SecuritySessionState.
  * - Behavior focus:
- *   1. The lock gate is only visible while the user has app lock enabled AND has not yet unlocked
- *      the current launch — toggling the setting mid-session must never cause the gate to appear,
- *      because that would tear down the active sub-screen tree (Settings sub-page, etc.).
- *   2. The launcher auto-fires the biometric prompt exactly once per launch and only when nobody
- *      has already unlocked or queued a prompt.
- * - Observable outcomes: booleans returned by resolveAppLockGateVisible and
- *   shouldAutoRequestAppLockUnlock.
- * - TDD proof: regresses to true if a future change re-introduces the structural if/else
- *   short-circuit in MainActivity by collapsing the Composable's `isGateVisible` derivation back
- *   to a single eager boolean expression and forgetting the "already unlocked" guard.
- * - Excludes: BiometricPrompt wiring, DataStore persistence, Compose tree topology.
+ *   1. The lock gate covers Unknown, Locked, and StorageFailure so content is not shown without
+ *      an authorizing session.
+ *   2. Auto-unlock fires only for Locked, once, while no prompt is in flight.
+ *   3. Enabling lock while already LockOff/Unlocked is a session-machine concern (in-session
+ *      enable stays Unlocked); the gate simply hides for those states.
+ * Scenarios:
+ * - Given Unknown, Locked, or StorageFailure, when the gate resolves, then it is visible.
+ * - Given LockOff or Unlocked, when the gate resolves, then it is hidden.
+ * - Given Locked and no prompt in flight, when auto-unlock is queried, then it fires once.
+ * Observable outcomes: booleans from resolveAppLockGateVisible and shouldAutoRequestAppLockUnlock.
+ * TDD proof: AppLockPolicyTest; session machine is locked in domain SecuritySessionTest.
+ * Excludes: BiometricPrompt wiring, DataStore persistence, Compose tree topology, foreground timer.
+ *
+ * Test Change Justification:
+ * - Reason category: security session contract replacement.
+ * - Old behavior/assertion being replaced: Compose-owned hasUnlockedThisLaunch plus nullable
+ *   appLockEnabled booleans, including "gate hidden while preference is still resolving".
+ * - Why old assertion is no longer correct: unresolved preference is Unknown and must not show
+ *   unlocked content; UI, credential reads, and workers share one SecuritySessionState.
+ * - Coverage preserved by: gate visible for Unknown/Locked/StorageFailure; auto-unlock only for
+ *   Locked; LockOff/Unlocked hide the gate.
+ * - Why this is not fitting the test to the implementation: assertions still check the user-visible
+ *   gate and auto-prompt policy, not private Compose remember flags.
  */
 
 import com.lomo.app.testing.AppFunSpec
+import com.lomo.domain.model.SecuritySessionState
 import io.kotest.matchers.shouldBe
 
 class AppLockPolicyTest : AppFunSpec() {
     init {
-        test("gate stays hidden during the initial launch before the persisted lock flag has resolved") {
-            resolveAppLockGateVisible(
-                appLockEnabled = null,
-                hasUnlockedThisLaunch = false,
-            ) shouldBe false
+        test("gate is visible while the session is still unknown") {
+            resolveAppLockGateVisible(SecuritySessionState.Unknown) shouldBe true
+            resolveAppLockConfigLoading(SecuritySessionState.Unknown) shouldBe true
         }
 
-        test("gate stays hidden when lock is disabled at launch even before the unlock flag flips") {
-            resolveAppLockGateVisible(
-                appLockEnabled = false,
-                hasUnlockedThisLaunch = false,
-            ) shouldBe false
+        test("gate stays hidden when lock is off") {
+            resolveAppLockGateVisible(SecuritySessionState.LockOff) shouldBe false
         }
 
-        test("gate becomes visible on cold start with lock enabled and no prior unlock") {
-            resolveAppLockGateVisible(
-                appLockEnabled = true,
-                hasUnlockedThisLaunch = false,
-            ) shouldBe true
+        test("gate is visible when the session is locked") {
+            resolveAppLockGateVisible(SecuritySessionState.Locked) shouldBe true
         }
 
-        test("gate stays hidden after the user enables lock from within an already-unlocked session") {
-            resolveAppLockGateVisible(
-                appLockEnabled = true,
-                hasUnlockedThisLaunch = true,
-            ) shouldBe false
+        test("gate stays hidden after authentication") {
+            resolveAppLockGateVisible(SecuritySessionState.Unlocked) shouldBe false
         }
 
-        test("auto-unlock fires once when lock is on and the launch has not been unlocked yet") {
+        test("gate is visible when preference storage failed") {
+            resolveAppLockGateVisible(SecuritySessionState.StorageFailure) shouldBe true
+        }
+
+        test("auto-unlock fires once when the session is locked") {
             shouldAutoRequestAppLockUnlock(
-                appLockEnabled = true,
-                hasUnlockedThisLaunch = false,
+                session = SecuritySessionState.Locked,
                 hasRequestedAutoUnlock = false,
                 unlockPromptInProgress = false,
             ) shouldBe true
@@ -61,8 +68,7 @@ class AppLockPolicyTest : AppFunSpec() {
 
         test("auto-unlock does not refire once a prompt has already been scheduled") {
             shouldAutoRequestAppLockUnlock(
-                appLockEnabled = true,
-                hasUnlockedThisLaunch = false,
+                session = SecuritySessionState.Locked,
                 hasRequestedAutoUnlock = true,
                 unlockPromptInProgress = false,
             ) shouldBe false
@@ -70,35 +76,31 @@ class AppLockPolicyTest : AppFunSpec() {
 
         test("auto-unlock does not refire while a prompt is still in flight") {
             shouldAutoRequestAppLockUnlock(
-                appLockEnabled = true,
-                hasUnlockedThisLaunch = false,
+                session = SecuritySessionState.Locked,
                 hasRequestedAutoUnlock = false,
                 unlockPromptInProgress = true,
             ) shouldBe false
         }
 
-        test("auto-unlock does not refire after the user has successfully unlocked the launch") {
+        test("auto-unlock never fires when the session is unlocked") {
             shouldAutoRequestAppLockUnlock(
-                appLockEnabled = true,
-                hasUnlockedThisLaunch = true,
+                session = SecuritySessionState.Unlocked,
                 hasRequestedAutoUnlock = false,
                 unlockPromptInProgress = false,
             ) shouldBe false
         }
 
-        test("auto-unlock never fires when lock is freshly enabled mid-session") {
+        test("auto-unlock never fires for storage failure") {
             shouldAutoRequestAppLockUnlock(
-                appLockEnabled = true,
-                hasUnlockedThisLaunch = true,
-                hasRequestedAutoUnlock = true,
+                session = SecuritySessionState.StorageFailure,
+                hasRequestedAutoUnlock = false,
                 unlockPromptInProgress = false,
             ) shouldBe false
         }
 
-        test("auto-unlock never fires when the persisted lock flag is still resolving") {
+        test("auto-unlock never fires while the session is unknown") {
             shouldAutoRequestAppLockUnlock(
-                appLockEnabled = null,
-                hasUnlockedThisLaunch = false,
+                session = SecuritySessionState.Unknown,
                 hasRequestedAutoUnlock = false,
                 unlockPromptInProgress = false,
             ) shouldBe false

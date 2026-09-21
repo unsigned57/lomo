@@ -65,16 +65,20 @@ fun LomoAppRoot(
             foregroundEntryId = foregroundEntryId,
             suppressForegroundAutoInput = suppressForegroundAutoInput,
         )
-        LanPairingConfirmationDialog(
-            request = pendingPairing,
-            onConfirm = shareServiceManager::confirmPairing,
-            onDecline = shareServiceManager::declinePairing,
-        )
-        LanBatchApprovalDialog(
-            batch = incomingBatch,
-            onApprove = shareServiceManager::approveIncoming,
-            onReject = shareServiceManager::rejectIncoming,
-        )
+        pendingPairing?.let { pairing ->
+            LanPairingConfirmationDialog(
+                request = pairing,
+                onConfirm = shareServiceManager::confirmPairing,
+                onDecline = shareServiceManager::declinePairing,
+            )
+        }
+        incomingBatch?.let { batch ->
+            LanBatchApprovalDialog(
+                batch = batch,
+                onApprove = shareServiceManager::approveIncoming,
+                onReject = shareServiceManager::rejectIncoming,
+            )
+        }
     }
 }
 

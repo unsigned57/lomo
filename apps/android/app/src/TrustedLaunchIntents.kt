@@ -3,14 +3,10 @@ package com.lomo.app
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import androidx.core.content.edit
 import androidx.core.net.toUri
-
+import timber.log.Timber
 import java.security.MessageDigest
-import java.security.SecureRandom
 import java.util.UUID
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 
 
 data class TrustedLaunchSignaturePayload(
@@ -27,7 +23,7 @@ internal data class TrustedLaunchSignature(
 )
 
 internal class TrustedLaunchSignaturePolicy(
-    private val secretProvider: () -> String,
+    private val hmacSha256: (ByteArray) -> ByteArray,
     private val nonceProvider: () -> String = { UUID.randomUUID().toString() },
 ) {
     fun sign(payload: TrustedLaunchSignaturePayload): TrustedLaunchSignature {
@@ -50,11 +46,8 @@ internal class TrustedLaunchSignaturePolicy(
         return MessageDigest.isEqual(expected.encodeToByteArray(), signature.encodeToByteArray())
     }
 
-    private fun hmac(payload: String): String {
-        val mac = Mac.getInstance(HMAC_SHA_256)
-        mac.init(SecretKeySpec(secretProvider().encodeToByteArray(), HMAC_SHA_256))
-        return mac.doFinal(payload.encodeToByteArray()).toHexString()
-    }
+    private fun hmac(payload: String): String =
+        hmacSha256(payload.encodeToByteArray()).toTrustedLaunchHexString()
 
     private fun TrustedLaunchSignaturePayload.wirePayload(nonce: String): String =
         listOf(
@@ -65,48 +58,14 @@ internal class TrustedLaunchSignaturePolicy(
             expiresAtMillis.toString(),
             nonce,
         ).joinToString(separator = "\n")
-
-    private companion object {
-        const val HMAC_SHA_256 = "HmacSHA256"
-    }
 }
-
-class TrustedLaunchSecretStore(
-    context: Context,
-) {
-        private val preferences =
-            context.getSharedPreferences(TRUSTED_LAUNCH_PREFS_NAME, Context.MODE_PRIVATE)
-        private val lock = Any()
-
-        fun getOrCreateSecret(): String =
-            synchronized(lock) {
-                preferences.getString(KEY_INSTALL_SECRET, null)?.takeIf(String::isNotBlank)
-                    ?: generateSecret().also { secret ->
-                        preferences.edit {
-                            putString(KEY_INSTALL_SECRET, secret)
-                        }
-                    }
-            }
-
-        private fun generateSecret(): String {
-            val bytes = ByteArray(INSTALL_SECRET_BYTES)
-            SecureRandom().nextBytes(bytes)
-            return bytes.toHexString()
-        }
-
-        private companion object {
-            const val TRUSTED_LAUNCH_PREFS_NAME = "trusted_launch_intents"
-            const val KEY_INSTALL_SECRET = "install_secret"
-            const val INSTALL_SECRET_BYTES = 32
-        }
-    }
 
 class TrustedLaunchIntents(
     private val context: Context,
     secretStore: TrustedLaunchSecretStore,
 ) {
         private val signaturePolicy =
-            TrustedLaunchSignaturePolicy(secretProvider = secretStore::getOrCreateSecret)
+            TrustedLaunchSignaturePolicy(hmacSha256 = secretStore::hmacSha256)
 
         fun trustedShortcutCreateMemoIntent(): Intent =
             trustedCommandIntent(
@@ -144,33 +103,39 @@ class TrustedLaunchIntents(
                 source = ExternalAppCommandSource.Widget,
             )
 
-        fun extractTrustedExternalAppCommand(
+        internal fun extractTrustedExternalAppCommand(
             intent: Intent?,
             nowMillis: Long = System.currentTimeMillis(),
-        ): ExternalAppCommand? {
+        ): TrustedLaunchCommandExtraction {
             if (intent?.action != MainActivity.ACTION_EXTERNAL_APP_COMMAND) {
-                return null
+                return TrustedLaunchCommandExtraction.Ignored
             }
-            val payload = intent.toTrustedLaunchSignaturePayload() ?: return null
+            val payload = intent.toTrustedLaunchSignaturePayload() ?: return TrustedLaunchCommandExtraction.Ignored
             if (payload.expiresAtMillis <= nowMillis || payload.createdAtMillis >= payload.expiresAtMillis) {
-                return null
+                return TrustedLaunchCommandExtraction.Ignored
             }
             val isTrusted =
-                signaturePolicy.verify(
-                    payload = payload,
-                    nonce = intent.getStringExtra(EXTRA_SIGNATURE_NONCE),
-                    signature = intent.getStringExtra(EXTRA_SIGNATURE_VALUE),
-                )
+                try {
+                    signaturePolicy.verify(
+                        payload = payload,
+                        nonce = intent.getStringExtra(EXTRA_SIGNATURE_NONCE),
+                        signature = intent.getStringExtra(EXTRA_SIGNATURE_VALUE),
+                    )
+                } catch (error: TrustedLaunchTrustRootUnavailable) {
+                    return TrustedLaunchCommandExtraction.TrustRootUnavailable(error)
+                }
             if (!isTrusted) {
-                return null
+                return TrustedLaunchCommandExtraction.Ignored
             }
-            return ExternalAppCommand(
-                id = payload.commandId,
-                action = payload.action,
-                source = payload.source,
-                status = ExternalAppCommandStatus.Pending,
-                createdAtMillis = payload.createdAtMillis,
-                expiresAtMillis = payload.expiresAtMillis,
+            return TrustedLaunchCommandExtraction.Accepted(
+                ExternalAppCommand(
+                    id = payload.commandId,
+                    action = payload.action,
+                    source = payload.source,
+                    status = ExternalAppCommandStatus.Pending,
+                    createdAtMillis = payload.createdAtMillis,
+                    expiresAtMillis = payload.expiresAtMillis,
+                ),
             )
         }
 
@@ -227,21 +192,43 @@ class TrustedLaunchIntents(
             fun create(context: Context): TrustedLaunchIntents =
                 TrustedLaunchIntents(
                     context = context.applicationContext,
-                    secretStore = TrustedLaunchSecretStore(context.applicationContext),
+                    secretStore = TrustedLaunchSecretStore.create(context.applicationContext),
                 )
 
-            private const val EXTRA_COMMAND_ID = "com.lomo.app.extra.EXTERNAL_COMMAND_ID"
-            private const val EXTRA_COMMAND_ACTION = "com.lomo.app.extra.EXTERNAL_COMMAND_ACTION"
-            private const val EXTRA_COMMAND_SOURCE = "com.lomo.app.extra.EXTERNAL_COMMAND_SOURCE"
-            private const val EXTRA_CREATED_AT_MILLIS = "com.lomo.app.extra.EXTERNAL_COMMAND_CREATED_AT"
-            private const val EXTRA_EXPIRES_AT_MILLIS = "com.lomo.app.extra.EXTERNAL_COMMAND_EXPIRES_AT"
-            private const val EXTRA_SIGNATURE_NONCE = "com.lomo.app.extra.TRUSTED_SIGNATURE_NONCE"
-            private const val EXTRA_SIGNATURE_VALUE = "com.lomo.app.extra.TRUSTED_SIGNATURE_VALUE"
+            internal const val EXTRA_COMMAND_ID = "com.lomo.app.extra.EXTERNAL_COMMAND_ID"
+            internal const val EXTRA_COMMAND_ACTION = "com.lomo.app.extra.EXTERNAL_COMMAND_ACTION"
+            internal const val EXTRA_COMMAND_SOURCE = "com.lomo.app.extra.EXTERNAL_COMMAND_SOURCE"
+            internal const val EXTRA_CREATED_AT_MILLIS = "com.lomo.app.extra.EXTERNAL_COMMAND_CREATED_AT"
+            internal const val EXTRA_EXPIRES_AT_MILLIS = "com.lomo.app.extra.EXTERNAL_COMMAND_EXPIRES_AT"
+            internal const val EXTRA_SIGNATURE_NONCE = "com.lomo.app.extra.TRUSTED_SIGNATURE_NONCE"
+            internal const val EXTRA_SIGNATURE_VALUE = "com.lomo.app.extra.TRUSTED_SIGNATURE_VALUE"
             private const val INVALID_TIMESTAMP = Long.MIN_VALUE
         }
     }
 
+internal sealed interface TrustedLaunchCommandExtraction {
+    data class Accepted(
+        val command: ExternalAppCommand,
+    ) : TrustedLaunchCommandExtraction
+
+    data object Ignored : TrustedLaunchCommandExtraction
+
+    data class TrustRootUnavailable(
+        val error: TrustedLaunchTrustRootUnavailable,
+    ) : TrustedLaunchCommandExtraction
+}
+
+internal fun consumeTrustedLaunchExtraction(
+    extraction: TrustedLaunchCommandExtraction,
+    enqueue: (ExternalAppCommand) -> Unit,
+) {
+    when (extraction) {
+        is TrustedLaunchCommandExtraction.Accepted -> enqueue(extraction.command)
+        TrustedLaunchCommandExtraction.Ignored -> Unit
+        is TrustedLaunchCommandExtraction.TrustRootUnavailable ->
+            Timber.e(extraction.error, "Trusted launch HMAC trust root is unavailable")
+    }
+}
+
 private inline fun <reified T : Enum<T>> String.toEnumOrNull(): T? =
     enumValues<T>().firstOrNull { value -> value.name == this }
-
-private fun ByteArray.toHexString(): String = joinToString(separator = "") { byte -> "%02x".format(byte) }

@@ -1,6 +1,7 @@
 package com.lomo.app
 
 import android.net.Uri
+import com.lomo.domain.model.SecuritySessionState
 
 internal sealed interface PendingLaunchAction {
     data class SharedText(
@@ -40,6 +41,17 @@ internal enum class EntryAppLockState {
     Locked,
     Unlocked,
 }
+
+internal fun entryAppLockStateFor(session: SecuritySessionState): EntryAppLockState =
+    when (session) {
+        SecuritySessionState.Unknown -> EntryAppLockState.Resolving
+        SecuritySessionState.Locked,
+        SecuritySessionState.StorageFailure,
+        -> EntryAppLockState.Locked
+        SecuritySessionState.LockOff,
+        SecuritySessionState.Unlocked,
+        -> EntryAppLockState.Unlocked
+    }
 
 internal enum class EntryCapability {
     RootWorkspace,

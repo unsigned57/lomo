@@ -102,7 +102,8 @@ private fun extractSharedImageUris(intent: Intent): List<Uri> {
     IntentCompat
         .getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
         ?.forEach(uris::add)
-    intent.clipData?.let { clipData ->
+    val clipData = intent.clipData
+    if (clipData != null) {
         repeat(clipData.itemCount) { index ->
             clipData.getItemAt(index).uri?.let(uris::add)
         }
