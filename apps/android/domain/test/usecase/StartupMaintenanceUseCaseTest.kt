@@ -265,16 +265,21 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                 val releaseImageWarm = CompletableDeferred<Unit>()
                 val delegateMedia = FakeMediaRepository()
                 val mediaRepository = object : MediaRepository {
-                    override suspend fun importImage(source: StorageLocation) = delegateMedia.importImage(source)
-                    override suspend fun removeImage(entryId: MediaEntryId) = delegateMedia.removeImage(entryId)
+                    override suspend fun importImage(source: StorageLocation, draftId: com.lomo.domain.model.DraftId) = delegateMedia.importImage(source, draftId)
+                    override suspend fun removeImage(entryId: MediaEntryId, draftId: com.lomo.domain.model.DraftId) = delegateMedia.removeImage(entryId, draftId)
                     override fun observeImageLocations() = delegateMedia.observeImageLocations()
                     override suspend fun ensureCategoryWorkspace(category: MediaCategory) = delegateMedia.ensureCategoryWorkspace(category)
                     override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId) = delegateMedia.allocateVoiceCaptureTarget(entryId)
                     override suspend fun finalizeVoiceCapture(
                         recordingLocation: StorageLocation,
                         humanNameHint: String,
-                    ) = delegateMedia.finalizeVoiceCapture(recordingLocation, humanNameHint)
-                    override suspend fun removeVoiceCapture(entryId: MediaEntryId) = delegateMedia.removeVoiceCapture(entryId)
+                        draftId: com.lomo.domain.model.DraftId,
+                    ) = delegateMedia.finalizeVoiceCapture(recordingLocation, humanNameHint, draftId)
+                    override suspend fun removeVoiceCapture(
+                        entryId: MediaEntryId,
+                        captureLocation: StorageLocation,
+                        draftId: com.lomo.domain.model.DraftId,
+                    ) = delegateMedia.removeVoiceCapture(entryId, captureLocation, draftId)
 
                     override suspend fun runOrphanSweepAtOperationBoundary() =
                         delegateMedia.runOrphanSweepAtOperationBoundary()

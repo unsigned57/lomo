@@ -39,8 +39,8 @@ class SyncAndRebuildUseCase
                 return
             }
 
-            val syncOnRefresh = activeProvider?.isSyncOnRefreshEnabled()?.first() == true
-            val enabled = activeProvider?.isEnabled()?.first() == true
+            val syncOnRefresh = activeProvider?.let { provider -> provider.isSyncOnRefreshEnabled().first() } == true
+            val enabled = activeProvider?.let { provider -> provider.isEnabled().first() } == true
             if (activeProvider != null && syncOnRefresh && enabled) {
                 syncFailureOrNull(
                     backendType = activeBackend,
@@ -60,10 +60,10 @@ class SyncAndRebuildUseCase
             try {
                 syncProviderRegistry
                     .get(backendType)
-                    ?.sync(operation)
-                    ?.toSyncFailureOrNull()
+                    ?.let { provider -> provider.sync(operation).toSyncFailureOrNull() }
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
-                if (error is CancellationException) throw error
                 error
             }
 

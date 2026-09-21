@@ -1,5 +1,6 @@
 package com.lomo.domain.usecase
 
+import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.EngineReadinessRepository
@@ -16,10 +17,11 @@ import kotlinx.coroutines.CancellationException
  * is drained before the workspace changes, so no mutation can straddle the switch. The engine is
  * activated while the committed selection remains unchanged. Activation opens and promotes the
  * candidate authority; only after it succeeds is the candidate marked activated and atomically
- * published as the committed root. SAF projection indexing then advances independently from
- * Building to Verified, and the mutation lease rejects writes until that first verified projection
- * exists. A crash before commit therefore restores the previous root. Soft Recovery and hard open
- * failure restore previous engine authority and roll back the durable journal.
+ * published as the committed root. A still-verified previous mount publishes Revalidating during
+ * prepare; install then publishes Verified. The mutation lease rejects writes until that verified
+ * projection exists. Same-location retry after Recovery reactivates a new generation without opening
+ * another root-transition journal. A crash before commit therefore restores the previous root. Soft
+ * Recovery and hard open failure restore previous engine authority and roll back the durable journal.
  */
 open class SwitchRootStorageUseCase(
     private val directorySettingsRepository: DirectorySettingsRepository,
@@ -35,7 +37,15 @@ open class SwitchRootStorageUseCase(
         // Prepare + validate before mutating durable selection.
         workspaceCandidateValidator.validate(location)
         val previousSelection = directorySettingsRepository.currentRootLocation()
-        if (previousSelection == location) return
+        if (previousSelection == location) {
+            if (engineReadinessRepository.readiness.value is EngineReadiness.Ready) {
+                return
+            }
+            workspaceMutationLease.withExclusiveTransition {
+                engineReadinessRepository.activateWorkspace(location)
+            }
+            return
+        }
         workspaceMutationLease.withExclusiveTransition {
             val pending = directorySettingsRepository.pendingRootTransition()
             if (pending != null) {
@@ -46,8 +56,9 @@ open class SwitchRootStorageUseCase(
                 engineReadinessRepository.activateWorkspace(location)
                 directorySettingsRepository.markRootTransitionActivated(transition.id)
                 directorySettingsRepository.commitRootTransition(transition.id)
+            } catch (originalFailure: CancellationException) {
+                throw originalFailure
             } catch (originalFailure: Exception) {
-                if (originalFailure is CancellationException) throw originalFailure
                 throw resolveSwitchFailure(
                     transitionId = transition.id,
                     previousSelection = previousSelection,
@@ -70,16 +81,18 @@ open class SwitchRootStorageUseCase(
             try {
                 directorySettingsRepository.rollbackRootTransition(transitionId)
                 null
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
-                if (error is CancellationException) throw error
                 error
             }
         val restoreFailure =
             try {
                 restorePreviousAuthority(previousSelection)
                 null
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
-                if (error is CancellationException) throw error
                 error
             }
         return when {
@@ -117,8 +130,9 @@ open class SwitchRootStorageUseCase(
     ) {
         try {
             action()
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
-            if (error is CancellationException) throw error
             throw WorkspaceAuthorityRestoreException(
                 message = "$message: ${error.message ?: error.javaClass.simpleName}",
                 cause = error,

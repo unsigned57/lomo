@@ -20,6 +20,10 @@ package com.lomo.domain.usecase
  *   does not run.
  * - Given activate fails after persist, when switch aborts, then previous selection and engine are
  *   restored through the same activation boundary, no external rebuild runs, and admissions reopen.
+ * - Given Recovery on the committed location, when the same location is requested again, then a new
+ *   activation generation runs without opening another root-transition journal.
+ * - Given Ready on the committed location, when the same location is requested again, then activation
+ *   is skipped.
  *
  * Observable outcomes: ordered event log, transition count, admissibility, applied updates, activate calls,
  * absence of duplicate rebuilds.
@@ -35,10 +39,14 @@ package com.lomo.domain.usecase
  *   as one transaction; a second rebuild duplicates SAF full scans and can desynchronize authority.
  * - Coverage preserved by: transition/validate/persist/activate ordering, restore-on-failure, and the
  *   explicit manual rebuild delegation scenario remain asserted.
+ * - Coverage also preserved by: same-location Recovery retry reactivates; same-location Ready is a no-op.
  * - Why this is not fitting the test to the implementation: outcomes stay use-case event order and
  *   authority restore, not store SQL.
  */
 
+import com.lomo.domain.model.EngineFailureCategory
+import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageAreaUpdate
 import com.lomo.domain.model.StorageLocation
@@ -190,6 +198,48 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
                 restoreError.suppressed.single().shouldBeInstanceOf<IllegalStateException>()
                 workspaceMutationLease.transitionCount shouldBe 1
                 workspaceMutationLease.isWritable() shouldBe true
+            }
+        }
+
+        test("updateRootLocation reactivates the same location when the engine is not Ready") {
+            runTest {
+                val location = StorageLocation("/tmp/lomo")
+                directorySettingsRepository.setLocation(StorageArea.ROOT, location)
+                engineReadinessRepository.activateWorkspace(location)
+                engineReadinessRepository.publish(
+                    EngineReadiness.ReadOnlyRecovery(
+                        category = EngineFailureCategory.STORAGE,
+                        code = "projection_refresh_failed",
+                        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                        diagnostic = "Workspace projection build failed",
+                    ),
+                )
+                eventLog.clear()
+                engineReadinessRepository.activateCount = 0
+
+                useCase.updateRootLocation(location)
+
+                engineReadinessRepository.activateCount shouldBe 1
+                engineReadinessRepository.lastActivated shouldBe location
+                engineReadinessRepository.readiness.value shouldBe EngineReadiness.Ready
+                workspaceMutationLease.transitionCount shouldBe 1
+                eventLog shouldBe listOf("workspace.validateCandidate")
+            }
+        }
+
+        test("updateRootLocation is a no-op when the same Ready location is requested") {
+            runTest {
+                val location = StorageLocation("/tmp/lomo")
+                directorySettingsRepository.setLocation(StorageArea.ROOT, location)
+                engineReadinessRepository.activateWorkspace(location)
+                eventLog.clear()
+                engineReadinessRepository.activateCount = 0
+
+                useCase.updateRootLocation(location)
+
+                engineReadinessRepository.activateCount shouldBe 0
+                workspaceMutationLease.transitionCount shouldBe 0
+                eventLog shouldBe listOf("workspace.validateCandidate")
             }
         }
 

@@ -10,19 +10,23 @@
  * - Given AwaitingWorkspaceSelection/Opening/ReadOnlyRecovery/ShuttingDown, when requireWritable
  *   runs, then IllegalStateException is raised and isWritable is false.
  * - Given Ready with write freeze, when requireWritable runs, then it fails closed.
- * - Given projection freshness, when a query revision is admitted, then only readable states with
- *   the exact published revision pass.
+ * - Given a verified mount at matching revision, when admitsProjectionReads is asked, then it is true.
+ * - Given Ready without authority or an unavailable projection, when admitsProjectionReads is asked, then it is false.
+ * - Given Revalidating at the last verified revision, when reads and writes are asked, then reads match and writes fail.
  *
  * Observable outcomes: exception messages and boolean writability.
  * TDD proof: fails before requireWritable exists and before query admission checks projection state.
  * Excludes: Android recovery UI and Rust engine internals.
  *
  * Test Change Justification:
- * - Reason category: domain error model unification and projection admission locking.
- * - Old behavior/assertion being replaced: FailureCategory and RetryDisposition nested enum assertions.
- * - Why old assertion is no longer correct: failure enums moved to top-level domain model EngineFailure.kt.
- * - Coverage preserved by: all write gate and read admission scenarios remain fully tested.
- * - Why this is not fitting the test to the implementation: verifies domain contract invariants for write safety.
+ * - Reason category: projection freshness collapsed to Unavailable/Revalidating/Verified.
+ * - Old behavior/assertion being replaced: Building/Failed/Refreshing/Stale read-admission cases,
+ *   including Refreshing/Stale write admission.
+ * - Why old assertion is no longer correct: those freshness variants had no production publisher
+ *   and Revalidating must be read-only; first-projection unreadability is Unavailable.
+ * - Coverage preserved by: Unavailable, Revalidating, Verified, and Ready-without-readable-projection
+ *   admission remain asserted at the mount/freshness boundary.
+ * - Why this is not fitting the test to the implementation: the new cases are the A02 admission law.
  */
 
 package com.lomo.domain.model
@@ -35,7 +39,7 @@ import io.kotest.matchers.string.shouldContain
 class EngineReadinessWriteGateTest : DomainFunSpec() {
     init {
         test("given Ready when requireWritable then succeeds") {
-            val readiness = EngineReadiness.Ready(coreRevision = 1uL, eventSequence = 2uL)
+            val readiness = EngineReadiness.Ready
             readiness.requireWritable()
             readiness.isWritable() shouldBe true
         }
@@ -74,7 +78,7 @@ class EngineReadinessWriteGateTest : DomainFunSpec() {
         }
 
         test("given Ready when write freeze is active then requireWritable fails closed") {
-            val readiness = EngineReadiness.Ready(coreRevision = 1uL, eventSequence = 2uL)
+            val readiness = EngineReadiness.Ready
             shouldThrow<IllegalStateException> {
                 readiness.requireWritable(writeFrozen = true)
             }.message.shouldContain("switch is in progress")
@@ -84,12 +88,53 @@ class EngineReadinessWriteGateTest : DomainFunSpec() {
 
         test("given projection freshness when reads are admitted then state and revision must match") {
             ProjectionFreshness.Unavailable.permitsReadsAt(3uL) shouldBe false
-            ProjectionFreshness.Building(0uL).permitsReadsAt(0uL) shouldBe false
-            ProjectionFreshness.Failed(0uL, "scan_failed").permitsReadsAt(0uL) shouldBe false
-            ProjectionFreshness.Refreshing(3uL).permitsReadsAt(3uL) shouldBe true
-            ProjectionFreshness.Stale(3uL, "scan_failed").permitsReadsAt(3uL) shouldBe true
+            ProjectionFreshness.Revalidating(3uL).permitsReadsAt(3uL) shouldBe true
+            ProjectionFreshness.Revalidating(3uL).permitsReadsAt(2uL) shouldBe false
             ProjectionFreshness.Verified(3uL).permitsReadsAt(3uL) shouldBe true
             ProjectionFreshness.Verified(3uL).permitsReadsAt(2uL) shouldBe false
+            ProjectionFreshness.Unavailable.permitsWrites() shouldBe false
+            ProjectionFreshness.Revalidating(3uL).permitsWrites() shouldBe false
+            ProjectionFreshness.Verified(3uL).permitsWrites() shouldBe true
+        }
+
+        test("given a verified ready mount when reads are admitted then authority is published") {
+            val authority = WorkspaceAuthority(workspaceId = "ws", generation = 1, projectionRevision = 3uL)
+            val mount =
+                WorkspaceMount(
+                    readiness = EngineReadiness.Ready,
+                    location = StorageLocation("/vault"),
+                    authority = authority,
+                    freshness = ProjectionFreshness.Verified(3uL),
+                )
+
+            mount.admitsProjectionReads shouldBe true
+            mount.admittedAuthority shouldBe authority
+        }
+
+        test("given ready without a readable projection when reads are admitted then authority is withheld") {
+            val authority = WorkspaceAuthority(workspaceId = "ws", generation = 1, projectionRevision = 0uL)
+            val unavailable =
+                WorkspaceMount(
+                    readiness = EngineReadiness.Ready,
+                    location = StorageLocation("/vault"),
+                    authority = authority,
+                    freshness = ProjectionFreshness.Unavailable,
+                )
+            val revalidating =
+                WorkspaceMount(
+                    readiness = EngineReadiness.Ready,
+                    location = StorageLocation("/vault"),
+                    authority = authority.copy(projectionRevision = 3uL),
+                    freshness = ProjectionFreshness.Revalidating(3uL),
+                )
+            val opening = WorkspaceMount.Opening
+
+            unavailable.admitsProjectionReads shouldBe false
+            unavailable.admittedAuthority shouldBe null
+            revalidating.admitsProjectionReads shouldBe true
+            revalidating.admittedAuthority shouldBe revalidating.authority
+            opening.admitsProjectionReads shouldBe false
+            opening.admittedAuthority shouldBe null
         }
     }
 }

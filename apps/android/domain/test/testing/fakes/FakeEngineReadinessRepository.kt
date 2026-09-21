@@ -7,6 +7,7 @@ import com.lomo.domain.model.RecoveryWorkspaceKind
 import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceAuthority
+import com.lomo.domain.model.WorkspaceMount
 import com.lomo.domain.model.canRebuildDerivedIndex
 import com.lomo.domain.model.toDiagnosticReport
 import com.lomo.domain.repository.EngineReadinessRepository
@@ -15,7 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class FakeEngineReadinessRepository(
-    initial: EngineReadiness = EngineReadiness.Ready(coreRevision = 0uL, eventSequence = 0uL),
+    initial: EngineReadiness = EngineReadiness.Ready,
 ) : EngineReadinessRepository {
     private val _readiness = MutableStateFlow(initial)
     private val _activeWorkspaceLocation = MutableStateFlow<StorageLocation?>(null)
@@ -25,7 +26,17 @@ class FakeEngineReadinessRepository(
         )
     private val _projectionFreshness =
         MutableStateFlow<ProjectionFreshness>(ProjectionFreshness.Verified(0uL))
+    private val _mount =
+        MutableStateFlow(
+            WorkspaceMount(
+                readiness = initial,
+                location = null,
+                authority = _workspaceAuthority.value,
+                freshness = _projectionFreshness.value,
+            ),
+        )
     override val readiness: StateFlow<EngineReadiness> = _readiness.asStateFlow()
+    override val mount: StateFlow<WorkspaceMount> = _mount.asStateFlow()
     override val activeWorkspaceLocation: StateFlow<StorageLocation?> =
         _activeWorkspaceLocation.asStateFlow()
     override val workspaceAuthority: StateFlow<WorkspaceAuthority?> =
@@ -45,6 +56,17 @@ class FakeEngineReadinessRepository(
 
     fun publish(value: EngineReadiness) {
         _readiness.value = value
+        republishMount()
+    }
+
+    private fun republishMount() {
+        _mount.value =
+            WorkspaceMount(
+                readiness = _readiness.value,
+                location = _activeWorkspaceLocation.value,
+                authority = _workspaceAuthority.value,
+                freshness = _projectionFreshness.value,
+            )
     }
 
     override fun resnapshot() {
@@ -61,14 +83,9 @@ class FakeEngineReadinessRepository(
         val recovery = readiness.value as? EngineReadiness.ReadOnlyRecovery
             ?: error("fake is not in recovery")
         require(recovery.canRebuildDerivedIndex())
-        _readiness.value = EngineReadiness.Ready(coreRevision = 1uL, eventSequence = 1uL)
+        _readiness.value = EngineReadiness.Ready
+        republishMount()
         return DerivedIndexRebuildSummary(0uL, 0uL, 0uL, 0uL, 1uL)
-    }
-
-    override suspend fun retryProjectionBuild() {
-        val failed = _projectionFreshness.value as? ProjectionFreshness.Failed
-            ?: error("fake projection is not failed")
-        _projectionFreshness.value = ProjectionFreshness.Building(failed.baseRevision)
     }
 
     private fun workspaceKind(): RecoveryWorkspaceKind =
@@ -94,7 +111,8 @@ class FakeEngineReadinessRepository(
         _projectionFreshness.value = ProjectionFreshness.Verified(activateCount.toULong())
         _readiness.value =
             activateResult
-                ?: EngineReadiness.Ready(coreRevision = 0uL, eventSequence = activateCount.toULong())
+                ?: EngineReadiness.Ready
+        republishMount()
     }
 
     override suspend fun clearWorkspace() {
@@ -104,5 +122,6 @@ class FakeEngineReadinessRepository(
         _workspaceAuthority.value = null
         _projectionFreshness.value = ProjectionFreshness.Unavailable
         lastActivated = null
+        republishMount()
     }
 }

@@ -6,6 +6,7 @@ import com.lomo.domain.model.RecoveryDiagnosticReport
 import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceAuthority
+import com.lomo.domain.model.WorkspaceMount
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -18,6 +19,12 @@ import kotlinx.coroutines.flow.StateFlow
  */
 interface EngineReadinessRepository {
     val readiness: StateFlow<EngineReadiness>
+
+    /**
+     * Single mount value: readiness, selected location, authority, and projection freshness.
+     * Read admission is [WorkspaceMount.admitsProjectionReads]; do not recombine the sibling flows.
+     */
+    val mount: StateFlow<WorkspaceMount>
 
     /**
      * Location of the engine currently installed at Ready, or null when no workspace engine is
@@ -36,8 +43,9 @@ interface EngineReadinessRepository {
     val workspaceAuthority: StateFlow<WorkspaceAuthority?>
 
     /**
-     * Freshness of the active disposable query projection. A verified projection remains usable
-     * while reconciliation is refreshing or stale; a first build is read-only until verified.
+     * Freshness of the active disposable query projection. [ProjectionFreshness.Verified] admits
+     * writes; [ProjectionFreshness.Revalidating] keeps the last verified reads while a later scan
+     * runs. A first projection with no trusted cache stays [ProjectionFreshness.Unavailable].
      */
     val projectionFreshness: StateFlow<ProjectionFreshness>
 
@@ -58,21 +66,15 @@ interface EngineReadinessRepository {
     suspend fun rebuildDerivedIndex(): DerivedIndexRebuildSummary
 
     /**
-     * Restarts the first SAF projection build for the currently committed authority.
-     *
-     * The request is generation-bound by the implementation and returns after the background
-     * build is scheduled. It never reopens or changes the durable workspace selection.
-     */
-    suspend fun retryProjectionBuild()
-
-    /**
      * Opens or reopens the engine for [location].
      *
      * The previous engine remains authoritative until the candidate reaches Ready. On Ready success
-     * the new engine becomes the sole readiness publisher and the previous engine is closed. SAF
-     * projection reconciliation proceeds independently after promotion; an empty first projection
-     * is explicitly Building and read-only. On hard open failure or soft non-Ready open the previous
-     * engine (if any) stays active and the error is rethrown.
+     * the new engine becomes the sole readiness publisher and the previous engine is closed. A
+     * still-verified previous mount publishes [ProjectionFreshness.Revalidating] for the duration of
+     * prepare; install then publishes [ProjectionFreshness.Verified]. No trusted previous projection
+     * stays Opening/[ProjectionFreshness.Unavailable]. On hard open failure or soft non-Ready open
+     * the previous engine (if any) stays active, Verified is restored when that authority remains,
+     * and the error is rethrown. Retry after Recovery is a new [activateWorkspace] generation.
      */
     suspend fun activateWorkspace(location: StorageLocation)
 

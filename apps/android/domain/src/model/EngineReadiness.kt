@@ -5,17 +5,15 @@ package com.lomo.domain.model
  *
  * Only [Ready] permits workspace writes. Every other state is intentionally distinct; callers
  * must not collapse missing selection, bootstrap, recovery, or shutdown into an empty/default
- * workspace.
+ * workspace. [Ready] is health-only: projection clocks live on [WorkspaceMount] authority and
+ * [com.lomo.domain.repository.EngineReadinessRepository.mount], not on this type.
  */
 sealed interface EngineReadiness {
     data object AwaitingWorkspaceSelection : EngineReadiness
 
     data object Opening : EngineReadiness
 
-    data class Ready(
-        val coreRevision: ULong,
-        val eventSequence: ULong,
-    ) : EngineReadiness
+    data object Ready : EngineReadiness
 
     data class ReadOnlyRecovery(
         val category: EngineFailureCategory,
@@ -110,7 +108,7 @@ fun EngineReadiness.ReadOnlyRecovery.toDiagnosticReport(
  */
 fun EngineReadiness.requireWritable(writeFrozen: Boolean = false) {
     if (writeFrozen) {
-        throw IllegalStateException("Workspace switch is in progress; writes are frozen")
+        error("Workspace switch is in progress; writes are frozen")
     }
     val blockedReason =
         when (this) {
@@ -124,7 +122,7 @@ fun EngineReadiness.requireWritable(writeFrozen: Boolean = false) {
             EngineReadiness.ShuttingDown ->
                 "Engine is shutting down; writes are blocked"
         }
-    throw IllegalStateException(blockedReason)
+    error(blockedReason)
 }
 
 /** True only when the Rust engine has published Ready and no workspace switch freeze is active. */

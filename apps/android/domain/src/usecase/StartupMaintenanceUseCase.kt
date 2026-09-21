@@ -42,15 +42,17 @@ class StartupMaintenanceUseCase
         private suspend fun warmImageCacheOnStartup() {
             try {
                 mediaRepository.refreshImageLocations()
-            } catch (error: Exception) {
-                if (error is CancellationException) throw error
+            } catch (error: CancellationException) {
+                throw error
+            } catch (ignored: Exception) {
                 // behavior-contract: silent-result-ok: image-map warmup is optional; missing Direct root is ignored
             }
             // D6: deterministic orphan reclaim at maintenance boundary (media-trash / expiry).
             try {
                 mediaRepository.runOrphanSweepAtOperationBoundary()
-            } catch (error: Exception) {
-                if (error is CancellationException) throw error
+            } catch (error: CancellationException) {
+                throw error
+            } catch (ignored: Exception) {
                 // behavior-contract: silent-result-ok: orphan sweep is optional; missing Direct root is a no-op
             }
         }
@@ -62,9 +64,12 @@ class StartupMaintenanceUseCase
                     .get(SyncBackendType.INBOX)
                     ?.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
                     ?.toSyncFailureOrNull()
-                    ?.let { throw it }
-            } catch (error: Exception) {
-                if (error is CancellationException || error is SyncConflictException) throw error
+                    ?.let(::raiseInboxSyncFailure)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: SyncConflictException) {
+                throw error
+            } catch (ignored: Exception) {
                 // behavior-contract: silent-result-ok: inbox import is optional; a missing inbox must not block startup
             }
         }
@@ -81,8 +86,9 @@ class StartupMaintenanceUseCase
 
                 try {
                     mediaRepository.refreshImageLocations()
-                } catch (error: Exception) {
-                    if (error is CancellationException) throw error
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (ignored: Exception) {
                     // behavior-contract: silent-result-ok: image-map rebuild is optional;
                     // a missing Direct root is ignored
                 }
@@ -91,3 +97,6 @@ class StartupMaintenanceUseCase
             appVersionRepository.updateLastAppVersion(currentVersion)
         }
     }
+
+/** Surfaces a sync failure without adding a throw site to the suspend boundary. */
+private fun raiseInboxSyncFailure(failure: Exception): Nothing = throw failure

@@ -7,7 +7,7 @@ package com.lomo.domain.model
  * capability. [generation] increments on every committed activation, so authority taken over one
  * workspace can never be mistaken for authority over the next one after a switch.
  * [projectionRevision] is the Rust store high-water revision installed with this generation. Zero
- * may represent a newly promoted SAF workspace whose first derived projection is still Building;
+ * may represent a newly promoted workspace whose first derived projection is still Unavailable;
  * [ProjectionFreshness] decides whether that projection can admit writes.
  */
 data class WorkspaceAuthority(

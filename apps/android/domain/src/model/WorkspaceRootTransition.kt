@@ -18,7 +18,7 @@ data class WorkspaceRootTransition(
     init {
         require(id.isNotBlank() && id.length <= MAX_ID_LENGTH) { "Workspace transition id is invalid" }
         require(candidate.raw.isNotBlank()) { "Workspace transition candidate is blank" }
-        require(previous?.raw?.isNotBlank() != false) { "Workspace transition previous root is blank" }
+        require(previous == null || previous.raw.isNotBlank()) { "Workspace transition previous root is blank" }
         require(previous != candidate) { "Workspace transition candidate must differ from previous root" }
     }
 }

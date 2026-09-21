@@ -3,20 +3,19 @@ package com.lomo.domain.model
 /**
  * Freshness of the disposable query projection for the active workspace.
  *
- * A verified projection may be used while it refreshes. A newly promoted workspace remains
- * read-only until its first atomic projection build verifies the candidate facts.
+ * [Verified] admits reads and writes at [Verified.revision]. [Revalidating] admits reads of the last
+ * verified projection while a later scan runs, and never admits writes. A workspace with no trusted
+ * projection stays [Unavailable] (Opening), not a phantom verified state.
  */
 sealed interface ProjectionFreshness {
-    /** No active workspace projection is available. */
+    /** No trusted projection is available for this mount. */
     data object Unavailable : ProjectionFreshness
 
-    /** A newly promoted workspace is readable only after its first projection build commits. */
-    data class Building(
-        val baseRevision: ULong,
-    ) : ProjectionFreshness
-
-    /** A verified projection is usable while a newer staging projection is reconciled. */
-    data class Refreshing(
+    /**
+     * The last verified projection at [lastVerifiedRevision] is readable while the same workspace is
+     * re-scanned. Writes stay closed until the scan publishes [Verified].
+     */
+    data class Revalidating(
         val lastVerifiedRevision: ULong,
     ) : ProjectionFreshness
 
@@ -24,44 +23,11 @@ sealed interface ProjectionFreshness {
     data class Verified(
         val revision: ULong,
     ) : ProjectionFreshness
-
-    /** Refresh stopped without invalidating the last verified projection or write authority. */
-    data class Stale(
-        val lastVerifiedRevision: ULong,
-        val reasonCode: String,
-    ) : ProjectionFreshness {
-        init {
-            require(reasonCode.matches(Regex("[a-z][a-z0-9_.-]{0,127}"))) {
-                "Projection freshness reason code must be a bounded canonical identifier"
-            }
-        }
-    }
-
-    /** The first projection build failed; no verified projection exists for this authority. */
-    data class Failed(
-        val baseRevision: ULong,
-        val reasonCode: String,
-    ) : ProjectionFreshness {
-        init {
-            require(reasonCode.matches(Regex("[a-z][a-z0-9_.-]{0,127}"))) {
-                "Projection freshness reason code must be a bounded canonical identifier"
-            }
-        }
-    }
 }
 
-/** Only a verified projection, including a refresh over an existing verified base, admits writes. */
+/** Only a verified projection admits writes. Revalidation is read-only. */
 fun ProjectionFreshness.permitsWrites(): Boolean =
-    when (this) {
-        ProjectionFreshness.Unavailable,
-        is ProjectionFreshness.Building,
-        is ProjectionFreshness.Failed,
-        -> false
-        is ProjectionFreshness.Refreshing,
-        is ProjectionFreshness.Stale,
-        is ProjectionFreshness.Verified,
-        -> true
-    }
+    this is ProjectionFreshness.Verified
 
 /**
  * True only when this freshness value describes a readable projection at [revision].
@@ -71,11 +37,7 @@ fun ProjectionFreshness.permitsWrites(): Boolean =
  */
 fun ProjectionFreshness.permitsReadsAt(revision: ULong): Boolean =
     when (this) {
-        ProjectionFreshness.Unavailable,
-        is ProjectionFreshness.Building,
-        is ProjectionFreshness.Failed,
-        -> false
-        is ProjectionFreshness.Refreshing -> lastVerifiedRevision == revision
-        is ProjectionFreshness.Stale -> lastVerifiedRevision == revision
+        ProjectionFreshness.Unavailable -> false
+        is ProjectionFreshness.Revalidating -> lastVerifiedRevision == revision
         is ProjectionFreshness.Verified -> this.revision == revision
     }
