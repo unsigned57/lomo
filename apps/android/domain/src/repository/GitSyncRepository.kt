@@ -31,8 +31,6 @@ interface GitSyncConfigurationRepository {
 }
 
 interface GitSyncConnectionMutationRepository {
-    suspend fun setGitSyncEnabled(enabled: Boolean)
-
     suspend fun setRemoteUrl(url: String)
 }
 

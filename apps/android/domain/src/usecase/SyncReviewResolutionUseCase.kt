@@ -16,8 +16,7 @@ class SyncReviewResolutionUseCase(
             else ->
                 syncProviderRegistry
                     .get(review.source)
-                    ?.resolveReview(resolution, review)
-                    ?.toReviewResolutionResult()
+                    ?.let { provider -> provider.resolveReview(resolution, review).toReviewResolutionResult() }
                     ?: SyncReviewResolutionResult.Resolved
         }
 }

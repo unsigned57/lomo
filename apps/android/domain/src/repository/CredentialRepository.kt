@@ -5,7 +5,9 @@ import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.CredentialReadAuthorization
 import com.lomo.domain.model.CredentialState
 import com.lomo.domain.model.CredentialSecretReadResult
+import com.lomo.domain.model.SecuritySessionState
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 
 interface CredentialRepository {
     fun observeCredentialState(provider: CredentialProvider): Flow<CredentialState>
@@ -26,11 +28,19 @@ interface CredentialRepository {
 interface SecuritySessionPolicy {
     suspend fun authorizeCredentialRead(): CredentialReadAuthorization
 
-    suspend fun isAppLockSatisfied(): Boolean
+    suspend fun current(): SecuritySessionState
+
+    fun observe(): StateFlow<SecuritySessionState>
 }
 
 interface SecuritySessionController {
-    fun markCredentialReadsAuthorized()
+    fun recordAuthenticated()
 
-    fun markCredentialReadsLocked()
+    fun recordBackgrounded()
+
+    suspend fun refresh()
+}
+
+fun interface AuthorizedWorkResume {
+    fun onSessionAllowsBackgroundWork()
 }

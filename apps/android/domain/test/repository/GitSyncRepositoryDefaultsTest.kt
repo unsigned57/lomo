@@ -75,8 +75,6 @@ class GitSyncRepositoryDefaultsTest : DomainFunSpec() {
 
         override fun getSyncOnRefreshEnabled(): Flow<Boolean> = flowOf(false)
 
-        override suspend fun setGitSyncEnabled(enabled: Boolean) = Unit
-
         override suspend fun setRemoteUrl(url: String) = Unit
 
         override suspend fun setToken(token: String) = Unit

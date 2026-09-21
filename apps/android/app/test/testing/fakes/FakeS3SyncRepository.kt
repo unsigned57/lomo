@@ -20,7 +20,6 @@ class FakeS3SyncRepository : S3SyncRepository {
     override fun isS3SyncEnabled(): Flow<Boolean> = _isS3SyncEnabled.asStateFlow()
     override fun getSyncOnRefreshEnabled(): Flow<Boolean> = _syncOnRefreshEnabled.asStateFlow()
 
-    override suspend fun setS3SyncEnabled(enabled: Boolean) { _isS3SyncEnabled.value = enabled }
     override suspend fun setSyncOnRefreshEnabled(enabled: Boolean) { _syncOnRefreshEnabled.value = enabled }
 
     override fun getEndpointUrl(): Flow<String?> = MutableStateFlow(null)

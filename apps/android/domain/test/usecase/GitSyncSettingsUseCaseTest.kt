@@ -17,6 +17,7 @@ package com.lomo.domain.usecase
  */
 
 
+import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncPhase
@@ -135,7 +136,10 @@ class GitSyncSettingsUseCaseTest : DomainFunSpec() {
 
         test("resolveConflictUsingRemote error result skips follow-up refresh sync") {
             runTest {
-                val failure = GitSyncResult.Error("conflict unresolved")
+                val failure = GitSyncResult.Error(
+                    code = GitSyncErrorCode.UNKNOWN,
+                    message = "conflict unresolved",
+                )
                 gitSyncRepository.nextResetLocalBranchToRemoteResult = failure
 
                 val result = useCase.resolveConflictUsingRemote()

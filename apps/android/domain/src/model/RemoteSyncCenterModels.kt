@@ -41,7 +41,14 @@ data class RemoteSyncConflictPath(
         get() = kind.equals("markdown", ignoreCase = true)
 }
 
+/** Proven presence of a durable conflict session head. Absent ≠ Present with zero items. */
+enum class RemoteSyncConflictSessionState {
+    Absent,
+    Present,
+}
+
 data class RemoteSyncConflictPage(
+    val session: RemoteSyncConflictSessionState,
     val sessionId: String,
     val conflictRevision: Long,
     val items: List<RemoteSyncConflictPath>,
@@ -113,6 +120,7 @@ data class RemoteSyncMarkdownConflictFacts(
     val localBody: String? = null,
     val remoteBody: String? = null,
     val mergedDraft: String? = null,
+    val suggestion: SyncMergeSuggestion? = null,
 )
 
 /** Active backend label for config summary shell (presentation only). */

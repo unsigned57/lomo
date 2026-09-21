@@ -20,7 +20,6 @@ class FakeWebDavSyncRepository : WebDavSyncRepository {
     override fun isWebDavSyncEnabled(): Flow<Boolean> = _isWebDavSyncEnabled.asStateFlow()
     override fun getSyncOnRefreshEnabled(): Flow<Boolean> = _syncOnRefreshEnabled.asStateFlow()
 
-    override suspend fun setWebDavSyncEnabled(enabled: Boolean) { _isWebDavSyncEnabled.value = enabled }
     override suspend fun setSyncOnRefreshEnabled(enabled: Boolean) { _syncOnRefreshEnabled.value = enabled }
 
     override fun getProvider(): Flow<com.lomo.domain.model.WebDavProvider> = MutableStateFlow(com.lomo.domain.model.WebDavProvider.NUTSTORE)

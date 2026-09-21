@@ -1,5 +1,6 @@
 package com.lomo.domain.usecase
 
+import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.SyncBackendType
@@ -227,9 +228,11 @@ private class GitSyncSettingsActionsImpl(
     private suspend fun runGitOperation(block: suspend () -> GitSyncResult): GitSyncResult =
         try {
             block()
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
-            if (error is CancellationException) throw error
             GitSyncResult.Error(
+                code = GitSyncErrorCode.UNKNOWN,
                 message = error.message.orEmpty(),
                 exception = error,
             )

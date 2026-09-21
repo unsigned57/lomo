@@ -14,7 +14,35 @@ data class SyncConflictFile(
     val isBinary: Boolean,
     val localLastModified: Long? = null,
     val remoteLastModified: Long? = null,
+    val suggestion: SyncMergeSuggestion? = null,
 )
+
+/** Owner-computed merge/suggestion wire; neutral across conflict and inbox review surfaces. */
+enum class SyncMergeChoice {
+    KEEP_LOCAL,
+    KEEP_OTHER,
+    MERGE_TEXT,
+}
+
+data class SyncMergeSuggestion(
+    val suggested: SyncMergeChoice?,
+    val safe: SyncMergeChoice?,
+    val mergedText: String?,
+)
+
+fun SyncMergeChoice.toConflictChoice(): SyncConflictResolutionChoice =
+    when (this) {
+        SyncMergeChoice.KEEP_LOCAL -> SyncConflictResolutionChoice.KEEP_LOCAL
+        SyncMergeChoice.KEEP_OTHER -> SyncConflictResolutionChoice.KEEP_REMOTE
+        SyncMergeChoice.MERGE_TEXT -> SyncConflictResolutionChoice.MERGE_TEXT
+    }
+
+fun SyncMergeChoice.toReviewChoice(): SyncReviewResolutionChoice =
+    when (this) {
+        SyncMergeChoice.KEEP_LOCAL -> SyncReviewResolutionChoice.KEEP_LOCAL
+        SyncMergeChoice.KEEP_OTHER -> SyncReviewResolutionChoice.KEEP_INCOMING
+        SyncMergeChoice.MERGE_TEXT -> SyncReviewResolutionChoice.MERGE_TEXT
+    }
 
 data class SyncConflictSet(
     val source: SyncBackendType,
@@ -53,6 +81,7 @@ data class SyncReviewItem(
     val incomingLastModified: Long? = null,
     val state: SyncReviewItemState = SyncReviewItemState.CONTENT_DIFFERENCE,
     val message: String? = null,
+    val suggestion: SyncMergeSuggestion? = null,
 )
 
 data class SyncReviewSession(
@@ -78,6 +107,7 @@ fun SyncConflictSet.toInitialImportReview(): SyncReviewSession =
                     isBinary = file.isBinary,
                     localLastModified = file.localLastModified,
                     incomingLastModified = file.remoteLastModified,
+                    suggestion = file.suggestion,
                 )
             },
         timestamp = timestamp,

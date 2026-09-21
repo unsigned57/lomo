@@ -44,8 +44,6 @@ interface WebDavSyncConfigurationRepository {
 }
 
 interface WebDavSyncConnectionMutationRepository {
-    suspend fun setWebDavSyncEnabled(enabled: Boolean)
-
     suspend fun setProvider(provider: WebDavProvider)
 
     suspend fun setBaseUrl(url: String)

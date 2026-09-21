@@ -115,10 +115,6 @@ class FakeGitSyncRepository : GitSyncRepository {
 
     override fun getSyncOnRefreshEnabled(): Flow<Boolean> = syncOnRefreshEnabled.asStateFlow()
 
-    override suspend fun setGitSyncEnabled(enabled: Boolean) {
-        this.enabled.value = enabled
-    }
-
     override suspend fun setRemoteUrl(url: String) {
         remoteUrlWrites += url
         remoteUrl.value = url
@@ -282,10 +278,6 @@ class FakeWebDavSyncRepository : WebDavSyncRepository {
     override fun getSyncOnRefreshEnabled(): Flow<Boolean> = syncOnRefreshEnabled.asStateFlow()
 
     override fun observeLastSyncTimeMillis(): Flow<Long?> = lastSyncTimeMillis.asStateFlow()
-
-    override suspend fun setWebDavSyncEnabled(enabled: Boolean) {
-        this.enabled.value = enabled
-    }
 
     override suspend fun setProvider(provider: WebDavProvider) {
         providerWrites += provider
@@ -479,10 +471,6 @@ class FakeS3SyncRepository : S3SyncRepository {
     override fun getSyncOnRefreshEnabled(): Flow<Boolean> = syncOnRefreshEnabled.asStateFlow()
 
     override fun observeLastSyncTimeMillis(): Flow<Long?> = lastSyncTimeMillis.asStateFlow()
-
-    override suspend fun setS3SyncEnabled(enabled: Boolean) {
-        this.enabled.value = enabled
-    }
 
     override suspend fun setEndpointUrl(url: String) {
         endpointUrlWrites += url

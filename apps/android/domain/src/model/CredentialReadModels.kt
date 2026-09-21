@@ -10,6 +10,7 @@ sealed interface CredentialReadAuthorization {
 
 enum class CredentialReadDenialReason {
     SecuritySessionLocked,
+    PreferenceUnreadable,
 }
 
 sealed interface CredentialSecretReadResult {

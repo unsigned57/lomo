@@ -26,7 +26,6 @@ class FakeGitSyncRepository : GitSyncRepository {
     override fun isGitSyncEnabled(): Flow<Boolean> = _isGitSyncEnabled.asStateFlow()
     override fun getSyncOnRefreshEnabled(): Flow<Boolean> = _syncOnRefreshEnabled.asStateFlow()
 
-    override suspend fun setGitSyncEnabled(enabled: Boolean) { _isGitSyncEnabled.value = enabled }
     override suspend fun setSyncOnRefreshEnabled(enabled: Boolean) { _syncOnRefreshEnabled.value = enabled }
 
     override fun getRemoteUrl(): Flow<String?> = MutableStateFlow(null)

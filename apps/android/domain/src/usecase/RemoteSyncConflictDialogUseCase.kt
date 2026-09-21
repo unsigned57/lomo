@@ -6,7 +6,6 @@ import com.lomo.domain.model.RemoteSyncConflictPath
 import com.lomo.domain.model.RemoteSyncConflictPathStatus
 import com.lomo.domain.model.RemoteSyncConflictResolution
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.SyncConflictAutoResolutionAdvisor
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
@@ -191,6 +190,7 @@ internal fun RemoteSyncConflictPath.toSyncConflictFile(
         localContent = facts.localBody,
         remoteContent = facts.remoteBody,
         isBinary = false,
+        suggestion = facts.suggestion,
     )
 }
 
@@ -218,7 +218,7 @@ internal fun SyncConflictResolutionChoice.toRemoteResolution(
 
         SyncConflictResolutionChoice.MERGE_TEXT -> {
             val merged =
-                SyncConflictAutoResolutionAdvisor.mergedText(file)
+                file.suggestion?.mergedText
                     ?: error("MERGE_TEXT requires mergeable markdown bodies for ${file.relativePath}")
             RemoteSyncConflictResolution(
                 path = file.relativePath,

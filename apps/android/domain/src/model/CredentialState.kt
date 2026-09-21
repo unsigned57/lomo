@@ -30,6 +30,35 @@ enum class CredentialField {
     S3_ENCRYPTION_PASSWORD2,
 }
 
+val CredentialField.provider: CredentialProvider
+    get() =
+        when (this) {
+            CredentialField.GIT_TOKEN -> CredentialProvider.GIT
+            CredentialField.WEBDAV_USERNAME,
+            CredentialField.WEBDAV_PASSWORD,
+            -> CredentialProvider.WEBDAV
+            CredentialField.S3_ACCESS_KEY_ID,
+            CredentialField.S3_SECRET_ACCESS_KEY,
+            CredentialField.S3_SESSION_TOKEN,
+            CredentialField.S3_ENCRYPTION_PASSWORD,
+            CredentialField.S3_ENCRYPTION_PASSWORD2,
+            -> CredentialProvider.S3
+        }
+
+fun CredentialProvider.identityField(): CredentialField? =
+    when (this) {
+        CredentialProvider.GIT -> null
+        CredentialProvider.WEBDAV -> CredentialField.WEBDAV_USERNAME
+        CredentialProvider.S3 -> CredentialField.S3_ACCESS_KEY_ID
+    }
+
+fun CredentialProvider.secretField(): CredentialField =
+    when (this) {
+        CredentialProvider.GIT -> CredentialField.GIT_TOKEN
+        CredentialProvider.WEBDAV -> CredentialField.WEBDAV_PASSWORD
+        CredentialProvider.S3 -> CredentialField.S3_SECRET_ACCESS_KEY
+    }
+
 val CredentialField.isRequiredForProviderConfiguration: Boolean
     get() =
         when (this) {

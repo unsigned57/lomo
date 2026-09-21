@@ -27,6 +27,16 @@ import io.kotest.matchers.shouldBe
  *
  * Excludes:
  * - Android Keystore I/O, DataStore migration, provider UI coordinator state, and credential value material.
+ *
+ * Test Change Justification:
+ * - Reason category: domain model surface extended with credential field classification.
+ * - Old behavior/assertion being replaced: none; this adds coverage for the new contract
+ *   CredentialField.provider and CredentialProvider.identityField/secretField.
+ * - Why old assertion is no longer correct: no prior assertion covered field-to-provider
+ *   identity/secret classification because the model did not expose it.
+ * - Coverage preserved by: all existing credential state scenarios remain unchanged.
+ * - Why this is not fitting the test to the implementation: assertions pin the declared
+ *   provider wiring and identity/secret field selection, which are the public contract.
  */
 class CredentialStateTest : DomainFunSpec() {
     init {
@@ -77,6 +87,17 @@ class CredentialStateTest : DomainFunSpec() {
             state.healthStatus shouldBe StoredCredentialStatus.Unreadable
             state.status shouldBe StoredCredentialStatus.Unreadable
             state.isConfigured.shouldBeTrue()
+        }
+
+        test("given credential fields when classified then username and access key id are identity credentials") {
+            CredentialField.WEBDAV_USERNAME.provider shouldBe CredentialProvider.WEBDAV
+            CredentialField.S3_ACCESS_KEY_ID.provider shouldBe CredentialProvider.S3
+            CredentialProvider.WEBDAV.identityField() shouldBe CredentialField.WEBDAV_USERNAME
+            CredentialProvider.S3.identityField() shouldBe CredentialField.S3_ACCESS_KEY_ID
+            CredentialProvider.GIT.identityField() shouldBe null
+            CredentialProvider.WEBDAV.secretField() shouldBe CredentialField.WEBDAV_PASSWORD
+            CredentialProvider.S3.secretField() shouldBe CredentialField.S3_SECRET_ACCESS_KEY
+            CredentialProvider.GIT.secretField() shouldBe CredentialField.GIT_TOKEN
         }
     }
 }

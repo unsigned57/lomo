@@ -23,11 +23,14 @@
  * Excludes: Compose dialog, BoltFFI/JNI, Sync Inbox review path, deleted Kotlin engines.
  *
  * Test Change Justification:
- * - Reason category: MemoMutationRepository interface update.
- * - Old behavior/assertion being replaced: unused fake method signature in test double.
- * - Why old assertion is no longer correct: restoreMemoRevision now accepts typed MemoRevision model.
- * - Coverage preserved by: all sync conflict dialog scenarios remain unchanged.
- * - Why this is not fitting the test to the implementation: aligns unused test fake method signature.
+ * - Task: T20 session presence.
+ * - Reason category: Domain contract change.
+ * - Old behavior/assertion being replaced: RemoteSyncConflictPage had no session presence; empty
+ *   fake fallback invented sessionId "sess-empty".
+ * - Why old assertion is no longer correct: missing durable head is Absent, not a present empty session.
+ * - Coverage preserved by: existing loadOpenSession/resolve scenarios still assert dialog files and
+ *   revision fences; fallback now uses Absent.
+ * - Why this is not fitting the test to the implementation: matches the closed Absent/Present wire.
  */
 
 package com.lomo.domain.usecase
@@ -40,6 +43,7 @@ import com.lomo.domain.model.RemoteSyncConflictPath
 import com.lomo.domain.model.RemoteSyncConflictPathStatus
 import com.lomo.domain.model.RemoteSyncConflictResolution
 import com.lomo.domain.model.RemoteSyncConflictResolveResult
+import com.lomo.domain.model.RemoteSyncConflictSessionState
 import com.lomo.domain.model.RemoteSyncMarkdownConflictFacts
 import com.lomo.domain.model.RemoteSyncSessionPhase
 import com.lomo.domain.model.RemoteSyncSessionProgress
@@ -47,6 +51,8 @@ import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
+import com.lomo.domain.model.SyncMergeChoice
+import com.lomo.domain.model.SyncMergeSuggestion
 import com.lomo.domain.repository.MemoMutationRepository
 import com.lomo.domain.repository.RemoteSyncCenterRepository
 import com.lomo.domain.testing.DomainFunSpec
@@ -233,8 +239,17 @@ class RemoteSyncConflictDialogUseCaseTest : DomainFunSpec() {
                         ),
                     markdownBodies =
                         mapOf(
-                            // Proven mergeable anchor insertion from SyncConflictTextMergeTest.
+                            // Mergeable anchor insertion; merged bytes come from the owner suggestion.
                             "memos/m.md" to ("start\nlocal\nmiddle\nend" to "start\nmiddle\nremote\nend"),
+                        ),
+                    suggestions =
+                        mapOf(
+                            "memos/m.md" to
+                                SyncMergeSuggestion(
+                                    suggested = SyncMergeChoice.MERGE_TEXT,
+                                    safe = SyncMergeChoice.MERGE_TEXT,
+                                    mergedText = "start\nlocal\nmiddle\nremote\nend",
+                                ),
                         ),
                     postResolvePages = listOf(page(revision = 2, items = emptyList())),
                 )
@@ -252,7 +267,7 @@ class RemoteSyncConflictDialogUseCaseTest : DomainFunSpec() {
             val submitted = repo.lastResolutions!!.single()
             submitted.path shouldBe "memos/m.md"
             submitted.kind shouldBe RemoteSyncConflictResolution.KIND_MERGED_BODY
-            submitted.mergedBody.shouldNotBeNull()
+            submitted.mergedBody shouldBe "start\nlocal\nmiddle\nremote\nend"
         }
     }
 }
@@ -293,6 +308,7 @@ private fun page(
     nextCursor: Int? = null,
 ): RemoteSyncConflictPage =
     RemoteSyncConflictPage(
+        session = RemoteSyncConflictSessionState.Present,
         sessionId = "sess-1",
         conflictRevision = revision,
         items = items,
@@ -312,26 +328,28 @@ private class RecordingMemoMutationRepository : MemoMutationRepository {
     ) = error("unused")
 
     override suspend fun saveMemo(
-        content: String,
-        timestamp: Long,
-        geoLocation: String?,
+        attempt: com.lomo.domain.model.MemoCreateAttempt,
     ): com.lomo.domain.model.Memo = error("unused")
 
     override suspend fun updateMemo(
-        memo: com.lomo.domain.model.Memo,
-        newContent: String,
+        attempt: com.lomo.domain.model.MemoUpdateAttempt,
     ) = error("unused")
 
-    override suspend fun deleteMemo(memo: com.lomo.domain.model.Memo) = error("unused")
+    override suspend fun deleteMemo(
+        memo: com.lomo.domain.model.Memo,
+        operationId: com.lomo.domain.model.MemoOperationId,
+    ) = error("unused")
 
     override suspend fun restoreMemoRevision(
         currentMemo: com.lomo.domain.model.Memo,
         revision: com.lomo.domain.model.MemoRevision,
+        operationId: com.lomo.domain.model.MemoOperationId,
     ) = error("unused")
 
     override suspend fun setMemoPinned(
         memoId: String,
         pinned: Boolean,
+        operationId: com.lomo.domain.model.MemoOperationId,
     ) = error("unused")
 }
 
@@ -340,6 +358,7 @@ private class FakeRemoteSyncCenterRepository(
     private val pages: List<RemoteSyncConflictPage> = emptyList(),
     private val postResolvePages: List<RemoteSyncConflictPage>? = null,
     private val markdownBodies: Map<String, Pair<String?, String?>> = emptyMap(),
+    private val suggestions: Map<String, SyncMergeSuggestion> = emptyMap(),
 ) : RemoteSyncCenterRepository {
     var lastResolveExpectedRevision: Long? = null
         private set
@@ -377,7 +396,8 @@ private class FakeRemoteSyncCenterRepository(
         // Single-page fakes for dialog contract.
         return source.firstOrNull()
             ?: RemoteSyncConflictPage(
-                sessionId = "sess-empty",
+                session = RemoteSyncConflictSessionState.Absent,
+                sessionId = "",
                 conflictRevision = 0,
                 items = emptyList(),
                 nextCursor = null,
@@ -414,6 +434,7 @@ private class FakeRemoteSyncCenterRepository(
             localBody = bodies?.first,
             remoteBody = bodies?.second,
             mergedDraft = mergedDraft,
+            suggestion = suggestions[path.path],
         )
     }
 

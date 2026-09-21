@@ -19,8 +19,7 @@ class SyncConflictResolutionUseCase(
                 else ->
                     syncProviderRegistry
                         .get(conflictSet.source)
-                        ?.resolveConflicts(resolution, conflictSet)
-                        ?.toResolutionResult()
+                        ?.let { provider -> provider.resolveConflicts(resolution, conflictSet).toResolutionResult() }
                         ?: SyncConflictResolutionResult.Resolved
             }
         if (result is SyncConflictResolutionResult.Pending) {

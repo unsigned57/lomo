@@ -69,8 +69,6 @@ interface S3SyncConfigurationRepository :
     S3SyncBehaviorConfigurationRepository
 
 interface S3SyncConnectionMutationRepository {
-    suspend fun setS3SyncEnabled(enabled: Boolean)
-
     suspend fun setEndpointUrl(url: String)
 
     suspend fun setRegion(region: String)

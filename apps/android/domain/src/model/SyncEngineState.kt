@@ -29,16 +29,7 @@ sealed interface GitSyncResult {
         val code: GitSyncErrorCode,
         val message: String,
         val exception: Throwable? = null,
-    ) : GitSyncResult {
-        constructor(
-            message: String,
-            exception: Throwable? = null,
-        ) : this(
-            code = gitSyncErrorCodeFromMessage(message),
-            message = message,
-            exception = exception,
-        )
-    }
+    ) : GitSyncResult
 
     data object NotConfigured : GitSyncResult
 
@@ -55,39 +46,3 @@ class GitSyncFailureException(
     message: String,
     cause: Throwable? = null,
 ) : Exception(message, cause)
-
-private fun gitSyncErrorCodeFromMessage(rawMessage: String?): GitSyncErrorCode {
-    val normalized = rawMessage?.trim().orEmpty()
-    return when {
-        normalized.isBlank() -> GitSyncErrorCode.UNKNOWN
-        normalized.equals("Git sync is not configured", ignoreCase = true) ->
-            GitSyncErrorCode.NOT_CONFIGURED
-        normalized.equals("No Personal Access Token configured", ignoreCase = true) ->
-            GitSyncErrorCode.PAT_REQUIRED
-        normalized.contains("credential", ignoreCase = true) &&
-            normalized.contains("unreadable", ignoreCase = true) ->
-            GitSyncErrorCode.CREDENTIAL_UNREADABLE
-        normalized.contains("credential", ignoreCase = true) &&
-            normalized.contains("denied", ignoreCase = true) ->
-            GitSyncErrorCode.CREDENTIAL_UNAUTHORIZED
-        normalized.startsWith("Git sync requires direct path mode", ignoreCase = true) ||
-            normalized.startsWith("Git sync requires a direct local directory path", ignoreCase = true) ->
-            GitSyncErrorCode.DIRECT_PATH_REQUIRED
-        normalized.equals("Repository URL is not configured", ignoreCase = true) ->
-            GitSyncErrorCode.REMOTE_URL_NOT_CONFIGURED
-        normalized.equals("Memo directory is not configured", ignoreCase = true) ->
-            GitSyncErrorCode.MEMO_DIRECTORY_NOT_CONFIGURED
-        normalized.startsWith("Not a git repository", ignoreCase = true) ->
-            GitSyncErrorCode.NOT_A_GIT_REPOSITORY
-        gitSyncLooksLikeConflict(normalized) -> GitSyncErrorCode.CONFLICT
-        else -> GitSyncErrorCode.UNKNOWN
-    }
-}
-
-private fun gitSyncLooksLikeConflict(message: String): Boolean =
-    message.contains("rebase STOPPED", ignoreCase = true) ||
-        message.contains("resolve conflicts manually", ignoreCase = true) ||
-        (
-            message.contains("rebase", ignoreCase = true) &&
-                message.contains("preserved", ignoreCase = true)
-        )
