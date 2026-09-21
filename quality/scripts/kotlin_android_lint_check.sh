@@ -39,10 +39,6 @@ build_dir="${LOMO_LINT_BUILD_DIR:-${LOMO_KOTLIN_BUILD_DIR:-$repo_root/.kotlin/to
 cache_root="${XDG_CACHE_HOME:-${HOME:?HOME must be set}/.cache}"
 compose_lint_cache_dir="${LOMO_COMPOSE_LINT_CACHE_DIR:-$cache_root/lomo/lint-checks}"
 
-echo "kotlin-android-lint-check: building Android app (debug) to materialize classpath"
-"${LOMO_KOTLIN_WRAPPER:?xtask must provide LOMO_KOTLIN_WRAPPER}" --log-level=warn \
-  build --module app --platform android --variant debug --build-dir "$build_dir"
-
 echo "kotlin-android-lint-check: generating lint project descriptor"
 python3 - "$repo_root" "$build_dir" "$project_xml" "$kotlin_android_sdk" "$expanded_dir" "$app_version_code" "$app_version_name" "$app_min_sdk" "$app_target_sdk" "$app_compile_sdk" <<'PY'
 import json
@@ -62,76 +58,11 @@ app_min_sdk = sys.argv[8]
 app_target_sdk = sys.argv[9]
 app_compile_sdk = sys.argv[10]
 
-candidates = sorted(build_dir.glob("tasks/_app_prepareAndroid*/gradle-project/settings.gradle.kts"))
-if not candidates:
-    raise SystemExit("kotlin-android-lint-check: no Toolchain prepareAndroid bridge found")
+sys.path.insert(0, str(repo_root / "quality/scripts"))
+from kotlin_analysis_input import load_model
 
-settings = candidates[-1]
-text = settings.read_text(encoding="utf-8")
-match = re.search(r'jsonData = """(.*)"""', text, re.S)
-if not match:
-    raise SystemExit(f"kotlin-android-lint-check: no jsonData in {settings}")
-data = json.loads(match.group(1))
-
-classpath: list[Path] = []
-for platform in sorted((sdk / "platforms").glob("android-*"), reverse=True):
-    android_jar = platform / "android.jar"
-    if android_jar.is_file():
-        classpath.append(android_jar)
-        break
-
-for pattern in (
-    "tasks/_app_jarAndroidDebug/**/*.jar",
-    "tasks/_data_jarAndroidDebug/**/*.jar",
-    "tasks/_domain_jarAndroidDebug/**/*.jar",
-    "tasks/_ui-components_jarAndroidDebug/**/*.jar",
-    "tasks/_app_prepareAndroidDebug/R.jar",
-    "tasks/_app_prepareAndroidDebug/**/R.jar",
-):
-    classpath.extend(sorted(build_dir.glob(pattern)))
-
-expanded_dir.mkdir(parents=True, exist_ok=True)
-for module in data.get("modules", []):
-    for dep in module.get("resolvedAndroidRuntimeDependencies") or []:
-        path = dep.get("path")
-        if not path:
-            continue
-        p = Path(path)
-        if not p.exists():
-            continue
-        if p.suffix == ".jar":
-            classpath.append(p)
-            continue
-        if p.suffix != ".aar":
-            classpath.append(p)
-            continue
-        dest = expanded_dir / p.stem
-        classes_jar = dest / "classes.jar"
-        if not classes_jar.is_file():
-            dest.mkdir(parents=True, exist_ok=True)
-            try:
-                with zipfile.ZipFile(p) as zf:
-                    for member in ("classes.jar", "lint.jar"):
-                        if member in zf.namelist():
-                            zf.extract(member, dest)
-            except zipfile.BadZipFile:
-                continue
-        if classes_jar.is_file():
-            classpath.append(classes_jar)
-        lint_jar = dest / "lint.jar"
-        if lint_jar.is_file():
-            classpath.append(lint_jar)
-
-seen: set[str] = set()
-unique_cp: list[Path] = []
-for item in classpath:
-    if not item.exists():
-        continue
-    key = str(item.resolve())
-    if key in seen:
-        continue
-    seen.add(key)
-    unique_cp.append(item)
+model = load_model(build_dir, "app")
+unique_cp = [Path(path) for path in model["compile_classpath"]]
 
 # Amper keeps min/target SDK in module.yaml, not the source manifest. Inject for lint model.
 app_root = repo_root / "apps/android/app"
@@ -187,7 +118,7 @@ lines.append("</project>")
 project_xml.write_text("\n".join(lines) + "\n", encoding="utf-8")
 print(
     f"kotlin-android-lint-check: wrote {project_xml} with {len(unique_cp)} classpath entries "
-    f"from {settings}"
+    f"from AnalysisInput {model['input_digest']}"
 )
 PY
 

@@ -35,6 +35,10 @@ fmt mode="staged":
 test:
     {{xtask}} test
 
+# Verify current staged, unstaged, untracked and deleted inputs; --plan prints the task graph.
+dev *args:
+    {{xtask}} dev {{args}}
+
 # Path-aware commit gate (fmt/meaningful-tests are handled by the git hook). `push` mode
 # compares pushed commits against the remote base and runs on pre-push.
 preflight mode="staged" remote="origin":
@@ -83,10 +87,6 @@ perf:
 # Audit or clean repository-owned generated state.
 cache mode="audit":
     {{xtask}} cache {{mode}}
-
-# Verify parity between Rust Store, StoreHandle FFI facade, and Kotlin StoreNativeBridge.
-ffi-parity:
-    {{xtask}} ffi-parity
 
 # Verify reachability of domain UseCases from UI/app presentation and production pipelines.
 usecase-reachability:

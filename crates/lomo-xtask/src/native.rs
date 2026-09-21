@@ -110,6 +110,28 @@ pub fn generate_selected(
 
 pub fn generate_bindings(workspace: &Workspace) -> Result<()> {
     tools::ensure_boltffi(workspace)?;
+    ensure_generated_not_tracked(workspace)?;
+    let input_digest = binding_inputs_digest(workspace)?;
+    let target = workspace.generated_bindings().join(GENERATED_OWNER);
+    let stamp_path = workspace.lomo_output_dir().join("bindings.json");
+    if stamp_path.is_file() && target.is_file() {
+        let stamp: serde_json::Value = serde_json::from_slice(&fs::read(&stamp_path)?)?;
+        let previous_input = stamp
+            .get("inputs")
+            .and_then(serde_json::Value::as_str)
+            .context("binding stamp has no input digest")?;
+        let previous_output = stamp
+            .get("output")
+            .and_then(serde_json::Value::as_str)
+            .context("binding stamp has no output digest")?;
+        if previous_input == input_digest && previous_output == binding_digest(&fs::read(&target)?)
+        {
+            crate::util::emit_stderr(format_args!(
+                "xtask: bindings reused; inputs={input_digest}"
+            ));
+            return Ok(());
+        }
+    }
     let temporary = workspace.temp_dir("boltffi-bindings")?;
     let kotlin_out = temporary.join("kotlin");
     let started = Instant::now();
@@ -120,11 +142,20 @@ pub fn generate_bindings(workspace: &Workspace) -> Result<()> {
     let text = fs::read_to_string(&generated)
         .with_context(|| format!("BoltFFI did not produce {}", generated.display()))?;
     let canonical = canonicalize_binding(&text)?;
-    remove_if_exists(&workspace.generated_bindings())?;
     fs::create_dir_all(workspace.generated_bindings())?;
-    let target = workspace.generated_bindings().join(GENERATED_OWNER);
-    fs::write(&target, &canonical)
-        .with_context(|| format!("failed to write {}", target.display()))?;
+    if !target.is_file() || fs::read(&target)? != canonical.as_bytes() {
+        fs::write(&target, &canonical)
+            .with_context(|| format!("failed to write {}", target.display()))?;
+    }
+    fs::create_dir_all(workspace.lomo_output_dir())?;
+    let temporary_stamp = stamp_path.with_extension("partial");
+    fs::write(
+        &temporary_stamp,
+        serde_json::to_vec(
+            &serde_json::json!({"schema_version": 1, "inputs": input_digest, "output": binding_digest(canonical.as_bytes())}),
+        )?,
+    )?;
+    fs::rename(temporary_stamp, stamp_path)?;
     crate::util::emit_stderr(format_args!(
         "xtask: generated {} ({} bytes, {} lines, warm generate {} ms)",
         target.display(),
@@ -133,6 +164,41 @@ pub fn generate_bindings(workspace: &Workspace) -> Result<()> {
         elapsed_ms
     ));
     Ok(())
+}
+
+fn binding_digest(bytes: &[u8]) -> String {
+    use sha2::Digest as _;
+    format!("{:x}", sha2::Sha256::digest(bytes))
+}
+
+fn binding_inputs_digest(workspace: &Workspace) -> Result<String> {
+    use sha2::Digest as _;
+    let mut digest = sha2::Sha256::new();
+    let mut paths = crate::util::find_files(&workspace.root.join("crates/lomo-native/src"), "rs")?;
+    paths.extend(crate::util::find_files(
+        &workspace.root.join("crates/boltffi-facade"),
+        "rs",
+    )?);
+    paths.extend(
+        [
+            "Cargo.toml",
+            "Cargo.lock",
+            "tools.toml",
+            "rust-toolchain.toml",
+            "crates/lomo-native/Cargo.toml",
+            "crates/lomo-native/boltffi.toml",
+            "crates/lomo-xtask/src/native.rs",
+        ]
+        .map(|path| workspace.root.join(path)),
+    );
+    paths.sort();
+    for path in paths {
+        digest.update(path.as_os_str().as_encoded_bytes());
+        digest.update([0]);
+        digest
+            .update(fs::read(&path).with_context(|| format!("binding input {}", path.display()))?);
+    }
+    Ok(format!("{:x}", digest.finalize()))
 }
 
 pub fn ensure_android_libraries(
@@ -224,17 +290,12 @@ fn run_boltffi_generate_kotlin(workspace: &Workspace, output: &Path) -> Result<(
     fs::create_dir_all(output)?;
     let boltffi = tools::boltffi_binary(workspace)?;
     let mut command = Command::new(boltffi);
-    let ndk = workspace.ndk_root()?;
     command
         .current_dir(workspace.root.join("crates/lomo-native"))
         // Absolute target: boltffi may spawn cargo from crates/lomo-native; a relative
         // CARGO_TARGET_DIR would nest under crates/lomo-native/target.
         .env("CARGO_TARGET_DIR", workspace.rust_target())
-        .env("ANDROID_NDK_HOME", &ndk)
-        .env("ANDROID_NDK_ROOT", &ndk)
-        .env("ANDROID_HOME", &workspace.android_sdk)
-        .env("ANDROID_SDK_ROOT", &workspace.android_sdk)
-        .args(["generate", "kotlin", "--output"])
+        .args(["generate", "kotlin", "--deny-skipped", "--output"])
         .arg(output);
     run(&mut command)
 }
@@ -739,8 +800,9 @@ pub fn canonicalize_binding(text: &str) -> Result<String> {
         canonical.push('\n');
     }
     // BoltFFI emits redundant `.toInt()` on parenthesized already-Int wire-size expressions under
-    // Kotlin 2.x (nested records and UTF-8 string sequences both exercise this generator shape).
+    // Kotlin 2.x (nested records, UTF-8 string sequences, and closed enum sequences).
     canonical = canonical.replace(")).toInt()", "))");
+    canonical = canonical.replace("(4).toInt()", "4");
     canonical = repair_native_loader_block(&canonical)?;
 
     if canonical.contains("@Suppress")

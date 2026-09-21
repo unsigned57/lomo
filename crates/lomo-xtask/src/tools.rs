@@ -8,6 +8,48 @@ use crate::{
     workspace::{NDK_VERSION, Workspace},
 };
 
+pub fn ensure_required(
+    workspace: &Workspace,
+    required: &std::collections::BTreeSet<crate::verification::RequiredTool>,
+) -> Result<()> {
+    use crate::verification::RequiredTool;
+    for tool in required {
+        match tool {
+            RequiredTool::Rust => ensure_rust_version(workspace)?,
+            RequiredTool::BoltFfi => ensure_boltffi(workspace)?,
+            RequiredTool::Nextest | RequiredTool::Machete => {
+                let package = if *tool == RequiredTool::Nextest {
+                    "cargo-nextest"
+                } else {
+                    "cargo-machete"
+                };
+                let tools = quality_and_diagnostic_tools(workspace)?;
+                let pin = tools
+                    .iter()
+                    .find(|tool| tool.package == package)
+                    .with_context(|| format!("missing {package} pin"))?;
+                ensure_tool(workspace, pin)?;
+            }
+            RequiredTool::Kotlin => anyhow::ensure!(
+                workspace.root.join("kotlin").is_file(),
+                "missing Kotlin wrapper"
+            ),
+            RequiredTool::Java => {
+                run(Command::new("java").arg("-version"))?;
+            }
+            RequiredTool::Python => {
+                run(Command::new("python3").arg("--version"))?;
+            }
+            RequiredTool::AndroidSdk => anyhow::ensure!(
+                workspace.android_sdk.is_dir(),
+                "missing Android SDK: {}",
+                workspace.android_sdk.display()
+            ),
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Tool {
     package: String,

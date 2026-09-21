@@ -57,34 +57,13 @@ cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- perf
 optional diagnostic (`cargo test -p lomo-sync --test provider_smoke -- --ignored`, and the
 matching `lomo-git` target).
 
-### Local hooks
+### Iteration and completion
 
-| Hook | Runs | Why |
-| --- | --- | --- |
-| pre-commit | `just fmt staged`, staged meaningful-test policy | Cheap per-commit feedback; does **not** re-run compile/test/native for every commit in a stack |
-| pre-push | `just preflight push` | Path-aware iterative gate before remote update |
-| merge / handoff | `just ci` (local) + GitHub PR workflow | Coverage, fat-LTO release semantics, path-filtered remote jobs |
-
-Use `just preflight` while iterating when you want a path-aware subset without waiting for a full
-`just check`. Splitting a branch into several commits should only multiply the lightweight
-pre-commit surface, not N full quality gates.
-
-### Agent / AI completion rule
-
-Agents and automated editors must treat quality gates as part of the implementation, not a later
-optional step:
-
-| Change class | Must run before claiming done |
-| --- | --- |
-| Single Rust crate behavior | `cargo clippy -p <crate> --all-targets --locked -- -D warnings` + targeted `cargo test -p <crate> … --locked` |
-| Single Kotlin module behavior | targeted `./kotlin test --include-module=<module> --include-classes='…'` (or module suite) |
-| Native / engine / packaging | package surface above |
-| Anything leaving the working tree for push/review | `just check` |
-| Merge / shared-branch handoff | `just ci` |
-
-`just preflight` is only for manual mid-iteration speed. It does **not** close a package, a PR, or
-Gate evidence. If a gate cannot run, leave the work open and record the blocker; do not invent
-GREEN.
+Use the narrow crate/spec command while editing; the package and handoff requirements are stated
+once in [AGENTS.md](../AGENTS.md#4-verify-at-the-appropriate-boundary). A full release/coverage run is
+not required after every edit. `just preflight` is still an iteration aid, while `just check` and
+`just ci` keep the contents in the gate table above. Source compilation can fail and is a dependency
+of Clippy/tests; packaging and coverage are separate responsibilities.
 
 ### GitHub Actions PR surface
 
@@ -140,6 +119,11 @@ coverage excludes `lomo-xtask` and `lomo-architecture-tests`; the fail-under thr
 2026-07-22). Raise only after a measured green run; do not grind tests solely to climb an
 arbitrary higher bar.
 
+Architecture locks live in `lomo-architecture-tests/tests`: Cargo metadata checks all declared
+production/build dependencies (including aliases, optional and target-specific edges); parsed Amper
+YAML checks module scopes; Rust syntax checks include untracked sources, macros and conditional
+attributes. Parser dependencies are dev-only. Unknown owners and malformed policy input fail closed.
+
 See [AI Rust Test Style](testing/ai-rust-test-style.md) before writing or editing Rust tests.
 
 ## Kotlin Policy Scripts
@@ -151,6 +135,16 @@ The retained scripts have one policy responsibility each:
 - `kotlin_coverage_check.sh`
 - `check_meaningful_tests.sh`, `check_string_resource_parity.sh`, and fixture/contract tests
 - `generate_static_baseline_profile.py`
+
+Production Detekt runs a real CLI activation contract with legal and forbidden fixtures before
+analyzing source. `NoSourceSuppressions` also runs after annotation suppression, so a file cannot
+silence that rule with `@file:Suppress("all")`. Source baselines and path exceptions cannot bypass
+ownership checks. Mutable Flow writers stay private in every layer, including state holders and
+platform facades.
+
+The current CLI uses **light** analysis (syntax only). Type-dependent built-in checks require full
+analysis with the correct per-module compile classpath; listing a rule in YAML does not make that
+analysis happen. Do not claim full semantic coverage from the light gate.
 
 xtask preserves the caller's standard `HOME`, XDG, `GRADLE_USER_HOME`,
 `KOTLIN_CLI_BOOTSTRAP_CACHE_DIR`, `CARGO_HOME`, `CARGO_TARGET_DIR`, and Cargo wrapper configuration.
@@ -173,7 +167,10 @@ global caches.
 The Kotlin Toolchain may use an internal Gradle/AGP bridge for Android packaging. That is an
 implementation detail, not an additional project build entrypoint. Baseline profile sources remain
 under `app/src/main/baselineProfiles/` and `app/src/main/baseline-prof.txt` as the documented
-packaging exception.
+packaging exception. The handoff gate's `baseline-profile` node regenerates the profile with
+`quality/scripts/generate_static_baseline_profile.py --build-dir <shared Kotlin build>` from the
+same build directory the app classes compiled into; `baselineProfiles/generated.txt` is never
+hand-edited.
 
 ## Failure Triage
 

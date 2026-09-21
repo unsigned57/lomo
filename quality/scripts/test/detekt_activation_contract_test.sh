@@ -26,42 +26,56 @@ for module in app domain data ui-components; do
     ui-components) package="com.lomo.ui" ;;
     *) package="com.lomo.$module" ;;
   esac
-  good="$fixture_root/good/$module/src/model"
-  bad="$fixture_root/bad/$module/src/model"
-  mkdir -p "$good" "$bad"
-  printf 'package %s.model\n\ndata class RuleProbe(val value: String)\n' "$package" > "$good/RuleProbe.kt"
-  printf 'package %s.model\n\nexternal fun unexpectedNativeBoundary()\n' "$package" > "$bad/NativeProbe.kt"
+  source_root="$fixture_root/$module/src/model"
+  mkdir -p "$source_root"
+  printf 'package %s.model\n\nimport kotlinx.coroutines.flow.MutableStateFlow\nimport kotlinx.coroutines.flow.StateFlow\nimport kotlinx.coroutines.flow.asStateFlow\n/**\n * A legal read-only state owner.\n */\nclass RuleProbe {\n  private val source = MutableStateFlow(0)\n  val state: StateFlow<Int> = source.asStateFlow()\n}\n' \
+    "$package" > "$source_root/RuleProbe.kt"
+  printf 'package %s.model\n\nexternal fun unexpectedNativeBoundary()\n' "$package" > "$source_root/NativeProbe.kt"
   printf 'package %s.model\n\nimport kotlinx.coroutines.flow.MutableStateFlow\nclass StreamProbe { val writer = MutableStateFlow(0) }\n' \
-    "$package" > "$bad/StreamProbe.kt"
+    "$package" > "$source_root/StreamProbe.kt"
   printf '@file:Suppress("all")\n\npackage %s.model\n\ndata class SuppressedProbe(val value: String)\n' \
-    "$package" > "$bad/SuppressedProbe.kt"
+    "$package" > "$source_root/SuppressedProbe.kt"
 
   config="$repo_root/quality/detekt/config/$module.yml"
-  if ! lomo_detekt_run --input "$good" --config "$config" --build-upon-default-config \
-    > "$fixture_root/$module-good.log" 2>&1; then
-    cat "$fixture_root/$module-good.log" >&2
-    echo "detekt-activation: $module rejected legal control source" >&2
-    failed=1
-  fi
   report="$fixture_root/$module.xml"
-  if lomo_detekt_run --input "$bad" --config "$config" --build-upon-default-config \
-    --report "checkstyle:$report" > "$fixture_root/$module-bad.log" 2>&1; then
+  # One JVM per configuration checks the good and bad controls together; inspect each file's
+  # diagnostics so a forbidden fixture cannot conceal a false positive on the legal control.
+  if lomo_detekt_run --input "$source_root" --config "$config" --build-upon-default-config \
+    --report "checkstyle:$report" > "$fixture_root/$module.log" 2>&1; then
     echo "detekt-activation: $module accepted forbidden source" >&2
     failed=1
   fi
-  if [ ! -f "$report" ]; then
-    cat "$fixture_root/$module-bad.log" >&2
-    echo "detekt-activation: $module did not produce a diagnostic report" >&2
+  if ! python3 - "$report" "$module" <<'CHECK_REPORT'
+import sys
+from pathlib import Path
+import xml.etree.ElementTree as ET
+
+report, module = sys.argv[1:]
+expected = {
+    "NativeProbe.kt": {"NoHandwrittenNativeDeclaration"},
+    "StreamProbe.kt": {"NoMutableFlowExposure"},
+    "SuppressedProbe.kt": {"NoSourceSuppressions"},
+    "RuleProbe.kt": set(),
+}
+observed = {name: set() for name in expected}
+for file in ET.parse(report).getroot().findall("file"):
+    name = Path(file.attrib["name"]).name
+    if name not in observed:
+        raise SystemExit(f"detekt-activation: {module} unexpected diagnostic input {name}")
+    for error in file.findall("error"):
+        observed[name].add(error.attrib["source"].rsplit(".", 1)[-1])
+for name, required in expected.items():
+    missing = required - observed[name]
+    if missing:
+        raise SystemExit(f"detekt-activation: {module}/{name} missing findings: {sorted(missing)}")
+if observed["RuleProbe.kt"]:
+    raise SystemExit(f"detekt-activation: {module} rejected legal control: {sorted(observed['RuleProbe.kt'])}")
+CHECK_REPORT
+  then
+    cat "$fixture_root/$module.log" >&2
     failed=1
-    continue
   fi
-  for rule in NoHandwrittenNativeDeclaration NoMutableFlowExposure NoSourceSuppressions; do
-    if ! rg -Fq "source=\"detekt.$rule\"" "$report"; then
-      cat "$fixture_root/$module-bad.log" >&2
-      echo "detekt-activation: $module is missing required finding $rule" >&2
-      failed=1
-    fi
-  done
+
 done
 
 if [ "$failed" -ne 0 ]; then

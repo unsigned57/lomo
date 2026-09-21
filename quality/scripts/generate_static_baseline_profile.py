@@ -46,6 +46,12 @@ def parse_args() -> argparse.Namespace:
     output_default = Path("apps/android/app/src/main/baselineProfiles/generated.txt")
     parser.add_argument("--rules-file", default=rules_default, type=Path)
     parser.add_argument("--output", default=output_default, type=Path)
+    parser.add_argument(
+        "--build-dir",
+        required=True,
+        type=Path,
+        help="Shared Kotlin Toolchain build directory whose compiled classes form the profile.",
+    )
     generated_root = Path(
         os.environ["LOMO_GENERATED_ROOT"]
         if os.environ.get("LOMO_GENERATED_ROOT")

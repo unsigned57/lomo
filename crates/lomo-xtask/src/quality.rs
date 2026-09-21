@@ -1,6 +1,5 @@
 use std::{
-    collections::{BTreeSet, HashMap, HashSet, VecDeque},
-    path::Path,
+    collections::{HashMap, HashSet, VecDeque},
     process::Command,
 };
 
@@ -51,19 +50,6 @@ pub enum CoverageMode {
     On,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "orthogonal path-class flags for gate selection"
-)]
-struct ChangeSet {
-    rust: bool,
-    kotlin: bool,
-    native: bool,
-    quality_infra: bool,
-    docs_only: bool,
-}
-
 pub fn format(workspace: &Workspace, mode: FormatMode) -> Result<()> {
     let mut rust = cargo(workspace);
     rust.args(["fmt", "--all"]);
@@ -82,110 +68,41 @@ pub fn format(workspace: &Workspace, mode: FormatMode) -> Result<()> {
     run(&mut kotlin_format)
 }
 
+pub use crate::verification::ChangeSource;
+
 pub fn test(workspace: &Workspace) -> Result<()> {
-    tools::ensure_quality(workspace)?;
-    rust_tests(workspace)?;
-    native::generate_all(workspace, NativeProfile::Dev)?;
-    kotlin_tests(workspace)
+    crate::verification::run(
+        workspace,
+        &ChangeSource::All,
+        None,
+        crate::verification::PlanMode::Tests,
+        false,
+    )
 }
 
-/// Path-aware commit gate used by pre-commit. Never weaker than the contracts that
-/// staged paths can break; skips unrelated multi-minute surfaces.
-pub fn preflight(workspace: &Workspace, source: ChangeSource) -> Result<()> {
-    tools::ensure_quality(workspace)?;
-    let changes = classify_changes(workspace, source)?;
-    crate::util::emit_stderr(format_args!(
-        "xtask: preflight rust={} kotlin={} native={} quality_infra={} docs_only={}",
-        changes.rust, changes.kotlin, changes.native, changes.quality_infra, changes.docs_only
-    ));
-
-    if changes.docs_only && !changes.quality_infra {
-        run_shell_contracts(workspace)?;
-        crate::util::emit_stderr(format_args!("xtask: preflight complete (docs-only)"));
-        return Ok(());
-    }
-
-    let check_ffi = changes.rust || changes.kotlin || changes.native || changes.quality_infra;
-    let check_usecase = changes.kotlin || changes.quality_infra;
-    let mut contract_violations = Vec::new();
-    if check_ffi && let Err(err) = crate::ffi_parity::check_ffi_parity(workspace) {
-        contract_violations.push(err.to_string());
-    }
-    if check_usecase
-        && let Err(err) = crate::usecase_reachability::check_usecase_reachability(&workspace.root)
-    {
-        contract_violations.push(err.to_string());
-    }
-    if let Err(err) = workspace.check_generated_artifact_layout() {
-        contract_violations.push(err.to_string());
-    }
-    if !contract_violations.is_empty() {
-        bail!("{}", contract_violations.join("\n\n"));
-    }
-
-    if changes.rust || changes.quality_infra {
-        rust_fast_gate(workspace)?;
-    }
-
-    if changes.native || (changes.kotlin && !changes.rust) || changes.quality_infra {
-        // Kotlin packaging and native contracts need generated bindings/libs.
-        native::generate_all(workspace, NativeProfile::Dev)?;
-    } else if changes.kotlin {
-        native::generate_bindings(workspace)?;
-    }
-
-    if changes.kotlin || changes.quality_infra {
-        kotlin_gate(
-            workspace,
-            KotlinGateOptions {
-                compose: false,
-                coverage: CoverageMode::Off,
-            },
-        )?;
-    } else if changes.quality_infra || changes.native {
-        run_shell_contracts(workspace)?;
-    }
-
-    crate::util::emit_stderr(format_args!("xtask: preflight complete"));
-    Ok(())
-}
-
-fn check_architecture_contracts(workspace: &Workspace) -> Result<()> {
-    let mut violations = Vec::new();
-    if let Err(err) = crate::ffi_parity::check_ffi_parity(workspace) {
-        violations.push(err.to_string());
-    }
-    if let Err(err) = crate::usecase_reachability::check_usecase_reachability(&workspace.root) {
-        violations.push(err.to_string());
-    }
-    if let Err(err) = workspace.check_generated_artifact_layout() {
-        violations.push(err.to_string());
-    }
-    if !violations.is_empty() {
-        bail!("{}", violations.join("\n\n"));
-    }
-    Ok(())
+pub fn preflight(workspace: &Workspace, source: &ChangeSource) -> Result<()> {
+    crate::verification::run(
+        workspace,
+        source,
+        None,
+        crate::verification::PlanMode::Dev,
+        false,
+    )
 }
 
 pub fn check(workspace: &Workspace) -> Result<()> {
-    tools::ensure_quality(workspace)?;
-    check_architecture_contracts(workspace)?;
-    rust_fast_gate(workspace)?;
-    native::generate_all(workspace, NativeProfile::Dev)?;
-    kotlin_gate(
+    crate::verification::run(
         workspace,
-        KotlinGateOptions {
-            compose: false,
-            coverage: CoverageMode::Off,
-        },
-    )?;
-    crate::util::emit_stderr(format_args!("xtask: check complete"));
-    Ok(())
+        &ChangeSource::All,
+        None,
+        crate::verification::PlanMode::Check,
+        false,
+    )
 }
 
 pub fn ci(workspace: &Workspace) -> Result<()> {
     tools::ensure_quality(workspace)?;
-    check_architecture_contracts(workspace)?;
+    check(workspace)?;
     rust_full_gate(workspace, CoverageMode::On)?;
     native::generate_all(workspace, NativeProfile::Release)?;
     kotlin_gate(
@@ -614,7 +531,7 @@ fn run_policy(workspace: &Workspace, script: &str) -> Result<()> {
 
 /// Android Lint needs the app version facts; xtask reads them from `app/module.yaml` so the
 /// script never carries a second copy of version/SDK numbers.
-fn run_lint_policy(workspace: &Workspace) -> Result<()> {
+pub fn run_lint_policy(workspace: &Workspace) -> Result<()> {
     let metadata = crate::android::AppMetadata::load(workspace)?;
     let mut command = policy_script(workspace, "quality/scripts/kotlin_android_lint_check.sh");
     command
@@ -628,7 +545,7 @@ fn run_lint_policy(workspace: &Workspace) -> Result<()> {
     run(&mut command)
 }
 
-fn run_shell_contracts(workspace: &Workspace) -> Result<()> {
+pub fn run_shell_contracts(workspace: &Workspace) -> Result<()> {
     for script in [
         "quality/scripts/test/android_runtime_dependency_boundary_contract_test.sh",
         "quality/scripts/test/kotlin_quality_check_contract_test.sh",
@@ -638,186 +555,4 @@ fn run_shell_contracts(workspace: &Workspace) -> Result<()> {
             .with_context(|| format!("shell contract failed: {script}"))?;
     }
     Ok(())
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ChangeSource {
-    /// Compare against the git index (staged paths).
-    Staged,
-    /// Compare pushed commits against the remote base (path-aware pre-push gate).
-    Push { remote: String },
-}
-
-fn classify_changes(workspace: &Workspace, source: ChangeSource) -> Result<ChangeSet> {
-    let files = changed_paths(workspace, source)?;
-    let Some(files) = files else {
-        // No usable remote base for push-time comparison; run the full iterative surface.
-        return Ok(ChangeSet {
-            rust: true,
-            kotlin: true,
-            native: true,
-            quality_infra: true,
-            docs_only: false,
-        });
-    };
-    if files.is_empty() {
-        // Empty stage still runs a cheap contract surface rather than silent success.
-        return Ok(ChangeSet {
-            rust: false,
-            kotlin: false,
-            native: false,
-            quality_infra: true,
-            docs_only: false,
-        });
-    }
-
-    let mut rust = false;
-    let mut kotlin = false;
-    let mut native = false;
-    let mut quality_infra = false;
-    let mut other = false;
-
-    for path in &files {
-        if is_quality_infra(path) {
-            quality_infra = true;
-        }
-        if is_rust_path(path) {
-            rust = true;
-        }
-        if is_kotlin_path(path) {
-            kotlin = true;
-        }
-        if is_native_path(path) {
-            native = true;
-        }
-        if !is_docs_path(path)
-            && !is_rust_path(path)
-            && !is_kotlin_path(path)
-            && !is_native_path(path)
-            && !is_quality_infra(path)
-        {
-            other = true;
-        }
-    }
-
-    let docs_only = files.iter().all(|path| is_docs_path(path)) && !other && !quality_infra;
-    if other {
-        // Unknown paths fall back to the broadest local iterative surface.
-        rust = true;
-        kotlin = true;
-        native = true;
-        quality_infra = true;
-    }
-
-    Ok(ChangeSet {
-        rust,
-        kotlin,
-        native,
-        quality_infra,
-        docs_only,
-    })
-}
-
-fn changed_paths(workspace: &Workspace, source: ChangeSource) -> Result<Option<BTreeSet<String>>> {
-    let mut command = Command::new("git");
-    command.current_dir(&workspace.root);
-    match source {
-        ChangeSource::Staged => {
-            command.args(["diff", "--cached", "--name-only", "--diff-filter=ACMR"]);
-        }
-        ChangeSource::Push { remote } => {
-            let Some(base) = push_base(workspace, &remote)? else {
-                return Ok(None);
-            };
-            command.args(["diff", "--name-only", "--diff-filter=ACMR"]);
-            command.arg(format!("{base}...HEAD"));
-        }
-    }
-    let output = text_output(&mut command)?;
-    Ok(Some(
-        output
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .map(str::to_owned)
-            .collect(),
-    ))
-}
-
-/// Resolve the remote base ref for push-time comparison: the remote HEAD (or the remote
-/// default branch) tracked locally. `None` means no base is available, not that the
-/// comparison is empty.
-fn push_base(workspace: &Workspace, remote: &str) -> Result<Option<String>> {
-    for reference in [
-        format!("refs/remotes/{remote}/HEAD"),
-        format!("refs/remotes/{remote}/main"),
-    ] {
-        let mut rev = Command::new("git");
-        rev.current_dir(&workspace.root)
-            .args(["rev-parse", "--verify"])
-            .arg(&reference);
-        if rev.status().context("git rev-parse failed")?.success() {
-            return Ok(Some(reference));
-        }
-    }
-    Ok(None)
-}
-
-fn is_rust_path(path: &str) -> bool {
-    path == "Justfile"
-        || path.starts_with("crates/")
-        || path == "Cargo.toml"
-        || path == "Cargo.lock"
-        || path == "rust-toolchain.toml"
-        || path == "tools.toml"
-        || path == "deny.toml"
-        || path == "rustfmt.toml"
-        || path == "clippy.toml"
-        || path.starts_with("apps/android/native-bindings/")
-}
-
-fn is_kotlin_path(path: &str) -> bool {
-    let extension = Path::new(path).extension().and_then(|value| value.to_str());
-    path.starts_with("apps/android/")
-        || path == "kotlin"
-        || path.ends_with("module.yaml")
-        || extension.is_some_and(|value| value.eq_ignore_ascii_case("kt"))
-        || extension.is_some_and(|value| value.eq_ignore_ascii_case("kts"))
-}
-
-fn is_native_path(path: &str) -> bool {
-    path.starts_with("crates/lomo-native/")
-        || path == "Cargo.toml"
-        || path == "Cargo.lock"
-        || path == "tools.toml"
-        || path == "rust-toolchain.toml"
-        || path.starts_with("crates/lomo-xtask/src/native.rs")
-        || path.starts_with("crates/lomo-xtask/src/android.rs")
-        || path.starts_with("crates/lomo-xtask/src/tools.rs")
-        || path.starts_with("apps/android/native-bindings/")
-}
-
-fn is_quality_infra(path: &str) -> bool {
-    // Executable gate ownership only. Narrative docs (AGENTS/ARCHITECTURE/README) are docs paths.
-    path.starts_with("quality/")
-        || path.starts_with(".githooks/")
-        || path.starts_with(".github/workflows/")
-        || path == "Justfile"
-        || path == "apps/android/project.yaml"
-}
-
-fn is_docs_path(path: &str) -> bool {
-    Path::new(path)
-        .extension()
-        .is_some_and(|value| value.eq_ignore_ascii_case("md"))
-        || path.starts_with("docs/")
-        || path.starts_with("fixtures/")
-        || path == "LICENSE"
-        || path == "README.md"
-        || path == "README_CN.md"
-        || path == "AGENTS.md"
-        || path == "ARCHITECTURE.md"
-        // Local-only planning notes (gitignored); still docs for path-aware preflight.
-        || path == "ROADMAP.MD"
-        || path == "plan.md"
 }

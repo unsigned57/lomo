@@ -19,6 +19,7 @@ pub fn run(workspace: &Workspace, arguments: &[String]) -> Result<()> {
         "bootstrap" => no_args(rest, || tools::bootstrap(workspace)),
         "fmt" => quality::format(workspace, format_mode(rest)?),
         "test" => no_args(rest, || quality::test(workspace)),
+        "dev" => dev(workspace, rest),
         "preflight" => preflight(workspace, rest),
         "check" => no_args(rest, || quality::check(workspace)),
         "check-linux" => no_args(rest, || quality::check_linux(workspace)),
@@ -29,7 +30,6 @@ pub fn run(workspace: &Workspace, arguments: &[String]) -> Result<()> {
         "android" => android_command(workspace, rest),
         "ci" => no_args(rest, || quality::ci(workspace)),
         "deps" => deps_command(workspace, rest),
-        "ffi-parity" => no_args(rest, || crate::ffi_parity::check_ffi_parity(workspace)),
         "usecase-reachability" => no_args(rest, || {
             crate::usecase_reachability::check_usecase_reachability(&workspace.root)
         }),
@@ -47,6 +47,33 @@ pub fn run(workspace: &Workspace, arguments: &[String]) -> Result<()> {
         }
         unknown => bail!("unknown xtask command `{unknown}`; run `just --list`"),
     }
+}
+
+fn dev(workspace: &Workspace, arguments: &[String]) -> Result<()> {
+    let mut scope = None;
+    let mut print_only = false;
+    let mut arguments = arguments.iter();
+    while let Some(argument) = arguments.next() {
+        match argument.as_str() {
+            "--plan" => print_only = true,
+            "--scope" => {
+                scope = Some(
+                    arguments
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("--scope requires an owner"))?
+                        .as_str(),
+                );
+            }
+            _ => bail!("usage: just dev [--scope <owner>] [--plan]"),
+        }
+    }
+    crate::verification::run(
+        workspace,
+        &crate::verification::ChangeSource::Worktree,
+        scope,
+        crate::verification::PlanMode::Dev,
+        print_only,
+    )
 }
 
 fn rust_toolchain_bump(workspace: &Workspace, arguments: &[String]) -> Result<()> {
@@ -107,7 +134,7 @@ fn preflight(workspace: &Workspace, arguments: &[String]) -> Result<()> {
         },
         _ => bail!("usage: just preflight [staged|push [<remote>]]"),
     };
-    quality::preflight(workspace, source)
+    quality::preflight(workspace, &source)
 }
 
 fn parse_variant(value: &str) -> Result<AndroidVariant> {
@@ -198,6 +225,6 @@ fn no_args(arguments: &[String], action: impl FnOnce() -> Result<()>) -> Result<
 
 fn print_help() {
     crate::util::emit_stderr(format_args!(
-        "Lomo xtask\n\nCommands:\n  bootstrap\n  fmt [staged|all|check]\n  test\n  preflight\n  check\n  check-linux\n  tui\n  package-linux\n  bindings\n  native\n  android [debug|release]\n  ci\n  deps [check|update]\n  ffi-parity\n  usecase-reachability\n  mutants\n  perf\n  cache [audit|paths|clean]\n  rust-toolchain-bump <channel> [--dry-run]"
+        "Lomo xtask\n\nCommands:\n  bootstrap\n  fmt [staged|all|check]\n  test\n  preflight\n  check\n  check-linux\n  tui\n  package-linux\n  bindings\n  native\n  android [debug|release]\n  ci\n  deps [check|update]\n  usecase-reachability\n  mutants\n  perf\n  cache [audit|paths|clean]\n  rust-toolchain-bump <channel> [--dry-run]"
     ));
 }

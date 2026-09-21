@@ -7,4 +7,13 @@ if [ ! -d "$android_root" ]; then
   exit 1
 fi
 cd "$android_root"
+has_build_dir=false
+for argument in "$@"; do
+  case "$argument" in
+    --build-dir|--build-dir=*) has_build_dir=true ;;
+  esac
+done
+if [ "$has_build_dir" = false ]; then
+  set -- "$@" --build-dir "${LOMO_KOTLIN_BUILD_DIR:-$script_dir/.kotlin/toolchain-build/shared}"
+fi
 exec ./kotlin "$@"

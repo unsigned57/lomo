@@ -4,6 +4,18 @@
 
 Lcom/lomo/app/LomoApplication;
 Lcom/lomo/app/MainActivity;
+Lcom/lomo/data/di/DataModulesKt;
+Lcom/lomo/data/di/EngineModuleKt;
+Lcom/lomo/data/engine/ManagedEngineSession;
+Lcom/lomo/data/engine/RustEngineAdapter;
+Lcom/lomo/data/engine/BoltFfiNativeEngineFactory;
+Lcom/lomo/data/engine/BoltFfiNativeEnginePort;
+Lcom/lomo/data/engine/store/BoltFfiStorePort;
+Lcom/lomo/data/local/datastore/LomoDataStore;
+Lcom/lomo/nativebridge/LomoEngine;
+Lorg/koin/core/Koin;
+Lorg/koin/core/module/Module;
+Lorg/koin/android/ext/koin/KoinExtKt;
 Lcom/lomo/app/feature/main/MainViewModel;
 Lcom/lomo/app/feature/main/MainMemoListStateHolder;
 Lcom/lomo/app/feature/main/MemoUiMapper;

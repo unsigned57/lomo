@@ -88,6 +88,21 @@ fun wireSize(values: List<String>): Int =
     }
 
     #[test]
+    fn canonicalize_removes_redundant_enum_sequence_size_conversion() {
+        let input = r"
+package com.lomo.nativebridge
+
+fun wireSize(values: List<StoreInvalidationScope>): Int =
+    4 + values.sumOf { value -> (4).toInt() }
+";
+
+        let out = canonicalize_binding(input).test_ok("canonical enum wire size");
+
+        assert!(out.contains("values.sumOf { value -> 4 }"));
+        assert!(!out.contains("(4).toInt()"));
+    }
+
+    #[test]
     fn canonicalize_rejects_referenced_unsafe_cast_helper() {
         let input = r"
 package com.lomo.nativebridge

@@ -56,5 +56,15 @@ PL com/lomo/app/feature/trash/**
 PL com/lomo/app/feature/review/**
 
 # 10. Lomo data startup-related paths
+HSPL com/lomo/data/di/**
+HSPL com/lomo/data/engine/**
 HSPL com/lomo/data/repository/**
 SPL com/lomo/data/local/**
+
+# 11. JNI / BoltFFI generated startup surface
+HSPL com/lomo/nativebridge/**
+
+# 12. Koin graph construction on cold start
+HSPL org/koin/core/**
+HSPL org/koin/dsl/**
+HSPL org/koin/android/**

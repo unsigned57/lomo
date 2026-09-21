@@ -129,13 +129,7 @@ impl Workspace {
     }
 
     pub fn prepare_kotlin_invocation(&self) -> Result<()> {
-        self.prepare_directories()?;
-        let logs = self.kotlin_build.join("logs");
-        if logs.exists() {
-            fs::remove_dir_all(&logs)
-                .with_context(|| format!("failed to reset {}", logs.display()))?;
-        }
-        Ok(())
+        self.prepare_directories()
     }
 
     pub fn tool_bin(&self) -> PathBuf {

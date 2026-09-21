@@ -19,11 +19,13 @@ esac
 report_root="$report_root/reports/detekt"
 mkdir -p "$report_root"
 
-echo "kotlin-detekt-check: building custom detekt-rules"
-"${LOMO_KOTLIN_WRAPPER:?xtask must provide LOMO_KOTLIN_WRAPPER}" --log-level=warn \
-  build --module detekt-rules --build-dir "$build_dir"
-
-bash "$script_dir/test/detekt_activation_contract_test.sh"
+mode="${LOMO_DETEKT_MODE:-light}"
+case "$mode" in
+  light) bash "$script_dir/test/detekt_activation_contract_test.sh" ;;
+  full) bash "$script_dir/test/kotlin_analysis_input_contract_test.sh" ;;
+  *) echo "kotlin-detekt-check: unknown analysis mode $mode" >&2; exit 1 ;;
+esac
+IFS=',' read -r -a modules <<< "${LOMO_DETEKT_MODULES:-app,domain,data,ui-components}"
 
 declare -A module_config=(
   [app]="quality/detekt/config/app.yml"
@@ -33,7 +35,11 @@ declare -A module_config=(
 )
 
 failed=0
-for module in app domain data ui-components; do
+for module in "${modules[@]}"; do
+  if [ -z "${module_config[$module]+configured}" ]; then
+    echo "kotlin-detekt-check: unknown module $module" >&2
+    exit 1
+  fi
   input="apps/android/$module/src"
   if [ ! -d "$input" ]; then
     echo "kotlin-detekt-check: missing input directory $input" >&2
@@ -47,7 +53,7 @@ for module in app domain data ui-components; do
     failed=1
     continue
   fi
-  report="$report_root/${module}.html"
+  report="$report_root/${module}-${mode}.html"
 
   echo "kotlin-detekt-check: analyzing $module ($input)"
   args=(
@@ -55,10 +61,34 @@ for module in app domain data ui-components; do
     --config "$config"
     --build-upon-default-config
     --report "html:$report"
+    --report "checkstyle:$report_root/${module}-${mode}.xml"
   )
+  if [ "$mode" = full ]; then
+    analysis_args="$report_root/${module}-analysis-args"
+    python3 "$script_dir/kotlin_analysis_input.py" detekt-args "$module" > "$analysis_args"
+    mapfile -d '' -t compiler_args < "$analysis_args"
+    args+=("${compiler_args[@]}")
+    mkdir -p "$report_root/symbols"
+    export LOMO_SYMBOL_FACTS_DIR
+    LOMO_SYMBOL_FACTS_DIR="$(mktemp -d "$report_root/symbols/${module}.XXXXXX")"
+    export LOMO_BINDINGS_SOURCE="$repo_root/apps/android/native-bindings/src/LomoNativeBridge.kt"
+  else
+    args+=(--analysis-mode light)
+  fi
   if ! lomo_detekt_run "${args[@]}"; then
     echo "kotlin-detekt-check: $module failed" >&2
     failed=1
+  fi
+  if [ "$mode" = full ]; then
+    python3 - "$report_root/symbols/index-$module.json" "$LOMO_SYMBOL_FACTS_DIR" <<'PY'
+import json
+from pathlib import Path
+import sys
+target = Path(sys.argv[1])
+temporary = target.with_suffix('.partial')
+temporary.write_text(json.dumps({'schema_version': 1, 'directory': sys.argv[2]}))
+temporary.replace(target)
+PY
   fi
 done
 

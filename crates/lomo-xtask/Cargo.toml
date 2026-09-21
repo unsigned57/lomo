@@ -18,6 +18,9 @@ path = "src/main.rs"
 anyhow.workspace = true
 lomo-feasibility = { path = "../lomo-feasibility" }
 serde_json.workspace = true
+serde.workspace = true
+sha2.workspace = true
+yaml-rust2 = { version = "=0.10.4", default-features = false }
 
 [dev-dependencies]
 tempfile.workspace = true
