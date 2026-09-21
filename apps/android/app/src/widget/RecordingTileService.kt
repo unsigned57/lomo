@@ -10,23 +10,25 @@ import androidx.core.service.quicksettings.TileServiceCompat
 import com.lomo.app.R
 import com.lomo.app.TrustedLaunchIntents
 import com.lomo.domain.model.RecordingSessionState
+import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.domain.usecase.RecordingSessionUseCase
 import org.koin.android.ext.android.inject
+import org.koin.core.component.KoinComponent
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
-class RecordingTileService : TileService() {
+class RecordingTileService : TileService(), KoinComponent {
     private val recordingSessionUseCase: RecordingSessionUseCase by inject()
     private val trustedLaunchIntents: TrustedLaunchIntents by inject()
+    private val dispatcherProvider: DispatcherProvider by inject()
 
     private val policy = RecordingTileClickPolicy()
     // behavior-contract: unmanaged-scope-ok: process-lifetime quick-settings tile service
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val serviceScope = CoroutineScope(SupervisorJob() + dispatcherProvider.main)
     private var stateCollectionJob: Job? = null
 
     override fun onStartListening() {

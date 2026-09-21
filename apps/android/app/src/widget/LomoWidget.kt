@@ -37,55 +37,57 @@ import com.lomo.app.TrustedLaunchIntents
 import com.lomo.app.util.MarkdownCleanupFormatter
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import com.lomo.domain.model.Memo
-import com.lomo.domain.repository.MemoListQueryRepository
-import org.koin.core.component.KoinComponent
-import org.koin.core.component.get
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.time.Instant
+import java.io.IOException
+import kotlinx.serialization.SerializationException
 
 /**
  * Lomo App Widget using Jetpack Glance.
  * Displays the most recent memos and allows quick access to create new ones.
  * Design inspired by MoeMemos with Material You theming.
  */
-class LomoWidget : GlanceAppWidget(), KoinComponent {
-    private val memoListQueryRepository: MemoListQueryRepository by lazy { get() }
-
+class LomoWidget : GlanceAppWidget() {
     override suspend fun provideGlance(
         context: Context,
         id: GlanceId,
     ) {
-        // Fetch recent memos
-        val recentMemos =
-            withContext(Dispatchers.IO) {
-                try {
-                    memoListQueryRepository.getRecentMemos(WIDGET_MEMO_LIMIT).toImmutableList()
-                } catch (error: Exception) {
-                    if (error is CancellationException) throw error
-                    // behavior-contract: silent-result-ok: glance widgets are a rebuildable
-                    // projection; an unavailable store renders empty instead of failing provideGlance
-                    persistentListOf()
-                }
+        // A missing, oversized, or corrupt snapshot renders the unavailable state; the widget
+        // never fabricates memo content from a failed read.
+        val snapshot =
+            try {
+                WidgetSnapshot.Ready(
+                    WidgetGlanceSnapshotStore(
+                        context.filesDir.resolve(WIDGET_GLANCE_SNAPSHOT_FILE_NAME),
+                    ).read().toImmutableList(),
+                )
+            } catch (ignoredIoFailure: IOException) {
+                WidgetSnapshot.Unavailable
+            } catch (ignoredSerializationFailure: SerializationException) {
+                WidgetSnapshot.Unavailable
+            } catch (ignoredInvalidSnapshot: IllegalArgumentException) {
+                WidgetSnapshot.Unavailable
             }
 
         val nowMillis = Instant.now().toEpochMilli()
         provideContent {
             GlanceTheme {
-                WidgetContent(context, recentMemos, nowMillis)
+                WidgetContent(context, snapshot, nowMillis)
             }
         }
     }
 }
 
+private sealed interface WidgetSnapshot {
+    data class Ready(val items: ImmutableList<WidgetGlanceSnapshotItem>) : WidgetSnapshot
+    data object Unavailable : WidgetSnapshot
+}
+
 @Composable
 private fun WidgetContent(
     context: Context,
-    memos: ImmutableList<Memo>,
+    snapshot: WidgetSnapshot,
     nowMillis: Long,
 ) {
     Box(
@@ -99,10 +101,22 @@ private fun WidgetContent(
         Column(modifier = GlanceModifier.fillMaxSize()) {
             WidgetHeader(context)
             Spacer(modifier = GlanceModifier.height(12.dp))
-            if (memos.isEmpty()) {
-                WidgetEmptyState(context)
-            } else {
-                WidgetMemoList(context, memos, nowMillis)
+            when (snapshot) {
+                is WidgetSnapshot.Ready ->
+                    if (snapshot.items.isEmpty()) {
+                        WidgetEmptyState(context)
+                    } else {
+                        WidgetMemoList(context, snapshot.items, nowMillis)
+                    }
+
+                WidgetSnapshot.Unavailable ->
+                    Text(
+                        text = context.getString(R.string.widget_snapshot_unavailable),
+                        modifier =
+                            GlanceModifier.clickable(
+                                actionStartActivity(Intent(context, MainActivity::class.java)),
+                            ),
+                    )
             }
         }
     }
@@ -176,7 +190,7 @@ private fun WidgetEmptyState(context: Context) {
 @Composable
 private fun WidgetMemoList(
     context: Context,
-    memos: ImmutableList<Memo>,
+    memos: ImmutableList<WidgetGlanceSnapshotItem>,
     nowMillis: Long,
 ) {
     Column(modifier = GlanceModifier.fillMaxWidth()) {
@@ -189,12 +203,10 @@ private fun WidgetMemoList(
 @Composable
 private fun MemoItem(
     context: Context,
-    memo: Memo,
+    memo: WidgetGlanceSnapshotItem,
     nowMillis: Long,
     isLast: Boolean = false,
 ) {
-    val presentation = resolveWidgetMemoItemPresentation(memo = memo, nowMillis = nowMillis)
-
     Column(
         modifier =
             GlanceModifier
@@ -215,8 +227,8 @@ private fun MemoItem(
             text =
                 DateUtils
                     .getRelativeTimeSpanString(
-                        presentation.timestampMillis,
-                        presentation.nowMillis,
+                        memo.timestampMillis,
+                        nowMillis,
                         DateUtils.MINUTE_IN_MILLIS,
                     ).toString(),
             style =
@@ -227,8 +239,7 @@ private fun MemoItem(
         )
         Spacer(modifier = GlanceModifier.height(4.dp))
         Text(
-            text =
-                presentation.previewText,
+            text = memo.previewText,
             style =
                 TextStyle(
                     color = GlanceTheme.colors.onSurface,
@@ -269,9 +280,8 @@ internal fun resolveWidgetMemoItemPresentation(
 
 private fun stripWidgetMarkdown(content: String): String {
     val repository = org.koin.core.context.GlobalContext.getOrNull()?.get<MarkdownWorkspaceRepository>()
-    val plain = repository?.renderMarkdown(content)?.plainText ?: content
+    val plain = repository?.run { renderMarkdown(content).plainText } ?: content
     return MarkdownCleanupFormatter.collapseSpacing(plain)
 }
 
-private const val WIDGET_MEMO_LIMIT = 3
 private const val WIDGET_MEMO_PREVIEW_LENGTH = 100

@@ -16,6 +16,15 @@
  * - RED before implementation because the tile policy still accepted background-recording preconditions and could return direct recording actions.
  *
  * Excludes: TileService lifecycle, Android permission APIs, app-lock prompt UI, and RecordingSession side effects.
+ * Test Change Justification:
+ * - Reason category: domain contract change (draft identity).
+ * - Old behavior/assertion being replaced: recording launch carried no draft identity.
+ * - Why old assertion is no longer correct: tile taps now attach a DraftId so staged recording
+ *   lands on an identifiable draft.
+ * - Coverage preserved by: existing click-policy scenarios are unchanged; draftId was added to
+ *   the recorded calls.
+ * - Why this is not fitting the test to the implementation: DraftId is the declared domain type
+ *   for draft-owned work.
  */
 package com.lomo.app.widget
 
@@ -37,6 +46,7 @@ class RecordingTileClickPolicyTest : AppFunSpec() {
                     RecordingSessionState.Recording(
                         filename = "voice_20260702_100000.m4a",
                         startedAtMillis = 1_000L,
+                        draftId = com.lomo.domain.model.DraftId("recording-test"),
                     ),
                 )
 
@@ -51,6 +61,7 @@ class RecordingTileClickPolicyTest : AppFunSpec() {
                 RecordingSessionState.Recording(
                     filename = "voice_20260702_100000.m4a",
                     startedAtMillis = 1_000L,
+                    draftId = com.lomo.domain.model.DraftId("recording-test"),
                 ),
             ) shouldBe RecordingTilePresentation.Stop
         }
