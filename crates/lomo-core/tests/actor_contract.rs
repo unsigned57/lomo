@@ -8,7 +8,8 @@
 //! - Given cancellation commits before a complete platform result, when that result arrives, then
 //!   the job remains cancelled before and after process-style reopen.
 //! - Given a slow listener, when cancellation commits, then the writer responds without waiting for
-//!   the callback; the event advances `EventSequence` but not `CoreRevision`.
+//!   the callback; the event advances `EventSequence` but not `CoreRevision`, and projection scopes
+//!   stay empty because journal events are not store publications.
 //! - Given a process reopens after the persisted bootstrap deadline, then the job is durably failed
 //!   as timeout rather than receiving a fresh deadline.
 //!
@@ -292,6 +293,7 @@ mod tests {
         );
         let event = listener.await_event();
         assert_eq!(event.core_revision().get(), 0);
+        assert!(event.scopes().is_empty());
         let EngineState::Opening { .. } = before else {
             panic!("fixture must begin opening");
         };

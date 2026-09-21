@@ -72,6 +72,16 @@ impl Sha256Digest {
     }
 }
 
+/// Whether platform metadata independently hashed content bytes.
+///
+/// `Unknown` means the listing or stat did not read file bytes. The SHA-256 of an empty
+/// file is a real digest and must be `Verified`, never used as a missing-hash sentinel.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum ContentDigest {
+    Unknown,
+    Verified(Sha256Digest),
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ExpectedFingerprint {
     Absent,
@@ -93,12 +103,12 @@ impl ExpectedFingerprint {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ActionEvidence {
     length: u64,
-    digest: Sha256Digest,
+    digest: ContentDigest,
     fingerprint: String,
 }
 
 impl ActionEvidence {
-    /// Creates independently verifiable postcondition evidence.
+    /// Creates independently verifiable postcondition evidence from hashed bytes.
     ///
     /// # Errors
     ///
@@ -108,16 +118,23 @@ impl ActionEvidence {
         digest: Sha256Digest,
         fingerprint: &str,
     ) -> Result<Self, LomoError> {
-        let validated = CapabilityToken::parse(fingerprint).map_err(|_error| {
-            LomoError::validation(
-                "invalid_fingerprint",
-                "fingerprint must satisfy the opaque identifier boundary",
-            )
-        })?;
         Ok(Self {
             length,
-            digest,
-            fingerprint: validated.as_str().to_owned(),
+            digest: ContentDigest::Verified(digest),
+            fingerprint: validated_fingerprint(fingerprint)?,
+        })
+    }
+
+    /// Creates metadata evidence when content bytes were not hashed.
+    ///
+    /// # Errors
+    ///
+    /// Returns a validation error for an empty, oversized, or non-protocol fingerprint.
+    pub fn unknown(length: u64, fingerprint: &str) -> Result<Self, LomoError> {
+        Ok(Self {
+            length,
+            digest: ContentDigest::Unknown,
+            fingerprint: validated_fingerprint(fingerprint)?,
         })
     }
 
@@ -127,14 +144,33 @@ impl ActionEvidence {
     }
 
     #[must_use]
-    pub const fn digest(&self) -> &Sha256Digest {
+    pub const fn content_digest(&self) -> &ContentDigest {
         &self.digest
+    }
+
+    #[must_use]
+    pub const fn verified_digest(&self) -> Option<&Sha256Digest> {
+        match &self.digest {
+            ContentDigest::Unknown => None,
+            ContentDigest::Verified(digest) => Some(digest),
+        }
     }
 
     #[must_use]
     pub fn fingerprint(&self) -> &str {
         &self.fingerprint
     }
+}
+
+fn validated_fingerprint(fingerprint: &str) -> Result<String, LomoError> {
+    CapabilityToken::parse(fingerprint)
+        .map(|validated| validated.as_str().to_owned())
+        .map_err(|_error| {
+            LomoError::validation(
+                "invalid_fingerprint",
+                "fingerprint must satisfy the opaque identifier boundary",
+            )
+        })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -1057,13 +1093,17 @@ fn expect_evidence(
             observed: observed.length(),
         });
     }
-    if observed.digest() != expected.digest() {
-        return Err(OutputMismatch::Digest {
+    match observed.verified_digest() {
+        Some(digest) if digest == expected.digest() => Ok(()),
+        Some(digest) => Err(OutputMismatch::Digest {
             expected: brief(expected.digest().as_str()),
-            observed: brief(observed.digest().as_str()),
-        });
+            observed: brief(digest.as_str()),
+        }),
+        None => Err(OutputMismatch::Digest {
+            expected: brief(expected.digest().as_str()),
+            observed: brief("unknown"),
+        }),
     }
-    Ok(())
 }
 
 impl PlatformActionOutput {

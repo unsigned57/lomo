@@ -14,8 +14,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     ActionId, ActionOutcome, BatchId, CapabilityToken, CoreRevision, DriverAdvance, EventSequence,
-    ExchangeToken, JobDriverContext, JobDriverKind, JobDriverRegistry, JobId, LomoError,
-    NativeTaskCompletion, NativeTaskDispatch, NativeTaskOutcome, NativeTaskWorkerPool,
+    ExchangeToken, InvalidationScope, JobDriverContext, JobDriverKind, JobDriverRegistry, JobId,
+    LomoError, NativeTaskCompletion, NativeTaskDispatch, NativeTaskOutcome, NativeTaskWorkerPool,
     NativeWorkerAttach, PageSize, PendingEffect, PlatformAction, PlatformActionBatch,
     PlatformBatchResult, RetryDisposition, SecretLeaseId, WorkspaceDescriptor, WorkspaceId,
 };
@@ -231,9 +231,27 @@ pub struct CoreEvent {
     event_sequence: EventSequence,
     core_revision: CoreRevision,
     job_id: Option<JobId>,
+    /// Empty on engine-journal events. Non-empty only when a native-owned projection mutation
+    /// publishes through this channel; consumers treat the labels as diagnostic invalidation scopes.
+    scopes: Vec<InvalidationScope>,
 }
 
 impl CoreEvent {
+    #[must_use]
+    pub const fn new(
+        event_sequence: EventSequence,
+        core_revision: CoreRevision,
+        job_id: Option<JobId>,
+        scopes: Vec<InvalidationScope>,
+    ) -> Self {
+        Self {
+            event_sequence,
+            core_revision,
+            job_id,
+            scopes,
+        }
+    }
+
     #[must_use]
     pub const fn event_sequence(&self) -> EventSequence {
         self.event_sequence
@@ -247,6 +265,11 @@ impl CoreEvent {
     #[must_use]
     pub const fn job_id(&self) -> Option<&JobId> {
         self.job_id.as_ref()
+    }
+
+    #[must_use]
+    pub fn scopes(&self) -> &[InvalidationScope] {
+        &self.scopes
     }
 }
 
@@ -1710,10 +1733,7 @@ fn checked_next_identifier(counter: u64) -> Result<u64, LomoError> {
 }
 
 fn ctx_capability(workspace: &WorkspaceDescriptor) -> CapabilityToken {
-    match workspace {
-        WorkspaceDescriptor::Saf { capability, .. } => capability.clone(),
-        WorkspaceDescriptor::Direct { .. } => CapabilityToken::direct_root(),
-    }
+    workspace.capability().clone()
 }
 
 fn read_job_result(
@@ -1793,11 +1813,12 @@ fn commit_candidate(
         )
     })?;
     write_journal(path, &candidate)?;
-    let event = CoreEvent {
-        event_sequence: EventSequence::from_persisted(candidate.event_sequence),
-        core_revision: CoreRevision::from_persisted(candidate.core_revision),
+    let event = CoreEvent::new(
+        EventSequence::from_persisted(candidate.event_sequence),
+        CoreRevision::from_persisted(candidate.core_revision),
         job_id,
-    };
+        Vec::new(),
+    );
     publish_snapshot(&runtime.state, snapshot_for(&candidate)?);
     runtime.journal = Some(candidate);
     match runtime.events.try_send(event) {
@@ -2102,10 +2123,10 @@ fn ensure_bootstrap(
             ],
             PersistedJobStatus::WaitingPlatform,
         ),
-        WorkspaceDescriptor::Direct { .. } => (
+        WorkspaceDescriptor::Direct { capability, .. } => (
             vec![PlatformAction::stat_root(
                 ActionId::parse("action-direct-root")?,
-                CapabilityToken::parse("direct-root")?,
+                capability.clone(),
             )],
             PersistedJobStatus::Completed,
         ),

@@ -110,7 +110,11 @@ mod tests {
         let job_id = JobId::parse("job-probe-1").must_succeed("job");
         let mut counter = 0_u64;
 
-        let direct = WorkspaceDescriptor::direct(&workspace).must_succeed("direct");
+        let direct = WorkspaceDescriptor::direct(
+            &workspace,
+            CapabilityToken::parse("notes-root").must_succeed("direct capability"),
+        )
+        .must_succeed("direct");
         {
             let mut ctx = job_driver_context(
                 &job_id,
@@ -125,7 +129,7 @@ mod tests {
             assert_ne!(action_a.as_str(), action_b.as_str());
             let batch_id = ctx.next_batch_id().must_succeed("batch");
             assert!(batch_id.as_str().starts_with("batch-"));
-            assert_eq!(ctx.capability().as_str(), "direct-root");
+            assert_eq!(ctx.capability().as_str(), "notes-root");
         }
         assert_eq!(counter, 3);
 

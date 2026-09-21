@@ -13,8 +13,11 @@
 //!   different trees and access modes cannot collide.
 //! - Given a page size outside 1..=256, when it crosses the boundary, then it is rejected rather
 //!   than clamped or replaced with a default.
+//! - Given a core event constructed with projection scopes, when it is observed, then those
+//!   scopes are retained on the event.
 //!
-//! Observable outcomes: constrained values, stable workspace ids, and structured error fields.
+//! Observable outcomes: constrained values, stable workspace ids, structured error fields, and
+//! core-event projection scopes.
 //! TDD proof: RED on 2026-07-27 with E0061 because SAF construction accepted only a capability;
 //! the stable identity could not be represented independently.
 //! Excludes: engine actor behavior, journal persistence, Android URI resolution, and FFI mapping.
@@ -103,8 +106,11 @@ mod tests {
         let alias = temporary.path().join("workspace-alias");
         symlink(&direct_root, &alias).must_succeed("workspace symlink");
 
-        let direct = WorkspaceDescriptor::direct(&direct_root).must_succeed("direct workspace");
-        let aliased = WorkspaceDescriptor::direct(&alias).must_succeed("canonical alias");
+        let capability = CapabilityToken::parse("notes-root").must_succeed("direct capability");
+        let direct = WorkspaceDescriptor::direct(&direct_root, capability.clone())
+            .must_succeed("direct workspace");
+        let aliased =
+            WorkspaceDescriptor::direct(&alias, capability).must_succeed("canonical alias");
         assert_eq!(direct.identity(), aliased.identity());
 
         let stable_identity =
@@ -187,6 +193,24 @@ mod tests {
             InvalidationScope::Full,
         ];
         assert_eq!(scopes.len(), 8);
+    }
+
+    #[test]
+    fn core_event_carries_projection_scopes() {
+        use lomo_core::{CoreEvent, CoreRevision, EventSequence, InvalidationScope};
+
+        let event = CoreEvent::new(
+            EventSequence::from_raw(4),
+            CoreRevision::from_raw(3),
+            None,
+            vec![InvalidationScope::MemoList, InvalidationScope::Stats],
+        );
+        assert_eq!(event.event_sequence().get(), 4);
+        assert_eq!(event.core_revision().get(), 3);
+        assert_eq!(
+            event.scopes(),
+            &[InvalidationScope::MemoList, InvalidationScope::Stats]
+        );
     }
 
     #[test]

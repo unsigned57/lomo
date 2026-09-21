@@ -85,13 +85,10 @@ impl JobDriverContext<'_> {
         BatchId::parse(&format!("batch-{counter}"))
     }
 
-    /// Capability token used for platform actions (SAF token or the direct-root sentinel).
+    /// Capability token used for platform actions against the bound workspace root.
     #[must_use]
     pub fn capability(&self) -> CapabilityToken {
-        match self.workspace {
-            WorkspaceDescriptor::Saf { capability, .. } => capability.clone(),
-            WorkspaceDescriptor::Direct { .. } => CapabilityToken::direct_root(),
-        }
+        self.workspace.capability().clone()
     }
 }
 

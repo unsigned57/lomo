@@ -55,10 +55,10 @@ mod tests {
     use std::time::Duration;
 
     use lomo_core::{
-        CancelOutcome, EngineConfig, EngineState, EphemeralSecretVault, ErrorCategory, JobStep,
-        LomoEngine, NativeTaskCompletion, NativeTaskOutcome, NativeWorkerAttach,
-        RecordingNativeExecutor, SecretLeaseId, SecretMaterial, ShutdownDeadline,
-        WorkspaceDescriptor,
+        CancelOutcome, CapabilityToken, EngineConfig, EngineState, EphemeralSecretVault,
+        ErrorCategory, JobStep, LomoEngine, NativeTaskCompletion, NativeTaskOutcome,
+        NativeWorkerAttach, RecordingNativeExecutor, SecretLeaseId, SecretMaterial,
+        ShutdownDeadline, WorkspaceDescriptor,
     };
     use tempfile::tempdir;
 
@@ -81,8 +81,11 @@ mod tests {
             fs::create_dir(&control).must_succeed("control root");
             fs::create_dir(&exchange).must_succeed("exchange root");
             fs::create_dir(&workspace).must_succeed("workspace root");
-            let descriptor =
-                WorkspaceDescriptor::direct(workspace).must_succeed("workspace descriptor");
+            let descriptor = WorkspaceDescriptor::direct(
+                workspace,
+                CapabilityToken::parse("notes-root").must_succeed("direct capability"),
+            )
+            .must_succeed("workspace descriptor");
             let config = EngineConfig::new(control, exchange, Some(descriptor))
                 .must_succeed("engine config");
             Self {

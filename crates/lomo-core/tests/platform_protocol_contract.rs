@@ -13,6 +13,8 @@
 //!   are all mandatory.
 //! - Given SAF listing metadata, when a later content read is planned, then the provider's opaque
 //!   document handle is preserved independently of the mutable display path.
+//! - Given listing evidence, when content was not hashed, then the digest is `Unknown` and is not
+//!   the SHA-256 of empty bytes used as a missing-hash sentinel.
 //!
 //! Observable outcomes: batch fields, exact action order, structured validation errors, and a
 //! validated ordered result prefix.
@@ -148,6 +150,25 @@ mod tests {
             .must_succeed("evidence"),
         )
         .must_succeed("metadata")
+    }
+
+    #[test]
+    fn unknown_content_digest_is_not_the_empty_file_hash() {
+        let empty =
+            Sha256Digest::parse("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+                .must_succeed("empty digest");
+        let verified = ActionEvidence::verified(0, empty.clone(), "fingerprint-emptyfile")
+            .must_succeed("verified empty file");
+        let unknown =
+            ActionEvidence::unknown(0, "fingerprint-unhashed").must_succeed("unknown listing");
+        assert_ne!(verified, unknown);
+        assert_eq!(verified.verified_digest(), Some(&empty));
+        assert_eq!(unknown.verified_digest(), None);
+        assert_eq!(
+            verified.content_digest(),
+            &lomo_core::ContentDigest::Verified(empty)
+        );
+        assert_eq!(unknown.content_digest(), &lomo_core::ContentDigest::Unknown);
     }
 
     #[test]

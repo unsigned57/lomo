@@ -63,14 +63,6 @@ constrained_id!(ActionId, "invalid_action_id");
 constrained_id!(CapabilityToken, "invalid_capability_token");
 constrained_id!(ExchangeToken, "invalid_exchange_token");
 
-impl CapabilityToken {
-    /// Process-local capability bound to a Direct workspace root.
-    #[must_use]
-    pub fn direct_root() -> Self {
-        Self("direct-root".to_owned())
-    }
-}
-
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct CoreRevision(u64);
 
@@ -264,6 +256,7 @@ pub enum WorkspaceDescriptor {
     Direct {
         canonical_root: PathBuf,
         identity: WorkspaceId,
+        capability: CapabilityToken,
     },
     Saf {
         capability: CapabilityToken,
@@ -272,13 +265,13 @@ pub enum WorkspaceDescriptor {
 }
 
 impl WorkspaceDescriptor {
-    /// Validates and canonicalizes a direct workspace root.
+    /// Validates and canonicalizes a direct workspace root and binds its process capability.
     ///
     /// # Errors
     ///
     /// Returns a storage or validation error when the root cannot be canonicalized, is not a
     /// directory, or cannot be represented as the UTF-8 path accepted at the FFI boundary.
-    pub fn direct(root: impl AsRef<Path>) -> Result<Self, LomoError> {
+    pub fn direct(root: impl AsRef<Path>, capability: CapabilityToken) -> Result<Self, LomoError> {
         let canonical_root = root.as_ref().canonicalize().map_err(|error| {
             LomoError::storage(
                 "workspace_root_unavailable",
@@ -301,6 +294,7 @@ impl WorkspaceDescriptor {
         Ok(Self::Direct {
             canonical_root,
             identity,
+            capability,
         })
     }
 
@@ -318,6 +312,13 @@ impl WorkspaceDescriptor {
     pub const fn identity(&self) -> &WorkspaceId {
         match self {
             Self::Direct { identity, .. } | Self::Saf { identity, .. } => identity,
+        }
+    }
+
+    #[must_use]
+    pub const fn capability(&self) -> &CapabilityToken {
+        match self {
+            Self::Direct { capability, .. } | Self::Saf { capability, .. } => capability,
         }
     }
 }
