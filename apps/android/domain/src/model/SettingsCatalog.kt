@@ -424,6 +424,14 @@ object SettingsCatalog {
         )
     }
 
+    private data class DescriptorSpec(
+        val storageKey: String,
+        val defaultValue: SettingValue,
+        val valueContract: SettingValueContract,
+        val facet: SettingsFacet,
+        val snapshotField: AppPreferenceSnapshotField,
+    )
+
     private fun text(
         id: String,
         storageKey: String,
@@ -434,11 +442,14 @@ object SettingsCatalog {
     ): SettingDescriptor =
         descriptor(
             id = id,
-            storageKey = storageKey,
-            defaultValue = SettingValue.Text(defaultValue),
-            valueContract = valueContract,
-            facet = facet,
-            snapshotField = snapshotField,
+            spec =
+                DescriptorSpec(
+                    storageKey = storageKey,
+                    defaultValue = SettingValue.Text(defaultValue),
+                    valueContract = valueContract,
+                    facet = facet,
+                    snapshotField = snapshotField,
+                ),
         )
 
     private fun bool(
@@ -450,11 +461,14 @@ object SettingsCatalog {
     ): SettingDescriptor =
         descriptor(
             id = id,
-            storageKey = storageKey,
-            defaultValue = SettingValue.Bool(defaultValue),
-            valueContract = SettingValueContract.Bool,
-            facet = facet,
-            snapshotField = snapshotField,
+            spec =
+                DescriptorSpec(
+                    storageKey = storageKey,
+                    defaultValue = SettingValue.Bool(defaultValue),
+                    valueContract = SettingValueContract.Bool,
+                    facet = facet,
+                    snapshotField = snapshotField,
+                ),
         )
 
     private fun decimal(
@@ -466,31 +480,30 @@ object SettingsCatalog {
     ): SettingDescriptor =
         descriptor(
             id = id,
-            storageKey = storageKey,
-            defaultValue = SettingValue.Decimal(defaultValue),
-            valueContract = SettingValueContract.Decimal,
-            facet = facet,
-            snapshotField = snapshotField,
+            spec =
+                DescriptorSpec(
+                    storageKey = storageKey,
+                    defaultValue = SettingValue.Decimal(defaultValue),
+                    valueContract = SettingValueContract.Decimal,
+                    facet = facet,
+                    snapshotField = snapshotField,
+                ),
         )
 
     private fun descriptor(
         id: String,
-        storageKey: String,
-        defaultValue: SettingValue,
-        valueContract: SettingValueContract,
-        facet: SettingsFacet,
-        snapshotField: AppPreferenceSnapshotField,
+        spec: DescriptorSpec,
     ): SettingDescriptor =
         SettingDescriptor(
             id = id,
-            storageKey = storageKey,
-            defaultValue = defaultValue,
-            valueContract = valueContract,
+            storageKey = spec.storageKey,
+            defaultValue = spec.defaultValue,
+            valueContract = spec.valueContract,
             sensitivity = SettingsSensitivity.NON_SENSITIVE,
-            facet = facet,
+            facet = spec.facet,
             exportPolicy = SettingsExportPolicy.PLAIN_TEXT,
             readModels = setOf(SettingsReadModel.APP_PREFERENCES),
-            snapshotField = snapshotField,
+            snapshotField = spec.snapshotField,
         )
 }
 

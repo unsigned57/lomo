@@ -47,14 +47,10 @@ object StorageTimestampFormats {
         }
 
     fun parseMemoHeaderLine(line: String): ParsedMemoHeader? {
-        val afterDash =
-            line
-                .trimStart(::isIgnorableHeaderSeparator)
-                .takeIf { trimmed -> trimmed.startsWith("-") }
-                ?.drop(1)
-                ?.trimStart(::isIgnorableHeaderSeparator)
-                ?.takeIf(String::isNotEmpty)
-                ?: return null
+        val trimmed = line.trimStart(::isIgnorableHeaderSeparator)
+        if (!trimmed.startsWith("-")) return null
+        val afterDash = trimmed.drop(1).trimStart(::isIgnorableHeaderSeparator)
+        if (afterDash.isEmpty()) return null
 
         return parseFormatters
             .asSequence()

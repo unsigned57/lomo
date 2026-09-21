@@ -26,18 +26,20 @@ internal fun LatestAppRelease.toAppUpdateInfo(): AppUpdateInfo =
 
 private fun LatestAppRelease.toAppUpdateInfo(
     installableCandidate: AppUpdateAssetCandidate?,
-): AppUpdateInfo =
-    AppUpdateInfo(
+): AppUpdateInfo {
+    val verified = installableCandidate?.verifiedOrNull()
+    return AppUpdateInfo(
         url = htmlUrl,
         version = versionName(),
         releaseNotes = body,
         apkDownloadUrl = installableCandidate?.downloadUrl,
         apkFileName = installableCandidate?.fileName,
         apkSizeBytes = installableCandidate?.sizeBytes,
-        expectedPackageName = installableCandidate?.verifiedOrNull()?.packageName,
-        expectedVersionName = installableCandidate?.verifiedOrNull()?.versionName?.let(::normalizeVersion),
-        expectedVersionCode = installableCandidate?.verifiedOrNull()?.versionCode,
+        expectedPackageName = verified?.packageName,
+        expectedVersionName = verified?.let { normalizeVersion(it.versionName) },
+        expectedVersionCode = verified?.versionCode,
     )
+}
 
 private fun LatestAppRelease.versionName(): String = tagName.removePrefix("v")
 

@@ -25,6 +25,9 @@ data class ReminderReference(
     val memoIdentity: String,
     val sourceSpan: com.lomo.domain.model.markdown.MarkdownSourceSpan,
     val tokenFingerprint: String,
+    val fingerprintOrdinal: UInt = 0u,
+    /** Durable embedded reminder id (`#<hex>` token tail); null for legacy or ambiguous tokens. */
+    val embeddedId: String? = null,
 )
 
 data class ReminderMarker(

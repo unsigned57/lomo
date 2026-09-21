@@ -40,11 +40,10 @@ object StorageFilenameFormats {
             runCatching { LocalDate.parse(raw, formatter) }.getOrNull()
         }
 
-    fun parseFilenameOrNull(filename: String): LocalDate? =
-        filename
-            .takeIf { it.endsWith(MARKDOWN_EXTENSION) }
-            ?.removeSuffix(MARKDOWN_EXTENSION)
-            ?.let(::parseOrNull)
+    fun parseFilenameOrNull(filename: String): LocalDate? {
+        if (!filename.endsWith(MARKDOWN_EXTENSION)) return null
+        return parseOrNull(filename.removeSuffix(MARKDOWN_EXTENSION))
+    }
 
     private fun buildStrictFormatter(pattern: String): DateTimeFormatter =
         DateTimeFormatter

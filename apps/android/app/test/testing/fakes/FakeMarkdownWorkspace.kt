@@ -1,9 +1,7 @@
 package com.lomo.app.testing.fakes
 
-import com.lomo.domain.model.ReminderMarker
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
-import com.lomo.domain.repository.MarkdownReminderRepository
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
 
 /**
@@ -45,25 +43,11 @@ class FakeMarkdownWorkspaceRepository(
     ): com.lomo.domain.model.MemoDocumentMutation = error("toggleTask is not expected in this fake")
 }
 
-class FakeMarkdownReminderRepository(
-    private val remindersByMemo: Map<String, List<ReminderMarker>> = emptyMap(),
-) : MarkdownReminderRepository {
-    override fun remindersForMemo(memoIdentity: String): List<ReminderMarker> =
-        remindersByMemo[memoIdentity].orEmpty()
-
-    override suspend fun rewriteReminder(
-        reference: com.lomo.domain.model.ReminderReference,
-        replacement: String,
-    ): com.lomo.domain.model.MemoDocumentMutation = error("rewriteReminder is not expected in this fake")
-}
-
 fun testMemoUiMapper(
     workspace: MarkdownWorkspaceRepository = FakeMarkdownWorkspaceRepository(),
-    reminders: MarkdownReminderRepository = FakeMarkdownReminderRepository(),
 ): com.lomo.app.feature.main.MemoUiMapper =
     com.lomo.app.feature.main.MemoUiMapper(
         markdownWorkspaceRepository = workspace,
-        markdownReminderRepository = reminders,
     )
 
 fun emptyRenderDocument(source: String = ""): MarkdownRenderDocument =
