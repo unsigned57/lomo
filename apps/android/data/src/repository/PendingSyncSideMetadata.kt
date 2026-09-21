@@ -36,5 +36,5 @@ data class PendingSyncConflictFileDescriptor(
 
 internal fun ByteArray.md5Hex(): String {
     val digest = MessageDigest.getInstance("MD5").digest(this)
-    return digest.joinToString("") { byte -> "%02x".format(byte) }
+    return digest.joinToString("") { byte -> "%02x".format(java.util.Locale.ROOT, byte) }
 }

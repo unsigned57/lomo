@@ -5,6 +5,7 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
+import java.util.Locale
 
 private const val NUMBER_FORMAT_MILLION_THRESHOLD = 1_000_000
 private const val NUMBER_FORMAT_TEN_THOUSAND_THRESHOLD = 10_000
@@ -43,9 +44,9 @@ internal fun resolveStatisticsSnapshotPresentationDates(stats: MemoStatistics): 
 
 internal fun formatStatisticsNumber(n: Int): String =
     when {
-        n >= NUMBER_FORMAT_MILLION_THRESHOLD -> "%.1fM".format(n / NUMBER_FORMAT_MILLION_DIVISOR)
-        n >= NUMBER_FORMAT_TEN_THOUSAND_THRESHOLD -> "%.1fK".format(n / NUMBER_FORMAT_THOUSAND_DIVISOR)
-        n >= NUMBER_FORMAT_THOUSAND_THRESHOLD -> "%,d".format(n)
+        n >= NUMBER_FORMAT_MILLION_THRESHOLD -> "%.1fM".format(Locale.US, n / NUMBER_FORMAT_MILLION_DIVISOR)
+        n >= NUMBER_FORMAT_TEN_THOUSAND_THRESHOLD -> "%.1fK".format(Locale.US, n / NUMBER_FORMAT_THOUSAND_DIVISOR)
+        n >= NUMBER_FORMAT_THOUSAND_THRESHOLD -> "%,d".format(Locale.US, n)
         else -> n.toString()
     }
 

@@ -1,5 +1,7 @@
 package com.lomo.app.util
 
+import java.util.Locale
+
 internal fun String.toStyledShareTextFromHtmlFragment(imagePlaceholder: String): StyledShareText {
     val state = StyledShareTextState(imagePlaceholder)
     var index = 0
@@ -50,7 +52,7 @@ internal sealed interface HtmlShareTag {
 internal fun String.toSupportedHtmlShareTag(): HtmlShareTag? {
     val match = HTML_TAG_PATTERN.matchEntire(trim()) ?: return null
     val isClosing = match.groupValues[1] == "/"
-    val tagName = match.groupValues[2].lowercase()
+    val tagName = match.groupValues[2].lowercase(Locale.ROOT)
     if (tagName == "br") return HtmlShareTag.LineBreak
     val kind =
         when (tagName) {

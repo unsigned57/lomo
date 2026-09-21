@@ -1,5 +1,7 @@
 package com.lomo.app.benchmark
 
+import java.util.Locale
+
 object BenchmarkAnchorContract {
     const val APP_ROOT = "benchmark_app_root"
     const val MAIN_ROOT = "benchmark_main_root"
@@ -53,7 +55,7 @@ object BenchmarkAnchorContract {
         "benchmark_version_history_restore_${sanitizeToken(revisionId)}"
 
     private fun sanitizeToken(raw: String): String {
-        val lowered = raw.lowercase()
+        val lowered = raw.lowercase(Locale.ROOT)
         val sanitized =
             buildString(lowered.length) {
                 lowered.forEach { char ->

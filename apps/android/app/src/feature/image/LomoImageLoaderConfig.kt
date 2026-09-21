@@ -1,7 +1,7 @@
 package com.lomo.app.feature.image
 
 import coil3.disk.DiskCache
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import okio.Path.Companion.toOkioPath
 import java.io.File
 import kotlin.coroutines.CoroutineContext
@@ -16,10 +16,12 @@ internal const val LOMO_IMAGE_DISK_CACHE_DIRECTORY_NAME: String = "image_cache"
  * previous configuration accidentally limited [interceptorCoroutineContext]
  * instead of the decoder, so heavy fling-time decodes ran unbounded against
  * the IO pool and caused intermittent OOM crashes during cold start.
+ *
+ * The IO dispatcher is a caller input so the composition root owns the choice.
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-internal val lomoImageDecoderCoroutineContext: CoroutineContext =
-    Dispatchers.IO.limitedParallelism(LOMO_IMAGE_LOADER_IO_PARALLELISM)
+internal fun lomoImageDecoderCoroutineContext(ioDispatcher: CoroutineDispatcher): CoroutineContext =
+    ioDispatcher.limitedParallelism(LOMO_IMAGE_LOADER_IO_PARALLELISM)
 
 /**
  * Coroutine context that bounds Coil's fetcher I/O concurrency. Keeps the
@@ -27,8 +29,8 @@ internal val lomoImageDecoderCoroutineContext: CoroutineContext =
  * even before the decoder limit kicks in.
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-internal val lomoImageFetcherCoroutineContext: CoroutineContext =
-    Dispatchers.IO.limitedParallelism(LOMO_IMAGE_LOADER_IO_PARALLELISM)
+internal fun lomoImageFetcherCoroutineContext(ioDispatcher: CoroutineDispatcher): CoroutineContext =
+    ioDispatcher.limitedParallelism(LOMO_IMAGE_LOADER_IO_PARALLELISM)
 
 /**
  * Builds the on-disk image cache used by Coil. Re-enabling the disk cache

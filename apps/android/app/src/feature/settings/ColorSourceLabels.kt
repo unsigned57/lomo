@@ -5,13 +5,14 @@ import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
 import com.lomo.domain.model.ColorPresetId
 import com.lomo.domain.model.ColorSource
+import java.util.Locale
 
 @Composable
 internal fun colorSourceSummaryLabel(source: ColorSource): String =
     when (source) {
         is ColorSource.DynamicWallpaper -> stringResource(R.string.settings_color_source_dynamic)
         is ColorSource.Preset -> presetDisplayName(source.id)
-        is ColorSource.CustomSeed -> "#%06X".format(source.argb and COLOR_PICKER_RGB_MASK)
+        is ColorSource.CustomSeed -> "#%06X".format(Locale.ROOT, source.argb and COLOR_PICKER_RGB_MASK)
     }
 
 @Composable

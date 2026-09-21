@@ -67,6 +67,7 @@ import com.lomo.domain.model.ThemeMode
 import com.lomo.ui.theme.colorSchemeFromSeed
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.ImmutableList
+import java.util.Locale
 
 private const val HUE_MAX = 360f
 private const val SATURATION_MAX = 1f
@@ -415,10 +416,9 @@ private fun CustomSeedCard(
     onApply: (Int) -> Unit,
 ) {
     val active = selectedSeed != null
-    val haptic = LocalAppHapticFeedback.current
 
     var hexInput by remember(currentCustomSeedArgb) {
-        mutableStateOf("#%06X".format(currentCustomSeedArgb and COLOR_PICKER_RGB_MASK))
+        mutableStateOf("#%06X".format(Locale.ROOT, currentCustomSeedArgb and COLOR_PICKER_RGB_MASK))
     }
 
     Card(
@@ -526,7 +526,7 @@ private fun CustomSeedHeader(
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                text = "#%06X".format(currentArgb and COLOR_PICKER_RGB_MASK),
+                text = "#%06X".format(Locale.ROOT, currentArgb and COLOR_PICKER_RGB_MASK),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

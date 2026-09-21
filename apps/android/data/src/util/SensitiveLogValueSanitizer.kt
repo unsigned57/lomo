@@ -24,7 +24,7 @@ private fun String.sha256Hex(): String =
     MessageDigest
         .getInstance("SHA-256")
         .digest(toByteArray(Charsets.UTF_8))
-        .joinToString("") { byte -> "%02x".format(byte) }
+        .joinToString("") { byte -> "%02x".format(java.util.Locale.ROOT, byte) }
 
 private const val LOG_VISIBLE_PREFIX_LENGTH = 4
 private const val LOG_HASH_PREFIX_LENGTH = 8

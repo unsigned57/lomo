@@ -1,5 +1,7 @@
 package com.lomo.domain.model
 
+import java.util.Locale
+
 private const val HEX_RADIX = 16
 private const val HEX_RGB_LENGTH = 6
 private const val ARGB_OPAQUE_ALPHA: Int = 0xFF
@@ -77,7 +79,7 @@ fun asOpaqueArgb(rgb: Int): Int = (ARGB_OPAQUE_ALPHA shl ARGB_ALPHA_SHIFT) or (r
 
 private fun formatRgbHex(argb: Int): String {
     val rgb = argb and ARGB_RGB_MASK
-    return rgb.toString(HEX_RADIX).padStart(HEX_RGB_LENGTH, '0').uppercase()
+    return rgb.toString(HEX_RADIX).padStart(HEX_RGB_LENGTH, '0').uppercase(Locale.ROOT)
 }
 
 private fun parseRgbHex(hex: String): Int? {

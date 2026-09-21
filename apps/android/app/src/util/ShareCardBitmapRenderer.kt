@@ -14,6 +14,20 @@ import com.lomo.domain.usecase.PrepareShareCardContentUseCase
 import com.lomo.ui.theme.resolveLomoColorScheme
 import java.time.format.DateTimeFormatter
 
+/** Presentation and media options for one share-card bitmap. */
+data class ShareCardRenderOptions(
+    val showTime: Boolean,
+    val showSignature: Boolean,
+    val signatureText: String,
+    val timestampMillis: Long?,
+    val tags: List<String>,
+    val colorSource: ColorSource,
+    val themeMode: ThemeMode,
+    val resolvedImagePaths: List<String> = emptyList(),
+    val geoLocation: String? = null,
+    val bodyTypeface: Typeface? = null,
+)
+
 class ShareCardBitmapRenderer(
     private val prepareShareCardContentUseCase: PrepareShareCardContentUseCase,
     private val shareCardDisplayFormatter: ShareCardDisplayFormatter,
@@ -25,17 +39,18 @@ class ShareCardBitmapRenderer(
         context: Context,
         content: String,
         title: String?,
-        showTime: Boolean,
-        showSignature: Boolean,
-        signatureText: String,
-        timestampMillis: Long?,
-        tags: List<String>,
-        colorSource: ColorSource,
-        themeMode: ThemeMode,
-        resolvedImagePaths: List<String> = emptyList(),
-        geoLocation: String? = null,
-        bodyTypeface: Typeface? = null,
+        options: ShareCardRenderOptions,
     ): Bitmap {
+        val showTime = options.showTime
+        val showSignature = options.showSignature
+        val signatureText = options.signatureText
+        val timestampMillis = options.timestampMillis
+        val tags = options.tags
+        val colorSource = options.colorSource
+        val themeMode = options.themeMode
+        val resolvedImagePaths = options.resolvedImagePaths
+        val geoLocation = options.geoLocation
+        val bodyTypeface = options.bodyTypeface
         // Same body bytes as the list/card path (+ optional non-semantic geo append). Do not invent
         // Markdown link structure via pre-owner regex before renderMarkdown.
         val ownerInput = appendLegacyMemoGeoLocation(content, geoLocation)
@@ -91,15 +106,17 @@ class ShareCardBitmapRenderer(
         return try {
             val composition =
                 buildShareCardComposition(
-                    displayTags = renderInput.displayTags,
-                    title = renderInput.title,
-                    bodyLines = bodyLines,
-                    imagePlaceholder = renderInput.imagePlaceholder,
-                    spec = layoutSpec,
-                    paintSet = paintSet,
-                    loadedImages = loadedImages,
-                    footer = footerContent,
-                    shouldUseCenteredBody = shouldUseCenteredBody,
+                    ShareCardCompositionInput(
+                        displayTags = renderInput.displayTags,
+                        title = renderInput.title,
+                        bodyLines = bodyLines,
+                        imagePlaceholder = renderInput.imagePlaceholder,
+                        spec = layoutSpec,
+                        paintSet = paintSet,
+                        loadedImages = loadedImages,
+                        footer = footerContent,
+                        shouldUseCenteredBody = shouldUseCenteredBody,
+                    ),
                 )
             renderShareCardBitmap(
                 spec = layoutSpec,
@@ -138,7 +155,7 @@ class ShareCardBitmapRenderer(
 
         return ShareCardRenderInput(
             displayTags = shareCardDisplayFormatter.formatTagsForDisplay(shareCardContent.tags),
-            title = title?.trim()?.takeIf { it.isNotEmpty() },
+            title = title?.run { trim().takeIf { it.isNotEmpty() } },
             safeText = shareCardContent.bodyText.ifBlank { context.getString(R.string.app_name) },
             imagePlaceholder = imagePlaceholder,
             createdAtText = createdAtText,

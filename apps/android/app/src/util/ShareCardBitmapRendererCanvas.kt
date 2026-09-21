@@ -50,22 +50,40 @@ internal fun createShareCardLayoutSpec(resources: Resources): ShareCardLayoutSpe
     )
 }
 
-internal fun buildShareCardComposition(
-    displayTags: List<String>,
-    title: String?,
-    bodyLines: List<ShareBodyLine>,
-    imagePlaceholder: String,
-    spec: ShareCardLayoutSpec,
-    paintSet: ShareCardPaintSet,
-    loadedImages: Map<Int, Bitmap>,
-    footer: ShareCardFooterContent,
-    shouldUseCenteredBody: Boolean,
-): ShareCardComposition {
+/** Everything needed to lay out one share-card composition. */
+internal data class ShareCardCompositionInput(
+    val displayTags: List<String>,
+    val title: String?,
+    val bodyLines: List<ShareBodyLine>,
+    val imagePlaceholder: String,
+    val spec: ShareCardLayoutSpec,
+    val paintSet: ShareCardPaintSet,
+    val loadedImages: Map<Int, Bitmap>,
+    val footer: ShareCardFooterContent,
+    val shouldUseCenteredBody: Boolean,
+)
+
+internal fun buildShareCardComposition(input: ShareCardCompositionInput): ShareCardComposition {
+    val displayTags = input.displayTags
+    val title = input.title
+    val bodyLines = input.bodyLines
+    val imagePlaceholder = input.imagePlaceholder
+    val spec = input.spec
+    val paintSet = input.paintSet
+    val loadedImages = input.loadedImages
+    val footer = input.footer
+    val shouldUseCenteredBody = input.shouldUseCenteredBody
     val tagLayout =
         displayTags
             .takeIf { it.isNotEmpty() }
-            ?.joinToString(separator = TAG_JOIN_SEPARATOR) { "#$it" }
-            ?.let { buildStaticLayout(it, paintSet.tagPaint, spec.contentWidth, maxLines = MAX_TAG_LINES) }
+            ?.run {
+                buildStaticLayout(
+                    joinToString(separator = TAG_JOIN_SEPARATOR) { "#$it" },
+                    paintSet.tagPaint,
+                    spec.contentWidth,
+                    maxLines = MAX_TAG_LINES,
+                )
+            }
     val titleLayout =
         title?.let {
             buildStaticLayout(it, paintSet.titlePaint, spec.contentWidth, maxLines = MAX_TITLE_LINES)
@@ -86,8 +104,8 @@ internal fun buildShareCardComposition(
             total + line.height + if (index != bodyRenderLines.lastIndex) spec.lineSpacing else 0f
         }
     val contentHeight =
-        (tagLayout?.height?.toFloat()?.plus(spec.tagBottomSpacing) ?: 0f) +
-            (titleLayout?.height?.toFloat()?.plus(spec.titleBottomSpacing) ?: 0f) +
+        (tagLayout?.run { height.toFloat().plus(spec.tagBottomSpacing) } ?: 0f) +
+            (titleLayout?.run { height.toFloat().plus(spec.titleBottomSpacing) } ?: 0f) +
             bodyContentHeight
     val footerBlockHeight = measureFooterBlockHeight(paintSet.footerPaint, spec, footer)
     val cardHeight =

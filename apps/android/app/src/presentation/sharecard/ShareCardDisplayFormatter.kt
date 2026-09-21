@@ -1,6 +1,7 @@
 package com.lomo.app.presentation.sharecard
 
 import com.lomo.app.util.MarkdownCleanupFormatter
+import java.util.Locale
 
 /**
  * Presentation-only share-card formatter.
@@ -55,7 +56,7 @@ class ShareCardDisplayFormatter {
         name: String,
     ): String =
         runCatching {
-            pattern.format(name)
+            pattern.format(Locale.US, name)
         }.getOrElse {
             "$pattern $name"
         }

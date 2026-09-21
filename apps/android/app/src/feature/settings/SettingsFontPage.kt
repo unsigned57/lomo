@@ -52,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
+import java.util.Locale
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.runtime.remember
@@ -380,7 +381,7 @@ private fun CustomFontRow(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = info.displayName.take(2).uppercase(),
+                    text = info.displayName.take(2).uppercase(Locale.ROOT),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onTertiaryContainer,
                     fontWeight = FontWeight.SemiBold,
@@ -437,8 +438,8 @@ private const val MIB: Long = KIB * 1024L
 
 private fun formatBytes(bytes: Long): String =
     when {
-        bytes >= MIB -> "%.1f MB".format(bytes.toDouble() / MIB)
-        bytes >= KIB -> "%.1f KB".format(bytes.toDouble() / KIB)
+        bytes >= MIB -> "%.1f MB".format(Locale.US, bytes.toDouble() / MIB)
+        bytes >= KIB -> "%.1f KB".format(Locale.US, bytes.toDouble() / KIB)
         else -> "$bytes B"
     }
 
@@ -450,7 +451,7 @@ private fun handleFontImport(
     val resolver = context.contentResolver
     val originalName = resolveDisplayName(resolver, uri) ?: "imported.ttf"
     
-    val extension = originalName.substringAfterLast('.', "").lowercase()
+    val extension = originalName.substringAfterLast('.', "").lowercase(Locale.ROOT)
     if (extension != "ttf" && extension != "otf") {
         Toast.makeText(
             context,

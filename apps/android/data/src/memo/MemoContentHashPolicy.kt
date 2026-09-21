@@ -8,5 +8,5 @@ internal object MemoContentHashPolicy {
         MessageDigest
             .getInstance("SHA-256")
             .digest(content.trim().toByteArray(StandardCharsets.UTF_8))
-            .joinToString("") { byte -> "%02x".format(byte) }
+            .joinToString("") { byte -> "%02x".format(java.util.Locale.ROOT, byte) }
 }

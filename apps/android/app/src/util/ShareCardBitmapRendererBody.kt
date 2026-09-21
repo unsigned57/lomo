@@ -126,9 +126,7 @@ private fun parseImageMarkerLine(trimmed: String): ShareBodyLine? {
     val markerMatch = IMAGE_MARKER_PATTERN.find(trimmed)
     val imageIndex =
         markerMatch
-            ?.groupValues
-            ?.get(IMAGE_MARKER_INDEX_GROUP)
-            ?.toIntOrNull()
+            ?.run { groupValues[IMAGE_MARKER_INDEX_GROUP].toIntOrNull() }
             ?: NO_IMAGE_INDEX
 
     return markerMatch

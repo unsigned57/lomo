@@ -37,6 +37,7 @@ package com.lomo.app.feature.image
 
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.Dispatchers
 import io.kotest.matchers.shouldNotBe
 import java.nio.file.Files
 
@@ -51,11 +52,11 @@ class LomoImageLoaderConfigTest : AppFunSpec() {
         }
 
         test("lomo image decoder coroutine context is non-null") {
-            lomoImageDecoderCoroutineContext shouldNotBe null
+            lomoImageDecoderCoroutineContext(Dispatchers.IO) shouldNotBe null
         }
 
         test("lomo image fetcher coroutine context is non-null") {
-            lomoImageFetcherCoroutineContext shouldNotBe null
+            lomoImageFetcherCoroutineContext(Dispatchers.IO) shouldNotBe null
         }
     }
 }

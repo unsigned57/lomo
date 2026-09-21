@@ -2,7 +2,8 @@ package com.lomo.data.repository
 
 import android.content.Context
 import androidx.documentfile.provider.DocumentFile
-import kotlinx.coroutines.Dispatchers
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.io.OutputStream
@@ -13,8 +14,9 @@ internal suspend fun writeWorkspaceSafFileFromStream(
     rootUriString: String,
     filename: String,
     source: suspend (OutputStream) -> Unit,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) {
-    withContext(Dispatchers.IO) {
+    withContext(dispatcherProvider.io) {
         val root = requireNotNull(resolveWorkspaceSafRoot(context, rootUriString)) { "Cannot access SAF media root" }
         val tempFilename = temporaryWorkspaceSafFilename(filename)
         val temp =

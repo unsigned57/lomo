@@ -15,9 +15,9 @@ import com.lomo.app.R
 import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.ThemeMode
+import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.domain.usecase.PersistShareImageUseCase
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
@@ -35,6 +35,7 @@ class ShareUtils(
     private val persistShareImageUseCase: PersistShareImageUseCase,
     private val shareCardBitmapRenderer: ShareCardBitmapRenderer,
     private val appConfigStateProvider: AppConfigStateProvider,
+    private val dispatcherProvider: DispatcherProvider,
 ) {
         private data class ShareImageConfig(
             val showTime: Boolean,
@@ -83,24 +84,23 @@ class ShareUtils(
                                 bodyTypeface = bodyTypeface,
                             ),
                     )
-                withContext(Dispatchers.Main.immediate) {
+                withContext(dispatcherProvider.main) {
                     val sendIntent =
                         Intent(Intent.ACTION_SEND).apply {
                             type = "image/png"
                             putExtra(Intent.EXTRA_STREAM, imageUri)
-                            title?.let { putExtra(Intent.EXTRA_TITLE, it) }
+                            if (!title.isNullOrEmpty()) putExtra(Intent.EXTRA_TITLE, title)
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             clipData = ClipData.newUri(context.contentResolver, "memo_image", imageUri)
                             if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
                     context.startActivity(Intent.createChooser(sendIntent, null))
                 }
+            } catch (throwable: CancellationException) {
+                throw throwable
             } catch (throwable: Exception) {
-                if (throwable is CancellationException) {
-                    throw throwable
-                }
                 Timber.e(throwable, "shareMemoAsImage failed, fallback to text share")
-                withContext(Dispatchers.Main.immediate) {
+                withContext(dispatcherProvider.main) {
                     shareMemoText(context, content, title)
                 }
             }
@@ -115,7 +115,7 @@ class ShareUtils(
                 Intent(Intent.ACTION_SEND).apply {
                     putExtra(Intent.EXTRA_TEXT, content)
                     type = "text/plain"
-                    title?.let { putExtra(Intent.EXTRA_TITLE, it) }
+                    if (!title.isNullOrEmpty()) putExtra(Intent.EXTRA_TITLE, title)
                     if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             context.startActivity(Intent.createChooser(sendIntent, null))
@@ -156,26 +156,29 @@ class ShareUtils(
             config: ShareImageConfig,
         ): android.net.Uri {
             val bitmap =
-                withContext(Dispatchers.Default) {
+                withContext(dispatcherProvider.default) {
                     shareCardBitmapRenderer.render(
                         context = context,
                         content = content,
                         title = title,
-                        showTime = config.showTime,
-                        showSignature = config.showSignature,
-                        signatureText = config.signatureText,
-                        timestampMillis = config.timestampMillis,
-                        tags = config.tags,
-                        colorSource = config.colorSource,
-                        themeMode = config.themeMode,
-                        resolvedImagePaths = config.resolvedImagePaths,
-                        geoLocation = config.geoLocation,
-                        bodyTypeface = config.bodyTypeface,
+                        options =
+                            ShareCardRenderOptions(
+                                showTime = config.showTime,
+                                showSignature = config.showSignature,
+                                signatureText = config.signatureText,
+                                timestampMillis = config.timestampMillis,
+                                tags = config.tags,
+                                colorSource = config.colorSource,
+                                themeMode = config.themeMode,
+                                resolvedImagePaths = config.resolvedImagePaths,
+                                geoLocation = config.geoLocation,
+                                bodyTypeface = config.bodyTypeface,
+                            ),
                     )
                 }
             val filePath =
                 try {
-                    withContext(Dispatchers.IO) {
+                    withContext(dispatcherProvider.io) {
                         persistShareImageUseCase(
                             fileNamePrefix = "memo_share",
                         ) { output ->
@@ -193,7 +196,7 @@ class ShareUtils(
                 }
 
             val file = File(filePath)
-            return withContext(Dispatchers.Default) {
+            return withContext(dispatcherProvider.default) {
                 FileProvider.getUriForFile(
                     context,
                     "${context.packageName}.fileprovider",
