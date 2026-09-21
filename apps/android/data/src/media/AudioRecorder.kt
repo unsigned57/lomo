@@ -7,8 +7,9 @@ import android.os.ParcelFileDescriptor
 import androidx.core.net.toUri
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.VoiceRecordingRepository
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 
@@ -17,6 +18,7 @@ import kotlin.math.log10
 
 class AudioRecorder(
     private val context: Context,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : VoiceRecordingRepository {
         // behavior-contract: stateful-var-ok: this is process-owned resource/lease/job handle, not a query cache
         private var recorder: MediaRecorder? = null
@@ -26,7 +28,7 @@ class AudioRecorder(
         private var isRecording = false
 
         override suspend fun start(outputLocation: StorageLocation) {
-            withContext(Dispatchers.IO) {
+            withContext(dispatcherProvider.io) {
                 if (isRecording) {
                     stop()
                 }
@@ -62,7 +64,7 @@ class AudioRecorder(
         }
 
         override suspend fun stop() {
-            withContext(Dispatchers.IO) {
+            withContext(dispatcherProvider.io) {
                 if (!isRecording) return@withContext
                 val activeRecorder = requireActiveRecorder()
                 try {

@@ -23,6 +23,53 @@ data class MediaPromotePlan(
     val finalRelativePath: String,
 )
 
+/** Who currently holds staged bytes; mirrors the Rust stage-ledger owner vocabulary. */
+enum class MediaStageOwnerKind {
+    Draft,
+    PendingOperation,
+    IncomingTransfer,
+    CommittedReference,
+}
+
+data class MediaStageLease(
+    val artifactId: String,
+    val ownerKind: MediaStageOwnerKind,
+    val ownerId: String,
+)
+
+/**
+ * Durable staged-artifact record. Kotlin holds no authoritative copy; the Rust ledger owns it and
+ * this is a snapshot returned across the boundary.
+ */
+data class MediaStageRecord(
+    val artifactId: String,
+    val digest: String,
+    val size: Long,
+    val mime: String,
+    val stagingPath: String,
+    val humanNameHint: String,
+    val suggestedFinalRelativePath: String,
+    val leases: List<MediaStageLease>,
+    /** False when the staged bytes vanished; the draft must surface a recoverable failure. */
+    val stagedBytesPresent: Boolean,
+) {
+    fun toStagedFacts(): MediaStagedFacts =
+        MediaStagedFacts(
+            digest = digest,
+            size = size,
+            mime = mime,
+            stagingPath = stagingPath,
+            humanNameHint = humanNameHint,
+            suggestedFinalRelativePath = suggestedFinalRelativePath,
+        )
+}
+
+data class MediaStageRelease(
+    val artifactId: String,
+    val remainingLeases: Long,
+    val bytesDeleted: Boolean,
+)
+
 data class MediaPromoteResult(
     val operationId: String,
     val digest: String,
@@ -74,6 +121,36 @@ interface MediaPort {
         sourcePath: String,
         humanNameHint: String,
     ): MediaStagedFacts
+
+    /**
+     * Records a freshly staged artifact in the durable stage ledger and acquires one owner lease.
+     * Returns the record with the collision-free destination the owner resolved.
+     */
+    fun recordStageLease(
+        workspaceRoot: String?,
+        staged: MediaStagedFacts,
+        ownerKind: MediaStageOwnerKind,
+        ownerId: String,
+    ): MediaStageRecord
+
+    fun stageRecordsForOwner(
+        mediaRoot: String,
+        ownerKind: MediaStageOwnerKind,
+        ownerId: String,
+    ): List<MediaStageRecord>
+
+    /** Hands one holder's claim to another; never deletes bytes. */
+    fun transferStageLease(
+        mediaRoot: String,
+        from: MediaStageLease,
+        to: MediaStageLease,
+    ): MediaStageRelease
+
+    /** Releases one lease; staged bytes are deleted only when no lease remains. */
+    fun releaseStageLease(
+        mediaRoot: String,
+        lease: MediaStageLease,
+    ): MediaStageRelease
 
     fun allocateRecordingTarget(
         mediaRoot: String,

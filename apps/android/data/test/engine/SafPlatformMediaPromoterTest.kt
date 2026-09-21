@@ -45,6 +45,13 @@ package com.lomo.data.engine
  *
  * Excludes:
  * - Direct workspace Rust promotion and SQLite projection indexing.
+ * Test Change Justification:
+ * - Reason category: domain contract change (nullable typed digest).
+ * - Old behavior/assertion being replaced: an empty string stood in for a missing digest.
+ * - Why old assertion is no longer correct: digest is nullable typed content; "" was an
+ *   ambiguous sentinel.
+ * - Coverage preserved by: the same promote/no-bytes scenarios.
+ * - Why this is not fitting the test to the implementation: null-vs-empty is the declared model.
  */
 
 import com.lomo.data.testing.DataFunSpec
@@ -371,7 +378,7 @@ private class FakePromoterDocumentsGateway : PlatformDocumentsGateway {
             length = (bytes?.size ?: 0).toULong(),
             lastModifiedEpochMillis = 1000L,
             documentId = "doc-$relPath",
-            digest = bytes?.sha256Hex() ?: "",
+            digest = bytes?.sha256Hex(),
         )
     }
 
@@ -390,7 +397,7 @@ private class FakePromoterDocumentsGateway : PlatformDocumentsGateway {
             length = 0uL,
             lastModifiedEpochMillis = 1000L,
             documentId = "dir-$path",
-            digest = "",
+            digest = null,
         )
 
     override fun openRead(treeUri: String, path: String): PlatformReadHandle {

@@ -7,10 +7,10 @@ import android.os.Build
 import android.os.IBinder
 import com.lomo.domain.repository.RecordingSession
 import com.lomo.domain.model.RecordingSessionState
+import com.lomo.domain.usecase.DispatcherProvider
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -21,8 +21,10 @@ class RecordingForegroundService : Service(), KoinComponent {
 
     private val recordingNotifier: RecordingNotifier by inject()
 
+    private val dispatcherProvider: DispatcherProvider by inject()
+
     // behavior-contract: unmanaged-scope-ok: service-owned short job cancelled in onDestroy
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val serviceScope = CoroutineScope(SupervisorJob() + dispatcherProvider.main)
     private var stateCollector: Job? = null
 
     override fun onCreate() {

@@ -37,6 +37,13 @@ import java.io.IOException
  *
  * Excludes:
  * - Android document picker permissions, real DocumentsProvider duplicate-name behavior, direct filesystem replacement, and archive parsing.
+ * Test Change Justification:
+ * - Reason category: production signature refactor (named parameter).
+ * - Old behavior/assertion being replaced: trailing-lambda byte source argument.
+ * - Why old assertion is no longer correct: the API names the parameter `source`; the call site
+ *   was updated accordingly.
+ * - Coverage preserved by: the identical stream-write scenario.
+ * - Why this is not fitting the test to the implementation: the observable write path is the same.
  */
 class WorkspaceMediaSafStreamAccessTest : DataFunSpec() {
     init {
@@ -51,9 +58,10 @@ class WorkspaceMediaSafStreamAccessTest : DataFunSpec() {
                                 category = WorkspaceMediaCategory.IMAGE,
                                 rootUriString = SAF_ROOT_URI,
                                 filename = "cover.png",
-                            ) { output ->
-                                output.write("incoming".toByteArray())
-                            }
+                                source = { output ->
+                                    output.write("incoming".toByteArray())
+                                },
+                            )
                         }
 
                     error.message shouldContain "Cannot safely replace existing SAF media file"

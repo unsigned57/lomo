@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.source.isContentStorageUri
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.io.OutputStream
@@ -14,37 +14,38 @@ internal suspend fun listWorkspaceSafFiles(
     context: Context,
     category: WorkspaceMediaCategory,
     rootUriString: String,
+    dispatcher: CoroutineDispatcher,
 ): List<WorkspaceMediaDescriptor> =
-    withContext(Dispatchers.IO) {
-        resolveWorkspaceSafRoot(context, rootUriString)
-            ?.listFiles()
-            ?.asSequence()
-            ?.filter { file -> file.isFile && workspaceMatchesSafCategory(category, file) }
-            ?.sortedBy { it.name.orEmpty() }
-            ?.mapNotNull { file ->
+    withContext(dispatcher) {
+        val root = resolveWorkspaceSafRoot(context, rootUriString) ?: return@withContext emptyList()
+        root.listFiles()
+            .asSequence()
+            .filter { file -> file.isFile && workspaceMatchesSafCategory(category, file) }
+            .sortedBy { it.name.orEmpty() }
+            .mapNotNull { file ->
                 val filename = file.name ?: return@mapNotNull null
                 WorkspaceMediaDescriptor(
                     filename = filename,
                     sizeBytes = file.length(),
                 )
-            }?.toList()
-            ?: emptyList()
+            }
+            .toList()
     }
 
 internal suspend fun listWorkspaceSafFilenames(
     context: Context,
     category: WorkspaceMediaCategory,
     rootUriString: String,
+    dispatcher: CoroutineDispatcher,
 ): List<String> =
-    withContext(Dispatchers.IO) {
-        resolveWorkspaceSafRoot(context, rootUriString)
-            ?.listFiles()
-            ?.asSequence()
-            ?.filter { file -> file.isFile && workspaceMatchesSafCategory(category, file) }
-            ?.mapNotNull(DocumentFile::getName)
-            ?.sorted()
-            ?.toList()
-            ?: emptyList()
+    withContext(dispatcher) {
+        val root = resolveWorkspaceSafRoot(context, rootUriString) ?: return@withContext emptyList()
+        root.listFiles()
+            .asSequence()
+            .filter { file -> file.isFile && workspaceMatchesSafCategory(category, file) }
+            .mapNotNull(DocumentFile::getName)
+            .sorted()
+            .toList()
     }
 
 internal suspend fun readWorkspaceSafFileToStream(
@@ -53,8 +54,9 @@ internal suspend fun readWorkspaceSafFileToStream(
     rootUriString: String,
     filename: String,
     destination: OutputStream,
+    dispatcher: CoroutineDispatcher,
 ): Boolean =
-    withContext(Dispatchers.IO) {
+    withContext(dispatcher) {
         val target = resolveWorkspaceSafRoot(context, rootUriString)
             ?.findFile(filename)
             ?.takeIf { file -> file.isFile && file.name == filename && workspaceMatchesSafCategory(category, file) }

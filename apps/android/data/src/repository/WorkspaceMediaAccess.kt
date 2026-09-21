@@ -4,6 +4,8 @@ import android.content.Context
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
 import com.lomo.domain.repository.WorkspaceMutationLease
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.flow.first
 import java.io.File
 import java.io.OutputStream
@@ -43,24 +45,25 @@ class DefaultWorkspaceMediaAccess(
     private val context: Context,
     private val workspaceConfigSource: WorkspaceConfigSource,
     private val writeLease: WorkspaceMutationLease,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : WorkspaceMediaAccess {
         override suspend fun listFiles(category: WorkspaceMediaCategory): List<WorkspaceMediaDescriptor> =
             workspaceMediaRoot(workspaceConfigSource, category)?.let { root ->
                 if (isContentUriRoot(root)) {
-                    listWorkspaceSafFiles(context, category, root)
+                    listWorkspaceSafFiles(context, category, root, dispatcherProvider.io)
                 } else {
-                    listWorkspaceDirectFiles(category, File(root))
+                    listWorkspaceDirectFiles(category, File(root), dispatcherProvider.io)
                 }
-            } ?: emptyList()
+            }.orEmpty()
 
         override suspend fun listFilenames(category: WorkspaceMediaCategory): List<String> =
             workspaceMediaRoot(workspaceConfigSource, category)?.let { root ->
                 if (isContentUriRoot(root)) {
-                    listWorkspaceSafFilenames(context, category, root)
+                    listWorkspaceSafFilenames(context, category, root, dispatcherProvider.io)
                 } else {
-                    listWorkspaceDirectFilenames(category, File(root))
+                    listWorkspaceDirectFilenames(category, File(root), dispatcherProvider.io)
                 }
-            } ?: emptyList()
+            }.orEmpty()
 
         override suspend fun readFileToStream(
             category: WorkspaceMediaCategory,
@@ -70,11 +73,24 @@ class DefaultWorkspaceMediaAccess(
             workspaceMediaRoot(workspaceConfigSource, category)?.let { root ->
                 val safeFilename = requireWorkspaceMediaFilename(filename)
                 if (isContentUriRoot(root)) {
-                    readWorkspaceSafFileToStream(context, category, root, safeFilename, destination)
+                    readWorkspaceSafFileToStream(
+                        context,
+                        category,
+                        root,
+                        safeFilename,
+                        destination,
+                        dispatcherProvider.io,
+                    )
                 } else {
-                    readWorkspaceDirectFileToStream(category, File(root), safeFilename, destination)
+                    readWorkspaceDirectFileToStream(
+                        category,
+                        File(root),
+                        safeFilename,
+                        destination,
+                        dispatcherProvider.io,
+                    )
                 }
-            } ?: false
+            } == true
 
         override suspend fun writeFileFromStream(
             category: WorkspaceMediaCategory,
@@ -87,9 +103,16 @@ class DefaultWorkspaceMediaAccess(
                     "No configured workspace root for ${category.name.lowercase(java.util.Locale.ROOT)} media restore"
                 }
                 if (isContentUriRoot(root)) {
-                    writeWorkspaceSafFileFromStream(context, category, root, safeFilename, source)
+                    writeWorkspaceSafFileFromStream(
+                        context,
+                        category,
+                        root,
+                        safeFilename,
+                        source,
+                        dispatcherProvider,
+                    )
                 } else {
-                    writeWorkspaceDirectFileFromStream(File(root), safeFilename, source)
+                    writeWorkspaceDirectFileFromStream(File(root), safeFilename, source, dispatcherProvider.io)
                 }
             }
         }

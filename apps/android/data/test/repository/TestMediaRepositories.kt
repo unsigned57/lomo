@@ -34,10 +34,15 @@ import java.io.OutputStream
  * - production media import/delete implementation and Android storage backends.
  */
 internal object ThrowingMediaRepository : MediaRepository {
-    override suspend fun importImage(source: StorageLocation): StorageLocation =
-        unexpected("importImage")
+    override suspend fun importImage(
+        source: StorageLocation,
+        draftId: com.lomo.domain.model.DraftId,
+    ): StorageLocation = unexpected("importImage")
 
-    override suspend fun removeImage(entryId: MediaEntryId) {
+    override suspend fun removeImage(
+        entryId: MediaEntryId,
+        draftId: com.lomo.domain.model.DraftId,
+    ) {
         unexpected("removeImage")
     }
 
@@ -57,9 +62,14 @@ internal object ThrowingMediaRepository : MediaRepository {
     override suspend fun finalizeVoiceCapture(
         recordingLocation: StorageLocation,
         humanNameHint: String,
+        draftId: com.lomo.domain.model.DraftId,
     ): StorageLocation = unexpected("finalizeVoiceCapture")
 
-    override suspend fun removeVoiceCapture(entryId: MediaEntryId) {
+    override suspend fun removeVoiceCapture(
+        entryId: MediaEntryId,
+        captureLocation: StorageLocation,
+        draftId: com.lomo.domain.model.DraftId,
+    ) {
         unexpected("removeVoiceCapture")
     }
 
@@ -104,9 +114,15 @@ internal class RecordingMediaRepository : MediaRepository {
     var orphanSweepCallCount: Int = 0
         private set
 
-    override suspend fun importImage(source: StorageLocation): StorageLocation = source
+    override suspend fun importImage(
+        source: StorageLocation,
+        draftId: com.lomo.domain.model.DraftId,
+    ): StorageLocation = source
 
-    override suspend fun removeImage(entryId: MediaEntryId) {
+    override suspend fun removeImage(
+        entryId: MediaEntryId,
+        draftId: com.lomo.domain.model.DraftId,
+    ) {
         locations.value = locations.value - entryId
     }
 
@@ -124,13 +140,18 @@ internal class RecordingMediaRepository : MediaRepository {
     override suspend fun finalizeVoiceCapture(
         recordingLocation: StorageLocation,
         humanNameHint: String,
+        draftId: com.lomo.domain.model.DraftId,
     ): StorageLocation {
         finalizeCallCount += 1
         val name = humanNameHint.ifBlank { "voice.m4a" }
         return StorageLocation("media/$name")
     }
 
-    override suspend fun removeVoiceCapture(entryId: MediaEntryId) = Unit
+    override suspend fun removeVoiceCapture(
+        entryId: MediaEntryId,
+        captureLocation: StorageLocation,
+        draftId: com.lomo.domain.model.DraftId,
+    ) = Unit
 
     override suspend fun runOrphanSweepAtOperationBoundary() {
         orphanSweepCallCount += 1
@@ -139,3 +160,68 @@ internal class RecordingMediaRepository : MediaRepository {
 
 private fun unexpected(method: String): Nothing =
     error("Unexpected MediaRepository.$method call in this memo lifecycle test")
+
+/**
+ * MediaPort with no staged artifacts. Stage-lease queries return nothing and releases are no-ops,
+ * which is the correct empty-ledger state for memo lifecycle tests that never import media.
+ */
+internal class NoOpMediaPort : com.lomo.data.engine.media.MediaPort {
+    override fun stageMedia(
+        mediaRoot: String,
+        sourceKind: com.lomo.data.engine.media.MediaSourceKind,
+        sourcePath: String,
+        humanNameHint: String,
+    ): com.lomo.data.engine.media.MediaStagedFacts = error("stageMedia is not expected")
+
+    override fun recordStageLease(
+        workspaceRoot: String?,
+        staged: com.lomo.data.engine.media.MediaStagedFacts,
+        ownerKind: com.lomo.data.engine.media.MediaStageOwnerKind,
+        ownerId: String,
+    ): com.lomo.data.engine.media.MediaStageRecord = error("recordStageLease is not expected")
+
+    override fun stageRecordsForOwner(
+        mediaRoot: String,
+        ownerKind: com.lomo.data.engine.media.MediaStageOwnerKind,
+        ownerId: String,
+    ): List<com.lomo.data.engine.media.MediaStageRecord> = emptyList()
+
+    override fun transferStageLease(
+        mediaRoot: String,
+        from: com.lomo.data.engine.media.MediaStageLease,
+        to: com.lomo.data.engine.media.MediaStageLease,
+    ): com.lomo.data.engine.media.MediaStageRelease = error("transferStageLease is not expected")
+
+    override fun releaseStageLease(
+        mediaRoot: String,
+        lease: com.lomo.data.engine.media.MediaStageLease,
+    ): com.lomo.data.engine.media.MediaStageRelease = error("releaseStageLease is not expected")
+
+    override fun allocateRecordingTarget(
+        mediaRoot: String,
+        extension: String,
+    ): String = error("allocateRecordingTarget is not expected")
+
+    override fun finalizeRecording(
+        mediaRoot: String,
+        recordingPath: String,
+        humanNameHint: String,
+    ): com.lomo.data.engine.media.MediaStagedFacts = error("finalizeRecording is not expected")
+
+    override fun promoteMedia(
+        workspaceRoot: String,
+        plan: com.lomo.data.engine.media.MediaPromotePlan,
+    ): com.lomo.data.engine.media.MediaPromoteResult = error("promoteMedia is not expected")
+
+    override fun queryMediaManifest(workspaceRoot: String): com.lomo.data.engine.media.MediaManifest =
+        error("queryMediaManifest is not expected")
+
+    override fun mediaOrphanSweep(
+        mediaRoot: String,
+        committed: List<com.lomo.data.engine.media.MediaCommittedEntry>,
+        refs: List<com.lomo.data.engine.media.MediaAttachmentRef>,
+        existingTrash: List<com.lomo.data.engine.media.MediaTrashEntry>,
+        nowMs: Long?,
+        recoveryWindowMs: Long,
+    ): com.lomo.data.engine.media.MediaOrphanSweepResult = error("mediaOrphanSweep is not expected")
+}

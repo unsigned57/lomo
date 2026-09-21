@@ -13,8 +13,16 @@ package com.lomo.data.repository
  * Scenarios:
  * - Given store pages with memos, when bounded reads / getMemoById / getMemoCount run, then
  *   domain memos and counts are observed.
+ * - Given recent-list rows, when getRecentMemos runs, then each row maps bodyPreview without
+ *   reading a memo body.
+ * - Given identities across the default sort, when rankInDefaultMainList runs, then it returns
+ *   itemsBefore of the identity page and null when the identity is missing or filtered out.
+ * - Given a live main-list paging source, when reanchorMainListToIdentity runs, then that source
+ *   is invalidated so the next refresh starts at the identity.
  * - Given writable authority, when saveMemo succeeds, then Create is applied, invalidation bumps,
  *   reminder sync runs, and returned Memo matches getMemo.
+ * - Given a mid-flight pending create publication, when saveMemo returns the durable commit, then
+ *   paging invalidates once and the publication clock advances to the confirming revision.
  * - Given writable authority, when update/delete/pin run, then correct command kinds are applied.
  * - Given a selected historical revision, when restore runs, then its body rather than its ID is
  *   submitted as the replacement content.
@@ -37,6 +45,8 @@ package com.lomo.data.repository
  *   closed before asking Rust for a memo body.
  * - Given a manual projection refresh, when SAF discovery scans the workspace, then it does not
  *   hold the user-write lease; Rust rejects a stale publish if a concurrent write advances revision.
+ * - Given a matching workspace fingerprint, when refreshMemos runs, then startRebuild still runs
+ *   and the syncing flag flips, but Full invalidation is not published.
  * - Given a trashed memo, when restoreMemo runs, then Restore command is applied, invalidation
  *   bumps, and reminders are synced.
  * - Given a trashed memo with reminders, when deletePermanently runs, then PermanentDelete command
@@ -50,6 +60,8 @@ package com.lomo.data.repository
  * - RED: production StoreMemo* repositories had zero host executions (coverage gaming C1).
  * - RED on 2026-08-25: manual refresh entered the workspace write lease before the full SAF scan,
  *   so a local rebuild blocked memo submission until every document had been read.
+ * - RED on 2026-09-12: refreshMemos published Full invalidation even when startRebuild reported
+ *   rewritten = false.
  *
  * Excludes:
  * - Real BoltFFI and Room dual-stack (deleted).
@@ -65,6 +77,10 @@ package com.lomo.data.repository
  *   command-kind outcomes, not media digest algorithms.
  */
 
+import com.lomo.domain.model.MemoCreateAttempt
+import com.lomo.domain.model.MemoUpdateAttempt
+import com.lomo.domain.model.MemoOperationId
+import com.lomo.domain.model.EditableMemoSnapshot
 import app.cash.turbine.test
 import androidx.paging.PagingSource
 import com.lomo.data.engine.SessionNativeBridge
@@ -85,13 +101,14 @@ import com.lomo.data.engine.store.StoreSortDirection
 import com.lomo.data.engine.store.StoreHistoryAttachmentRef
 import com.lomo.data.engine.store.StorePageCursor
 import com.lomo.data.engine.store.StorePort
+import com.lomo.data.engine.store.PublishingStorePort
 import com.lomo.data.engine.store.StoreRebuildResult
 import com.lomo.data.engine.store.StoreReminderPlan
-import com.lomo.data.engine.store.StoreReminderQuery
 import com.lomo.data.testing.fakes.FakeEngineReadinessRepository
 import com.lomo.data.testing.fakes.FakeReminderCoordinator
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoContentKind
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.domain.model.MemoRevisionOrigin
@@ -147,10 +164,12 @@ private class RecordingStorePort : StorePort {
     var customQueryCount: Long? = null
     var statisticsCallCount = 0
     var getMemoCallCount = 0
+    var emitPendingCreatePublication = false
     var batchDeleteCallCount = 0
     var lastBatchDeleteTargets: List<StoreMemoDeleteTarget> = emptyList()
     var sidebarQueryCount = 0
     var rebuildCount = 0
+    var rebuildRewrites = true
     private val memos = linkedMapOf<String, StoreMemoSnapshot>()
     private var nextId = 1
     private var coreRevision = 0L
@@ -199,7 +218,16 @@ private class RecordingStorePort : StorePort {
                     val boundary = query.boundary ?: return@filter true
                     query.summaryComparator().compare(summary, boundarySummary(boundary)) >= 0
                 }
-        val start = if (cursor == null) 0 else all.indexOfFirst { it.memoId == cursor.encoded }.let { if (it < 0) 0 else it + 1 }
+        val identityIndex = startMemoId?.let { identity -> all.indexOfFirst { it.memoId == identity } }
+        val start =
+            when {
+                identityIndex != null && identityIndex >= 0 -> identityIndex
+                cursor == null -> 0
+                else ->
+                    all.indexOfFirst { it.memoId == cursor.encoded }.let { index ->
+                        if (index < 0) 0 else index + 1
+                    }
+            }
         val slice = all.drop(start).take(pageSize.coerceAtLeast(1))
         val next =
             if (start + slice.size < all.size) {
@@ -212,6 +240,8 @@ private class RecordingStorePort : StorePort {
             nextCursor = next,
             highWaterRevision = all.size.toLong(),
             queryFingerprint = "fp",
+            itemsBefore = start.toLong(),
+            itemsAfter = (all.size - start - slice.size).coerceAtLeast(0).toLong(),
         )
     }
 
@@ -296,8 +326,8 @@ private class RecordingStorePort : StorePort {
         return com.lomo.data.engine.store.StoreMemoHistoryPage(emptyList(), null)
     }
 
-    override fun queryReminderPlan(query: StoreReminderQuery): StoreReminderPlan =
-        StoreReminderPlan(emptyList(), query.workspaceGeneration.toString())
+    override fun queryReminderPlan(nowUtcMs: Long): StoreReminderPlan =
+        StoreReminderPlan(emptyList(), 0, "gen-test")
 
     /** When set, the store refuses the next command exactly as a converted engine rejection does. */
     var rejection: EngineCommandFailureException? = null
@@ -327,7 +357,13 @@ private class RecordingStorePort : StorePort {
                         contentRevision = 1L,
                     )
                 memos[id] = StoreMemoSnapshot(summary = summary, body = command.content.orEmpty())
-                commitOf(command, memos.getValue(id))
+                val pending = commitOf(command, memos.getValue(id))
+                if (emitPendingCreatePublication) {
+                    onPublication(pending)
+                    commitOf(command, memos.getValue(id))
+                } else {
+                    pending
+                }
             }
             StoreMemoCommandKind.Update -> {
                 val existing = memos[command.memoId] ?: error("missing")
@@ -488,8 +524,10 @@ private class RecordingStorePort : StorePort {
 
     override fun startRebuild(batchSize: Int): StoreRebuildResult {
         rebuildCount++
-        coreRevision += 1L
-        eventSequence += 1L
+        if (rebuildRewrites) {
+            coreRevision += 1L
+            eventSequence += 1L
+        }
         val digest = "digest-${memos.size}"
         return StoreRebuildResult(
             memosIndexed = memos.size.toLong(),
@@ -499,8 +537,22 @@ private class RecordingStorePort : StorePort {
             storeDigest = digest,
             corruptLomoIsolated = 0L,
             highWaterRevision = coreRevision,
+            rewritten = rebuildRewrites,
         )
     }
+
+    override fun snoozeReminder(
+        opaqueId: String,
+        snoozeDurationMs: Long,
+    ) = error("reminder snooze is not expected")
+
+    override fun clearReminderSnooze(opaqueId: String) =
+        error("reminder clear-snooze is not expected")
+
+    override fun reminderSnoozeRecoveryPending(): Boolean =
+        error("reminder snooze recovery query is not expected")
+
+    override fun recoverReminderSnooze() = error("reminder snooze recovery is not expected")
 
     private fun commitOf(
         command: StoreMemoCommand,
@@ -763,6 +815,62 @@ class StoreMemoRepositoriesTest : FunSpec({
         }
     }
 
+    test("getRecentMemos maps list-row previews without reading memo bodies") {
+        runTest {
+            val port = RecordingStorePort()
+            val longBody = "a".repeat(200)
+            port.seed(seededSnapshot("recent", longBody))
+            val repo = StoreMemoQueryRepository(port, StoreInvalidationBus(), FakeEngineReadinessRepository())
+
+            val recent = repo.getRecentMemos(1)
+
+            recent.single().id shouldBe "recent"
+            recent.single().content shouldBe longBody.take(80)
+            recent.single().contentKind shouldBe MemoContentKind.Preview
+            port.getMemoCallCount shouldBe 0
+        }
+    }
+
+    test("rank of a default-list identity is itemsBefore of that identity page") {
+        runTest {
+            val port = RecordingStorePort()
+            port.seed(seededSnapshot("old", "old", createdAtMs = 1_000L))
+            port.seed(seededSnapshot("mid", "mid", createdAtMs = 2_000L))
+            port.seed(seededSnapshot("new", "new", createdAtMs = 3_000L))
+            val repo = StoreMemoQueryRepository(port, StoreInvalidationBus(), FakeEngineReadinessRepository())
+
+            repo.rankInDefaultMainList("mid") shouldBe 1
+            repo.rankInDefaultMainList("new") shouldBe 0
+            repo.rankInDefaultMainList("old") shouldBe 2
+        }
+    }
+
+    test("missing identity rank is null rather than the head row") {
+        runTest {
+            val port = RecordingStorePort()
+            port.seed(seededSnapshot("head", "head", createdAtMs = 3_000L))
+            port.seed(seededSnapshot("tail", "tail", createdAtMs = 1_000L))
+            val repo = StoreMemoQueryRepository(port, StoreInvalidationBus(), FakeEngineReadinessRepository())
+
+            repo.rankInDefaultMainList("missing") shouldBe null
+        }
+    }
+
+    test("reanchor invalidates the live main-list source so refresh starts at the identity") {
+        runTest {
+            val port = RecordingStorePort()
+            port.seed(seededSnapshot("head", "head", createdAtMs = 3_000L))
+            port.seed(seededSnapshot("deep", "deep", createdAtMs = 1_000L))
+            val repo = StoreMemoQueryRepository(port, StoreInvalidationBus(), FakeEngineReadinessRepository())
+            val source = repo.getMainListPagingSource(MemoQuerySpec())
+            source.invalid shouldBe false
+
+            repo.reanchorMainListToIdentity("deep")
+
+            source.invalid shouldBe true
+        }
+    }
+
     test("getMemoCount queries queryCount with default query on ready engine and enforces Int range") {
         runTest {
             val port = RecordingStorePort()
@@ -782,7 +890,7 @@ class StoreMemoRepositoriesTest : FunSpec({
             port.queryCountCallCount shouldBe 1
 
             // When count overflows Int, fails with illegal argument
-            readiness.publish(EngineReadiness.Ready(coreRevision = 0uL, eventSequence = 0uL))
+            readiness.publish(EngineReadiness.Ready)
             port.customQueryCount = Int.MAX_VALUE.toLong() + 1L
             val overflowError = shouldThrow<IllegalArgumentException> { repo.getMemoCount() }
             overflowError.message shouldBe "memo_count is outside the Kotlin count range"
@@ -855,34 +963,87 @@ class StoreMemoRepositoriesTest : FunSpec({
             val query = StoreMemoQueryRepository(port, invalidation, FakeEngineReadinessRepository())
             val mutation =
                 StoreMemoMutationRepository(
-                    port = port,
+                    port = observingPort(port, invalidation),
                     queryRepository = query,
                     reminderScheduler = reminders,
                     writeLease = alwaysWritableWorkspaceMutationLease(),
                     invalidation = invalidation,
                     diagnostics = RingBufferEngineDiagnosticsRecorder(),
-                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(),
+                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(NoOpMediaPort(), { "/media" }),
                 )
 
-            val created = mutation.saveMemo(content = "new memo", timestamp = 1L, geoLocation = null)
+            val created = mutation.saveMemo(MemoCreateAttempt(MemoOperationId("create-test"), com.lomo.domain.model.DraftId("draft-test"), "new memo", 1L))
             created.content shouldBe "new memo"
             port.commands.last().kind shouldBe StoreMemoCommandKind.Create
             reminders.syncForMemoCalls.map { it.first } shouldContainExactly listOf(created.id)
 
-            mutation.updateMemo(created, "edited")
+            mutation.updateMemo(MemoUpdateAttempt(MemoOperationId("update-test"), com.lomo.domain.model.DraftId("draft-test"), EditableMemoSnapshot.fromFullSnapshot(created), "edited"))
             port.commands.last().kind shouldBe StoreMemoCommandKind.Update
             query.getMemoById(created.id)?.content shouldBe "edited"
 
-            mutation.setMemoPinned(created.id, pinned = true)
+            mutation.setMemoPinned(created.id, pinned = true, operationId = MemoOperationId("pin-1"))
             port.commands.last().kind shouldBe StoreMemoCommandKind.Pin
             query.getMemoById(created.id)?.isPinned shouldBe true
 
-            mutation.deleteMemo(query.getMemoById(created.id).shouldNotBeNull())
+            mutation.deleteMemo(
+                query.getMemoById(created.id).shouldNotBeNull(),
+                MemoOperationId("delete-1"),
+            )
             port.commands.last().kind shouldBe StoreMemoCommandKind.Delete
             reminders.cancelForMemoCalls shouldContainExactly listOf(created.id to emptySet())
 
             mutation.refreshMemos()
             port.rebuildCount shouldBe 1
+        }
+    }
+
+    test("saveMemo without a mid-flight publication invalidates paging once") {
+        runTest {
+            val port = RecordingStorePort()
+            val invalidation = StoreInvalidationBus()
+            val query = StoreMemoQueryRepository(port, invalidation, FakeEngineReadinessRepository())
+            val mutation =
+                StoreMemoMutationRepository(
+                    port = observingPort(port, invalidation),
+                    queryRepository = query,
+                    reminderScheduler = FakeReminderCoordinator(),
+                    writeLease = alwaysWritableWorkspaceMutationLease(),
+                    invalidation = invalidation,
+                    diagnostics = RingBufferEngineDiagnosticsRecorder(),
+                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(NoOpMediaPort(), { "/media" }),
+                )
+            val paging = query.getMainListPagingSource(MemoQuerySpec.fromFilter("", MemoListFilter()))
+
+            mutation.saveMemo(MemoCreateAttempt(MemoOperationId("create-test"), com.lomo.domain.model.DraftId("draft-test"), "new memo", 1L))
+
+            paging.invalid shouldBe true
+            invalidation.publications.value.coreRevision shouldBe 1
+        }
+    }
+
+    test("saveMemo confirming a pending create advances the clock without a second paging invalidate") {
+        runTest {
+            val port = RecordingStorePort().apply { emitPendingCreatePublication = true }
+            val invalidation = StoreInvalidationBus()
+            val query = StoreMemoQueryRepository(port, invalidation, FakeEngineReadinessRepository())
+            val mutation =
+                StoreMemoMutationRepository(
+                    port = observingPort(port, invalidation),
+                    queryRepository = query,
+                    reminderScheduler = FakeReminderCoordinator(),
+                    writeLease = alwaysWritableWorkspaceMutationLease(),
+                    invalidation = invalidation,
+                    diagnostics = RingBufferEngineDiagnosticsRecorder(),
+                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(NoOpMediaPort(), { "/media" }),
+                )
+            val pendingSource = query.getMainListPagingSource(MemoQuerySpec.fromFilter("", MemoListFilter()))
+
+            mutation.saveMemo(MemoCreateAttempt(MemoOperationId("create-test"), com.lomo.domain.model.DraftId("draft-test"), "new memo", 1L))
+            val afterConfirm = query.getMainListPagingSource(MemoQuerySpec.fromFilter("", MemoListFilter()))
+
+            pendingSource.invalid shouldBe true
+            afterConfirm.invalid shouldBe false
+            invalidation.publications.value.coreRevision shouldBe 2
         }
     }
 
@@ -894,18 +1055,18 @@ class StoreMemoRepositoriesTest : FunSpec({
             val query = StoreMemoQueryRepository(port, invalidation, FakeEngineReadinessRepository())
             val mutation =
                 StoreMemoMutationRepository(
-                    port = port,
+                    port = observingPort(port, invalidation),
                     queryRepository = query,
                     reminderScheduler = FakeReminderCoordinator(),
                     writeLease = alwaysWritableWorkspaceMutationLease(),
                     invalidation = invalidation,
                     diagnostics = RingBufferEngineDiagnosticsRecorder(),
-                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(),
+                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(NoOpMediaPort(), { "/media" }),
                 )
             val editSessionMemo = query.getMemoById("edit-baseline").shouldNotBeNull()
             val readsBeforeUpdate = port.getMemoCallCount
 
-            mutation.updateMemo(editSessionMemo, "changed")
+            mutation.updateMemo(MemoUpdateAttempt(MemoOperationId("update-test"), com.lomo.domain.model.DraftId("draft-test"), EditableMemoSnapshot.fromFullSnapshot(editSessionMemo), "changed"))
 
             port.getMemoCallCount shouldBe readsBeforeUpdate
             port.commands.last().expectedRevision shouldBe editSessionMemo.contentRevision
@@ -922,13 +1083,13 @@ class StoreMemoRepositoriesTest : FunSpec({
             val query = StoreMemoQueryRepository(port, invalidation, FakeEngineReadinessRepository())
             val mutation =
                 StoreMemoMutationRepository(
-                    port = port,
+                    port = observingPort(port, invalidation),
                     queryRepository = query,
                     reminderScheduler = FakeReminderCoordinator(),
                     writeLease = alwaysWritableWorkspaceMutationLease(),
                     invalidation = invalidation,
                     diagnostics = RingBufferEngineDiagnosticsRecorder(),
-                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(),
+                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(NoOpMediaPort(), { "/media" }),
                 )
             val current = query.getMemoById("history-target").shouldNotBeNull()
             val selected =
@@ -946,7 +1107,7 @@ class StoreMemoRepositoriesTest : FunSpec({
                     isCurrent = false,
                 )
 
-            mutation.restoreMemoRevision(current, selected)
+            mutation.restoreMemoRevision(current, selected, MemoOperationId("history-restore-1"))
 
             port.commands.last().kind shouldBe StoreMemoCommandKind.HistoryRestore
             port.commands.last().content shouldBe "historical body"
@@ -982,18 +1143,41 @@ class StoreMemoRepositoriesTest : FunSpec({
                 }
             val mutation =
                 StoreMemoMutationRepository(
-                    port = port,
+                    port = observingPort(port, invalidation),
                     queryRepository = query,
                     reminderScheduler = FakeReminderCoordinator(),
                     writeLease = rejectingWriteLease,
                     invalidation = invalidation,
                     diagnostics = RingBufferEngineDiagnosticsRecorder(),
-                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(),
+                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(NoOpMediaPort(), { "/media" }),
                 )
 
             mutation.refreshMemos()
 
             port.rebuildCount shouldBe 1
+        }
+    }
+
+    test("matching fingerprints skip Full invalidation while still running rebuild") {
+        runTest {
+            val port = RecordingStorePort().apply { rebuildRewrites = false }
+            val invalidation = StoreInvalidationBus()
+            val query = StoreMemoQueryRepository(port, invalidation, FakeEngineReadinessRepository())
+            val mutation =
+                StoreMemoMutationRepository(
+                    port = observingPort(port, invalidation),
+                    queryRepository = query,
+                    reminderScheduler = FakeReminderCoordinator(),
+                    writeLease = alwaysWritableWorkspaceMutationLease(),
+                    invalidation = invalidation,
+                    diagnostics = RingBufferEngineDiagnosticsRecorder(),
+                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(NoOpMediaPort(), { "/media" }),
+                )
+
+            mutation.refreshMemos()
+
+            port.rebuildCount shouldBe 1
+            invalidation.publications.value.coreRevision shouldBe 0L
         }
     }
 
@@ -1023,16 +1207,16 @@ class StoreMemoRepositoriesTest : FunSpec({
                 }
             val mutation =
                 StoreMemoMutationRepository(
-                    port = port,
+                    port = observingPort(port, invalidation),
                     queryRepository = query,
                     reminderScheduler = FakeReminderCoordinator(),
                     writeLease = refusingLease,
                     invalidation = invalidation,
                     diagnostics = diagnostics,
-                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(),
+                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(NoOpMediaPort(), { "/media" }),
                 )
 
-            runCatching { mutation.saveMemo(content = "blocked", timestamp = 1L, geoLocation = null) }
+            runCatching { mutation.saveMemo(MemoCreateAttempt(MemoOperationId("create-test"), com.lomo.domain.model.DraftId("draft-test"), "blocked", 1L)) }
                 .isFailure shouldBe true
 
             val rejection =
@@ -1050,16 +1234,16 @@ class StoreMemoRepositoriesTest : FunSpec({
             val query = StoreMemoQueryRepository(port, invalidation, FakeEngineReadinessRepository())
             val mutation =
                 StoreMemoMutationRepository(
-                    port = port,
+                    port = observingPort(port, invalidation),
                     queryRepository = query,
                     reminderScheduler = FakeReminderCoordinator(),
                     writeLease = alwaysWritableWorkspaceMutationLease(),
                     invalidation = invalidation,
                     diagnostics = diagnostics,
-                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(),
+                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(NoOpMediaPort(), { "/media" }),
                 )
 
-            val created = mutation.saveMemo(content = "new memo", timestamp = 1L, geoLocation = null)
+            val created = mutation.saveMemo(MemoCreateAttempt(MemoOperationId("create-test"), com.lomo.domain.model.DraftId("draft-test"), "new memo", 1L))
 
             val committed =
                 diagnostics.events.value.filterIsInstance<EngineDiagnosticEvent.Committed>()[0]
@@ -1078,7 +1262,9 @@ class StoreMemoRepositoriesTest : FunSpec({
                     ),
                 )
 
-            shouldThrow<EngineCommandFailureException> { mutation.deleteMemo(created) }
+            shouldThrow<EngineCommandFailureException> {
+                mutation.deleteMemo(created, MemoOperationId("delete-fails"))
+            }
 
             val rejected =
                 diagnostics.events.value.filterIsInstance<EngineDiagnosticEvent.Rejected>()[0]
@@ -1100,7 +1286,7 @@ class StoreMemoRepositoriesTest : FunSpec({
             val media = RecordingMediaRepository()
             val trash =
                 StoreMemoTrashRepository(
-                    port,
+                    observingPort(port, invalidation),
                     alwaysWritableWorkspaceMutationLease(),
                     invalidation,
                     readiness,
@@ -1109,18 +1295,21 @@ class StoreMemoRepositoriesTest : FunSpec({
                 )
             val mutation =
                 StoreMemoMutationRepository(
-                    port = port,
+                    port = observingPort(port, invalidation),
                     queryRepository = query,
                     reminderScheduler = FakeReminderCoordinator(),
                     writeLease = alwaysWritableWorkspaceMutationLease(),
                     invalidation = invalidation,
                     diagnostics = RingBufferEngineDiagnosticsRecorder(),
-                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(),
+                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(NoOpMediaPort(), { "/media" }),
                 )
             val source = trash.getDeletedMemosPagingSource()
             source.invalid shouldBe false
 
-            mutation.deleteMemo(query.getMemoById("trash-me").shouldNotBeNull())
+            mutation.deleteMemo(
+                query.getMemoById("trash-me").shouldNotBeNull(),
+                MemoOperationId("delete-trash-me"),
+            )
 
             source.invalid shouldBe true
             val refreshed =
@@ -1140,7 +1329,7 @@ class StoreMemoRepositoriesTest : FunSpec({
             val port = RecordingStorePort()
             val readiness = FakeEngineReadinessRepository()
             val reminders = FakeReminderCoordinator()
-            readiness.publishProjectionFreshness(com.lomo.domain.model.ProjectionFreshness.Building(0uL))
+            readiness.publishProjectionFreshness(com.lomo.domain.model.ProjectionFreshness.Unavailable)
             val trash =
                 StoreMemoTrashRepository(
                     port,
@@ -1161,6 +1350,7 @@ class StoreMemoRepositoriesTest : FunSpec({
                             dateKey = "1970_01_01",
                             timestamp = 1L,
                         ),
+                        MemoOperationId("trash-restore-blocked"),
                     )
                 }
 
@@ -1204,7 +1394,7 @@ class StoreMemoRepositoriesTest : FunSpec({
             val media = RecordingMediaRepository()
             val trash =
                 StoreMemoTrashRepository(
-                    port = port,
+                    port = observingPort(port, invalidation),
                     writeLease = alwaysWritableWorkspaceMutationLease(),
                     invalidation = invalidation,
                     readiness = FakeEngineReadinessRepository(),
@@ -1212,7 +1402,7 @@ class StoreMemoRepositoriesTest : FunSpec({
                     mediaRepository = media,
                 )
 
-            trash.clearTrash()
+            trash.clearTrash(MemoOperationId("clear-trash-1"))
 
             port.getMemo("memo-1") shouldBe null
             port.getMemo("memo-2") shouldBe null
@@ -1239,7 +1429,7 @@ class StoreMemoRepositoriesTest : FunSpec({
             val media = RecordingMediaRepository()
             val trash =
                 StoreMemoTrashRepository(
-                    port = port,
+                    port = observingPort(port, invalidation),
                     writeLease = alwaysWritableWorkspaceMutationLease(),
                     invalidation = invalidation,
                     readiness = FakeEngineReadinessRepository(),
@@ -1259,7 +1449,7 @@ class StoreMemoRepositoriesTest : FunSpec({
 
             invalidation.publications.test {
                 awaitItem()
-                trash.restoreMemo(memoToRestore)
+                trash.restoreMemo(memoToRestore, MemoOperationId("restore-me"))
                 val update = awaitItem()
                 update.coreRevision shouldBe 1L
                 cancelAndIgnoreRemainingEvents()
@@ -1290,7 +1480,7 @@ class StoreMemoRepositoriesTest : FunSpec({
             val media = RecordingMediaRepository()
             val trash =
                 StoreMemoTrashRepository(
-                    port = port,
+                    port = observingPort(port, invalidation),
                     writeLease = alwaysWritableWorkspaceMutationLease(),
                     invalidation = invalidation,
                     readiness = FakeEngineReadinessRepository(),
@@ -1311,7 +1501,7 @@ class StoreMemoRepositoriesTest : FunSpec({
 
             invalidation.publications.test {
                 awaitItem()
-                trash.deletePermanently(memoToDelete)
+                trash.deletePermanently(memoToDelete, MemoOperationId("perm-del"))
                 val update = awaitItem()
                 update.coreRevision shouldBe 1L
                 cancelAndIgnoreRemainingEvents()
@@ -1377,22 +1567,23 @@ class StoreMemoRepositoriesTest : FunSpec({
     test("mutation repository fails closed when the workspace lease refuses admission") {
         runTest {
             val port = RecordingStorePort()
+            val invalidation = StoreInvalidationBus()
             val mutation =
                 StoreMemoMutationRepository(
-                    port = port,
+                    port = observingPort(port, invalidation),
                     queryRepository = StoreMemoQueryRepository(
                         port,
-                        StoreInvalidationBus(),
+                        invalidation,
                         FakeEngineReadinessRepository(),
                     ),
                     reminderScheduler = FakeReminderCoordinator(),
                     writeLease = notReadyWriteLease(),
-                    invalidation = StoreInvalidationBus(),
+                    invalidation = invalidation,
                     diagnostics = RingBufferEngineDiagnosticsRecorder(),
-                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(),
+                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(NoOpMediaPort(), { "/media" }),
                 )
             shouldThrow<IllegalStateException> {
-                mutation.saveMemo("x", timestamp = 1L, geoLocation = null)
+                mutation.saveMemo(MemoCreateAttempt(MemoOperationId("create-test"), com.lomo.domain.model.DraftId("draft-test"), "x", 1L))
             }
             port.commands shouldHaveSize 0
         }
@@ -1469,6 +1660,48 @@ class StoreMemoRepositoriesTest : FunSpec({
             val tagCounts = stats.getTagCountsFlow().first()
             tagCounts.map { it.name to it.count } shouldContainExactly
                 listOf("work" to 2, "life" to 1)
+        }
+    }
+
+    test("observeMemoStatistics rereads session statistics on each accepted publication") {
+        runTest {
+            val port = RecordingStorePort()
+            port.seed(seededSnapshot("a", "alpha", tags = listOf("life")))
+            val invalidation = StoreInvalidationBus()
+            val session =
+                RecordingSessionBridge().apply {
+                    statistics = sessionStatistics(totalMemos = 2uL)
+                }
+            val stats =
+                StoreMemoStatisticsRepository(
+                    port = port,
+                    session = session,
+                    invalidation = invalidation,
+                    readiness = FakeEngineReadinessRepository(),
+                    applicationScope = backgroundScope,
+                )
+            val zone = ZoneId.of("UTC")
+            val today = LocalDate.of(2024, 7, 3)
+
+            stats.observeMemoStatistics(zone, today).test {
+                awaitItem().totalMemos shouldBe 2
+                session.statisticsCallCount shouldBe 1
+                invalidation.publish(
+                    StoreMemoCommit(
+                        operationId = "op-stats",
+                        memoId = "a",
+                        coreRevision = 1L,
+                        eventSequence = 1L,
+                        contentRevision = 1L,
+                        fileFingerprint = "ff-a",
+                        scopes = listOf(StoreInvalidationScope.Stats),
+                        idempotentReplay = false,
+                    ),
+                )
+                awaitItem().totalMemos shouldBe 2
+                session.statisticsCallCount shouldBe 2
+                cancelAndIgnoreRemainingEvents()
+            }
         }
     }
 
@@ -1590,7 +1823,7 @@ class StoreMemoRepositoriesTest : FunSpec({
         }
     }
 
-    test("fuzzy search paging source hydrates session hits from the store projection") {
+    test("fuzzy search paging source uses complete session summaries without per-hit reads") {
         runTest {
             val port = RecordingStorePort()
             port.seed(seededSnapshot("great-wall", "八达岭长城", sourcePath = "2026_09_10.md"))
@@ -1604,10 +1837,15 @@ class StoreMemoRepositoriesTest : FunSpec({
                                 items =
                                     listOf(
                                         SessionSearchHit(
-                                            memoId = "great-wall",
                                             score = 42L,
-                                            sourcePath = "2026_09_10.md",
-                                            bodyPreview = "八达岭长城",
+                                            summary = com.lomo.nativebridge.StoreMemoSummary(
+                                                memoId = "great-wall", sourcePath = "2026_09_10.md",
+                                                fileFingerprint = "f".repeat(64), updatedAtMs = 1L, createdAtMs = 1L,
+                                                hasTodo = true, hasUrl = false, hasAttachment = false,
+                                                isPinned = false, isTrashed = false, bodyPreview = "八达岭长城",
+                                                contentRevision = 1uL, rank = null, tags = emptyList(), imageUrls = emptyList(),
+                                                reminders = emptyList(), isPending = false, charCount = 5L,
+                                            ),
                                         ),
                                     ),
                                 nextCursor = com.lomo.nativebridge.StorePageCursor("next-fuzzy"),
@@ -1636,7 +1874,9 @@ class StoreMemoRepositoriesTest : FunSpec({
             session.searchRequests.single().text shouldBe "bdlcc"
             session.searchRequests.single().mode shouldBe SessionSearchMode.FUZZY
             session.searchRequests.single().queryEpoch shouldBe 1uL
-            port.getMemoCallCount shouldBe 1
+            session.searchRequests.single().filters.hasTodo shouldBe true
+            page.data.single().contentKind shouldBe com.lomo.domain.model.MemoContentKind.Preview
+            port.getMemoCallCount shouldBe 0
         }
     }
 
@@ -1677,13 +1917,13 @@ class StoreMemoRepositoriesTest : FunSpec({
             val query = StoreMemoQueryRepository(port, invalidation, FakeEngineReadinessRepository())
             val mutation =
                 StoreMemoMutationRepository(
-                    port = port,
+                    port = observingPort(port, invalidation),
                     queryRepository = query,
                     reminderScheduler = FakeReminderCoordinator(),
                     writeLease = alwaysWritableWorkspaceMutationLease(),
                     invalidation = invalidation,
                     diagnostics = diagnostics,
-                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(),
+                    pendingStages = com.lomo.data.engine.media.PendingMediaStageRegistry(NoOpMediaPort(), { "/media" }),
                 )
 
             val ghostMemo =
@@ -1695,7 +1935,9 @@ class StoreMemoRepositoriesTest : FunSpec({
                     dateKey = "2026_08_15",
                 )
 
-            val error = shouldThrow<EngineCommandFailureException> { mutation.deleteMemo(ghostMemo) }
+            val error = shouldThrow<EngineCommandFailureException> {
+                mutation.deleteMemo(ghostMemo, MemoOperationId("delete-ghost"))
+            }
             error.failure.code shouldBe "edit_baseline_missing"
             error.failure.category shouldBe EngineFailureCategory.CONFLICT
 
@@ -1707,6 +1949,11 @@ class StoreMemoRepositoriesTest : FunSpec({
         }
     }
 })
+
+private fun observingPort(
+    port: StorePort,
+    bus: StoreInvalidationBus,
+): StorePort = PublishingStorePort(port, StoreProjectionObserver(bus))
 
 private suspend fun PagingSource<String, Memo>.loadResult(
     loadSize: Int,

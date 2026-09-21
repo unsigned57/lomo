@@ -2,8 +2,9 @@ package com.lomo.data.repository
 
 import android.content.Context
 import com.lomo.domain.repository.ShareImageRepository
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.OutputStream
@@ -15,12 +16,13 @@ import java.util.UUID
 
 class ShareImageRepositoryImpl(
     private val context: Context,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : ShareImageRepository {
         override suspend fun storeShareImage(
             fileNamePrefix: String,
             writer: suspend (OutputStream) -> Unit,
         ): String =
-            withContext(Dispatchers.IO) {
+            withContext(dispatcherProvider.io) {
                 val directory = File(context.cacheDir, SHARED_MEMO_CACHE_DIR).apply { mkdirs() }
                 ShareImageCacheCleaner.cleanup(
                     directory = directory,

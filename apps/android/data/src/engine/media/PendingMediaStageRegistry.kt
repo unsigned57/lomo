@@ -1,99 +1,112 @@
 package com.lomo.data.engine.media
 
+import com.lomo.domain.model.DraftId
+
 /**
- * Draft-scoped staged media held between import (stage+verify) and memo save (promote).
+ * Draft-scoped staged-media view over the Rust durable stage ledger.
  *
- * Keys are workspace-relative final paths (`media/...`) and basenames so markdown destinations
- * match regardless of whether the editor embeds the full relative path or basename only.
- * A plan is leased, not removed: facts leave this registry only after the owning memo operation
- * acknowledges a durable commit (or an explicit draft discard). This makes retries lossless and
- * keeps the registry a state machine rather than a destructive lookup table.
+ * The Rust media owner holds the authoritative artifact/lease records; this class is only the
+ * Kotlin-side protocol adapter. Staged bytes stay alive while any holder still leases them, so a
+ * memo operation committing one draft's media never destroys bytes another draft still needs.
+ *
+ * Identities are artifact ids (content digests), never basenames. A destination only selects which
+ * record a discarding draft is referring to; it is never the storage identity.
  */
-class PendingMediaStageRegistry {
-    private val lock = Any()
-    private val byKey = mutableMapOf<String, MediaStagedFacts>()
-
-    fun put(staged: MediaStagedFacts) {
-        val finalRel = staged.suggestedFinalRelativePath.trim()
-        require(finalRel.isNotEmpty()) { "staged media must carry suggestedFinalRelativePath" }
-        val basename = finalRel.substringAfterLast('/')
-        synchronized(lock) {
-            listOf(finalRel, basename).forEach { key ->
-                val previous = byKey[key]
-                require(previous == null || previous.digest == staged.digest) {
-                    "staged media destination is already owned by a different digest"
-                }
-            }
-            byKey[finalRel] = staged
-            byKey[basename] = staged
-        }
-    }
-
-    fun get(key: String): MediaStagedFacts? = synchronized(lock) { byKey[key.trim()] }
-
-    /** Explicitly discards one staged fact (for example when the user cancels a draft). */
-    fun remove(key: String): MediaStagedFacts? {
-        val normalized = key.trim()
-        synchronized(lock) {
-            val staged = byKey[normalized] ?: return null
-            removeAliasesLocked(staged)
-            return staged
-        }
-    }
+class PendingMediaStageRegistry(
+    private val mediaPort: MediaPort,
+    private val stageRoot: () -> String,
+) {
+    /**
+     * Records a freshly staged artifact against the importing draft.
+     * Returns the owner-resolved, collision-free destination the caller must embed in markdown.
+     */
+    fun record(
+        staged: MediaStagedFacts,
+        draftId: DraftId,
+        workspaceRoot: String?,
+    ): MediaStageRecord =
+        mediaPort.recordStageLease(
+            workspaceRoot = workspaceRoot,
+            staged = staged,
+            ownerKind = MediaStageOwnerKind.Draft,
+            ownerId = draftId.value,
+        )
 
     /**
-     * Returns every currently staged fact as a candidate for one operation.
+     * Transfers this draft's claims to the frozen operation and returns the promote plans.
      *
-     * Destination membership is deliberately not resolved here.  The Rust workspace parser is
-     * the only authority allowed to decide which candidates belong to the submitted body; this
-     * registry only provides a stable, de-duplicated snapshot of facts held by the process.
+     * Records already transferred to the same operation are included, so a retried submit keeps
+     * the identical frozen plans instead of losing them.
      */
-    fun allPlans(operationId: String): List<MediaPromotePlan> {
+    fun plansForOperation(
+        operationId: String,
+        draftId: DraftId,
+    ): List<MediaPromotePlan> {
         require(operationId.isNotBlank()) { "media promote operationId must be non-blank" }
-        synchronized(lock) {
-            val seenCandidates = HashSet<String>()
-            return byKey.values
-                .asSequence()
-                .filter { staged ->
-                    seenCandidates.add(
-                        "${staged.digest}\u001f${staged.suggestedFinalRelativePath}",
-                    )
-                }
-                .map { staged ->
-                    MediaPromotePlan(
-                        operationId = operationId,
-                        staged = staged,
-                        finalRelativePath = staged.suggestedFinalRelativePath,
-                    )
-                }.toList()
+        val root = stageRoot()
+        val byArtifact = LinkedHashMap<String, MediaStageRecord>()
+        mediaPort
+            .stageRecordsForOwner(root, MediaStageOwnerKind.Draft, draftId.value)
+            .forEach { byArtifact[it.artifactId] = it }
+        mediaPort
+            .stageRecordsForOwner(root, MediaStageOwnerKind.PendingOperation, operationId)
+            .forEach { byArtifact.putIfAbsent(it.artifactId, it) }
+        return byArtifact.values.map { record ->
+            mediaPort.transferStageLease(
+                mediaRoot = root,
+                from = MediaStageLease(record.artifactId, MediaStageOwnerKind.Draft, draftId.value),
+                to = MediaStageLease(record.artifactId, MediaStageOwnerKind.PendingOperation, operationId),
+            )
+            MediaPromotePlan(
+                operationId = operationId,
+                staged = record.toStagedFacts(),
+                finalRelativePath = record.suggestedFinalRelativePath,
+            )
         }
     }
 
     /**
-     * Acknowledges that [plans] were durably committed and removes only the exact staged facts
-     * they leased. A newer fact that reused a path is never removed by an older acknowledgement.
+     * Releases the operation's claims after a durable commit. Bytes are deleted only when no other
+     * holder remains, so a shared artifact survives for the draft that still needs it.
      */
-    fun commit(plans: Collection<MediaPromotePlan>) {
-        synchronized(lock) {
-            plans.forEach { plan ->
-                val key = plan.staged.suggestedFinalRelativePath.trim()
-                val current = byKey[key]
-                if (current == plan.staged && current.digest == plan.staged.digest) {
-                    removeAliasesLocked(current)
-                }
-            }
+    fun releaseOperation(plans: Collection<MediaPromotePlan>) {
+        if (plans.isEmpty()) return
+        val root = stageRoot()
+        plans.forEach { plan ->
+            mediaPort.releaseStageLease(
+                mediaRoot = root,
+                lease =
+                    MediaStageLease(
+                        artifactId = plan.staged.digest,
+                        ownerKind = MediaStageOwnerKind.PendingOperation,
+                        ownerId = plan.operationId,
+                    ),
+            )
         }
     }
 
-    private fun removeAliasesLocked(staged: MediaStagedFacts) {
-        val finalRel = staged.suggestedFinalRelativePath.trim()
-        byKey.remove(finalRel)
-        byKey.remove(finalRel.substringAfterLast('/'))
+    /**
+     * Releases one draft's claim on the record matching [destinationKey] (full relative path or
+     * basename). Returns the resolved destination when a draft-owned record matched, else null.
+     */
+    fun releaseDraftDestination(
+        draftId: DraftId,
+        destinationKey: String,
+    ): String? {
+        val key = destinationKey.trim()
+        if (key.isEmpty()) return null
+        val root = stageRoot()
+        val match =
+            mediaPort
+                .stageRecordsForOwner(root, MediaStageOwnerKind.Draft, draftId.value)
+                .firstOrNull { record ->
+                    record.suggestedFinalRelativePath == key ||
+                        record.suggestedFinalRelativePath.substringAfterLast('/') == key
+                } ?: return null
+        mediaPort.releaseStageLease(
+            mediaRoot = root,
+            lease = MediaStageLease(match.artifactId, MediaStageOwnerKind.Draft, draftId.value),
+        )
+        return match.suggestedFinalRelativePath
     }
-
-    fun clear() {
-        synchronized(lock) { byKey.clear() }
-    }
-
-    fun snapshot(): Map<String, MediaStagedFacts> = synchronized(lock) { byKey.toMap() }
 }

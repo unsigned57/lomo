@@ -1,14 +1,16 @@
 package com.lomo.data.recording
 import com.lomo.data.di.ApplicationScope
+import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.RecordingSession
 import com.lomo.domain.model.RecordingSessionState
 import com.lomo.domain.repository.VoiceRecordingRepository
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +31,7 @@ constructor(
         private val voiceRecordingRepository: VoiceRecordingRepository,
         private val mediaRepository: MediaRepository,
         private val serviceController: RecordingServiceController,
+        dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
     ) : RecordingSession {
         private val _state = MutableStateFlow<RecordingSessionState>(RecordingSessionState.Idle)
         override val state: StateFlow<RecordingSessionState> = _state.asStateFlow()
@@ -38,7 +41,7 @@ constructor(
         override val amplitude: StateFlow<Int> = _amplitude.asStateFlow()
         private val _errorMessage = MutableStateFlow<String?>(null)
         override val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
-        internal var recordingTimerDispatcher: CoroutineDispatcher = Dispatchers.Default
+        internal var recordingTimerDispatcher: CoroutineDispatcher = dispatcherProvider.default
         private val transitionMutex = Mutex()
         private var phase: RecordingPhase = RecordingPhase.Idle
         private var timerJob: Job? = null
@@ -51,6 +54,8 @@ constructor(
                 val filename = "voice_$timestamp.m4a"
                 val entryId = MediaEntryId(filename)
                 val startedAtMillis = System.currentTimeMillis()
+                // One durable holder identity per capture; its lease transfers on the created memo.
+                val draftId = DraftId("recording-$startedAtMillis")
                 try {
                     val target = mediaRepository.allocateVoiceCaptureTarget(entryId).raw
                     voiceRecordingRepository.start(StorageLocation(target))
@@ -59,11 +64,13 @@ constructor(
                             filename = filename,
                             captureLocation = target,
                             startedAtMillis = startedAtMillis,
+                            draftId = draftId,
                         )
                     _state.value =
                         RecordingSessionState.Recording(
                             filename = filename,
                             startedAtMillis = startedAtMillis,
+                            draftId = draftId,
                         )
                     _durationMillis.value = 0
                     _amplitude.value = 0
@@ -71,14 +78,14 @@ constructor(
                     startTimer()
                 } catch (cancellation: CancellationException) {
                     resetSessionState()
-                    stopAfterStartFailure(entryId)
+                    stopAfterStartFailure(entryId, null, draftId)
                     throw cancellation
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
                     Timber.e(error, "Failed to start recording")
                     _errorMessage.value = "Failed to start recording: ${error.message}"
                     resetSessionState()
-                    stopAfterStartFailure(entryId)
+                    stopAfterStartFailure(entryId, null, draftId)
                 }
             }
         }
@@ -96,6 +103,7 @@ constructor(
                             .finalizeVoiceCapture(
                                 recordingLocation = StorageLocation(recordingState.captureLocation),
                                 humanNameHint = recordingState.filename,
+                                draftId = recordingState.draftId,
                             ).raw
                     "![voice]($dest)"
                 } catch (cancellation: CancellationException) {
@@ -120,7 +128,11 @@ constructor(
                 // behavior-contract: silent-result-ok: discard is best-effort; partial file is logged on failure
                 try {
                     voiceRecordingRepository.stop()
-                    mediaRepository.removeVoiceCapture(MediaEntryId(recordingState.filename))
+                    mediaRepository.removeVoiceCapture(
+                        entryId = MediaEntryId(recordingState.filename),
+                        captureLocation = StorageLocation(recordingState.captureLocation),
+                        draftId = recordingState.draftId,
+                    )
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (error: Exception) {
@@ -134,7 +146,11 @@ constructor(
         override fun clearError() {
             _errorMessage.value = null
         }
-        private suspend fun stopAfterStartFailure(entryId: MediaEntryId) {
+        private suspend fun stopAfterStartFailure(
+            entryId: MediaEntryId,
+            captureLocation: String?,
+            draftId: DraftId,
+        ) {
             // behavior-contract: silent-result-ok: best-effort cleanup after start failure; error is surfaced
             bestEffortCleanup("Failed to stop recorder after start failure") {
                 voiceRecordingRepository.stop()
@@ -143,7 +159,11 @@ constructor(
                 serviceController.stop()
             }
             bestEffortCleanup("Failed to remove voice capture after start failure: ${entryId.raw}") {
-                mediaRepository.removeVoiceCapture(entryId)
+                mediaRepository.removeVoiceCapture(
+                    entryId = entryId,
+                    captureLocation = StorageLocation(captureLocation.orEmpty()),
+                    draftId = draftId,
+                )
             }
         }
 
@@ -153,8 +173,9 @@ constructor(
         ) {
             try {
                 action()
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
-                if (error is CancellationException) throw error
                 Timber.w(error, message)
             }
         }
@@ -192,6 +213,7 @@ private sealed interface RecordingPhase {
         /** Absolute or file:// capture target from allocateVoiceCaptureTarget (stage only). */
         val captureLocation: String,
         val startedAtMillis: Long,
+        val draftId: DraftId,
     ) : RecordingPhase
     data object Stopping : RecordingPhase
 }

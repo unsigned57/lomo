@@ -28,8 +28,6 @@ import com.lomo.domain.model.EngineCommandFailureException
 import com.lomo.domain.model.EngineDiagnosticEvent
 import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.EngineFailureCategory
-import com.lomo.domain.model.EngineReadiness
-import com.lomo.domain.model.permitsReadsAt
 import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoContentKind
@@ -56,6 +54,8 @@ import com.lomo.domain.repository.MemoVersionRepository
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.WorkspaceMutationLease
 import com.lomo.domain.repository.WorkspaceStateResolver
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.domain.model.MemoRevisionCursor
 import com.lomo.domain.model.MemoRevisionPage
 import com.lomo.domain.model.MemoRevisionOrigin
@@ -68,18 +68,16 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
-import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
@@ -97,34 +95,40 @@ class StoreMemoQueryRepository(
     private val port: StorePort,
     private val invalidation: StoreInvalidationBus,
     private val readiness: EngineReadinessRepository,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : MemoQueryRepository {
+    private val pendingMainListFocusIdentity = AtomicReference<String?>(null)
+    private val liveMainListSource = AtomicReference<PagingSource<String, Memo>?>(null)
+
     override fun getGalleryMemosPagingSource(): PagingSource<String, Memo> =
         StorePagingSource(
             port = port,
             query = StoreMemoQuery(filters = StoreMemoFilters(hasAttachment = true)),
+            dispatcherProvider = dispatcherProvider,
             registerInvalidation = { source ->
-                invalidation.register(source, setOf(StoreInvalidationScope.MemoList))
+                invalidation.register(source)
             },
         )
 
     override suspend fun getRecentMemos(limit: Int): List<Memo> =
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             port
                 .queryMemos(StoreMemoQuery(), cursor = null, pageSize = limit.coerceAtLeast(1))
                 .items
                 .map { summary ->
-                    // behavior-contract: loop-io-ok: no bulk getMemo API; N is the page/result set size
-                    port.getMemo(summary.memoId)?.toDomainMemo()
-                        ?: summary.toDomainMemo(
-                            body = summary.bodyPreview,
-                            contentKind = MemoContentKind.Preview,
-                        )
+                    summary.toDomainMemo(
+                        body = summary.bodyPreview,
+                        contentKind = MemoContentKind.Preview,
+                    )
                 }
         }
 
+    override fun observeListProjection(): Flow<Unit> =
+        invalidation.publications.map { Unit }
+
     override suspend fun getMemoCount(): Int =
-        withContext(Dispatchers.IO) {
-            if (readiness.readiness.value !is EngineReadiness.Ready) 0
+        withContext(dispatcherProvider.io) {
+            if (!readiness.mount.value.admitsProjectionReads) 0
             else {
                 val count = port.queryCount(StoreMemoQuery())
                 require(count in 0..Int.MAX_VALUE.toLong()) { "memo_count is outside the Kotlin count range" }
@@ -133,7 +137,7 @@ class StoreMemoQueryRepository(
         }
 
     override suspend fun getDailyReviewCandidateBoundary(): DailyReviewCandidateBoundary? =
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             val first =
                 port.queryMemos(StoreMemoQuery(), null, 1).items.firstOrNull()
                     ?: return@withContext null
@@ -151,7 +155,7 @@ class StoreMemoQueryRepository(
         cursor: DailyReviewCandidateCursor?,
         limit: Int,
     ): DailyReviewCandidatePage =
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             queryDailyReviewPage(boundary, cursor, limit)
         }
 
@@ -159,7 +163,7 @@ class StoreMemoQueryRepository(
         cursor: DailyReviewCandidateCursor?,
         limit: Int,
     ): DailyReviewCandidatePage =
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             // The visible-unseen pass is a fresh bounded query. Its separate cursor prevents a
             // frozen candidate cursor (whose fingerprint includes the boundary) from being reused
             // against the current collection.
@@ -167,7 +171,7 @@ class StoreMemoQueryRepository(
             val page =
                 port.queryMemos(
                     StoreMemoQuery(),
-                    cursor?.token?.let { com.lomo.data.engine.store.StorePageCursor(it) },
+                    cursor?.run { com.lomo.data.engine.store.StorePageCursor(token) },
                     limit,
                 )
             val last = page.items.lastOrNull()
@@ -203,7 +207,7 @@ class StoreMemoQueryRepository(
         val page =
             port.queryMemos(
                 StoreMemoQuery(boundary = storeBoundary),
-                cursor?.token?.let { com.lomo.data.engine.store.StorePageCursor(it) },
+                cursor?.let { com.lomo.data.engine.store.StorePageCursor(it.token) },
                 limit,
             )
         val last = page.items.lastOrNull()
@@ -226,29 +230,40 @@ class StoreMemoQueryRepository(
         StorePagingSource(
             port = port,
             query = spec.toStoreQuery(),
+            consumeRefreshIdentity = { pendingMainListFocusIdentity.getAndSet(null) },
+            dispatcherProvider = dispatcherProvider,
             registerInvalidation = { source ->
-                invalidation.register(source, setOf(StoreInvalidationScope.MemoList))
+                invalidation.register(source)
+                liveMainListSource.set(source)
             },
         )
 
-    override suspend fun getDefaultMainListIndexInWindow(
-        id: String,
-        limit: Int,
-    ): Int? =
-        withContext(Dispatchers.IO) {
-            if (limit <= 0) return@withContext null
-            val window =
-                port
-                    .queryMemos(
-                        query = StoreMemoQuery(),
-                        cursor = null,
-                        pageSize = limit,
-                    ).items
-            window.indexOfFirst { it.memoId == id }.takeIf { it >= 0 }
+    override suspend fun rankInDefaultMainList(id: String): Int? =
+        withContext(dispatcherProvider.io) {
+            val page =
+                port.queryMemos(
+                    query = StoreMemoQuery(),
+                    cursor = null,
+                    pageSize = 1,
+                    startMemoId = id,
+                )
+            val first = page.items.firstOrNull() ?: return@withContext null
+            if (first.memoId != id) {
+                return@withContext null
+            }
+            require(page.itemsBefore in 0..Int.MAX_VALUE.toLong()) {
+                "main-list rank ${page.itemsBefore} does not fit a Kotlin index"
+            }
+            page.itemsBefore.toInt()
         }
 
+    override fun reanchorMainListToIdentity(id: String) {
+        pendingMainListFocusIdentity.set(id)
+        liveMainListSource.get()?.invalidate()
+    }
+
     override suspend fun getMemoById(id: String): Memo? =
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             port.getMemo(id)?.toDomainMemo()
         }
 
@@ -265,14 +280,14 @@ class StoreMemoMutationRepository(
     private val invalidation: StoreInvalidationBus,
     private val diagnostics: EngineDiagnosticsRecorder,
     private val pendingStages: PendingMediaStageRegistry,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : MemoMutationRepository {
     override suspend fun refreshMemos() {
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             val started = TimeSource.Monotonic.markNow()
             invalidation.setSyncing(true)
             try {
-                val result = port.startRebuild(batchSize = 64)
-                invalidation.publishRebuild(result.highWaterRevision)
+                port.startRebuild(batchSize = 64)
                 val publication = invalidation.publications.value
                 diagnostics.record(
                     EngineDiagnosticEvent.Committed(
@@ -296,13 +311,12 @@ class StoreMemoMutationRepository(
         mutation: com.lomo.domain.model.MemoDocumentMutation,
     ) {
         mutate("memo.document_projection") {
-            val commit = port.commitDocumentMutation(mutation)
-            invalidation.publish(commit)
+            port.commitDocumentMutation(mutation)
             reminderScheduler.syncForMemo(mutation.facts.memoId)
         }
     }
 
-    private suspend fun recordRefreshFailure(
+    private fun recordRefreshFailure(
         started: TimeMark,
         failure: Exception,
     ) {
@@ -330,13 +344,12 @@ class StoreMemoMutationRepository(
     }
 
     override suspend fun saveMemo(
-        content: String,
-        timestamp: Long,
-        geoLocation: String?,
+        attempt: com.lomo.domain.model.MemoCreateAttempt,
     ): Memo {
         return mutate("memo.create") {
-            val opId = UUID.randomUUID().toString()
-            val promotes = stagedPromotes(opId)
+            val opId = attempt.operationId.value
+            // Transfer this draft's stage leases to the frozen operation and build the promote plans.
+            val promotes = pendingStages.plansForOperation(opId, attempt.draftId)
             val commit =
                 port.applyMemoCommand(
                     StoreMemoCommand(
@@ -344,17 +357,15 @@ class StoreMemoMutationRepository(
                         kind = StoreMemoCommandKind.Create,
                         memoId = "",
                         expectedRevision = 0L,
-                        chronologyEpochMs = timestamp,
-                        content = content,
+                        chronologyEpochMs = attempt.timestampMillis,
+                        content = attempt.content,
                         pendingPromotes = promotes,
                     ),
-                    // The engine publishes the pending create before its durable SAF I/O, so
-                    // the list shows the memo while the commit is still in flight.
-                    onPublication = invalidation::publish,
+                    onPublication = {},
                 )
-            // D8: journal committed media only after memo-bound promote succeeds.
-            invalidation.publish(commit)
-            pendingStages.commit(promotes)
+            // D8: journal committed media only after memo-bound promote succeeds. Releasing the
+            // operation lease deletes staged bytes only when no other draft still holds them.
+            pendingStages.releaseOperation(promotes)
             val memo =
                 port.getMemo(commit.memoId)?.toDomainMemo()
                     ?: error("create commit succeeded but get_memo returned null for ${commit.memoId}")
@@ -364,73 +375,46 @@ class StoreMemoMutationRepository(
     }
 
     override suspend fun updateMemo(
-        memo: Memo,
-        newContent: String,
+        attempt: com.lomo.domain.model.MemoUpdateAttempt,
     ) {
         mutate("memo.update") {
-            // The editor session owns the optimistic-concurrency baseline. Re-reading here would
-            // turn a stale edit into an update against a newer document and violate CAS semantics.
-            val expectedRevision =
-                memo.contentRevision
-                    ?: throw engineCommandFailure(
-                        category = EngineFailureCategory.CONFLICT,
-                        code = "edit_baseline_missing",
-                        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
-                        diagnostic = "Memo edit session does not carry a verified content revision",
-                    )
-            val expectedFingerprint =
-                memo.fileFingerprint?.takeIf(String::isNotBlank)
-                    ?: throw engineCommandFailure(
-                        category = EngineFailureCategory.CONFLICT,
-                        code = "edit_baseline_missing",
-                        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
-                        diagnostic = "Memo edit session does not carry a verified file fingerprint",
-                    )
-            val opId = UUID.randomUUID().toString()
-            val promotes = stagedPromotes(opId)
-            val commit =
-                port.applyMemoCommand(
-                    StoreMemoCommand(
-                        operationId = opId,
-                        kind = StoreMemoCommandKind.Update,
-                        memoId = memo.id,
-                        expectedRevision = expectedRevision,
-                        expectedFingerprint = expectedFingerprint,
-                        content = newContent,
-                        pendingPromotes = promotes,
-                    ),
-                    onPublication = {},
-                )
-            invalidation.publish(commit)
-            pendingStages.commit(promotes)
-            reminderScheduler.syncForMemo(memo.id)
+            val baseline = attempt.snapshot.baseline
+            val opId = attempt.operationId.value
+            val promotes = pendingStages.plansForOperation(opId, attempt.draftId)
+            port.applyMemoCommand(
+                StoreMemoCommand(
+                    operationId = opId,
+                    kind = StoreMemoCommandKind.Update,
+                    memoId = baseline.memoId,
+                    expectedRevision = baseline.contentRevision,
+                    expectedFingerprint = baseline.fileFingerprint,
+                    content = attempt.content,
+                    pendingPromotes = promotes,
+                ),
+                onPublication = {},
+            )
+            pendingStages.releaseOperation(promotes)
+            reminderScheduler.syncForMemo(baseline.memoId)
         }
     }
 
-    /**
-     * Pass the complete staged-fact snapshot to Rust.  Destination membership is selected by the
-     * Rust Markdown owner at the command boundary for both Direct and SAF workspaces.
-     */
-    private fun stagedPromotes(
-        operationId: String,
-    ): List<com.lomo.data.engine.media.MediaPromotePlan> = pendingStages.allPlans(operationId)
-
-    override suspend fun deleteMemo(memo: Memo) {
+    override suspend fun deleteMemo(
+        memo: Memo,
+        operationId: com.lomo.domain.model.MemoOperationId,
+    ) {
         mutate("memo.delete") {
             val (expectedRevision, expectedFingerprint) = memo.requireSessionCasBaseline()
             val reminderIds = memo.reminders.map { it.reference.opaqueId }.toSet()
-            val commit =
-                port.applyMemoCommand(
-                    StoreMemoCommand(
-                        operationId = UUID.randomUUID().toString(),
-                        kind = StoreMemoCommandKind.Delete,
-                        memoId = memo.id,
-                        expectedRevision = expectedRevision,
-                        expectedFingerprint = expectedFingerprint,
-                    ),
-                    onPublication = {},
-                )
-            invalidation.publish(commit)
+            port.applyMemoCommand(
+                StoreMemoCommand(
+                    operationId = operationId.value,
+                    kind = StoreMemoCommandKind.Delete,
+                    memoId = memo.id,
+                    expectedRevision = expectedRevision,
+                    expectedFingerprint = expectedFingerprint,
+                ),
+                onPublication = {},
+            )
             reminderScheduler.cancelForMemo(memo.id, reminderIds)
         }
     }
@@ -438,6 +422,7 @@ class StoreMemoMutationRepository(
     override suspend fun restoreMemoRevision(
         currentMemo: Memo,
         revision: MemoRevision,
+        operationId: com.lomo.domain.model.MemoOperationId,
     ) {
         mutate("memo.history_restore") {
             require(revision.memoId == currentMemo.id) {
@@ -463,9 +448,9 @@ class StoreMemoMutationRepository(
                 expectedRevision to expectedFingerprint
             }
             val previousReminderIds = currentMemo.reminders.map { it.reference.opaqueId }.toSet()
-            val commit = port.applyMemoCommand(
+            port.applyMemoCommand(
                 StoreMemoCommand(
-                    operationId = UUID.randomUUID().toString(),
+                    operationId = operationId.value,
                     kind = StoreMemoCommandKind.HistoryRestore,
                     memoId = currentMemo.id,
                     expectedRevision = expectedRevision,
@@ -475,7 +460,6 @@ class StoreMemoMutationRepository(
                 ),
                 onPublication = {},
             )
-            invalidation.publish(commit)
             val restored = queryRepository.getMemoById(currentMemo.id)
             if (restored == null) {
                 reminderScheduler.cancelForMemo(currentMemo.id, previousReminderIds)
@@ -489,12 +473,13 @@ class StoreMemoMutationRepository(
     override suspend fun setMemoPinned(
         memoId: String,
         pinned: Boolean,
+        operationId: com.lomo.domain.model.MemoOperationId,
     ) {
         mutate("memo.pin") {
             val snap = port.getMemo(memoId) ?: return@mutate
-            val commit = port.applyMemoCommand(
+            port.applyMemoCommand(
                 StoreMemoCommand(
-                    operationId = UUID.randomUUID().toString(),
+                    operationId = operationId.value,
                     kind = if (pinned) StoreMemoCommandKind.Pin else StoreMemoCommandKind.Unpin,
                     memoId = memoId,
                     expectedRevision = snap.summary.contentRevision,
@@ -503,7 +488,6 @@ class StoreMemoMutationRepository(
                 ),
                 onPublication = {},
             )
-            invalidation.publish(commit)
         }
     }
 
@@ -528,7 +512,7 @@ class StoreMemoMutationRepository(
         var entered = false
         try {
             return writeLease.withWrite {
-                withContext(Dispatchers.IO) {
+                withContext(dispatcherProvider.io) {
                     entered = true
                     block().also {
                         val publication = invalidation.publications.value
@@ -543,8 +527,9 @@ class StoreMemoMutationRepository(
                     }
                 }
             }
+        } catch (other: kotlinx.coroutines.CancellationException) {
+            throw other
         } catch (other: Exception) {
-            if (other is kotlinx.coroutines.CancellationException) throw other
             val rejection = other as? EngineCommandFailureException
             val failure =
                 rejection?.failure ?: EngineCommandFailure(
@@ -571,6 +556,7 @@ internal class StoreMemoSearchRepository(
     private val port: StorePort,
     private val session: SessionNativeBridge,
     private val invalidation: StoreInvalidationBus,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : MemoSearchRepository {
     private val searchEpoch = AtomicLong(0)
 
@@ -585,10 +571,7 @@ internal class StoreMemoSearchRepository(
                     ),
             ),
             registerInvalidation = { source ->
-                invalidation.register(
-                    source,
-                    setOf(StoreInvalidationScope.Search, StoreInvalidationScope.Tags),
-                )
+                invalidation.register(source)
             },
         )
 
@@ -602,29 +585,32 @@ internal class StoreMemoSearchRepository(
                 StorePagingSource(
                     port = port,
                     query = MemoQuerySpec.fromFilter(queryText = query, filter = filter).toStoreQuery(),
+                    dispatcherProvider = dispatcherProvider,
                     registerInvalidation = { source ->
-                        invalidation.register(source, setOf(StoreInvalidationScope.Search))
+                        invalidation.register(source)
                     },
                 )
             MemoSearchMode.Fuzzy ->
                 SessionSearchPagingSource(
                     session = session,
-                    port = port,
+                    filters = MemoQuerySpec.fromFilter(queryText = query, filter = filter).toStoreQuery().filters,
                     queryEpoch = searchEpoch.incrementAndGet().toULong(),
                     text = query,
+                    dispatcherProvider = dispatcherProvider,
                     registerInvalidation = { source ->
-                        invalidation.register(source, setOf(StoreInvalidationScope.Search))
+                        invalidation.register(source)
                     },
                 )
         }
 }
 
 internal class StoreMemoStatisticsRepository(
-    private val port: StorePort,
+    port: StorePort,
     private val session: SessionNativeBridge,
     private val invalidation: StoreInvalidationBus,
     private val readiness: EngineReadinessRepository,
     applicationScope: CoroutineScope,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : MemoStatisticsRepository {
     /**
      * A publication is one projection snapshot. Share that bounded read across every sidebar
@@ -632,10 +618,10 @@ internal class StoreMemoStatisticsRepository(
      */
     private val sharedSidebarProjection: Flow<com.lomo.data.engine.store.StoreSidebarProjection> =
         combine(
-            invalidation.publicationsFor(StoreInvalidationScope.Stats),
-            readiness.readiness,
-        ) { _, engineReadiness ->
-            if (engineReadiness is EngineReadiness.Ready) {
+            invalidation.publications,
+            readiness.mount,
+        ) { _, mount ->
+            if (mount.admitsProjectionReads) {
                 port.sidebarProjection()
             } else {
                 com.lomo.data.engine.store.StoreSidebarProjection(
@@ -655,23 +641,20 @@ internal class StoreMemoStatisticsRepository(
         zone: ZoneId,
         today: LocalDate,
     ): MemoStatistics =
-        withContext(Dispatchers.IO) {
-            if (readiness.readiness.value !is EngineReadiness.Ready) {
-                return@withContext MemoStatistics.empty(today)
-            }
-            withEngineFailureConversion {
-                session
-                    .sessionStatistics(
-                        SessionStatisticsSnapshot(
-                            zone = zone.id,
-                            asOf = today.toSessionCivilDate(),
-                        ),
-                    ).toDomainMemoStatistics()
-            }
+        withContext(dispatcherProvider.io) {
+            loadMemoStatistics(zone = zone, today = today, admitsReads = readiness.mount.value.admitsProjectionReads)
         }
 
+    override fun observeMemoStatistics(
+        zone: ZoneId,
+        today: LocalDate,
+    ): Flow<MemoStatistics> =
+        combine(invalidation.publications, readiness.mount) { _, mount ->
+            loadMemoStatistics(zone = zone, today = today, admitsReads = mount.admitsProjectionReads)
+        }.flowOn(dispatcherProvider.io)
+
     override fun getMemoCountFlow(): Flow<Int> =
-        activeSidebarProjection().map { it.memoCount }.flowOn(Dispatchers.IO)
+        activeSidebarProjection().map { it.memoCount }.flowOn(dispatcherProvider.io)
 
     override fun getSidebarStatisticsFlow(): Flow<MemoSidebarStatistics> =
         activeSidebarProjection()
@@ -684,23 +667,42 @@ internal class StoreMemoStatisticsRepository(
                         },
                     tagCounts = projection.tagCounts.map { MemoTagCount(it.name, it.count) },
                 )
-            }.flowOn(Dispatchers.IO)
+            }.flowOn(dispatcherProvider.io)
 
     override fun getMemoCountByDateFlow(): Flow<Map<String, Int>> =
         activeSidebarProjection()
             .map { projection -> projection.dateCounts.associate { it.date to it.count } }
-            .flowOn(Dispatchers.IO)
+            .flowOn(dispatcherProvider.io)
 
     override fun getTagCountsFlow(): Flow<List<MemoTagCount>> =
         activeSidebarProjection()
             .map { projection -> projection.tagCounts.map { MemoTagCount(it.name, it.count) } }
-            .flowOn(Dispatchers.IO)
+            .flowOn(dispatcherProvider.io)
 
     override fun getActiveDayCount(): Flow<Int> =
         getMemoCountByDateFlow().map { it.size }
 
     private fun activeSidebarProjection(): Flow<com.lomo.data.engine.store.StoreSidebarProjection> =
         sharedSidebarProjection
+
+    private fun loadMemoStatistics(
+        zone: ZoneId,
+        today: LocalDate,
+        admitsReads: Boolean,
+    ): MemoStatistics {
+        if (!admitsReads) {
+            return MemoStatistics.empty(today)
+        }
+        return withEngineFailureConversion {
+            session
+                .sessionStatistics(
+                    SessionStatisticsSnapshot(
+                        zone = zone.id,
+                        asOf = today.toSessionCivilDate(),
+                    ),
+                ).toDomainMemoStatistics()
+        }
+    }
 }
 
 private const val STATS_PROJECTION_STOP_TIMEOUT_MILLIS = 5_000L
@@ -712,22 +714,27 @@ class StoreMemoTrashRepository(
     private val readiness: EngineReadinessRepository,
     private val reminderScheduler: MemoMutationReminderScheduler,
     private val mediaRepository: MediaRepository,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : MemoTrashRepository {
     override fun getDeletedMemosPagingSource(): PagingSource<String, Memo> =
         StorePagingSource(
             port = port,
             query = StoreMemoQuery(filters = StoreMemoFilters(trashOnly = true, includeTrash = true)),
+            dispatcherProvider = dispatcherProvider,
             registerInvalidation = { source ->
-                invalidation.register(source, setOf(StoreInvalidationScope.Trash))
+                invalidation.register(source)
             },
         )
 
-    override suspend fun restoreMemo(memo: Memo) {
+    override suspend fun restoreMemo(
+        memo: Memo,
+        operationId: com.lomo.domain.model.MemoOperationId,
+    ) {
         mutate {
             val (expectedRevision, expectedFingerprint) = memo.requireSessionCasBaseline()
-            val commit = port.applyMemoCommand(
+            port.applyMemoCommand(
                 StoreMemoCommand(
-                    operationId = UUID.randomUUID().toString(),
+                    operationId = operationId.value,
                     kind = StoreMemoCommandKind.Restore,
                     memoId = memo.id,
                     expectedRevision = expectedRevision,
@@ -735,20 +742,22 @@ class StoreMemoTrashRepository(
                 ),
                 onPublication = {},
             )
-            invalidation.publish(commit)
             reminderScheduler.syncForMemo(memo.id)
         }
     }
 
-    override suspend fun deletePermanently(memo: Memo) {
+    override suspend fun deletePermanently(
+        memo: Memo,
+        operationId: com.lomo.domain.model.MemoOperationId,
+    ) {
         // Rust verifies the active Markdown source and matching durable trash record, removes the
         // source bytes first, then removes the record and publishes the rebuilt projection commit.
         mutate {
             val (expectedRevision, expectedFingerprint) = memo.requireSessionCasBaseline()
             val reminderIds = memo.reminders.map { it.reference.opaqueId }.toSet()
-            val commit = port.applyMemoCommand(
+            port.applyMemoCommand(
                 StoreMemoCommand(
-                    operationId = UUID.randomUUID().toString(),
+                    operationId = operationId.value,
                     kind = StoreMemoCommandKind.PermanentDelete,
                     memoId = memo.id,
                     expectedRevision = expectedRevision,
@@ -756,13 +765,12 @@ class StoreMemoTrashRepository(
                 ),
                 onPublication = {},
             )
-            invalidation.publish(commit)
             reminderScheduler.cancelForMemo(memo.id, reminderIds)
             mediaRepository.runOrphanSweepAtOperationBoundary()
         }
     }
 
-    override suspend fun clearTrash() {
+    override suspend fun clearTrash(operationId: com.lomo.domain.model.MemoOperationId) {
         mutate {
             val trashQuery = StoreMemoQuery(filters = StoreMemoFilters(trashOnly = true, includeTrash = true))
             val targets =
@@ -779,8 +787,7 @@ class StoreMemoTrashRepository(
                     }.sortedBy(StoreMemoDeleteTarget::memoId)
                     .toList()
             if (targets.isEmpty()) return@mutate
-            val commit = port.permanentDeleteMany(UUID.randomUUID().toString(), targets)
-            invalidation.publishBatchCommit(commit)
+            val commit = port.permanentDeleteMany(operationId.value, targets)
             commit.deleted.forEach { deleted ->
                 reminderScheduler.cancelForMemo(deleted.memoId, deleted.reminderIds.toSet())
             }
@@ -791,7 +798,7 @@ class StoreMemoTrashRepository(
     /** Trash mutations are admitted by the same workspace lease as memo mutations. */
     private suspend fun <T> mutate(block: suspend () -> T): T =
         writeLease.withWrite {
-            withContext(Dispatchers.IO) {
+            withContext(dispatcherProvider.io) {
                 readiness.requireProjectionReadable()
                 block()
             }
@@ -799,12 +806,7 @@ class StoreMemoTrashRepository(
 }
 
 private fun EngineReadinessRepository.requireProjectionReadable() {
-    val authority = workspaceAuthority.value
-    val readable =
-        readiness.value is EngineReadiness.Ready &&
-            authority != null &&
-            projectionFreshness.value.permitsReadsAt(authority.projectionRevision)
-    if (!readable) {
+    if (!mount.value.admitsProjectionReads) {
         throw engineCommandFailure(
             category = EngineFailureCategory.BUSY,
             code = "projection_not_ready",
@@ -827,7 +829,7 @@ internal class StoreMemoVersionRepository(
         cursor: MemoRevisionCursor?,
         limit: Int,
     ): MemoRevisionPage {
-        val cursorRevision = cursor?.revisionId?.substringAfterLast(':')?.takeIf { it.all(Char::isDigit) }
+        val cursorRevision = cursor?.run { revisionId.substringAfterLast(':').takeIf { it.all(Char::isDigit) } }
         val page =
             withEngineFailureConversion {
                 session.sessionListHistory(
@@ -836,7 +838,7 @@ internal class StoreMemoVersionRepository(
                     limit.coerceIn(1, 256).toUInt(),
                 )
             }
-        val currentRevision = port.getMemo(memo.id)?.summary?.contentRevision
+        val currentRevision = port.getMemo(memo.id)?.run { summary.contentRevision }
         val items = page.items.map { item ->
             val revision = item.revision.toLong()
             val id = "${memo.id}-r$revision"
@@ -869,13 +871,13 @@ internal class StoreMemoVersionRepository(
 class StoreWorkspaceStateResolver(
     private val port: StorePort,
     private val invalidation: StoreInvalidationBus,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : WorkspaceStateResolver {
     override suspend fun rebuildFromCurrentWorkspace() {
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             invalidation.setSyncing(true)
             try {
-                val result = port.startRebuild(batchSize = 64)
-                invalidation.publishRebuild(result.highWaterRevision)
+                port.startRebuild(batchSize = 64)
             } finally {
                 invalidation.setSyncing(false)
             }
@@ -894,9 +896,14 @@ data class StoreProjectionPublication(
  * Monotonic projection-publication boundary replacing Room invalidation guesses after cutover.
  *
  * Rust commit revisions are the only mutation clock. Duplicate/older results are ignored, missing
- * revisions promote to [StoreInvalidationScope.Full], and paging consumers subscribe by scope.
+ * revisions promote to [StoreInvalidationScope.Full], and every paging consumer invalidates.
+ * Scopes remain diagnostic labels on [StoreProjectionPublication]. The clock is generational:
+ * [reanchor] binds it to the workspace whose store it tracks.
  */
-class StoreInvalidationBus {
+class StoreInvalidationBus(
+    private val eventSequenceRequiresFullInvalidate: (lastSeen: Long, incoming: Long) -> Boolean =
+        ::transcribedEventSequenceRequiresFullInvalidate,
+) {
     private val publicationLock = Any()
     private val _publications =
         MutableStateFlow(
@@ -909,17 +916,14 @@ class StoreInvalidationBus {
     val publications: StateFlow<StoreProjectionPublication> = _publications.asStateFlow()
     private val _syncing = MutableStateFlow(false)
     val syncing: Flow<Boolean> = _syncing
-    private val pagingSources = mutableMapOf<PagingSource<*, *>, Set<StoreInvalidationScope>>()
+    private val pagingSources = mutableSetOf<PagingSource<*, *>>()
+    private var lastGeneration = 0L
     private var lastCoreRevision = 0L
     private var lastEventSequence: Long? = 0L
 
-    fun register(
-        source: PagingSource<*, *>,
-        scopes: Set<StoreInvalidationScope>,
-    ) {
-        require(scopes.isNotEmpty()) { "Store paging invalidation scopes must not be empty" }
+    fun register(source: PagingSource<*, *>) {
         synchronized(publicationLock) {
-            pagingSources[source] = scopes
+            pagingSources += source
         }
         source.registerInvalidatedCallback {
             synchronized(publicationLock) {
@@ -928,14 +932,49 @@ class StoreInvalidationBus {
         }
     }
 
-    fun publicationsFor(vararg scopes: StoreInvalidationScope): Flow<StoreProjectionPublication> {
-        require(scopes.isNotEmpty()) { "Store publication scopes must not be empty" }
-        val selected = scopes.toSet()
-        return publications.filter { publication -> publication.scopes.affects(selected) }
+    /**
+     * Binds the publication clock to a newly committed workspace generation. High-water may be
+     * lower than the previous workspace; sequence is unknown until the next store commit.
+     */
+    fun reanchor(generation: Long, highWaterRevision: Long) {
+        require(highWaterRevision >= 0L) { "Store reanchor high-water revision must be non-negative" }
+        val sources =
+            synchronized(publicationLock) {
+                require(generation > lastGeneration) {
+                    "Invalidation generation must advance (last=$lastGeneration incoming=$generation)"
+                }
+                lastGeneration = generation
+                lastCoreRevision = highWaterRevision
+                lastEventSequence = null
+                _publications.value =
+                    StoreProjectionPublication(
+                        coreRevision = highWaterRevision,
+                        eventSequence = null,
+                        scopes = setOf(StoreInvalidationScope.Full),
+                    )
+                pagingSources.toList()
+            }
+        sources.forEach(PagingSource<*, *>::invalidate)
     }
 
     fun publish(commit: com.lomo.data.engine.store.StoreMemoCommit) {
         publishBatch(listOf(commit))
+    }
+
+    /**
+     * Accepts a later commit for a projection that already published mid-flight. Advances the
+     * publication clock so observers reread, without invalidating paging sources again.
+     */
+    fun confirm(commit: com.lomo.data.engine.store.StoreMemoCommit) {
+        synchronized(publicationLock) {
+            val decision = acceptCommit(commit) ?: return
+            _publications.value =
+                StoreProjectionPublication(
+                    coreRevision = lastCoreRevision,
+                    eventSequence = lastEventSequence,
+                    scopes = decision,
+                )
+        }
     }
 
     /** Publishes one logical batch mutation without fabricating a per-memo commit. */
@@ -957,7 +996,7 @@ class StoreInvalidationBus {
                         scopes = decision,
                     )
                 _publications.value = publication
-                pagingSources.keys.toList()
+                pagingSources.toList()
             }
         sources.forEach(PagingSource<*, *>::invalidate)
     }
@@ -989,18 +1028,23 @@ class StoreInvalidationBus {
                         )
                     _publications.value = publication
                     // Every accepted commit advances the Rust high-water revision embedded in
-                    // opaque page cursors.  A cursor therefore becomes invalid for *all* query
-                    // projections, regardless of the commit's diagnostic scopes.  Scope labels
-                    // remain available through `publicationsFor` for aggregate observers, but
-                    // they are deliberately not a paging invalidation router.
-                    pagingSources.keys.toList()
+                    // opaque page cursors. A cursor therefore becomes invalid for *all* query
+                    // projections. Scope labels stay on the publication as diagnostics only.
+                    pagingSources.toList()
                 }
             }
         sources.forEach(PagingSource<*, *>::invalidate)
     }
 
     fun publishRebuild(highWaterRevision: Long) {
-        require(highWaterRevision > 0L) { "Store rebuild high-water revision must be positive" }
+        if (highWaterRevision <= 0L) {
+            throw engineCommandFailure(
+                category = EngineFailureCategory.INTERNAL,
+                code = PROTOCOL_FAILURE_CODE,
+                retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                diagnostic = "store rebuild returned a non-positive high-water revision ($highWaterRevision)",
+            )
+        }
         val sources =
             synchronized(publicationLock) {
                 if (highWaterRevision <= lastCoreRevision) {
@@ -1014,7 +1058,7 @@ class StoreInvalidationBus {
                             eventSequence = null,
                             scopes = setOf(StoreInvalidationScope.Full),
                         )
-                    pagingSources.keys.toList()
+                    pagingSources.toList()
                 }
             }
         sources.forEach(PagingSource<*, *>::invalidate)
@@ -1040,40 +1084,84 @@ class StoreInvalidationBus {
         scopes: List<StoreInvalidationScope>,
         idempotentReplay: Boolean,
     ): Set<StoreInvalidationScope>? {
-        require(coreRevision > 0L) { "Store commit core revision must be positive" }
-        require(eventSequence > 0L) { "Store commit event sequence must be positive" }
+        // A non-positive revision or sequence is not a programming bug in Kotlin: the owner shipped
+        // a receipt that violates the publication protocol, so surface it as a structured
+        // ProtocolFailure instead of an IllegalArgumentException that callers cannot classify.
+        if (coreRevision <= 0L || eventSequence <= 0L) {
+            throw engineCommandFailure(
+                category = EngineFailureCategory.INTERNAL,
+                code = PROTOCOL_FAILURE_CODE,
+                retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                diagnostic =
+                    "store commit receipt violated the publication protocol " +
+                        "(coreRevision=$coreRevision, eventSequence=$eventSequence)",
+            )
+        }
         if (coreRevision < lastCoreRevision) return null
         if (coreRevision == lastCoreRevision) {
             val knownSequence = lastEventSequence
             if (knownSequence == null || eventSequence <= knownSequence) return null
-            error("Store commit advanced event sequence without advancing core revision")
+            lastEventSequence = eventSequence
+            return setOf(StoreInvalidationScope.Full)
         }
         val previousSequence = lastEventSequence
-        if (previousSequence != null && eventSequence <= previousSequence) {
-            error("Store commit event sequence regressed while core revision advanced")
-        }
-        val contiguous =
+        val sequenceGap =
+            previousSequence != null &&
+                eventSequenceRequiresFullInvalidate(previousSequence, eventSequence)
+        val revisionContiguous =
             previousSequence != null &&
                 lastCoreRevision != Long.MAX_VALUE &&
-                previousSequence != Long.MAX_VALUE &&
-                coreRevision == lastCoreRevision + 1L &&
-                eventSequence == previousSequence + 1L
+                coreRevision == lastCoreRevision + 1L
         lastCoreRevision = coreRevision
         lastEventSequence = eventSequence
-        return if (contiguous && !idempotentReplay && scopes.isNotEmpty()) {
+        return if (!sequenceGap && revisionContiguous && !idempotentReplay && scopes.isNotEmpty()) {
             scopes.toSet()
         } else {
             setOf(StoreInvalidationScope.Full)
         }
     }
+
+    /**
+     * Re-anchors the publication clock after the projection itself was replaced (archive import).
+     *
+     * A replaced projection is a new incarnation: its high-water may be *lower* than the retired
+     * one, so comparing revisions would wrongly reject every later commit as stale. Re-anchoring
+     * makes the next publication a full re-read instead of a size comparison.
+     */
+    fun reanchorProjection(highWaterRevision: Long) {
+        require(highWaterRevision >= 0L) {
+            "Re-anchored projection high-water revision must be non-negative"
+        }
+        val sources =
+            synchronized(publicationLock) {
+                lastGeneration += 1L
+                lastCoreRevision = highWaterRevision
+                lastEventSequence = null
+                _publications.value =
+                    StoreProjectionPublication(
+                        coreRevision = highWaterRevision,
+                        eventSequence = null,
+                        scopes = setOf(StoreInvalidationScope.Full),
+                    )
+                pagingSources.toList()
+            }
+        sources.forEach(PagingSource<*, *>::invalidate)
+    }
+
+    internal companion object {
+        /** Structured code for a receipt that violates the projection publication protocol. */
+        const val PROTOCOL_FAILURE_CODE = "store_protocol_failure"
+    }
 }
 
-private fun Set<StoreInvalidationScope>.affects(
-    selected: Set<StoreInvalidationScope>,
-): Boolean =
-    StoreInvalidationScope.Full in this ||
-        StoreInvalidationScope.Full in selected ||
-        any(selected::contains)
+internal fun transcribedEventSequenceRequiresFullInvalidate(
+    lastSeen: Long,
+    incoming: Long,
+): Boolean {
+    if (incoming == lastSeen) return false
+    if (lastSeen == Long.MAX_VALUE) return true
+    return incoming != lastSeen + 1L
+}
 
 private fun Memo.requireSessionCasBaseline(): Pair<Long, String> {
     val expectedRevision =
@@ -1116,8 +1204,7 @@ private fun walkStorePages(
     }
 
 /**
- * Adapts store string cursors to domain [PagingSource] Int keys used by existing UI contracts.
- * Page index is only a local load key; the real continuity token is carried internally.
+ * Maps a domain list query onto a store query. Continuity is a string cursor owned by Rust.
  */
 private fun MemoQuerySpec.toStoreQuery(): StoreMemoQuery {
     val hasTodo =

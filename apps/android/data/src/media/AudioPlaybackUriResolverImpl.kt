@@ -7,8 +7,9 @@ import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.AudioPlaybackResolverRepository
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
@@ -16,6 +17,7 @@ import java.io.File
 
 class AudioPlaybackUriResolverImpl(
     private val context: Context,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : AudioPlaybackResolverRepository {
         @Volatile
         // behavior-contract: stateful-var-ok: this is process-owned resource/lease/job handle, not a query cache
@@ -43,7 +45,7 @@ class AudioPlaybackUriResolverImpl(
                     baseDir == null -> missingBaseDir(source)
 
                     else ->
-                        withContext(Dispatchers.IO) {
+                        withContext(dispatcherProvider.io) {
                             resolveRelativeSource(baseDir, source)
                         }
                 }

@@ -5,7 +5,7 @@ import com.lomo.data.source.directIsImageFilename
 import com.lomo.data.source.ensureWithinDirectory
 import com.lomo.data.source.fsyncDirectoryBestEffort
 import com.lomo.domain.model.MediaFileExtensions
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -19,41 +19,48 @@ import java.util.UUID
 internal suspend fun listWorkspaceDirectFiles(
     category: WorkspaceMediaCategory,
     root: File,
+    dispatcher: CoroutineDispatcher,
 ): List<WorkspaceMediaDescriptor> =
-    withContext(Dispatchers.IO) {
+    withContext(dispatcher) {
         if (!root.exists() || !root.isDirectory) {
             return@withContext emptyList()
         }
         root
             .listFiles()
-            ?.asSequence()
-            ?.filter { file -> file.isFile && workspaceMatchesDirectCategory(category, file.name) }
-            ?.sortedBy { it.name }
-            ?.map { file ->
-                WorkspaceMediaDescriptor(
-                    filename = file.name,
-                    sizeBytes = file.length(),
-                )
-            }?.toList()
-            ?: emptyList()
+            ?.run {
+                asSequence()
+                    .filter { file -> file.isFile && workspaceMatchesDirectCategory(category, file.name) }
+                    .sortedBy { it.name }
+                    .map { file ->
+                        WorkspaceMediaDescriptor(
+                            filename = file.name,
+                            sizeBytes = file.length(),
+                        )
+                    }
+                    .toList()
+            }
+            .orEmpty()
     }
 
 internal suspend fun listWorkspaceDirectFilenames(
     category: WorkspaceMediaCategory,
     root: File,
+    dispatcher: CoroutineDispatcher,
 ): List<String> =
-    withContext(Dispatchers.IO) {
+    withContext(dispatcher) {
         if (!root.exists() || !root.isDirectory) {
             return@withContext emptyList()
         }
         root
             .listFiles()
-            ?.asSequence()
-            ?.filter { file -> file.isFile && workspaceMatchesDirectCategory(category, file.name) }
-            ?.map { it.name }
-            ?.sorted()
-            ?.toList()
-            ?: emptyList()
+            ?.run {
+                asSequence()
+                    .filter { file -> file.isFile && workspaceMatchesDirectCategory(category, file.name) }
+                    .map { it.name }
+                    .sorted()
+                    .toList()
+            }
+            .orEmpty()
     }
 
 internal suspend fun readWorkspaceDirectFileToStream(
@@ -61,8 +68,9 @@ internal suspend fun readWorkspaceDirectFileToStream(
     root: File,
     filename: String,
     destination: OutputStream,
+    dispatcher: CoroutineDispatcher,
 ): Boolean =
-    withContext(Dispatchers.IO) {
+    withContext(dispatcher) {
         if (!root.exists() || !root.isDirectory) {
             return@withContext false
         }
@@ -80,8 +88,9 @@ internal suspend fun writeWorkspaceDirectFileFromStream(
     root: File,
     filename: String,
     source: suspend (OutputStream) -> Unit,
+    dispatcher: CoroutineDispatcher,
 ) {
-    withContext(Dispatchers.IO) {
+    withContext(dispatcher) {
         directEnsureRootExists(root)
         val target = workspaceDirectTarget(root, filename)
         writeWorkspaceDirectFileAtomically(target = target, source = source)

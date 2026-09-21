@@ -4,6 +4,9 @@ import com.lomo.nativebridge.MediaAttachmentRefDto as BridgeAttachmentRef
 import com.lomo.nativebridge.MediaCommittedEntryDto as BridgeCommitted
 import com.lomo.nativebridge.MediaPromotePlanDto as BridgePromotePlan
 import com.lomo.nativebridge.MediaSourceKind as BridgeSourceKind
+import com.lomo.nativebridge.MediaStageLeaseDto as BridgeStageLease
+import com.lomo.nativebridge.MediaStageOwnerKindDto as BridgeStageOwnerKind
+import com.lomo.nativebridge.MediaStageRecordDto as BridgeStageRecord
 import com.lomo.nativebridge.MediaStagedDto as BridgeStaged
 import com.lomo.nativebridge.MediaTrashEntryDto as BridgeTrash
 
@@ -30,6 +33,41 @@ internal class BoltFfiMediaPort(
                 sourcePath = sourcePath,
                 humanNameHint = humanNameHint,
             ).toFacts()
+
+    override fun recordStageLease(
+        workspaceRoot: String?,
+        staged: MediaStagedFacts,
+        ownerKind: MediaStageOwnerKind,
+        ownerId: String,
+    ): MediaStageRecord =
+        bridge
+            .recordStageLease(
+                workspaceRoot = workspaceRoot,
+                staged = staged.toBridge(),
+                ownerKind = ownerKind.toBridge(),
+                ownerId = ownerId,
+            ).toRecord()
+
+    override fun stageRecordsForOwner(
+        mediaRoot: String,
+        ownerKind: MediaStageOwnerKind,
+        ownerId: String,
+    ): List<MediaStageRecord> =
+        bridge
+            .stageRecordsForOwner(mediaRoot, ownerKind.toBridge(), ownerId)
+            .map { record -> record.toRecord() }
+
+    override fun transferStageLease(
+        mediaRoot: String,
+        from: MediaStageLease,
+        to: MediaStageLease,
+    ): MediaStageRelease =
+        bridge.transferStageLease(mediaRoot, from.toBridge(), to.toBridge()).toRelease()
+
+    override fun releaseStageLease(
+        mediaRoot: String,
+        lease: MediaStageLease,
+    ): MediaStageRelease = bridge.releaseStageLease(mediaRoot, lease.toBridge()).toRelease()
 
     override fun allocateRecordingTarget(
         mediaRoot: String,
@@ -160,5 +198,55 @@ internal class BoltFfiMediaPort(
             stagingPath = stagingPath,
             humanNameHint = humanNameHint,
             suggestedFinalRelativePath = suggestedFinalRelativePath,
+        )
+
+    private fun MediaStageOwnerKind.toBridge(): BridgeStageOwnerKind =
+        when (this) {
+            MediaStageOwnerKind.Draft -> BridgeStageOwnerKind.DRAFT
+            MediaStageOwnerKind.PendingOperation -> BridgeStageOwnerKind.PENDING_OPERATION
+            MediaStageOwnerKind.IncomingTransfer -> BridgeStageOwnerKind.INCOMING_TRANSFER
+            MediaStageOwnerKind.CommittedReference -> BridgeStageOwnerKind.COMMITTED_REFERENCE
+        }
+
+    private fun BridgeStageOwnerKind.toOwnerKind(): MediaStageOwnerKind =
+        when (this) {
+            BridgeStageOwnerKind.DRAFT -> MediaStageOwnerKind.Draft
+            BridgeStageOwnerKind.PENDING_OPERATION -> MediaStageOwnerKind.PendingOperation
+            BridgeStageOwnerKind.INCOMING_TRANSFER -> MediaStageOwnerKind.IncomingTransfer
+            BridgeStageOwnerKind.COMMITTED_REFERENCE -> MediaStageOwnerKind.CommittedReference
+        }
+
+    private fun MediaStageLease.toBridge(): BridgeStageLease =
+        BridgeStageLease(
+            artifactId = artifactId,
+            ownerKind = ownerKind.toBridge(),
+            ownerId = ownerId,
+        )
+
+    private fun BridgeStageLease.toLease(): MediaStageLease =
+        MediaStageLease(
+            artifactId = artifactId,
+            ownerKind = ownerKind.toOwnerKind(),
+            ownerId = ownerId,
+        )
+
+    private fun BridgeStageRecord.toRecord(): MediaStageRecord =
+        MediaStageRecord(
+            artifactId = artifactId,
+            digest = digest,
+            size = size.toLong(),
+            mime = mime,
+            stagingPath = stagingPath,
+            humanNameHint = humanNameHint,
+            suggestedFinalRelativePath = suggestedFinalRelativePath,
+            leases = leases.map { lease -> lease.toLease() },
+            stagedBytesPresent = stagedBytesPresent,
+        )
+
+    private fun com.lomo.nativebridge.MediaStageReleaseDto.toRelease(): MediaStageRelease =
+        MediaStageRelease(
+            artifactId = artifactId,
+            remainingLeases = remainingLeases.toLong(),
+            bytesDeleted = bytesDeleted,
         )
 }

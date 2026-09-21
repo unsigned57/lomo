@@ -37,10 +37,10 @@ object AndroidPresentationMimeTypes {
     const val OCTET_STREAM = "application/octet-stream"
 
     fun imageMimeForExtension(extension: String): String =
-        IMAGE[extension.lowercase()] ?: DEFAULT_IMAGE
+        IMAGE[extension.lowercase(java.util.Locale.ROOT)] ?: DEFAULT_IMAGE
 
     fun audioMimeForExtension(extension: String): String =
-        AUDIO[extension.lowercase()] ?: DEFAULT_AUDIO
+        AUDIO[extension.lowercase(java.util.Locale.ROOT)] ?: DEFAULT_AUDIO
 
     fun imageMimeForFilename(filename: String): String =
         imageMimeForExtension(filename.substringAfterLast('.', ""))
