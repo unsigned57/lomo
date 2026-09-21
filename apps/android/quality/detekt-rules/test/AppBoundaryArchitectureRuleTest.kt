@@ -27,11 +27,11 @@ import kotlin.io.path.writeText
  * Rust architecture tests using parsed Amper YAML).
  * Test Change Justification:
  * - Reason category: replace a text heuristic with structural parsing and one dependency owner.
- * - Old assertion: fake module.yaml strings were scanned by an app-only regex in Detekt.
- * - Why no longer correct: those fixtures were not valid YAML and ignored alternate YAML syntax.
+ * - Old behavior/assertion being replaced: fake module.yaml strings were scanned by an app-only regex in Detekt.
+ * - Why old assertion is no longer correct: those fixtures were not valid YAML and ignored alternate YAML syntax.
  * - Coverage preserved by: policy_contracts::kotlin_runtime_composition_cannot_become_a_compile_dependency
  *   and binding_capability_cannot_escape_through_an_exported_dependency cover real module input.
- * - Not implementation fitting: the original forbidden component assertion remains; two observed
+ * - Why this is not fitting the test to the implementation: the original forbidden component assertion remains; two observed
  *   false-positive/false-negative cases and malformed-input cases add stronger behavior locks.
  */
 class AppBoundaryArchitectureRuleTest : FunSpec({

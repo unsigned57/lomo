@@ -9,6 +9,7 @@ import org.jetbrains.kotlin.psi.KtBlockExpression
 import org.jetbrains.kotlin.psi.KtCatchClause
 import org.jetbrains.kotlin.psi.KtNamedFunction
 import org.jetbrains.kotlin.psi.KtSimpleNameExpression
+import org.jetbrains.kotlin.psi.KtTryExpression
 
 internal class NoSwallowedCancellationInSuspendRule(
     config: Config,
@@ -40,6 +41,10 @@ internal class NoSwallowedCancellationInSuspendRule(
             broadExceptionTypes.any { it == typeText || typeText.endsWith(".$it") }
 
         if (!isBroadCatch) return
+
+        // A broad clause after a clause that catches and rethrows CancellationException can never
+        // observe cancellation, so it cannot swallow it. Kotlin matches catch clauses in order.
+        if (catchClause.isPrecededByCancellationRethrow()) return
 
         val catchBody = catchClause.catchBody as? KtBlockExpression ?: return
         val parameterName = parameter?.name
@@ -82,6 +87,22 @@ internal class NoSwallowedCancellationInSuspendRule(
                 "Use an explicit try-catch with 'if (e is CancellationException) throw e' or mark with `// behavior-contract: silent-result-ok: <reason>`.",
         )
     }
+}
+
+private fun KtCatchClause.isPrecededByCancellationRethrow(): Boolean {
+    val clauses = (parent as? KtTryExpression)?.catchClauses ?: return false
+    val index = clauses.indexOf(this)
+    if (index <= 0) return false
+    return clauses.take(index).any { clause -> clause.catchesAndRethrowsCancellation() }
+}
+
+private fun KtCatchClause.catchesAndRethrowsCancellation(): Boolean {
+    val parameter = parameterList?.parameters?.firstOrNull() ?: return false
+    val typeText = parameter.typeReference?.text?.trim() ?: return false
+    if (containingKtFile.importedName(typeText).substringAfterLast('.') != "CancellationException") return false
+    val name = parameter.name ?: return false
+    val body = catchBody as? KtBlockExpression ?: return false
+    return body.preservesCaughtCancellation(name)
 }
 
 internal class NoUnboundedFlowSharingRule(

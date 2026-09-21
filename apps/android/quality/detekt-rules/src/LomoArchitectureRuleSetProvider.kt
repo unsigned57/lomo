@@ -39,8 +39,6 @@ import org.jetbrains.kotlin.psi.KtWhenEntry
 import org.jetbrains.kotlin.psi.KtWhenExpression
 import org.jetbrains.kotlin.psi.KtWhileExpression
 import org.jetbrains.kotlin.lexer.KtTokens
-import java.nio.file.Files
-import java.nio.file.Path
 
 class LomoArchitectureRuleSetProvider : RuleSetProvider {
     override val ruleSetId: RuleSetId = RuleSetId("lomo-architecture")
@@ -64,6 +62,8 @@ class LomoArchitectureRuleSetProvider : RuleSetProvider {
                 RuleName("NoSourceSuppressions") to ::NoSourceSuppressionsRule,
                 RuleName("NoHandwrittenNativeDeclaration") to ::NoHandwrittenNativeDeclarationRule,
                 RuleName("NoMutableFlowExposure") to ::NoMutableFlowExposureRule,
+                RuleName("NoInferredMutableFlowExposure") to ::NoInferredMutableFlowExposureRule,
+                RuleName("ResolvedCallGraph") to ::ResolvedCallGraphRule,
                 RuleName("NoPlaceholderImplementation") to ::NoPlaceholderImplementationRule,
                 RuleName("NoConstantBranchCondition") to ::NoConstantBranchConditionRule,
                 RuleName("NoUnreachableBlockTail") to ::NoUnreachableBlockTailRule,
@@ -135,7 +135,7 @@ private class DomainLayerIsolationRule(
             "com.lomo.data.",
             "com.lomo.nativebridge.",
             "com.lomo.app.",
-            "com.lomo.ui.components.",
+            "com.lomo.ui.",
         )
 
     override fun visitKtFile(file: KtFile) {
@@ -792,7 +792,6 @@ private class NoDeprecatedKeptRule(
         super.visitAnnotationEntry(annotationEntry)
         val file = annotationEntry.containingKtFile
         if (!file.isProductionSource()) return
-        if (file.isPathExcluded()) return
 
         if (annotationEntry.shortName?.asString() == "Deprecated") {
             report(

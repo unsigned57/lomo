@@ -21,7 +21,7 @@ import kotlin.io.path.writeText
  * - Given private backing state and a read-only wrapper, when checked, then it is accepted.
  * Observable outcomes: actual Detekt findings on source properties and return signatures.
  * TDD proof: before registration these scenarios fail because no rule protects state holders;
- * runtime RED/GREEN evidence is recorded in audit-09.
+ * historical RED/GREEN evidence: audit/03-客户端与工程门禁修复计划.md#history-evidence.
  * Excludes: local variables, Compose rendering state, cross-file inferred return types.
  */
 class MutableFlowBoundaryRuleTest : FunSpec({

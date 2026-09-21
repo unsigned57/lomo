@@ -20,7 +20,7 @@ import kotlin.io.path.writeText
  * Behavior Contract:
  * - Unit under test: PagingDataCachedInRule, NoWriteOnlyStateFlowRule, NoCollaboratorDefaultArgRule
  * - Owning layer: quality (UDF contract guardrails for paging, write-only state, and collaborator wiring;
- *   docs/udf-contract.md)
+ *   quality/udf-contract.md)
  * - Priority tier: P1
  *
  * Capability:
@@ -50,6 +50,16 @@ import kotlin.io.path.writeText
  *
  * Excludes:
  * - Type resolution across files, non-Flow PagingData surfaces, and test-source configurations.
+ *
+ * Test Change Justification:
+ * Reason category: Documentation-location migration
+ * Old behavior/assertion being replaced: `message shouldContain "docs/udf-contract.md"`.
+ * Why old assertion is no longer correct: the contract lives in quality/ now (engineering contracts sit
+ *   with quality/, not with the user-facing docs/ assets), and the rules cite the moved path.
+ * Coverage preserved by: the same four assertions still require each targeted finding to cite the contract
+ *   path, so a rule that stops citing the contract still fails.
+ * Why this is not fitting the test to the implementation: only the cited directory changed; the rule
+ *   detection logic, finding counts, and the "finding must cite the contract" guard are unchanged.
  */
 class UdfContractRulesTest : FunSpec({
     test("registers PagingDataCachedIn, NoWriteOnlyStateFlow, and NoCollaboratorDefaultArg in rule set") {
@@ -81,7 +91,7 @@ class UdfContractRulesTest : FunSpec({
         findings.shouldHaveSize(1)
         findings.single().message shouldContain "'pagedMemos'"
         findings.single().message shouldContain "cachedIn"
-        findings.single().message shouldContain "docs/udf-contract.md"
+        findings.single().message shouldContain "quality/udf-contract.md"
         findings.single().message shouldContain "F10"
     }
 
@@ -176,7 +186,7 @@ class UdfContractRulesTest : FunSpec({
 
         findings.shouldHaveSize(1)
         findings.single().message shouldContain "'uncachedPaging'"
-        findings.single().message shouldContain "docs/udf-contract.md"
+        findings.single().message shouldContain "quality/udf-contract.md"
     }
 
     test("PagingDataCachedIn: ignores non-Flow PagingData types") {
@@ -248,7 +258,7 @@ class UdfContractRulesTest : FunSpec({
         findings.shouldHaveSize(1)
         findings.single().message shouldContain "Write-only StateFlow '_contentReplacements'"
         findings.single().message shouldContain "RF4"
-        findings.single().message shouldContain "docs/udf-contract.md"
+        findings.single().message shouldContain "quality/udf-contract.md"
         findings.single().message shouldContain "write-only-flow-ok"
     }
 
@@ -371,7 +381,7 @@ class UdfContractRulesTest : FunSpec({
         findings.shouldHaveSize(1)
         findings.single().message shouldContain "'bus'"
         findings.single().message shouldContain "Q6"
-        findings.single().message shouldContain "docs/udf-contract.md"
+        findings.single().message shouldContain "quality/udf-contract.md"
         findings.single().message shouldContain "collaborator-default-ok"
     }
 

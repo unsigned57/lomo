@@ -18,7 +18,7 @@ import kotlin.io.path.writeText
 /*
  * Behavior Contract:
  * - Unit under test: ViewModelSingleStateFlowRule, NoInSituRevisionBypassRule
- * - Owning layer: quality (UDF screen-state machine & optimistic-lock guardrails, docs/udf-contract.md)
+ * - Owning layer: quality (UDF screen-state machine & optimistic-lock guardrails, quality/udf-contract.md)
  * - Priority tier: P0
  *
  * Capability:
@@ -34,7 +34,7 @@ import kotlin.io.path.writeText
  *   when linted, then no machine finding is produced and private Mutable inputs stay legal.
  * - Given a ViewModel exposing two machine-shaped flows, when linted, then multiplicity is reported.
  * - Given exposed Mutable* state or a var business property, when linted, then encapsulation findings cite
- *   docs/udf-contract.md and the session-facade-ok escape.
+ *   quality/udf-contract.md and the session-facade-ok escape.
  * - Given a class-level session-facade-ok marker, when linted, then all ViewModelSingleStateFlow checks are skipped.
  * - Given a ViewModel outside /app/src/, when linted, then the rule stays silent.
  *
@@ -48,6 +48,16 @@ import kotlin.io.path.writeText
  * Excludes:
  * - Type resolution across files, satellite-flow derivation policy (NoUnboundedFlowSharing), and event surfaces
  *   (SingleEventStreamRules).
+ *
+ * Test Change Justification:
+ * Reason category: Documentation-location migration
+ * Old behavior/assertion being replaced: `message shouldContain "docs/udf-contract.md"`.
+ * Why old assertion is no longer correct: the contract lives in quality/ now (engineering contracts sit
+ *   with quality/, not with the user-facing docs/ assets), and the rules cite the moved path.
+ * Coverage preserved by: the same four assertions still require each targeted finding to cite the contract
+ *   path, so a rule that stops citing the contract still fails.
+ * Why this is not fitting the test to the implementation: only the cited directory changed; the rule
+ *   detection logic, finding counts, and the "finding must cite the contract" guard are unchanged.
  */
 class UdfAndConcurrencyRulesTest : FunSpec({
     test("registers ViewModelSingleStateFlow and NoInSituRevisionBypass in rule set") {
@@ -75,7 +85,7 @@ class UdfAndConcurrencyRulesTest : FunSpec({
 
         findings.shouldHaveSize(1)
         findings.single().message shouldContain "Missing screen-state machine"
-        findings.single().message shouldContain "docs/udf-contract.md"
+        findings.single().message shouldContain "quality/udf-contract.md"
         findings.single().message shouldContain "session-facade-ok"
     }
 
@@ -178,7 +188,7 @@ class UdfAndConcurrencyRulesTest : FunSpec({
 
         findings.shouldHaveSize(1)
         findings.single().message shouldContain "Multiple in-VM built screen-state machine flows in SampleViewModel"
-        findings.single().message shouldContain "docs/udf-contract.md"
+        findings.single().message shouldContain "quality/udf-contract.md"
     }
 
     test("ViewModelSingleStateFlow: allows one built machine plus delegated re-exposures of dependency-owned state") {
@@ -261,7 +271,7 @@ class UdfAndConcurrencyRulesTest : FunSpec({
 
         findings.shouldHaveSize(3)
         findings.forEach { finding -> finding.message shouldContain "Forbidden exposed mutable state" }
-        findings.forEach { finding -> finding.message shouldContain "docs/udf-contract.md" }
+        findings.forEach { finding -> finding.message shouldContain "quality/udf-contract.md" }
         findings.forEach { finding -> finding.message shouldContain "session-facade-ok" }
     }
 
@@ -316,7 +326,7 @@ class UdfAndConcurrencyRulesTest : FunSpec({
 
         findings.shouldHaveSize(1)
         findings.single().message shouldContain "Forbidden 'var' business property 'currentQuery'"
-        findings.single().message shouldContain "docs/udf-contract.md"
+        findings.single().message shouldContain "quality/udf-contract.md"
     }
 
     test("ViewModelSingleStateFlow: allows var Job cancellation handles") {

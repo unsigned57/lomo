@@ -98,10 +98,17 @@ class KoinDependencyCheckTest : AppFunSpec() {
                     SavedStateHandle::class,
                     WorkerParameters::class,
                     kotlinx.coroutines.CoroutineScope::class,
+                    kotlinx.coroutines.CoroutineDispatcher::class,
                     KoinWorkerFactory::class,
                     Function1::class,
                     Function0::class,
                     Function2::class,
+                    // Factory-constructed dependency aggregates: the owning `single` lambda builds
+                    // these inline from `get()` calls or defaults, so the container never defines
+                    // them. Each member still has to resolve when the definition is instantiated.
+                    Class.forName("com.lomo.data.repository.MediaEdgeRepositoryDependencies").kotlin,
+                    Class.forName("com.lomo.data.repository.MediaEdgeRepositoryLimits").kotlin,
+                    Class.forName("com.lomo.data.repository.SyncInboxRepositoryDependencies").kotlin,
                     Class.forName("io.ktor.client.HttpClient").kotlin
                 )
             )

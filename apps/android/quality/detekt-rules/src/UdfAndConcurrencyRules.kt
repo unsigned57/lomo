@@ -17,7 +17,7 @@ internal class ViewModelSingleStateFlowRule(
     "A screen ViewModel must expose at most one in-VM built screen-state machine StateFlow<XxxState> " +
         "(combine/stateIn chain or backing asStateFlow exposure); re-exposures of dependency-owned " +
         "StateFlow<XxxState> are satellites and do not count. Mutable* state must stay private, and var is " +
-        "reserved for Job cancellation handles. See docs/udf-contract.md.",
+        "reserved for Job cancellation handles. See quality/udf-contract.md.",
 ) {
     private val sessionFacadeMarker = Regex("""behavior-contract:\s*session-facade-ok""")
     private val machineFlowTypePattern =
@@ -42,7 +42,7 @@ internal class ViewModelSingleStateFlowRule(
                         "($names); a screen ViewModel must expose exactly one built StateFlow<XxxState> machine " +
                         "(combine/stateIn or asStateFlow backing) and derive every other flow as a satellite " +
                         "(stateIn/combine with appWhileSubscribed()) or re-expose dependency-owned state. " +
-                        "See docs/udf-contract.md, or register the session facade with " +
+                        "See quality/udf-contract.md, or register the session facade with " +
                         "'// behavior-contract: session-facade-ok: <reason>'.",
                 )
             }
@@ -53,7 +53,7 @@ internal class ViewModelSingleStateFlowRule(
                     "Missing screen-state machine in ${klass.name}: a screen ViewModel must expose exactly one " +
                         "StateFlow<XxxState> machine built with combine(...)→stateIn(...), exposed from a private " +
                         "MutableStateFlow backing via asStateFlow(), or delegated from a constructor dependency. " +
-                        "See docs/udf-contract.md, or register the session facade with " +
+                        "See quality/udf-contract.md, or register the session facade with " +
                         "'// behavior-contract: session-facade-ok: <reason>'.",
                 )
         }
@@ -84,7 +84,7 @@ internal class ViewModelSingleStateFlowRule(
                 property,
                 "Forbidden exposed mutable state '${property.name}' in ${containingClass.name}: MutableStateFlow/" +
                     "MutableState must stay private; expose the immutable screen-state machine instead. " +
-                    "See docs/udf-contract.md, or register with '// behavior-contract: session-facade-ok: <reason>'.",
+                    "See quality/udf-contract.md, or register with '// behavior-contract: session-facade-ok: <reason>'.",
             )
         }
 
@@ -93,7 +93,7 @@ internal class ViewModelSingleStateFlowRule(
                 property,
                 "Forbidden 'var' business property '${property.name}' in ${containingClass.name}: model mutable " +
                     "business state inside the screen-state machine; only Job cancellation handles may be var. " +
-                    "See docs/udf-contract.md, or register with '// behavior-contract: session-facade-ok: <reason>'.",
+                    "See quality/udf-contract.md, or register with '// behavior-contract: session-facade-ok: <reason>'.",
             )
         }
     }

@@ -167,6 +167,59 @@ class CoroutineSafetyRulesTest : FunSpec({
         findings.shouldHaveSize(0)
     }
 
+    test("NoSwallowedCancellationInSuspend: allows broad catch after a CancellationException rethrow clause") {
+        val findings =
+            rule("NoSwallowedCancellationInSuspend").findingsForSource(
+                "domain/src/usecase/SampleUseCase.kt",
+                """
+                package com.lomo.domain.usecase
+                import kotlinx.coroutines.CancellationException
+
+                class SampleUseCase {
+                    suspend fun execute() {
+                        try {
+                            doWork()
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            // CancellationException can no longer reach this clause
+                        }
+                    }
+                    private suspend fun doWork() {}
+                }
+                """,
+            )
+
+        findings.shouldHaveSize(0)
+    }
+
+    test("NoSwallowedCancellationInSuspend: still flags a broad catch when an earlier clause swallows cancellation") {
+        val findings =
+            rule("NoSwallowedCancellationInSuspend").findingsForSource(
+                "domain/src/usecase/SampleUseCase.kt",
+                """
+                package com.lomo.domain.usecase
+                import kotlinx.coroutines.CancellationException
+
+                class SampleUseCase {
+                    suspend fun execute() {
+                        try {
+                            doWork()
+                        } catch (e: CancellationException) {
+                            // swallowed here
+                        } catch (e: Exception) {
+                            // swallowed here too
+                        }
+                    }
+                    private suspend fun doWork() {}
+                }
+                """,
+            )
+
+        findings.shouldHaveSize(1)
+        findings.single().message shouldContain "Swallowed CancellationException"
+    }
+
     test("NoSwallowedCancellationInSuspend: allows catch with cancellation-swallowed-ok opt-out") {
         val findings =
             rule("NoSwallowedCancellationInSuspend").findingsForSource(

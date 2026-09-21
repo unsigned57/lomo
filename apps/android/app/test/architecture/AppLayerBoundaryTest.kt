@@ -5,10 +5,10 @@
  * - Priority tier: P0
  *
  * Scenarios:
- * - Happy: standard happy path for AppLayerBoundaryTest.
- * - Boundary: boundary and edge cases for AppLayerBoundaryTest.
- * - Failure: failure and error scenarios for AppLayerBoundaryTest.
- * - Must-not-happen: invariants are never violated for AppLayerBoundaryTest.
+ * - Given app sources, when scanned, then they do not import `com.lomo.data`.
+ * - Given the app module file, when parsed, then `//data` is runtime-only.
+ * - Given the paged list stack, when inspected, then TopViewportMemoId is gone and MemoCardList
+ *   delegates to MemoListContent with contentType.
  *
  * - Behavior focus: test behavioral outcomes of AppLayerBoundaryTest.
  * - Observable outcomes: assertions verify expected outcomes.
@@ -53,6 +53,72 @@ class AppLayerBoundaryTest : AppFunSpec() {
 
             val offenders = kotlinFiles.filter(::containsDataLayerReference)
             withClue("App layer must not reference data layer package. Offenders: ${offenders.joinToString { it.path }}") { ((offenders.isEmpty())) shouldBe true }
+        }
+
+        test("widget receiver lives in a projection-only process") {
+            val manifest = moduleRoot.resolve("src/AndroidManifest.xml").readText()
+            val widgetReceiver =
+                Regex(
+                    """<receiver\b[^>]*android:name="\.widget\.LomoWidgetReceiver"[^>]*>""",
+                    setOf(RegexOption.DOT_MATCHES_ALL),
+                ).find(manifest)
+                    ?.value
+            withClue("LomoWidgetReceiver must be declared") {
+                (widgetReceiver != null) shouldBe true
+            }
+            withClue("widget receiver must run in :widget so a Glance wake does not own the engine") {
+                widgetReceiver.orEmpty().contains("""android:process=":widget"""") shouldBe true
+            }
+        }
+
+        test("static baseline profile preheats data engine JNI and Koin") {
+            val profile = moduleRoot.resolve("src/main/baseline-prof.txt").readText()
+            val rules = moduleRoot.resolve("baseline-rules.txt").readText()
+            withClue("static baseline must name data DI") {
+                profile.contains("Lcom/lomo/data/di/") shouldBe true
+            }
+            withClue("static baseline must name ManagedEngineSession") {
+                profile.contains("Lcom/lomo/data/engine/ManagedEngineSession;") shouldBe true
+            }
+            withClue("static baseline must name JNI LomoEngine") {
+                profile.contains("Lcom/lomo/nativebridge/LomoEngine;") shouldBe true
+            }
+            withClue("static baseline must name Koin") {
+                profile.contains("Lorg/koin/core/Koin;") shouldBe true
+            }
+            withClue("baseline rules must cover data engine") {
+                rules.contains("com/lomo/data/engine/") shouldBe true
+            }
+            withClue("baseline rules must cover data DI") {
+                rules.contains("com/lomo/data/di/") shouldBe true
+            }
+            withClue("baseline rules must cover nativebridge") {
+                rules.contains("com/lomo/nativebridge/") shouldBe true
+            }
+            withClue("baseline rules must cover Koin") {
+                rules.contains("org/koin/core/") shouldBe true
+            }
+        }
+
+        test("application starts workspace ownership only in the default process") {
+            val source = sourceRoot.resolve("LomoApplication.kt").readText()
+            withClue("LomoApplication must consult WorkspaceProcessDuty before startup and lifecycle engine work") {
+                source.contains("WorkspaceProcessDuty.ownsNativeEngine") shouldBe true
+            }
+        }
+
+        test("main list keeps one paged stack and deletes dead viewport snapshot helpers") {
+            withClue("TopViewportMemoId is an unused Room-era helper and must not exist") {
+                sourceRoot.resolve("feature/main/TopViewportMemoId.kt").exists() shouldBe false
+            }
+            val memoCardList = sourceRoot.resolve("feature/memo/MemoCardListAnimation.kt").readText()
+            withClue("MemoCardList must delegate to MemoListContent so search/tag inherit contentType") {
+                memoCardList.contains("MemoListContent(") shouldBe true
+            }
+            val pagedList = sourceRoot.resolve("feature/main/PagedMemoListContent.kt").readText()
+            withClue("the paged list stack must bucket rows by contentType") {
+                pagedList.contains("contentType") shouldBe true
+            }
         }
     }
 

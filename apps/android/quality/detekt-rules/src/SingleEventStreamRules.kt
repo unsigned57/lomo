@@ -13,7 +13,7 @@ internal class NoEventInStateFlowRule(
     config,
     "One-shot UI events may only flow through the acknowledged queue pattern (PendingUiEvent<T> + consume by id " +
         "via an event-queue coordinator); parking Event/Effect/Request payloads in a ViewModel StateFlow replays " +
-        "them on recomposition. See docs/udf-contract.md.",
+        "them on recomposition. See quality/udf-contract.md.",
 ) {
     private val optOutMarker = Regex("""behavior-contract:\s*state-event-ok""")
     private val eventPayloadPattern =
@@ -44,7 +44,7 @@ internal class NoEventInStateFlowRule(
             "One-shot event surface '${property.name}' ($typeText) in ${containingClass.name}: StateFlow retains its " +
                 "last value, so Event/Effect/Request payloads replay on recomposition. Route one-shot UI events through " +
                 "the acknowledged queue (PendingUiEvent<T> + consume by id via an event-queue coordinator). " +
-                "See docs/udf-contract.md, or mark with '// behavior-contract: state-event-ok: <reason>'.",
+                "See quality/udf-contract.md, or mark with '// behavior-contract: state-event-ok: <reason>'.",
         )
     }
 
@@ -90,7 +90,7 @@ internal class NoMultipleEffectChannelsRule(
 ) : LomoBaseRule(
     config,
     "The acknowledged event queue (PendingUiEvent<T> + consume by id) is the only legal one-shot UI event surface; " +
-        "any parallel Channel or MutableSharedFlow effect surface in a ViewModel is forbidden. See docs/udf-contract.md.",
+        "any parallel Channel or MutableSharedFlow effect surface in a ViewModel is forbidden. See quality/udf-contract.md.",
 ) {
     private val optOutMarker = Regex("""behavior-contract:\s*multiple-channels-ok""")
     private val channelTypePattern = Regex("""(^|[^A-Za-z])Channel<""")
@@ -122,7 +122,7 @@ internal class NoMultipleEffectChannelsRule(
             "Forbidden one-shot surface '${property.name}' in ${containingClass.name}: parallel Channel/" +
                 "MutableSharedFlow effect channels lose events (no acknowledge, no replay guarantee). The acknowledged " +
                 "queue (PendingUiEvent<T> + consume by id via an event-queue coordinator) is the only legal one-shot " +
-                "surface. See docs/udf-contract.md, or mark with '// behavior-contract: multiple-channels-ok: <reason>'.",
+                "surface. See quality/udf-contract.md, or mark with '// behavior-contract: multiple-channels-ok: <reason>'.",
         )
     }
 }

@@ -17,6 +17,11 @@ complexity:
     allowedFunctionParameters: 8
     allowedConstructorParameters: 8
     ignoreDefaultParameters: true
+    # Compose hoists state and callbacks into composable parameters that are not independent
+    # collaborators. Function-count heuristics must not drive owner splits here; the architecture
+    # rules and the type-resolved rules carry the real boundaries.
+    ignoreAnnotated:
+      - Composable
   NestedBlockDepth:
     allowedDepth: 5
   NestedScopeFunctions:
@@ -108,6 +113,10 @@ lomo-architecture:
   NoHandwrittenNativeDeclaration:
     active: true
   NoMutableFlowExposure:
+    active: true
+  NoInferredMutableFlowExposure:
+    active: true
+  ResolvedCallGraph:
     active: true
   AppSourceBoundary:
     active: true

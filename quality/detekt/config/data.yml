@@ -117,6 +117,10 @@ lomo-architecture:
     active: true
   NoMutableFlowExposure:
     active: true
+  NoInferredMutableFlowExposure:
+    active: true
+  ResolvedCallGraph:
+    active: true
   RepositoryImplLocation:
     active: true
   ComposableLayer:

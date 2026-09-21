@@ -12,12 +12,17 @@
  *   from one concrete ManagedEngineSession singleton rather than opening a second native engine.
  * - Given Markdown and reminder mutation capabilities are bound, when DI is inspected, then they
  *   reach that session through the workspace mutation lease rather than directly.
+ * - Given engine start is bound, when DI is inspected, then native open is gated on process duty.
+ * - Given the native engine port is inspected, when journal CoreEvent is available, then Kotlin
+ *   does not subscribe it as a second invalidation clock.
  *
  * Observable outcomes:
  * - Architecture assertions over data DI source ownership and multibinding registration.
  *
  * TDD proof:
  * - RED: before this fix DataModule.kt still contains unrelated database, repository, sync, update, and media bindings.
+ * - RED 2026-09-12: NativeEnginePort still exposed subscribe(CoreEvent) and BoltFfiNativeEnginePort
+ *   still owned BoundedInvalidationQueue, so journal poke could be rewired onto StoreInvalidationBus.
  *
  * Excludes:
  * - Koin graph verification internals, Android runtime behavior, and repository sync behavior.
@@ -108,9 +113,43 @@ class DataDiBoundaryTest : DataFunSpec() {
                 engineModule.contains("WorkspaceCandidateValidator") shouldBe true
                 engineModule.contains("WorkspaceCandidateProbe") shouldBe true
             }
+            withClue("engineModule must start the native engine only when the process owns it") {
+                engineModule.contains("ownsNativeEngine") shouldBe true
+                engineModule.contains("WorkspaceProcessDuty") shouldBe true
+            }
+            withClue("invalidation bus must use the Rust event-sequence gap law") {
+                engineModule.contains("eventSequenceRequiresFullInvalidate") shouldBe true
+            }
+            val nativePort =
+                resolveModuleRoot("data").resolve("src/engine/NativeEnginePort.kt").readText()
+            val boltPort =
+                resolveModuleRoot("data").resolve("src/engine/BoltFfiNativeEnginePort.kt").readText()
+            val adapter =
+                resolveModuleRoot("data").resolve("src/engine/RustEngineAdapter.kt").readText()
+            withClue("journal CoreEvent is job poke, not a Kotlin invalidation subscription") {
+                nativePort.contains("fun subscribe") shouldBe false
+                nativePort.contains("NativeCoreEvent") shouldBe false
+                boltPort.contains("BoundedInvalidationQueue") shouldBe false
+                boltPort.contains("CoreEventListener") shouldBe false
+                adapter.contains("native.subscribe") shouldBe false
+                adapter.contains("onNativeEvent") shouldBe false
+            }
             val dataModules = diRoot.resolve("DataModules.kt").readText()
             withClue("dataModules must include engineModule") {
                 dataModules.contains("engineModule") shouldBe true
+            }
+        }
+
+        test("given reminder boot receiver when manifests are inspected then RECEIVE_BOOT_COMPLETED lives with data") {
+            val dataManifest = resolveModuleRoot("data").resolve("src/AndroidManifest.xml").readText()
+            val appManifest = resolveModuleRoot("app").resolve("src/AndroidManifest.xml").readText()
+
+            withClue("data owns ReminderBootReceiver and must declare RECEIVE_BOOT_COMPLETED") {
+                dataManifest.contains("ReminderBootReceiver") shouldBe true
+                dataManifest.contains("android.permission.RECEIVE_BOOT_COMPLETED") shouldBe true
+            }
+            withClue("app must not duplicate the boot permission away from the receiver owner") {
+                appManifest.contains("android.permission.RECEIVE_BOOT_COMPLETED") shouldBe false
             }
         }
 
@@ -138,9 +177,12 @@ class DataDiBoundaryTest : DataFunSpec() {
             listOf(
                 currentDir,
                 currentDir.resolve(moduleName),
+                currentDir.parentFile?.resolve(moduleName),
             )
         return checkNotNull(
-            candidateRoots.firstOrNull { dir ->
+            candidateRoots
+                .filterNotNull()
+                .firstOrNull { dir ->
                 dir.name == moduleName && dir.resolve("module.yaml").exists()
             },
         ) {

@@ -32,6 +32,10 @@ coroutines:
       - Default
       - Main
       - Unconfined
+    # DefaultDispatcherProvider is the single production binding of the dispatcher abstraction.
+    # Naming Dispatchers.* there is the injection point itself, not a hardcoded dispatch site.
+    excludes:
+      - "**/domain/src/usecase/DispatcherProvider.kt"
   SuspendFunInFinallySection:
     active: true
   SuspendFunSwallowedCancellation:
@@ -79,7 +83,7 @@ style:
       - io.ktor.*
       - org.eclipse.jgit.*
       - com.lomo.data.*
-      - com.lomo.ui.components.*
+      - com.lomo.ui.*
   NullableBooleanCheck:
     active: true
   CanBeNonNullable:
@@ -103,6 +107,10 @@ lomo-architecture:
   NoHandwrittenNativeDeclaration:
     active: true
   NoMutableFlowExposure:
+    active: true
+  NoInferredMutableFlowExposure:
+    active: true
+  ResolvedCallGraph:
     active: true
   DomainLayerIsolation:
     active: true

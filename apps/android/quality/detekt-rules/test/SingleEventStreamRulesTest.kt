@@ -18,7 +18,7 @@ import kotlin.io.path.writeText
 /*
  * Behavior Contract:
  * - Unit under test: NoEventInStateFlowRule, NoMultipleEffectChannelsRule
- * - Owning layer: quality (acknowledged one-shot event queue guardrails, docs/udf-contract.md)
+ * - Owning layer: quality (acknowledged one-shot event queue guardrails, quality/udf-contract.md)
  * - Priority tier: P0
  *
  * Capability:
@@ -29,12 +29,12 @@ import kotlin.io.path.writeText
  *
  * Scenarios:
  * - Given a ViewModel StateFlow with an Event/Effect/Request payload, when linted, then the finding cites
- *   docs/udf-contract.md and the acknowledged queue.
+ *   quality/udf-contract.md and the acknowledged queue.
  * - Given a queue-shaped StateFlow<List<PendingUiEvent<...>>> or a delegation to an event-queue coordinator,
  *   when linted, then the property is legal.
  * - Given a state-event-ok marker, when linted, then the property is legal.
  * - Given any Channel<...> or MutableSharedFlow<...> property in a ViewModel (even one), when linted, then
- *   the finding cites docs/udf-contract.md; multiple-channels-ok opts out.
+ *   the finding cites quality/udf-contract.md; multiple-channels-ok opts out.
  * - Given a non-ViewModel class, when linted, then neither rule reports.
  *
  * Observable outcomes:
@@ -46,6 +46,16 @@ import kotlin.io.path.writeText
  *
  * Excludes:
  * - Event-queue coordinator internals (data/test classes) and navigation-level event dispatch.
+ *
+ * Test Change Justification:
+ * Reason category: Documentation-location migration
+ * Old behavior/assertion being replaced: `message shouldContain "docs/udf-contract.md"`.
+ * Why old assertion is no longer correct: the contract lives in quality/ now (engineering contracts sit
+ *   with quality/, not with the user-facing docs/ assets), and the rules cite the moved path.
+ * Coverage preserved by: the same four assertions still require each targeted finding to cite the contract
+ *   path, so a rule that stops citing the contract still fails.
+ * Why this is not fitting the test to the implementation: only the cited directory changed; the rule
+ *   detection logic, finding counts, and the "finding must cite the contract" guard are unchanged.
  */
 class SingleEventStreamRulesTest : FunSpec({
     test("registers NoEventInStateFlow and NoMultipleEffectChannels in rule set") {
@@ -73,7 +83,7 @@ class SingleEventStreamRulesTest : FunSpec({
 
         findings.shouldHaveSize(1)
         findings.single().message shouldContain "'_noticeEvent'"
-        findings.single().message shouldContain "docs/udf-contract.md"
+        findings.single().message shouldContain "quality/udf-contract.md"
         findings.single().message shouldContain "PendingUiEvent"
     }
 
@@ -95,7 +105,7 @@ class SingleEventStreamRulesTest : FunSpec({
             )
 
         findings.shouldHaveSize(1)
-        findings.single().message shouldContain "docs/udf-contract.md"
+        findings.single().message shouldContain "quality/udf-contract.md"
     }
 
     test("NoEventInStateFlow: allows StateFlow with normal state payload") {
@@ -228,7 +238,7 @@ class SingleEventStreamRulesTest : FunSpec({
 
         findings.shouldHaveSize(1)
         findings.single().message shouldContain "'_effects'"
-        findings.single().message shouldContain "docs/udf-contract.md"
+        findings.single().message shouldContain "quality/udf-contract.md"
         findings.single().message shouldContain "multiple-channels-ok"
     }
 
@@ -254,7 +264,7 @@ class SingleEventStreamRulesTest : FunSpec({
         findings.shouldHaveSize(1)
         findings.single().message shouldContain "'_diagnosticExports'"
         findings.single().message shouldContain "MutableSharedFlow"
-        findings.single().message shouldContain "docs/udf-contract.md"
+        findings.single().message shouldContain "quality/udf-contract.md"
     }
 
     test("NoMultipleEffectChannels: flags each parallel effect surface separately") {

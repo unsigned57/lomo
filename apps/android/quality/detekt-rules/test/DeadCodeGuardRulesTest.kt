@@ -1,22 +1,5 @@
 package com.lomo.detektrules
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
 import dev.detekt.api.Config
 import dev.detekt.api.Rule
 import dev.detekt.api.RuleName
@@ -36,11 +19,26 @@ import kotlin.io.path.writeText
 
 /*
  * Behavior Contract:
- * - Unit under test: LomoArchitectureRuleSetProvider dead-code guard rules.
- * - Behavior focus: literal branch rejection, unreachable tail detection, redundant exhaustive else detection, duplicate helper detection, and module-local dead declaration detection.
- * - Observable outcomes: finding count, finding message content, duplicate declaration reporting, unreferenced declaration reporting, and src-only enforcement.
- * - TDD proof: Fails before the fix because the new duplicate/dead-declaration rules are not yet registered and therefore do not report the cross-file regressions.
- * - Excludes: detekt engine integration, Toolchain task wiring, compiler-native diagnostics outside rule execution, and cross-module dead-code analysis for public APIs.
+ * - Unit under test: registered dead-code and source-suppression rules; owning layer: quality.
+ * - Capability: reject constant/unreachable branches, duplicate or unreferenced declarations,
+ *   and source suppressions that would bypass architecture checks.
+ * Scenarios:
+ * - Given dead code or duplicate declarations in production, when linted, then findings identify it.
+ * - Given legal runtime branches, references or test sources, when linted, then they stay legal.
+ * - Given a suppression inside a configured exclusion path, when linted, then it is still rejected.
+ * Observable outcomes: finding counts, named declarations, diagnostics and source-only scope.
+ * TDD proof: the configured-exclusion scenario failed with 0 findings before removing that bypass;
+ * cross-file regression tests retain their original assertions.
+ * Historical gate evidence: audit/03-客户端与工程门禁修复计划.md#history-evidence.
+ * Excludes: public cross-module reachability, runtime behavior and compiler-native diagnostics.
+ * Test Change Justification:
+ * - Reason category: stronger ownership contract; source cannot exempt the anti-suppression policy.
+ * - Old behavior/assertion being replaced: an excluded filename permitted arbitrary @Suppress annotations.
+ * - Why old assertion is no longer correct: this let the same source silence structural checks; the two configured
+ *   editor exceptions had no remaining suppression consumer (one file no longer exists).
+ * - Coverage preserved by: the original outside-path assertion plus the strengthened inside-path
+ *   assertion and the real CLI @file:Suppress activation contract.
+ * - Why this is not fitting the test to the implementation: formerly admitted invalid input now produces a required finding.
  */
 class DeadCodeGuardRulesTest : FunSpec() {
     init {

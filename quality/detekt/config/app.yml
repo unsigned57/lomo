@@ -17,6 +17,11 @@ complexity:
     allowedFunctionParameters: 7
     allowedConstructorParameters: 8
     ignoreDefaultParameters: true
+    # Compose hoists state and callbacks into composable parameters that are not independent
+    # collaborators. Function-count heuristics must not drive owner splits here; the architecture
+    # rules and the type-resolved rules carry the real boundaries.
+    ignoreAnnotated:
+      - Composable
   NestedBlockDepth:
     allowedDepth: 5
   NestedScopeFunctions:
@@ -34,6 +39,12 @@ coroutines:
       - Default
       - Main
       - Unconfined
+    # The composition root names the process-lifetime dispatchers once; every other site resolves
+    # them through DispatcherProvider. Excluding the definition sites is the same treatment
+    # domain.yml applies to DefaultDispatcherProvider.
+    excludes:
+      - "**/app/src/LomoApplication.kt"
+      - "**/app/src/di/AppScope.kt"
   SuspendFunInFinallySection:
     active: true
   SuspendFunSwallowedCancellation:
@@ -98,6 +109,10 @@ lomo-architecture:
   NoHandwrittenNativeDeclaration:
     active: true
   NoMutableFlowExposure:
+    active: true
+  NoInferredMutableFlowExposure:
+    active: true
+  ResolvedCallGraph:
     active: true
   AppSourceBoundary:
     active: true

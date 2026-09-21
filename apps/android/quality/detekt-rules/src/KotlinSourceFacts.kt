@@ -104,7 +104,9 @@ private fun KtFile.commentsIn(start: Int, end: Int): Sequence<PsiComment> = sequ
     while (offset < end) {
         val leaf = findElementAt(offset) ?: break
         val comment = generateSequence(leaf) { it.parent }.filterIsInstance<PsiComment>().firstOrNull()
-        if (comment != null) yield(comment)
+        // A token inside a preceding multiline KDoc belongs to that whole comment. Only a
+        // comment that starts in this window can be attached to the current source line.
+        if (comment != null && comment.textRange.startOffset in start until end) yield(comment)
         offset = maxOf(offset + 1, (comment ?: leaf).textRange.endOffset)
     }
 }

@@ -37,10 +37,19 @@ import kotlin.io.path.writeText
  * TDD proof:
  * - Run ArchitectureRuleEvasionTest before rule edits: forbidden native imports, forged opt-outs,
  *   false cachedIn evidence and cancellation decoys must expose missing findings.
- * - Exact RED/GREEN commands and results are recorded in audit/audit-09-架构约束与实现方案.md.
+ * - Historical RED/GREEN commands and results:
+ *   audit/03-客户端与工程门禁修复计划.md#history-evidence.
  *
  * Excludes:
  * - Whole-program type inference, runtime scheduling, product state-machine implementation.
+ *
+ * Test Change Justification:
+ * - Reason category: add regression scenarios after whole-repository verification.
+ * - Old behavior/assertion being replaced: none; all earlier assertions remain unchanged.
+ * - Why old assertion is no longer correct: no old assertion was incorrect; UI package and
+ *   multiline-comment inputs extend the covered cases.
+ * - Coverage preserved by: the existing evasion/positive cases plus the new targeted regressions.
+ * - Why this is not fitting the test to the implementation: both added cases failed before their fixes.
  */
 class ArchitectureRuleEvasionTest : FunSpec({
     test("domain rejects generated binding aliases") {
@@ -48,6 +57,14 @@ class ArchitectureRuleEvasionTest : FunSpec({
             "DomainLayerIsolation",
             "domain/src/model/Probe.kt",
             "import com.lomo.nativebridge.StoreMemoCommit as Receipt\nclass Probe(val receipt: Receipt)",
+        ).shouldHaveSize(1)
+    }
+
+    test("domain rejects the actual UI component package") {
+        architectureFindings(
+            "DomainLayerIsolation",
+            "domain/src/model/Probe.kt",
+            "import com.lomo.ui.component.MemoCard\nclass Probe(val card: MemoCard)",
         ).shouldHaveSize(1)
     }
 
@@ -247,6 +264,22 @@ class ArchitectureRuleEvasionTest : FunSpec({
                 private val pending = MutableStateFlow(0)
                 // pending will eventually be observed
                 fun add() { pending.value = 1; log("pending") }
+            }
+            """,
+        ).shouldHaveSize(1)
+    }
+
+    test("a multiline KDoc crossing the previous-line window is not a local exception") {
+        architectureFindings(
+            "NoWriteOnlyStateFlow",
+            "app/src/Probe.kt",
+            """
+            /**
+             * Presentation state holder.
+             */
+            class Probe {
+                private val pending = MutableStateFlow(0)
+                fun add() { pending.value = 1 }
             }
             """,
         ).shouldHaveSize(1)
