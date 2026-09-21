@@ -80,7 +80,7 @@ class SettingsViewModel(
             SettingsStorageFeatureViewModel(
                 scope = viewModelScope,
                 appConfigCoordinator = appConfigCoordinator,
-                projectionFreshness = coordinatorFactory.projectionFreshness(),
+                mount = coordinatorFactory.mount(),
                 onError = { error ->
                     _operationError.value = errorMapper.map(error, "Failed to update storage settings")
                 },

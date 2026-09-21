@@ -14,7 +14,7 @@ internal fun Throwable.toUserMessage(
     sanitizer: ((rawMessage: String?, fallbackMessage: String) -> String)? = null,
 ): String {
     val fallback = prefix?.trim().orEmpty().ifBlank { null }
-    val engineCode = (this as? EngineCommandFailureException)?.failure?.code
+    val engineCode = (this as? EngineCommandFailureException)?.run { failure.code }
     if (engineCode != null) {
         return if (fallback == null) engineCode else "$fallback: $engineCode"
     }

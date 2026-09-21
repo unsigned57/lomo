@@ -22,31 +22,32 @@ sealed interface SettingsHomeHeroState {
     data object NotConfigured : SettingsHomeHeroState
 }
 
+/** One provider's enablement and last-known sync facts for the Settings hero card. */
+internal data class HomeHeroProviderFacts(
+    val enabled: Boolean,
+    val lastSync: Long,
+    val syncState: UnifiedSyncState,
+)
+
 internal fun computeSettingsHomeHeroState(
-    gitEnabled: Boolean,
-    gitLastSync: Long,
-    gitSyncState: UnifiedSyncState,
-    webDavEnabled: Boolean,
-    webDavLastSync: Long,
-    webDavSyncState: UnifiedSyncState,
-    s3Enabled: Boolean,
-    s3LastSync: Long,
-    s3SyncState: UnifiedSyncState,
+    git: HomeHeroProviderFacts,
+    webDav: HomeHeroProviderFacts,
+    s3: HomeHeroProviderFacts,
 ): SettingsHomeHeroState {
     val providers = mutableListOf<SyncBackendType>()
     var latestSync = 0L
     var anyRunning = false
 
-    fun consume(enabled: Boolean, lastSync: Long, state: UnifiedSyncState, provider: SyncBackendType) {
-        if (!enabled) return
+    fun consume(facts: HomeHeroProviderFacts, provider: SyncBackendType) {
+        if (!facts.enabled) return
         providers += provider
-        if (lastSync > latestSync) latestSync = lastSync
-        if (state is UnifiedSyncState.Running) anyRunning = true
+        if (facts.lastSync > latestSync) latestSync = facts.lastSync
+        if (facts.syncState is UnifiedSyncState.Running) anyRunning = true
     }
 
-    consume(gitEnabled, gitLastSync, gitSyncState, SyncBackendType.GIT)
-    consume(webDavEnabled, webDavLastSync, webDavSyncState, SyncBackendType.WEBDAV)
-    consume(s3Enabled, s3LastSync, s3SyncState, SyncBackendType.S3)
+    consume(git, SyncBackendType.GIT)
+    consume(webDav, SyncBackendType.WEBDAV)
+    consume(s3, SyncBackendType.S3)
 
     if (providers.isEmpty()) return SettingsHomeHeroState.NotConfigured
 

@@ -6,6 +6,7 @@ import com.lomo.app.feature.update.AppUpdateDialogState
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.CustomFontInfo
+import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.ProjectionFreshness
@@ -16,6 +17,8 @@ import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.WebDavProvider
+import com.lomo.domain.model.WorkspaceMount
+import com.lomo.app.util.runSuspendCatching
 import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CancellationException
@@ -112,16 +115,16 @@ sealed interface WorkspaceRootOperationState {
 class SettingsStorageFeatureViewModel(
     private val scope: CoroutineScope,
     private val appConfigCoordinator: SettingsAppConfigCoordinator,
-    projectionFreshness: StateFlow<ProjectionFreshness>,
+    mount: StateFlow<WorkspaceMount>,
     private val onError: (Throwable) -> Unit,
 ) {
     private val rootCommandInFlight = MutableStateFlow(false)
     val rootOperationState: StateFlow<WorkspaceRootOperationState> =
-        combine(rootCommandInFlight, projectionFreshness, ::workspaceRootOperationState)
+        combine(rootCommandInFlight, mount, ::workspaceRootOperationState)
             .stateIn(
                 scope = scope,
                 started = settingsWhileSubscribed(),
-                initialValue = workspaceRootOperationState(false, projectionFreshness.value),
+                initialValue = workspaceRootOperationState(false, mount.value),
             )
 
     fun updateRootDirectory(path: String) {
@@ -186,14 +189,17 @@ class SettingsStorageFeatureViewModel(
 
 private fun workspaceRootOperationState(
     commandInFlight: Boolean,
-    freshness: ProjectionFreshness,
-): WorkspaceRootOperationState =
-    when {
+    mount: WorkspaceMount,
+): WorkspaceRootOperationState {
+    val readiness = mount.readiness
+    return when {
         commandInFlight -> WorkspaceRootOperationState.Switching
-        freshness is ProjectionFreshness.Building -> WorkspaceRootOperationState.Indexing
-        freshness is ProjectionFreshness.Failed -> WorkspaceRootOperationState.Failed(freshness.reasonCode)
+        readiness is EngineReadiness.ReadOnlyRecovery ->
+            WorkspaceRootOperationState.Failed(readiness.code)
+        mount.freshness is ProjectionFreshness.Revalidating -> WorkspaceRootOperationState.Indexing
         else -> WorkspaceRootOperationState.Idle
     }
+}
 
 private fun CoroutineScope.launchStorageUpdate(
     onError: (Throwable) -> Unit,
@@ -202,8 +208,9 @@ private fun CoroutineScope.launchStorageUpdate(
     launch {
         try {
             operation()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (error: Exception) {
-            if (error is CancellationException) throw error
             onError(error)
         }
     }
@@ -382,7 +389,7 @@ class SettingsSystemFeatureViewModel(
         _manualUpdateState.value = SettingsManualUpdateState.Checking
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             _manualUpdateState.value =
-                runCatching { appUpdateChecker?.checkForManualUpdate() }
+                runSuspendCatching { appUpdateChecker?.checkForManualUpdate() }
                     .fold(
                         onSuccess = { info ->
                             when {
@@ -421,7 +428,7 @@ class SettingsSystemFeatureViewModel(
         }
         debugPreviewJob =
             scope.launch(start = CoroutineStart.UNDISPATCHED) {
-                runCatching { appUpdateChecker?.getLatestReleaseForDebugPreview() }
+                runSuspendCatching { appUpdateChecker?.getLatestReleaseForDebugPreview() }
                     .fold(
                         onSuccess = { info ->
                             when {

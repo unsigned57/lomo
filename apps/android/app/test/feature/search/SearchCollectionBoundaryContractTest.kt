@@ -30,18 +30,37 @@ import java.io.File
  * - RED before the fix because SearchViewModel directly injected MemoUiMapper from
  *   com.lomo.app.feature.main instead of the common MemoCollectionProjectionMapper boundary.
  *
+ * Test Change Justification:
+ * - Reason category: constructor parameter count compliance (detekt LongParameterList) via the
+ *   repository's collaborator-aggregate pattern, not a behavior change.
+ * - Old behavior/assertion being replaced: the test read the projection boundary from
+ *   `SearchViewModel`'s own declared constructor parameter types.
+ * - Why old assertion is no longer correct: the constructor now takes one
+ *   `SearchViewModelDependencies` aggregate, so the collaborator types are one level down; keeping
+ *   the assertion on the outer constructor alone would pass vacuously and stop proving anything.
+ * - Coverage preserved by: the same two guarantees, now asserted over both the view-model
+ *   constructor and the aggregate that holds its collaborators — no Main `MemoUiMapper` anywhere,
+ *   and `MemoCollectionProjectionMapper` still present.
+ * - Why this is not fitting the test to the implementation: the assertion still fails if the
+ *   projection boundary is dropped or Main's mapper is re-injected, whichever layer holds it.
+ *
  * Excludes:
  * - Compose rendering, Main feature behavior, and domain/data query behavior.
  */
 class SearchCollectionBoundaryContractTest : AppFunSpec() {
     init {
         test("given search collection migration when constructor inspected then search depends on common projection boundary") {
-            val constructorParameterNames =
+            val viewModelParameterTypes =
                 SearchViewModel::class.java.declaredConstructors
                     .flatMap { constructor -> constructor.parameterTypes.map(Class<*>::getName) }
+            val collaboratorParameterTypes =
+                SearchViewModelDependencies::class.java.declaredConstructors
+                    .flatMap { constructor -> constructor.parameterTypes.map(Class<*>::getName) }
 
-            constructorParameterNames.filter { typeName -> typeName == MAIN_MEMO_UI_MAPPER }.shouldBeEmpty()
-            constructorParameterNames.contains(MemoCollectionProjectionMapper::class.java.name) shouldBe true
+            (viewModelParameterTypes + collaboratorParameterTypes)
+                .filter { typeName -> typeName == MAIN_MEMO_UI_MAPPER }
+                .shouldBeEmpty()
+            collaboratorParameterTypes.contains(MemoCollectionProjectionMapper::class.java.name) shouldBe true
         }
 
         test("given dirty Main Batch C files when search source inspected then no Batch C API dependency exists") {

@@ -11,6 +11,7 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import java.io.ByteArrayOutputStream
 import java.io.OutputStream
@@ -19,6 +20,8 @@ import java.time.LocalTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -35,7 +38,9 @@ import kotlinx.coroutines.test.runTest
  *   to share-image persistence with the stats prefix and a share event is emitted.
  * - Given the streaming persistence fails before consuming the source, when sharing statistics,
  *   then the source is still closed and a user-visible error is exposed.
- * - Given statistics are requested, when loading completes, then memo statistics state is exposed.
+ * - Given statistics publications, when the view model is created, then memo statistics state is
+ *   exposed without an explicit load command.
+ * - Given a later statistics emission, when the view model is collecting, then Ready is replaced.
  *
  * Observable outcomes:
  * - UiState, share image event path/id, error message state, persistence prefix, streamed bytes,
@@ -76,7 +81,7 @@ class StatisticsViewModelTest : AppFunSpec() {
         beforeTest {
             memoStatisticsUseCase = mockk()
             persistShareImageUseCase = mockk()
-            coEvery { memoStatisticsUseCase() } returns sampleStatistics()
+            every { memoStatisticsUseCase.observe() } returns flowOf(sampleStatistics())
         }
 
         test("given screenshot source when share succeeds then streamed bytes are persisted with stats prefix") {
@@ -139,18 +144,30 @@ class StatisticsViewModelTest : AppFunSpec() {
             }
         }
 
-        test("loadStatistics still exposes memo statistics state") {
+        test("collecting statistics publications exposes ready state without an explicit load") {
             runTest {
                 val viewModel = createViewModel()
-                advanceUntilIdle()
-                coVerify(exactly = 0) { memoStatisticsUseCase() }
-
-                viewModel.ensureLoaded()
                 advanceUntilIdle()
 
                 val state = viewModel.uiState.value.shouldBeInstanceOf<StatisticsScreenState.Ready>()
                 (state.statistics.earliestDailyMemoTime) shouldBe (LocalTime.of(8, 15))
-                coVerify(exactly = 1) { memoStatisticsUseCase() }
+            }
+        }
+
+        test("a later statistics emission replaces the ready snapshot") {
+            runTest {
+                val emissions = MutableSharedFlow<MemoStatistics>(replay = 1)
+                emissions.tryEmit(sampleStatistics())
+                every { memoStatisticsUseCase.observe() } returns emissions
+                val viewModel = createViewModel()
+                advanceUntilIdle()
+
+                val updated = sampleStatistics().copy(totalMemos = 9)
+                emissions.emit(updated)
+                advanceUntilIdle()
+
+                val state = viewModel.uiState.value.shouldBeInstanceOf<StatisticsScreenState.Ready>()
+                state.statistics.totalMemos shouldBe 9
             }
         }
     }

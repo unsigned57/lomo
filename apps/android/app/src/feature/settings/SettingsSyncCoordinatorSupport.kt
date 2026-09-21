@@ -27,10 +27,9 @@ internal suspend fun runSettingsOperation(
     try {
         action()
         null
+    } catch (cancellation: CancellationException) {
+        throw cancellation
     } catch (throwable: Exception) {
-        if (throwable is CancellationException) {
-            throw throwable
-        }
         specificError(throwable)
             ?: SettingsOperationError.Message(throwable.toUserMessage(fallbackMessage))
     }

@@ -5,8 +5,8 @@ import com.lomo.domain.usecase.ExportEncryptedSettingsUseCase
 import com.lomo.domain.usecase.ImportAllNotesArchiveUseCase
 import com.lomo.domain.usecase.ImportEncryptedSettingsUseCase
 import com.lomo.domain.usecase.MigrationArchiveSummary
+import com.lomo.app.util.runSuspendCatching
 import com.lomo.domain.usecase.MigrationSettingsSummary
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -121,11 +121,8 @@ class SettingsMigrationFeatureViewModel(
         _operationState.value = SettingsMigrationOperationState.Running(kind)
         scope.launch {
             _operationState.value =
-                runCatching { block() }
+                runSuspendCatching { block() }
                     .getOrElse { throwable ->
-                        if (throwable is CancellationException) {
-                            throw throwable
-                        }
                         SettingsMigrationOperationState.Error(
                             kind = kind,
                             message = throwable.message?.takeIf(String::isNotBlank)

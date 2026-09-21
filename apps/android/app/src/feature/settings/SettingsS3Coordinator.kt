@@ -25,7 +25,7 @@ import kotlinx.coroutines.flow.map
 
 class SettingsS3Coordinator(
     private val s3SyncSettingsUseCase: S3SyncSettingsUseCase,
-    private val credentialRepository: CredentialRepository,
+    credentialRepository: CredentialRepository,
     scope: CoroutineScope,
 ) : SettingsS3FeatureSupport {
     private val sharedEnabled: StateFlow<Boolean> =
@@ -36,31 +36,31 @@ class SettingsS3Coordinator(
     val s3EndpointUrl: StateFlow<String> =
         s3SyncSettingsUseCase
             .observeEndpointUrl()
-            .map { it ?: "" }
+            .map { it.orEmpty() }
             .settingsStateIn(scope, "")
 
     val s3Region: StateFlow<String> =
         s3SyncSettingsUseCase
             .observeRegion()
-            .map { it ?: "" }
+            .map { it.orEmpty() }
             .settingsStateIn(scope, "")
 
     val s3Bucket: StateFlow<String> =
         s3SyncSettingsUseCase
             .observeBucket()
-            .map { it ?: "" }
+            .map { it.orEmpty() }
             .settingsStateIn(scope, "")
 
     val s3Prefix: StateFlow<String> =
         s3SyncSettingsUseCase
             .observePrefix()
-            .map { it ?: "" }
+            .map { it.orEmpty() }
             .settingsStateIn(scope, "")
 
     val s3LocalSyncDirectory: StateFlow<String> =
         s3SyncSettingsUseCase
             .observeLocalSyncDirectory()
-            .map { it ?: "" }
+            .map { it.orEmpty() }
             .settingsStateIn(scope, "")
 
     val s3PathStyle: StateFlow<S3PathStyle> =
@@ -390,23 +390,25 @@ class SettingsS3Coordinator(
 
     private val providerSettingsController =
         ProviderSettingsController(
-            provider = SyncBackendType.S3,
-            scope = scope,
-            enabled = sharedEnabled,
-            autoSyncEnabled = sharedAutoSyncEnabled,
-            autoSyncInterval = sharedAutoSyncInterval,
-            syncOnRefreshEnabled = sharedSyncOnRefreshEnabled,
-            lastSyncTime = sharedLastSyncTime,
-            credentialFields = credentialFields,
-            rawSyncState = s3SyncSettingsUseCase.observeSyncState(),
-            mapToUnifiedSyncState = { state -> state.toUnifiedState(SyncBackendType.S3) },
-            updateEnabledAction = updateS3SyncEnabledInternal,
-            updateAutoSyncEnabledAction = updateS3AutoSyncEnabledInternal,
-            updateAutoSyncIntervalAction = updateS3AutoSyncIntervalInternal,
-            updateSyncOnRefreshEnabledAction = updateS3SyncOnRefreshInternal,
-            triggerSyncNowAction = triggerS3SyncNowInternal,
-            testConnectionAction = ::testS3ConnectionState,
-            mapConnectionFailure = ::mapS3ConnectionFailure,
+            ProviderSettingsControllerDependencies(
+                provider = SyncBackendType.S3,
+                scope = scope,
+                enabled = sharedEnabled,
+                autoSyncEnabled = sharedAutoSyncEnabled,
+                autoSyncInterval = sharedAutoSyncInterval,
+                syncOnRefreshEnabled = sharedSyncOnRefreshEnabled,
+                lastSyncTime = sharedLastSyncTime,
+                credentialFields = credentialFields,
+                rawSyncState = s3SyncSettingsUseCase.observeSyncState(),
+                mapToUnifiedSyncState = { state -> state.toUnifiedState(SyncBackendType.S3) },
+                updateEnabledAction = updateS3SyncEnabledInternal,
+                updateAutoSyncEnabledAction = updateS3AutoSyncEnabledInternal,
+                updateAutoSyncIntervalAction = updateS3AutoSyncIntervalInternal,
+                updateSyncOnRefreshEnabledAction = updateS3SyncOnRefreshInternal,
+                triggerSyncNowAction = triggerS3SyncNowInternal,
+                testConnectionAction = ::testS3ConnectionState,
+                mapConnectionFailure = ::mapS3ConnectionFailure,
+            ),
         )
 
     val providerSettingsModel: StateFlow<RemoteProviderSettingsModel> = providerSettingsController.model

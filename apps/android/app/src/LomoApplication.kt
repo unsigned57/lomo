@@ -29,8 +29,12 @@ import com.lomo.app.feature.image.lomoImageDiskCache
 import com.lomo.app.feature.image.lomoImageFetcherCoroutineContext
 import com.lomo.app.navigation.ShareRoutePayloadStore
 import com.lomo.app.startup.AppStartupCoordinator
+import com.lomo.app.startup.currentProcessName
+import com.lomo.app.widget.WidgetProjectionBinder
+import com.lomo.domain.model.WorkspaceProcessDuty
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.ReminderCoordinator
+import com.lomo.domain.repository.SecuritySessionController
 import com.lomo.domain.repository.SyncPolicyRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -58,12 +62,14 @@ private val dataModules: List<Module> by lazy {
     require(listInstance is List<*>) {
         "DataModulesKt.getDataModules must return List<Module>."
     }
-    listInstance.map { module ->
-        require(module is Module) {
-            "DataModulesKt.getDataModules returned ${module?.javaClass?.name ?: "null"}, expected Module."
+    listInstance
+        .onEach { module ->
+            require(module is Module) {
+                val returnedClass = module?.javaClass
+                "DataModulesKt.getDataModules returned ${returnedClass?.name ?: "null"}, expected Module."
+            }
         }
-        module
-    }
+        .filterIsInstance<Module>()
 }
 
 class LomoApplication :
@@ -77,6 +83,7 @@ class LomoApplication :
     private val appShutdownCoordinator: AppShutdownCoordinator by inject()
     private val reminderCoordinator: ReminderCoordinator by inject()
     private val engineReadinessRepository: EngineReadinessRepository by inject()
+    private val securitySessionController: SecuritySessionController by inject()
     
     // behavior-contract: unmanaged-scope-ok: process-lifetime app
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -98,8 +105,8 @@ class LomoApplication :
                     .build(),
             ).diskCache(lomoImageDiskCache(context.cacheDir))
             .diskCachePolicy(CachePolicy.ENABLED)
-            .fetcherCoroutineContext(lomoImageFetcherCoroutineContext)
-            .decoderCoroutineContext(lomoImageDecoderCoroutineContext)
+            .fetcherCoroutineContext(lomoImageFetcherCoroutineContext(Dispatchers.IO))
+            .decoderCoroutineContext(lomoImageDecoderCoroutineContext(Dispatchers.IO))
             .crossfade(true)
             .serviceLoaderEnabled(false)
             .build()
@@ -140,10 +147,19 @@ class LomoApplication :
             Timber.plant(Timber.DebugTree())
         }
 
+        if (!ownsNativeEngine()) {
+            return
+        }
+
+        get<WidgetProjectionBinder>()
         appStartupCoordinator.start()
 
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             object : DefaultLifecycleObserver {
+                override fun onStop(owner: LifecycleOwner) {
+                    securitySessionController.recordBackgrounded()
+                }
+
                 override fun onStart(owner: LifecycleOwner) {
                     // Foreground entry re-reads the authoritative engine snapshot. Grants can be
                     // revoked and workspaces removed while the process is backgrounded, so a stale
@@ -162,9 +178,11 @@ class LomoApplication :
                             Timber.e(error, "Failed to schedule sync")
                         }
 
-                        runCatching {
+                        try {
                             syncPolicyRepository.applyRemoteSyncPolicy()
-                        }.onFailure { error ->
+                        } catch (error: kotlinx.coroutines.CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
                             Timber.e(error, "Failed to schedule remote sync")
                         }
                     }
@@ -193,6 +211,9 @@ class LomoApplication :
         super.onConfigurationChanged(newConfig)
         lastKnownUiMode = newConfig.uiMode
 
+        if (!ownsNativeEngine()) {
+            return
+        }
         appStartupCoordinator.resyncThemeOnConfigurationChange(
             previousUiMode = previousUiMode,
             currentUiMode = newConfig.uiMode,
@@ -219,6 +240,12 @@ class LomoApplication :
         }
         super.onTerminate()
     }
+
+    private fun ownsNativeEngine(): Boolean =
+        WorkspaceProcessDuty.ownsNativeEngine(
+            packageName = packageName,
+            processName = currentProcessName(this),
+        )
 }
 
 private const val SHARE_ROUTE_PAYLOAD_CACHE_DIR = "share-route-payloads"

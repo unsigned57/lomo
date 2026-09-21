@@ -3,10 +3,11 @@ package com.lomo.app.feature.update
 import android.content.Context
 import com.lomo.domain.model.AppUpdateInstallState
 import com.lomo.domain.usecase.CancelAppUpdateDownloadUseCase
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.domain.usecase.DownloadAndInstallAppUpdateUseCase
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.StateFlow
 
@@ -17,12 +18,13 @@ data class AppUpdateProgressDialogState(
 )
 
 class AppUpdateDownloadManager(
-    private val context: Context,
-    private val downloadAndInstallAppUpdateUseCase: DownloadAndInstallAppUpdateUseCase,
-    private val cancelAppUpdateDownloadUseCase: CancelAppUpdateDownloadUseCase,
+    context: Context,
+    downloadAndInstallAppUpdateUseCase: DownloadAndInstallAppUpdateUseCase,
+    cancelAppUpdateDownloadUseCase: CancelAppUpdateDownloadUseCase,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) {
         // behavior-contract: unmanaged-scope-ok: process-lifetime in-app update download session
-        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        private val scope = CoroutineScope(SupervisorJob() + dispatcherProvider.main)
         private val downloadSession =
             AppUpdateDownloadSession(
                 context = context,

@@ -3,11 +3,12 @@ package com.lomo.app.feature.gallery
 import android.content.ContentResolver
 import android.graphics.BitmapFactory
 import androidx.core.net.toUri
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.ui.util.SynchronizedLruStore
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.toPersistentMap
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,7 +18,8 @@ import java.io.File
 
 class GalleryImageDimensionResolver(
     private val contentResolver: ContentResolver? = null,
-    private val maxEntries: Int = MAX_CACHE_ENTRIES,
+    maxEntries: Int = MAX_CACHE_ENTRIES,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) {
     private val cache = SynchronizedLruStore<String, Float>(maxEntries)
     private val _aspectFlow = MutableStateFlow(seedCacheFromShared())
@@ -54,7 +56,7 @@ class GalleryImageDimensionResolver(
     }
 
     private suspend fun decodeAspectRatio(path: String): Float =
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             try {
                 if (path.startsWith(CONTENT_URI_PREFIX, ignoreCase = true)) {
                     val resolver = contentResolver ?: return@withContext GALLERY_DEFAULT_ASPECT_RATIO

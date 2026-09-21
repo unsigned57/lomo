@@ -38,6 +38,16 @@ import kotlinx.coroutines.test.runTest
  *
  * Excludes:
  * - Domain sync engine behavior, repository-contract narrowing, and Compose rendering.
+ * Test Change Justification:
+ * - Reason category: production signature refactor (parameter object).
+ * - Old behavior/assertion being replaced: controller flows/lambdas passed as a flat parameter
+ *   list.
+ * - Why old assertion is no longer correct: the controller now takes
+ *   ProviderSettingsControllerDependencies; the test constructs that object instead.
+ * - Coverage preserved by: all scenario assertions (enabled toggles, sync-now, connection test)
+ *   are unchanged.
+ * - Why this is not fitting the test to the implementation: behavior is still asserted through
+ *   the same state outputs; only the wiring shape changed.
  */
 class ProviderSettingsControllerTest : AppFunSpec() {
     init {
@@ -64,35 +74,37 @@ class ProviderSettingsControllerTest : AppFunSpec() {
 
                 val controller =
                     ProviderSettingsController(
-                        provider = SyncBackendType.S3,
-                        scope = backgroundScope,
-                        enabled = enabledFlow,
-                        autoSyncEnabled = autoSyncEnabledFlow,
-                        autoSyncInterval = autoSyncIntervalFlow,
-                        syncOnRefreshEnabled = syncOnRefresh,
-                        lastSyncTime = lastSyncTimeFlow,
-                        credentialFields = credentials,
-                        rawSyncState = rawSyncState,
-                        mapToUnifiedSyncState = { raw ->
-                            if (raw == "CONNECTING") {
-                                UnifiedSyncState.Running(SyncBackendType.S3, UnifiedSyncPhase.CONNECTING)
-                            } else {
-                                UnifiedSyncState.Idle
-                            }
-                        },
-                        updateEnabledAction = { value -> updatedEnabled = value; null },
-                        updateAutoSyncEnabledAction = { null },
-                        updateAutoSyncIntervalAction = { value -> updatedInterval = value; null },
-                        updateSyncOnRefreshEnabledAction = { null },
-                        triggerSyncNowAction = { manualSyncCount += 1; null },
-                        testConnectionAction = { RemoteProviderConnectionTestState.Success("connected") },
-                        mapConnectionFailure = { throwable ->
-                            RemoteProviderConnectionTestState.Error(
-                                provider = SyncBackendType.S3,
-                                providerCode = S3SyncErrorCode.UNKNOWN.name,
-                                detail = throwable.message,
-                            )
-                        },
+                        ProviderSettingsControllerDependencies(
+                            provider = SyncBackendType.S3,
+                            scope = backgroundScope,
+                            enabled = enabledFlow,
+                            autoSyncEnabled = autoSyncEnabledFlow,
+                            autoSyncInterval = autoSyncIntervalFlow,
+                            syncOnRefreshEnabled = syncOnRefresh,
+                            lastSyncTime = lastSyncTimeFlow,
+                            credentialFields = credentials,
+                            rawSyncState = rawSyncState,
+                            mapToUnifiedSyncState = { raw ->
+                                if (raw == "CONNECTING") {
+                                    UnifiedSyncState.Running(SyncBackendType.S3, UnifiedSyncPhase.CONNECTING)
+                                } else {
+                                    UnifiedSyncState.Idle
+                                }
+                            },
+                            updateEnabledAction = { value -> updatedEnabled = value; null },
+                            updateAutoSyncEnabledAction = { null },
+                            updateAutoSyncIntervalAction = { value -> updatedInterval = value; null },
+                            updateSyncOnRefreshEnabledAction = { null },
+                            triggerSyncNowAction = { manualSyncCount += 1; null },
+                            testConnectionAction = { RemoteProviderConnectionTestState.Success("connected") },
+                            mapConnectionFailure = { throwable ->
+                                RemoteProviderConnectionTestState.Error(
+                                    provider = SyncBackendType.S3,
+                                    providerCode = S3SyncErrorCode.UNKNOWN.name,
+                                    detail = throwable.message,
+                                )
+                            },
+                        ),
                     )
                 val model =
                     controller.model.first { model ->
@@ -127,29 +139,31 @@ class ProviderSettingsControllerTest : AppFunSpec() {
             runTest {
                 val controller =
                     ProviderSettingsController(
-                        provider = SyncBackendType.S3,
-                        scope = backgroundScope,
-                        enabled = MutableStateFlow(true),
-                        autoSyncEnabled = MutableStateFlow(false),
-                        autoSyncInterval = MutableStateFlow("1h"),
-                        syncOnRefreshEnabled = MutableStateFlow(false),
-                        lastSyncTime = MutableStateFlow(0L),
-                        credentialFields = MutableStateFlow(emptyList()),
-                        rawSyncState = MutableStateFlow(Unit),
-                        mapToUnifiedSyncState = { UnifiedSyncState.Idle },
-                        updateEnabledAction = { null },
-                        updateAutoSyncEnabledAction = { null },
-                        updateAutoSyncIntervalAction = { null },
-                        updateSyncOnRefreshEnabledAction = { null },
-                        triggerSyncNowAction = { null },
-                        testConnectionAction = { throw IllegalStateException("network down") },
-                        mapConnectionFailure = { throwable ->
-                            RemoteProviderConnectionTestState.Error(
-                                provider = SyncBackendType.S3,
-                                providerCode = S3SyncErrorCode.CONNECTION_FAILED.name,
-                                detail = throwable.message,
-                            )
-                        },
+                        ProviderSettingsControllerDependencies(
+                            provider = SyncBackendType.S3,
+                            scope = backgroundScope,
+                            enabled = MutableStateFlow(true),
+                            autoSyncEnabled = MutableStateFlow(false),
+                            autoSyncInterval = MutableStateFlow("1h"),
+                            syncOnRefreshEnabled = MutableStateFlow(false),
+                            lastSyncTime = MutableStateFlow(0L),
+                            credentialFields = MutableStateFlow(emptyList()),
+                            rawSyncState = MutableStateFlow(Unit),
+                            mapToUnifiedSyncState = { UnifiedSyncState.Idle },
+                            updateEnabledAction = { null },
+                            updateAutoSyncEnabledAction = { null },
+                            updateAutoSyncIntervalAction = { null },
+                            updateSyncOnRefreshEnabledAction = { null },
+                            triggerSyncNowAction = { null },
+                            testConnectionAction = { throw IllegalStateException("network down") },
+                            mapConnectionFailure = { throwable ->
+                                RemoteProviderConnectionTestState.Error(
+                                    provider = SyncBackendType.S3,
+                                    providerCode = S3SyncErrorCode.CONNECTION_FAILED.name,
+                                    detail = throwable.message,
+                                )
+                            },
+                        ),
                     )
 
                 val result = controller.testConnection()
@@ -175,29 +189,31 @@ class ProviderSettingsControllerTest : AppFunSpec() {
 
                 val actionTarget: RemoteProviderSettingsActionTarget =
                     ProviderSettingsController(
-                        provider = SyncBackendType.GIT,
-                        scope = backgroundScope,
-                        enabled = MutableStateFlow(false),
-                        autoSyncEnabled = MutableStateFlow(false),
-                        autoSyncInterval = MutableStateFlow("1h"),
-                        syncOnRefreshEnabled = MutableStateFlow(false),
-                        lastSyncTime = MutableStateFlow(0L),
-                        credentialFields = MutableStateFlow(emptyList()),
-                        rawSyncState = MutableStateFlow(Unit),
-                        mapToUnifiedSyncState = { UnifiedSyncState.Idle },
-                        updateEnabledAction = { value -> updatedEnabled = value; null },
-                        updateAutoSyncEnabledAction = { value -> updatedAutoSyncEnabled = value; null },
-                        updateAutoSyncIntervalAction = { value -> updatedInterval = value; null },
-                        updateSyncOnRefreshEnabledAction = { value -> updatedSyncOnRefresh = value; null },
-                        triggerSyncNowAction = { manualSyncCount += 1; null },
-                        testConnectionAction = { RemoteProviderConnectionTestState.Success("connected") },
-                        mapConnectionFailure = { throwable ->
-                            RemoteProviderConnectionTestState.Error(
-                                provider = SyncBackendType.GIT,
-                                providerCode = throwable::class.simpleName,
-                                detail = throwable.message,
-                            )
-                        },
+                        ProviderSettingsControllerDependencies(
+                            provider = SyncBackendType.GIT,
+                            scope = backgroundScope,
+                            enabled = MutableStateFlow(false),
+                            autoSyncEnabled = MutableStateFlow(false),
+                            autoSyncInterval = MutableStateFlow("1h"),
+                            syncOnRefreshEnabled = MutableStateFlow(false),
+                            lastSyncTime = MutableStateFlow(0L),
+                            credentialFields = MutableStateFlow(emptyList()),
+                            rawSyncState = MutableStateFlow(Unit),
+                            mapToUnifiedSyncState = { UnifiedSyncState.Idle },
+                            updateEnabledAction = { value -> updatedEnabled = value; null },
+                            updateAutoSyncEnabledAction = { value -> updatedAutoSyncEnabled = value; null },
+                            updateAutoSyncIntervalAction = { value -> updatedInterval = value; null },
+                            updateSyncOnRefreshEnabledAction = { value -> updatedSyncOnRefresh = value; null },
+                            triggerSyncNowAction = { manualSyncCount += 1; null },
+                            testConnectionAction = { RemoteProviderConnectionTestState.Success("connected") },
+                            mapConnectionFailure = { throwable ->
+                                RemoteProviderConnectionTestState.Error(
+                                    provider = SyncBackendType.GIT,
+                                    providerCode = throwable::class.simpleName,
+                                    detail = throwable.message,
+                                )
+                            },
+                        ),
                     )
 
                 actionTarget.updateEnabled(true)

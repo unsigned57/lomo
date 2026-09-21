@@ -29,7 +29,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -59,8 +58,10 @@ import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.util.Locale
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,10 +79,6 @@ fun StatisticsScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-
-    LaunchedEffect(viewModel) {
-        viewModel.ensureLoaded()
-    }
 
     StatisticsShareEffects(
         context = context,
@@ -202,10 +199,13 @@ private fun StatisticsContent(
         FilledTonalButton(
             onClick = {
                 coroutineScope.launch {
-                    runCatching {
-                        captureStatisticsPngSource(screenshotLayer)
-                    }.onSuccess(onShareImageCaptured)
-                        .onFailure(onShareCaptureFailed)
+                    try {
+                        onShareImageCaptured(captureStatisticsPngSource(screenshotLayer))
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        onShareCaptureFailed(error)
+                    }
                 }
             },
             modifier =
@@ -257,7 +257,7 @@ private fun StatisticsOverviewSection(stats: MemoStatistics) {
             verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
         ) {
             StatCard(
-                value = "%.1f".format(stats.averageWordsPerMemo),
+                value = "%.1f".format(Locale.US, stats.averageWordsPerMemo),
                 label = stringResource(R.string.stats_avg_words),
                 modifier = Modifier.weight(1f),
             )

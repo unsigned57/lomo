@@ -423,6 +423,7 @@
     <string name="clipboard_label_memo">备忘录</string>
     <string name="cd_clear_trash">清空回收站</string>
     <string name="error_unknown">未知错误</string>
+    <string name="main_list_focus_memo_missing">当前列表里已经没有这条笔记</string>
 
     <!-- FAB -->
     <string name="fab_new_memo">新建备忘录</string>
@@ -483,6 +484,7 @@
     <string name="app_lock_error_unavailable">当前设备未配置生物识别或设备凭据。</string>
     <string name="app_lock_error_canceled">已取消身份验证。</string>
     <string name="app_lock_error_generic">身份验证失败，请重试。</string>
+    <string name="app_lock_error_preference_unreadable">无法读取安全设置。请重试以恢复。在恢复成功前不会放行凭据读取。</string>
     <string name="action_accept">接收</string>
     <string name="action_reject">拒绝</string>
     <string name="action_save">保存</string>
@@ -754,6 +756,8 @@
     <string name="sync_center_session_phase">阶段：%1$s</string>
     <string name="sync_center_session_progress">进度：%1$d / %2$d</string>
     <string name="sync_center_open_conflicts">打开冲突</string>
+    <string name="sync_center_conflict_session_absent">没有冲突会话</string>
+    <string name="sync_center_conflict_session_empty">此会话没有待处理冲突</string>
     <string name="sync_center_cancel_session">取消会话</string>
     <string name="sync_center_conflict_page_meta">会话 %1$s · 修订 %2$d</string>
     <string name="sync_center_conflict_row_subtitle">%1$s · %2$s</string>
@@ -790,4 +794,5 @@
     <string name="sync_center_settings_entry_title">同步中心</string>
     <string name="sync_center_settings_entry_subtitle">配置、会话、冲突与恢复（切换前为暗构建壳层）</string>
 
+    <string name="widget_snapshot_unavailable">请打开 Lomo 刷新此小组件。</string>
 </resources>

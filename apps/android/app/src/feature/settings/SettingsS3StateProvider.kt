@@ -35,7 +35,7 @@ private data class S3RcloneFilenameState(
 )
 
 class SettingsS3StateProvider(
-    private val s3Coordinator: SettingsS3Coordinator,
+    s3Coordinator: SettingsS3Coordinator,
     scope: CoroutineScope,
 ) {
     val connectionTestState: StateFlow<RemoteProviderConnectionTestState> = s3Coordinator.connectionTestState

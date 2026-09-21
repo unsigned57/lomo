@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.stateIn
 
 class AppConfigStateProvider(
     private val appConfigUiCoordinator: AppConfigUiCoordinator,
-    private val appPreferencesSnapshotRepository: AppPreferencesSnapshotRepository,
+    appPreferencesSnapshotRepository: AppPreferencesSnapshotRepository,
     private val customFontStore: CustomFontStore,
     private val appScope: CoroutineScope,
 ) {

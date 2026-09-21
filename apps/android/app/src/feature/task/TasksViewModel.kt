@@ -46,14 +46,13 @@ class TasksViewModel(
 
     fun toggleTask(task: MemoTask) {
         viewModelScope.launch {
-            runCatching {
+            try {
                 toggleMemoTaskUseCase(task = task, done = !task.done)
-                listMemoTasksUseCase()
-            }.onSuccess { tasks ->
-                _uiState.value = TasksScreenState.Ready(tasks)
-            }.onFailure { throwable ->
-                if (throwable is CancellationException) throw throwable
-                _uiState.value = TasksScreenState.Error(throwable.toUserMessage("Failed to update task"))
+                _uiState.value = TasksScreenState.Ready(listMemoTasksUseCase())
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                _uiState.value = TasksScreenState.Error(error.toUserMessage("Failed to update task"))
             }
         }
     }
@@ -64,13 +63,12 @@ class TasksViewModel(
         }
         viewModelScope.launch {
             _uiState.value = TasksScreenState.Loading
-            runCatching {
-                listMemoTasksUseCase()
-            }.onSuccess { tasks ->
-                _uiState.value = TasksScreenState.Ready(tasks)
-            }.onFailure { throwable ->
-                if (throwable is CancellationException) throw throwable
-                _uiState.value = TasksScreenState.Error(throwable.toUserMessage("Failed to load tasks"))
+            try {
+                _uiState.value = TasksScreenState.Ready(listMemoTasksUseCase())
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                _uiState.value = TasksScreenState.Error(error.toUserMessage("Failed to load tasks"))
             }
         }
     }

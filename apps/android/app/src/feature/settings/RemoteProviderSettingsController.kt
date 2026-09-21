@@ -59,25 +59,47 @@ data class RemoteProviderSettingsModel(
     val credentialFields: List<RemoteProviderCredentialFieldState> = emptyList(),
 )
 
+/** One provider's settings inputs: the observable state, the raw sync flow and the action callbacks. */
+data class ProviderSettingsControllerDependencies<RawSyncState>(
+    val provider: SyncBackendType,
+    val scope: CoroutineScope,
+    val enabled: StateFlow<Boolean>,
+    val autoSyncEnabled: StateFlow<Boolean>,
+    val autoSyncInterval: StateFlow<String>,
+    val syncOnRefreshEnabled: StateFlow<Boolean>,
+    val lastSyncTime: StateFlow<Long>,
+    val credentialFields: StateFlow<List<RemoteProviderCredentialFieldState>>,
+    val rawSyncState: Flow<RawSyncState>,
+    val mapToUnifiedSyncState: (RawSyncState) -> UnifiedSyncState,
+    val updateEnabledAction: suspend (Boolean) -> SettingsOperationError?,
+    val updateAutoSyncEnabledAction: suspend (Boolean) -> SettingsOperationError?,
+    val updateAutoSyncIntervalAction: suspend (String) -> SettingsOperationError?,
+    val updateSyncOnRefreshEnabledAction: suspend (Boolean) -> SettingsOperationError?,
+    val triggerSyncNowAction: suspend () -> SettingsOperationError?,
+    val testConnectionAction: suspend () -> RemoteProviderConnectionTestState,
+    val mapConnectionFailure: (Throwable) -> RemoteProviderConnectionTestState.Error,
+)
+
 class ProviderSettingsController<RawSyncState>(
-    private val provider: SyncBackendType,
-    scope: CoroutineScope,
-    enabled: StateFlow<Boolean>,
-    autoSyncEnabled: StateFlow<Boolean>,
-    autoSyncInterval: StateFlow<String>,
-    syncOnRefreshEnabled: StateFlow<Boolean>,
-    lastSyncTime: StateFlow<Long>,
-    credentialFields: StateFlow<List<RemoteProviderCredentialFieldState>>,
-    rawSyncState: Flow<RawSyncState>,
-    mapToUnifiedSyncState: (RawSyncState) -> UnifiedSyncState,
-    private val updateEnabledAction: suspend (Boolean) -> SettingsOperationError?,
-    private val updateAutoSyncEnabledAction: suspend (Boolean) -> SettingsOperationError?,
-    private val updateAutoSyncIntervalAction: suspend (String) -> SettingsOperationError?,
-    private val updateSyncOnRefreshEnabledAction: suspend (Boolean) -> SettingsOperationError?,
-    private val triggerSyncNowAction: suspend () -> SettingsOperationError?,
-    private val testConnectionAction: suspend () -> RemoteProviderConnectionTestState,
-    private val mapConnectionFailure: (Throwable) -> RemoteProviderConnectionTestState.Error,
+    dependencies: ProviderSettingsControllerDependencies<RawSyncState>,
 ) : RemoteProviderSettingsActionTarget {
+    private val provider = dependencies.provider
+    private val scope = dependencies.scope
+    private val enabled = dependencies.enabled
+    private val autoSyncEnabled = dependencies.autoSyncEnabled
+    private val autoSyncInterval = dependencies.autoSyncInterval
+    private val syncOnRefreshEnabled = dependencies.syncOnRefreshEnabled
+    private val lastSyncTime = dependencies.lastSyncTime
+    private val credentialFields = dependencies.credentialFields
+    private val rawSyncState = dependencies.rawSyncState
+    private val mapToUnifiedSyncState = dependencies.mapToUnifiedSyncState
+    private val updateEnabledAction = dependencies.updateEnabledAction
+    private val updateAutoSyncEnabledAction = dependencies.updateAutoSyncEnabledAction
+    private val updateAutoSyncIntervalAction = dependencies.updateAutoSyncIntervalAction
+    private val updateSyncOnRefreshEnabledAction = dependencies.updateSyncOnRefreshEnabledAction
+    private val triggerSyncNowAction = dependencies.triggerSyncNowAction
+    private val testConnectionAction = dependencies.testConnectionAction
+    private val mapConnectionFailure = dependencies.mapConnectionFailure
     private data class BehaviorState(
         val enabled: Boolean,
         val autoSyncEnabled: Boolean,
@@ -168,16 +190,20 @@ class ProviderSettingsController<RawSyncState>(
 
     override suspend fun testConnection(): SettingsOperationError? {
         _connectionTestState.value = RemoteProviderConnectionTestState.Testing
-        _connectionTestState.value =
-            try {
-                testConnectionAction()
-            } catch (throwable: Exception) {
-                if (throwable is CancellationException) {
-                    _connectionTestState.value = RemoteProviderConnectionTestState.Idle
-                    throw throwable
-                }
-                mapConnectionFailure(throwable)
+        var settled = false
+        try {
+            _connectionTestState.value = testConnectionAction()
+            settled = true
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (throwable: Exception) {
+            _connectionTestState.value = mapConnectionFailure(throwable)
+            settled = true
+        } finally {
+            if (!settled) {
+                _connectionTestState.value = RemoteProviderConnectionTestState.Idle
             }
+        }
         return null
     }
 

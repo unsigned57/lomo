@@ -6,12 +6,13 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.AudioPlaybackResolverRepository
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.ui.media.AudioPlayerController
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -62,8 +63,10 @@ open class AudioPlayerManager(
 
         private val updateDuration: () -> Unit =
             {
-                player?.duration?.let { dur ->
-                    if (dur > 0) _duration.value = dur
+                val activePlayer = player
+                val activeDuration = activePlayer?.duration
+                if (activeDuration != null && activeDuration > 0) {
+                    _duration.value = activeDuration
                 }
             }
 
@@ -222,9 +225,10 @@ open class AudioPlayerManager(
 private fun createAudioPlayerScope(
     job: Job,
     coroutineExceptionHandler: CoroutineExceptionHandler,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): CoroutineScope =
     // behavior-contract: unmanaged-scope-ok: process-lifetime audio player progress ticker bound to the player job
-    CoroutineScope(Dispatchers.Main.immediate + job + coroutineExceptionHandler)
+    CoroutineScope(dispatcherProvider.main + job + coroutineExceptionHandler)
 
 private fun logAudioPlayerError(
     message: String,

@@ -1,13 +1,13 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.app.util.runSuspendCatching
 import com.lomo.domain.model.SyncBackendType
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 class SettingsActionCoordinator(
     private val scope: CoroutineScope,
-    private val lanShareCoordinator: SettingsLanShareCoordinator,
+    lanShareCoordinator: SettingsLanShareCoordinator,
     private val gitCoordinator: SettingsGitCoordinator,
     private val webDavCoordinator: SettingsWebDavCoordinator,
     private val s3Coordinator: SettingsS3Coordinator,
@@ -187,11 +187,8 @@ class SettingsActionCoordinator(
         action: suspend () -> Unit,
     ) {
         scope.launch {
-            runCatching { action() }
+            runSuspendCatching { action() }
                 .onFailure { throwable ->
-                    if (throwable is CancellationException) {
-                        throw throwable
-                    }
                     onOperationError(errorMapper.map(throwable, fallbackMessage))
                 }
         }

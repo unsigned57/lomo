@@ -7,6 +7,7 @@ import com.lomo.app.R
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.S3SyncErrorCode
 import com.lomo.domain.model.WebDavSyncErrorCode
+import java.util.Locale
 
 object SettingsErrorPresenter {
     @Composable
@@ -90,10 +91,12 @@ object SettingsErrorPresenter {
 private fun sanitizedDetail(rawDetail: String?): String? {
     val lines =
         rawDetail
-            ?.lineSequence()
-            ?.map(String::trim)
-            ?.filter(String::isNotBlank)
-            ?.toList()
+            ?.run {
+                lineSequence()
+                    .map(String::trim)
+                    .filter(String::isNotBlank)
+                    .toList()
+            }
             .orEmpty()
     if (lines.isEmpty()) return null
     return lines.firstOrNull(::isActionableErrorDetailLine)
@@ -109,7 +112,7 @@ private fun String.isBareExceptionNoise(): Boolean =
     matches(Regex("""[\w.$]+(?:Exception|Error)(?::)?"""))
 
 private fun String.isGenericFailureWrapper(): Boolean {
-    val normalized = lowercase()
+    val normalized = lowercase(Locale.ROOT)
     return normalized.contains("s3 sync failed") ||
         normalized.contains("s3 connection failed") ||
         normalized.contains("webdav sync failed") ||

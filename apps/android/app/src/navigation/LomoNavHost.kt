@@ -52,7 +52,7 @@ fun LomoNavHost(
     val lanShareAvailabilityViewModel: LanShareAvailabilityViewModel = activityKoinViewModel()
     val lanShareEnabled by lanShareAvailabilityViewModel.lanShareEnabled.collectAsStateWithLifecycle()
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = currentBackStackEntry?.destination?.route
+    val currentRoute = currentBackStackEntry?.run { destination.route }
     var mainForegroundEntryId by remember { mutableLongStateOf(0L) }
     var evaluatedForegroundEntryId by remember { mutableLongStateOf(0L) }
     val popBackStackSafely = rememberBackNavigationAction(navController = navController)
@@ -405,7 +405,7 @@ private fun buildSingleMemoGalleryReelRequest(
         } else {
             listOf(viewerMemo).toImmutableList()
         }
-    val pageCount = viewerMemo?.imageUrls?.size ?: 0
+    val pageCount = viewerMemo?.run { imageUrls.size } ?: 0
     val clampedIndex =
         if (pageCount == 0) {
             0

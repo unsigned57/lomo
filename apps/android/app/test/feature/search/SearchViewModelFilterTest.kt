@@ -204,25 +204,27 @@ class SearchViewModelFilterTest : AppFunSpec() {
 
     private fun createViewModel(): SearchViewModel =
         SearchViewModel(
-            observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
-            appConfigStateProvider =
-                AppConfigStateProvider(
-                    appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-                    appPreferencesSnapshotRepository = appConfigRepository,
-                    customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
-                    appScope = CoroutineScope(SupervisorJob() + testDispatcher),
-                ),
-            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-            imageMapProvider = emptyImageMapProvider(),
-            projectionMapper = MemoCollectionProjectionMapper(testMemoUiMapper()),
-            searchMemosPageUseCase = SearchMemosPageUseCase(searchRepository),
-            deleteMemoUseCase = deleteMemoUseCase,
-            updateMemoContentUseCase = updateMemoContentUseCase,
-            saveImageUseCase = saveImageUseCase,
-            toggleMemoCheckboxUseCase = storeBackedToggleMemoCheckboxUseCase(memoRepository),
-            workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
-                every { workspaceAuthority } returns engineReadinessRepository.workspaceAuthority
-            },
+            SearchViewModelDependencies(
+                observeActiveDayCountUseCase = observeActiveDayCountUseCase(),
+                appConfigStateProvider =
+                    AppConfigStateProvider(
+                        appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+                        appPreferencesSnapshotRepository = appConfigRepository,
+                        customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                        appScope = CoroutineScope(SupervisorJob() + testDispatcher),
+                    ),
+                appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+                imageMapProvider = emptyImageMapProvider(),
+                projectionMapper = MemoCollectionProjectionMapper(testMemoUiMapper()),
+                searchMemosPageUseCase = SearchMemosPageUseCase(searchRepository),
+                deleteMemoUseCase = deleteMemoUseCase,
+                updateMemoContentUseCase = updateMemoContentUseCase,
+                saveImageUseCase = saveImageUseCase,
+                toggleMemoCheckboxUseCase = storeBackedToggleMemoCheckboxUseCase(memoRepository),
+                workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
+                    every { workspaceAuthority } returns engineReadinessRepository.workspaceAuthority
+                },
+            ),
         )
 
     private fun observeActiveDayCountUseCase(): ObserveActiveDayCountUseCase =

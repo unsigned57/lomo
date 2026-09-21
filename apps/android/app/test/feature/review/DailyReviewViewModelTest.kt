@@ -117,26 +117,28 @@ class DailyReviewViewModelTest : AppFunSpec() {
 
     private fun createViewModel(): DailyReviewViewModel =
         DailyReviewViewModel(
-            observeActiveDayCountUseCase =
-                ObserveActiveDayCountUseCase(
-                    com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),
-                ),
-            appConfigStateProvider =
-                com.lomo.app.feature.common.AppConfigStateProvider(
-                    appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-                    appPreferencesSnapshotRepository = appConfigRepository,
-                    customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
-                    appScope = CoroutineScope(SupervisorJob() + testDispatcher),
-                ),
-            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
-            imageMapProvider = imageMapProvider,
-            memoUiMapper = testMemoUiMapper(),
-            deleteMemoUseCase = deleteMemoUseCase,
-            updateMemoContentUseCase = updateMemoContentUseCase,
-            toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
-            saveImageUseCase = saveImageUseCase,
-            dailyReviewQueryUseCase = dailyReviewQueryUseCase,
-            dailyReviewSessionUseCase = dailyReviewSessionUseCase,
+            DailyReviewViewModelDependencies(
+                observeActiveDayCountUseCase =
+                    ObserveActiveDayCountUseCase(
+                        com.lomo.app.testing.fakes.FakeMemoStatisticsRepository(memoRepository),
+                    ),
+                appConfigStateProvider =
+                    com.lomo.app.feature.common.AppConfigStateProvider(
+                        appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+                        appPreferencesSnapshotRepository = appConfigRepository,
+                        customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                        appScope = CoroutineScope(SupervisorJob() + testDispatcher),
+                    ),
+                appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+                imageMapProvider = imageMapProvider,
+                memoUiMapper = testMemoUiMapper(),
+                deleteMemoUseCase = deleteMemoUseCase,
+                updateMemoContentUseCase = updateMemoContentUseCase,
+                toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
+                saveImageUseCase = saveImageUseCase,
+                dailyReviewQueryUseCase = dailyReviewQueryUseCase,
+                dailyReviewSessionUseCase = dailyReviewSessionUseCase,
+            ),
         )
 
     private fun sampleMemo(id: String): Memo =

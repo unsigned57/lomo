@@ -22,13 +22,13 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 class SettingsAppConfigCoordinator(
-    private val appConfigRepository: AppConfigRepository,
-    private val switchRootStorageUseCase: SwitchRootStorageUseCase,
+    appConfigRepository: AppConfigRepository,
+    switchRootStorageUseCase: SwitchRootStorageUseCase,
     scope: CoroutineScope,
-    private val customFontStore: CustomFontStore,
-    private val memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository =
+    customFontStore: CustomFontStore,
+    memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository =
         NoOpMemoSnapshotPreferencesRepository,
-    private val syncInboxRepository: SyncInboxRepository? = null,
+    syncInboxRepository: SyncInboxRepository? = null,
 ) {
     val rootDirectory: StateFlow<DirectoryDisplayState> =
         appConfigRepository

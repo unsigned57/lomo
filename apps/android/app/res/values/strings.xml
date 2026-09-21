@@ -429,6 +429,7 @@
     <string name="clipboard_label_memo">memo</string>
     <string name="cd_clear_trash">Clear trash</string>
     <string name="error_unknown">Unknown error</string>
+    <string name="main_list_focus_memo_missing">This memo is no longer in the list</string>
 
     <!-- FAB -->
     <string name="fab_new_memo">New Memo</string>
@@ -489,6 +490,7 @@
     <string name="app_lock_error_unavailable">No biometric or device credential is available on this device.</string>
     <string name="app_lock_error_canceled">Authentication was canceled.</string>
     <string name="app_lock_error_generic">Unable to verify identity. Please retry.</string>
+    <string name="app_lock_error_preference_unreadable">Security settings could not be read. Retry to recover. Credential access stays locked until this succeeds.</string>
     <string name="action_accept">Accept</string>
     <string name="action_reject">Reject</string>
     <string name="action_save">Save</string>
@@ -760,6 +762,8 @@
     <string name="sync_center_session_phase">Phase: %1$s</string>
     <string name="sync_center_session_progress">Progress: %1$d / %2$d</string>
     <string name="sync_center_open_conflicts">Open conflicts</string>
+    <string name="sync_center_conflict_session_absent">No conflict session</string>
+    <string name="sync_center_conflict_session_empty">No open conflicts in this session</string>
     <string name="sync_center_cancel_session">Cancel session</string>
     <string name="sync_center_conflict_page_meta">Session %1$s · revision %2$d</string>
     <string name="sync_center_conflict_row_subtitle">%1$s · %2$s</string>
@@ -796,4 +800,5 @@
     <string name="sync_center_settings_entry_title">Sync Center</string>
     <string name="sync_center_settings_entry_subtitle">Configuration, session, conflicts, and recovery (dark shell until cutover)</string>
 
+    <string name="widget_snapshot_unavailable">Open Lomo to refresh this widget.</string>
 </resources>

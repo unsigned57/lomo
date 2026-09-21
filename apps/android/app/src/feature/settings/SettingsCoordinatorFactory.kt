@@ -14,19 +14,35 @@ import com.lomo.domain.usecase.WebDavSyncSettingsUseCase
 import kotlinx.coroutines.CoroutineScope
 
 
+/** Collaborators shared by every settings coordinator this factory creates. */
+data class SettingsCoordinatorDependencies(
+    val appConfigRepository: AppConfigRepository,
+    val credentialRepository: CredentialRepository,
+    val lanShareService: LanShareService,
+    val gitSyncSettingsUseCase: GitSyncSettingsUseCase,
+    val webDavSyncSettingsUseCase: WebDavSyncSettingsUseCase,
+    val s3SyncSettingsUseCase: S3SyncSettingsUseCase,
+    val switchRootStorageUseCase: SwitchRootStorageUseCase,
+    val memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository,
+    val customFontStore: CustomFontStore,
+    val engineReadinessRepository: EngineReadinessRepository,
+    val syncInboxRepository: SyncInboxRepository? = null,
+)
+
 class SettingsCoordinatorFactory(
-    private val appConfigRepository: AppConfigRepository,
-    private val credentialRepository: CredentialRepository,
-    private val lanShareService: LanShareService,
-    private val gitSyncSettingsUseCase: GitSyncSettingsUseCase,
-    private val webDavSyncSettingsUseCase: WebDavSyncSettingsUseCase,
-    private val s3SyncSettingsUseCase: S3SyncSettingsUseCase,
-    private val switchRootStorageUseCase: SwitchRootStorageUseCase,
-    private val memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository,
-    private val customFontStore: CustomFontStore,
-    private val engineReadinessRepository: EngineReadinessRepository,
-    private val syncInboxRepository: SyncInboxRepository? = null,
+    dependencies: SettingsCoordinatorDependencies,
 ) {
+    private val appConfigRepository = dependencies.appConfigRepository
+    private val credentialRepository = dependencies.credentialRepository
+    private val lanShareService = dependencies.lanShareService
+    private val gitSyncSettingsUseCase = dependencies.gitSyncSettingsUseCase
+    private val webDavSyncSettingsUseCase = dependencies.webDavSyncSettingsUseCase
+    private val s3SyncSettingsUseCase = dependencies.s3SyncSettingsUseCase
+    private val switchRootStorageUseCase = dependencies.switchRootStorageUseCase
+    private val memoSnapshotPreferencesRepository = dependencies.memoSnapshotPreferencesRepository
+    private val customFontStore = dependencies.customFontStore
+    private val engineReadinessRepository = dependencies.engineReadinessRepository
+    private val syncInboxRepository = dependencies.syncInboxRepository
         private val settingsCredentialCoordinator =
             SettingsCredentialCoordinator(credentialRepository)
 
@@ -71,5 +87,5 @@ class SettingsCoordinatorFactory(
 
         fun customFontStore(): CustomFontStore = customFontStore
 
-        fun projectionFreshness() = engineReadinessRepository.projectionFreshness
+        fun mount() = engineReadinessRepository.mount
     }

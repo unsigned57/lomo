@@ -415,15 +415,14 @@ private fun GalleryScreenContent(
     onNavigateToReel: (memoId: String, imageIndex: Int, aspectByMemoId: Map<String, Float>) -> Unit,
     onResolveImageAspect: suspend (String) -> Unit,
 ) {
-    when (
-        val displayState =
-            resolveGalleryScreenDisplayState(
-                galleryState = galleryState,
-                aspectByMemoId = aspectByMemoId,
-                aspectsReady = aspectsReady,
-                initialImagesReady = initialImagesReady,
-            )
-    ) {
+    val displayState =
+        resolveGalleryScreenDisplayState(
+            galleryState = galleryState,
+            aspectByMemoId = aspectByMemoId,
+            aspectsReady = aspectsReady,
+            initialImagesReady = initialImagesReady,
+        )
+    when (displayState) {
         GalleryScreenDisplayState.Loading -> GalleryLoadingState(padding = padding)
         GalleryScreenDisplayState.Empty -> GalleryEmptyState(padding = padding)
         is GalleryScreenDisplayState.Grid ->

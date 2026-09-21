@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.map
 
 class SettingsGitCoordinator(
     private val gitSyncSettingsUseCase: GitSyncSettingsUseCase,
-    private val credentialCoordinator: SettingsCredentialCoordinator,
+    credentialCoordinator: SettingsCredentialCoordinator,
     scope: CoroutineScope,
 ) : SettingsGitFeatureSupport {
     private val sharedEnabled: StateFlow<Boolean> =
@@ -32,7 +32,7 @@ class SettingsGitCoordinator(
     val gitRemoteUrl: StateFlow<String> =
         gitSyncSettingsUseCase
             .observeRemoteUrl()
-            .map { it ?: "" }
+            .map { it.orEmpty() }
             .settingsStateIn(scope, "")
 
     val gitPatStatus: StateFlow<StoredCredentialStatus> =
@@ -162,14 +162,13 @@ class SettingsGitCoordinator(
         {
             _resetInProgress.value = true
             try {
-                runCatching {
+                try {
                     gitSyncSettingsUseCase.resetRepository().toOperationErrorOrNull()
-                }.getOrElse { throwable ->
-                    if (throwable is CancellationException) {
-                        throw throwable
-                    }
-                    throwable.toGitOperationErrorOrNull()
-                        ?: SettingsOperationError.Message(throwable.toUserMessage("Failed to reset Git repository"))
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    error.toGitOperationErrorOrNull()
+                        ?: SettingsOperationError.Message(error.toUserMessage("Failed to reset Git repository"))
                 }
             } finally {
                 _resetInProgress.value = false
@@ -188,23 +187,25 @@ class SettingsGitCoordinator(
 
     private val providerSettingsController =
         ProviderSettingsController(
-            provider = SyncBackendType.GIT,
-            scope = scope,
-            enabled = sharedEnabled,
-            autoSyncEnabled = sharedAutoSyncEnabled,
-            autoSyncInterval = sharedAutoSyncInterval,
-            syncOnRefreshEnabled = sharedSyncOnRefreshEnabled,
-            lastSyncTime = sharedLastSyncTime,
-            credentialFields = credentialFields,
-            rawSyncState = gitSyncSettingsUseCase.observeSyncState(),
-            mapToUnifiedSyncState = { state -> state },
-            updateEnabledAction = updateGitSyncEnabledInternal,
-            updateAutoSyncEnabledAction = updateGitAutoSyncEnabledInternal,
-            updateAutoSyncIntervalAction = updateGitAutoSyncIntervalInternal,
-            updateSyncOnRefreshEnabledAction = updateGitSyncOnRefreshInternal,
-            triggerSyncNowAction = triggerGitSyncNowInternal,
-            testConnectionAction = ::testGitConnectionState,
-            mapConnectionFailure = ::mapGitConnectionFailure,
+            ProviderSettingsControllerDependencies(
+                provider = SyncBackendType.GIT,
+                scope = scope,
+                enabled = sharedEnabled,
+                autoSyncEnabled = sharedAutoSyncEnabled,
+                autoSyncInterval = sharedAutoSyncInterval,
+                syncOnRefreshEnabled = sharedSyncOnRefreshEnabled,
+                lastSyncTime = sharedLastSyncTime,
+                credentialFields = credentialFields,
+                rawSyncState = gitSyncSettingsUseCase.observeSyncState(),
+                mapToUnifiedSyncState = { state -> state },
+                updateEnabledAction = updateGitSyncEnabledInternal,
+                updateAutoSyncEnabledAction = updateGitAutoSyncEnabledInternal,
+                updateAutoSyncIntervalAction = updateGitAutoSyncIntervalInternal,
+                updateSyncOnRefreshEnabledAction = updateGitSyncOnRefreshInternal,
+                triggerSyncNowAction = triggerGitSyncNowInternal,
+                testConnectionAction = ::testGitConnectionState,
+                mapConnectionFailure = ::mapGitConnectionFailure,
+            ),
         )
 
     val providerSettingsModel: StateFlow<RemoteProviderSettingsModel> = providerSettingsController.model

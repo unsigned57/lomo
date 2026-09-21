@@ -17,8 +17,12 @@ import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.SecuritySessionController
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.Job
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -96,24 +100,37 @@ class AppStartupWorkflow(
         val completedTasks = mutableListOf<StartupTaskId>()
         val bestEffortFailures = mutableListOf<StartupTaskFailure>()
         val taskScope = StartupTaskScope(scope)
-
-        for (task in orderedTasks) {
-            val definition = task.definition
-            if (
-                definition.idempotency == StartupTaskIdempotency.RUN_ONCE &&
-                (definition.id in completedOneShotTasks || definition.id in attemptedBestEffortOneShotTasks)
-            ) {
-                continue
+        val eligible =
+            orderedTasks.filter { task ->
+                val definition = task.definition
+                !(
+                    definition.idempotency == StartupTaskIdempotency.RUN_ONCE &&
+                        (definition.id in completedOneShotTasks || definition.id in attemptedBestEffortOneShotTasks)
+                )
             }
 
-            val result = runSuspendCatching { task.run(taskScope) }
+        val outcomes =
+            supervisorScope {
+                eligible
+                    .map { task ->
+                        async {
+                            val result = runSuspendCatching { task.run(taskScope) }
+                            task to result
+                        }
+                    }.awaitAll()
+            }.sortedBy { (task, _) -> task.definition.order }
+
+        var requiredFailure: Throwable? = null
+        for ((task, result) in outcomes) {
+            val definition = task.definition
             result
                 .onSuccess {
                     completedOneShotTasks += definition.id
                     completedTasks += definition.id
                 }.onFailure { failure ->
                     when (definition.failurePolicy) {
-                        StartupTaskFailurePolicy.REQUIRED -> throw failure
+                        StartupTaskFailurePolicy.REQUIRED ->
+                            requiredFailure = requiredFailure ?: failure
                         StartupTaskFailurePolicy.BEST_EFFORT -> {
                             attemptedBestEffortOneShotTasks += definition.id
                             bestEffortFailures +=
@@ -125,6 +142,7 @@ class AppStartupWorkflow(
                     }
                 }
         }
+        requiredFailure?.let { throw it }
 
         return StartupWorkflowResult(
             completedTasks = completedTasks,
@@ -145,7 +163,7 @@ class SecuritySessionRestoreTask(
             )
 
         override suspend fun run(scope: StartupTaskScope) {
-            securitySessionController.markCredentialReadsLocked()
+            securitySessionController.refresh()
         }
     }
 
@@ -201,6 +219,7 @@ class WorkspaceMaintenanceStartupTask(
 class ThemeApplicationStartupTask(
     private val appConfigRepository: AppConfigRepository,
     private val themeSideEffect: ThemeSideEffect,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : StartupTask {
         private var observeThemeJob: Job? = null
         @Volatile
@@ -227,10 +246,6 @@ class ThemeApplicationStartupTask(
                 }
         }
 
-        suspend fun resyncTheme(themeMode: ThemeMode) {
-            applyTheme(themeMode)
-        }
-
         suspend fun resyncOnConfigurationChange(
             previousUiMode: Int,
             currentUiMode: Int,
@@ -252,7 +267,7 @@ class ThemeApplicationStartupTask(
             if (themeSideEffect.isApplied(themeMode)) {
                 return
             }
-            withContext(Dispatchers.Main.immediate) {
+            withContext(dispatcherProvider.main) {
                 themeSideEffect.apply(themeMode)
             }
         }

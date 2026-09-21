@@ -1,14 +1,20 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.app.testing.AppFunSpec
+import com.lomo.domain.model.EngineFailureCategory
+import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
+import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.WebDavProvider
+import com.lomo.domain.model.WorkspaceAuthority
+import com.lomo.domain.model.WorkspaceMount
 import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.mockk
@@ -32,7 +38,7 @@ import kotlinx.coroutines.test.runTest
  *   then one shared provider-keyed action path receives the provider identity.
  * - Given provider-specific Git/WebDAV/S3 fields, when wrapper extension methods are invoked,
  *   then only provider-specific action interfaces receive those values.
- * - Given initial projection Building or Failed, when settings observes root status, then it
+ * - Given initial projection Revalidating or Recovery, when settings observes root status, then it
  *   exposes Indexing or Failed without inventing a second scanning state.
  *
  * Observable outcomes:
@@ -77,7 +83,7 @@ class SettingsFeatureViewModelsTest : AppFunSpec() {
                     SettingsStorageFeatureViewModel(
                         scope = backgroundScope,
                         appConfigCoordinator = coordinator,
-                        projectionFreshness = MutableStateFlow(ProjectionFreshness.Verified(1uL)),
+                        mount = MutableStateFlow(verifiedStorageMount()),
                         onError = errors::add,
                 )
 
@@ -88,28 +94,37 @@ class SettingsFeatureViewModelsTest : AppFunSpec() {
             }
         }
 
-        test("storage feature derives indexing and failure from managed projection state") {
+        test("storage feature derives indexing and failure from managed mount state") {
             runTest {
                 val coordinator = mockk<SettingsAppConfigCoordinator>()
-                val freshness = MutableStateFlow<ProjectionFreshness>(ProjectionFreshness.Verified(1uL))
+                val mount = MutableStateFlow(verifiedStorageMount())
                 val viewModel =
                     SettingsStorageFeatureViewModel(
                         scope = backgroundScope,
                         appConfigCoordinator = coordinator,
-                        projectionFreshness = freshness,
+                        mount = mount,
                         onError = {},
                 )
                 backgroundScope.launch { viewModel.rootOperationState.collect {} }
                 runCurrent()
 
-                freshness.value = ProjectionFreshness.Building(baseRevision = 0uL)
+                mount.value =
+                    verifiedStorageMount(freshness = ProjectionFreshness.Revalidating(1uL))
                 runCurrent()
                 viewModel.rootOperationState.value shouldBe WorkspaceRootOperationState.Indexing
 
-                freshness.value =
-                    ProjectionFreshness.Failed(
-                        baseRevision = 0uL,
-                        reasonCode = "projection_scan_deadline_exceeded",
+                mount.value =
+                    WorkspaceMount(
+                        readiness =
+                            EngineReadiness.ReadOnlyRecovery(
+                                category = EngineFailureCategory.STORAGE,
+                                code = "projection_scan_deadline_exceeded",
+                                retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                                diagnostic = "scan deadline exceeded",
+                            ),
+                        location = StorageLocation("/vault"),
+                        authority = null,
+                        freshness = ProjectionFreshness.Unavailable,
                     )
                 runCurrent()
                 viewModel.rootOperationState.value shouldBe
@@ -304,3 +319,13 @@ private class FakeS3Support : SettingsS3FeatureSupport {
 
     override fun isValidEndpointUrl(url: String): Boolean = url.startsWith("https://")
 }
+
+private fun verifiedStorageMount(
+    freshness: ProjectionFreshness = ProjectionFreshness.Verified(1uL),
+): WorkspaceMount =
+    WorkspaceMount(
+        readiness = EngineReadiness.Ready,
+        location = StorageLocation("/vault"),
+        authority = WorkspaceAuthority(workspaceId = "ws", generation = 1, projectionRevision = 1uL),
+        freshness = freshness,
+    )

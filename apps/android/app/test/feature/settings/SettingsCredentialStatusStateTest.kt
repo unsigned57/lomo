@@ -100,8 +100,6 @@ private class FakeGitCredentialStatusRepository(
 
     override fun getSyncOnRefreshEnabled(): Flow<Boolean> = flowOf(false)
 
-    override suspend fun setGitSyncEnabled(enabled: Boolean) = Unit
-
     override suspend fun setRemoteUrl(url: String) = Unit
 
     override suspend fun setToken(token: String) = Unit
@@ -163,31 +161,33 @@ private class NoOpMemoMutationRepository : MemoMutationRepository {
     ) = Unit
 
     override suspend fun saveMemo(
-        content: String,
-        timestamp: Long,
-        geoLocation: String?,
+        attempt: com.lomo.domain.model.MemoCreateAttempt,
     ): Memo = Memo(
-        id = timestamp.toString(),
-        timestamp = timestamp,
-        content = content,
-        rawContent = content,
+        id = attempt.timestampMillis.toString(),
+        timestamp = attempt.timestampMillis,
+        content = attempt.content,
+        rawContent = attempt.content,
         dateKey = "test",
     )
 
     override suspend fun updateMemo(
-        memo: com.lomo.domain.model.Memo,
-        newContent: String,
+        attempt: com.lomo.domain.model.MemoUpdateAttempt,
     ) = Unit
 
-    override suspend fun deleteMemo(memo: com.lomo.domain.model.Memo) = Unit
+    override suspend fun deleteMemo(
+        memo: com.lomo.domain.model.Memo,
+        operationId: com.lomo.domain.model.MemoOperationId,
+    ) = Unit
 
     override suspend fun restoreMemoRevision(
         currentMemo: com.lomo.domain.model.Memo,
         revision: com.lomo.domain.model.MemoRevision,
+        operationId: com.lomo.domain.model.MemoOperationId,
     ) = Unit
 
     override suspend fun setMemoPinned(
         memoId: String,
         pinned: Boolean,
+        operationId: com.lomo.domain.model.MemoOperationId,
     ) = Unit
 }

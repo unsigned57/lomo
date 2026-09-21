@@ -184,15 +184,24 @@ private fun SettingsBody(
     val heroState =
         remember(uiState.git, uiState.webDav, uiState.s3) {
             computeSettingsHomeHeroState(
-                gitEnabled = uiState.git.providerSettings.enabled,
-                gitLastSync = uiState.git.providerSettings.lastSyncTime,
-                gitSyncState = uiState.git.providerSettings.syncState,
-                webDavEnabled = uiState.webDav.providerSettings.enabled,
-                webDavLastSync = uiState.webDav.providerSettings.lastSyncTime,
-                webDavSyncState = uiState.webDav.providerSettings.syncState,
-                s3Enabled = uiState.s3.providerSettings.enabled,
-                s3LastSync = uiState.s3.providerSettings.lastSyncTime,
-                s3SyncState = uiState.s3.providerSettings.syncState,
+                git =
+                    HomeHeroProviderFacts(
+                        enabled = uiState.git.providerSettings.enabled,
+                        lastSync = uiState.git.providerSettings.lastSyncTime,
+                        syncState = uiState.git.providerSettings.syncState,
+                    ),
+                webDav =
+                    HomeHeroProviderFacts(
+                        enabled = uiState.webDav.providerSettings.enabled,
+                        lastSync = uiState.webDav.providerSettings.lastSyncTime,
+                        syncState = uiState.webDav.providerSettings.syncState,
+                    ),
+                s3 =
+                    HomeHeroProviderFacts(
+                        enabled = uiState.s3.providerSettings.enabled,
+                        lastSync = uiState.s3.providerSettings.lastSyncTime,
+                        syncState = uiState.s3.providerSettings.syncState,
+                    ),
             )
         }
     val notSetLabel = stringResource(R.string.settings_not_set)

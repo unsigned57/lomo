@@ -15,6 +15,9 @@ import com.lomo.app.startup.DynamicShortcutStartupTask
 import com.lomo.app.startup.WorkspaceMaintenanceStartupTask
 import com.lomo.app.startup.ThemeApplicationStartupTask
 import com.lomo.app.startup.ThemeSideEffect
+import com.lomo.app.widget.WIDGET_GLANCE_SNAPSHOT_FILE_NAME
+import com.lomo.app.widget.WidgetGlanceSnapshotStore
+import com.lomo.app.widget.WidgetProjectionBinder
 import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoCollectionProjectionMapper
@@ -25,6 +28,7 @@ import com.lomo.app.feature.main.MainStartupCoordinator
 import com.lomo.app.feature.main.MainVersionHistoryCoordinator
 import com.lomo.app.feature.main.MainWorkspaceCoordinator
 import com.lomo.app.feature.main.MemoUiMapper
+import com.lomo.app.feature.settings.SettingsCoordinatorDependencies
 import com.lomo.app.feature.settings.SettingsCoordinatorFactory
 import com.lomo.app.feature.share.LanShareUiCoordinator
 import com.lomo.app.feature.share.ShareErrorPolicy
@@ -56,7 +60,7 @@ val appModule = module {
     single { AndroidDynamicShortcutPublisher(androidContext(), get()) }
     single { AndroidExternalAppCommandStore(androidContext()) }
     single { AppShutdownCoordinator(get(), get()) }
-    single { TrustedLaunchSecretStore(androidContext()) }
+    single { TrustedLaunchSecretStore.create(androidContext()) }
     single { TrustedLaunchIntents(androidContext(), get()) }
 
     // App Startup coordinators and tasks
@@ -73,20 +77,19 @@ val appModule = module {
     single { AppConfigUiCoordinator(get()) }
     single { MemoCollectionProjectionMapper(get()) }
     single { WorkspaceProjectionStateProvider(get()) }
-    single { MainMemoMutationCoordinator(get(), get(), get()) }
+    single { MainMemoMutationCoordinator(get(), get()) }
     single { MainSidebarStateHolder() }
-    single { MainStartupCoordinator(get(), get(), get(), get()) }
+    single { MainStartupCoordinator(get(), get(), get(), get(), get()) }
     single { MainVersionHistoryCoordinator(get(), get()) }
     single { MainWorkspaceCoordinator(get(), get(), get(), get(), get()) }
     single {
         MemoUiMapper(
             dispatcherProvider = get(),
             markdownWorkspaceRepository = get(),
-            markdownReminderRepository = get(),
         )
     }
-    single {
-        SettingsCoordinatorFactory(
+    factory {
+        SettingsCoordinatorDependencies(
             appConfigRepository = get(),
             credentialRepository = get(),
             lanShareService = get(),
@@ -100,6 +103,7 @@ val appModule = module {
             syncInboxRepository = getOrNull(),
         )
     }
+    single { SettingsCoordinatorFactory(get()) }
     single { LanShareUiCoordinator(get()) }
     single { ShareErrorPolicy() }
     single { AppUpdateChecker(get(), get(), get()) }
@@ -107,9 +111,22 @@ val appModule = module {
     single { UpdateStartupOrchestrator(get<AppUpdateChecker>()) }
     single { ImageMapProvider(get()) }
     single { AppWidgetRepository(androidContext()) }
+    single {
+        WidgetGlanceSnapshotStore(
+            androidContext().filesDir.resolve(WIDGET_GLANCE_SNAPSHOT_FILE_NAME),
+        )
+    }
+    single {
+        WidgetProjectionBinder(
+            scope = get(named("AppScope")),
+            listQueryRepository = get(),
+            appWidgetRepository = get(),
+            snapshotStore = get(),
+        )
+    }
 
     // Sharing helpers
     single { ShareCardDisplayFormatter() }
     single { ShareCardBitmapRenderer(get(), get(), get()) }
-    single { ShareUtils(get(), get(), get()) }
+    single { ShareUtils(get(), get(), get(), get()) }
 }

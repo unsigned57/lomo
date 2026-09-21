@@ -14,7 +14,8 @@ import androidx.core.content.FileProvider
 import com.lomo.app.R
 import com.lomo.app.feature.common.PendingUiEvent
 import com.lomo.app.util.requireSuccessfulPngEncode
-import kotlinx.coroutines.Dispatchers
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.OutputStream
@@ -52,16 +53,20 @@ interface StatisticsPngSource {
     fun close()
 }
 
-internal suspend fun captureStatisticsPngSource(graphicsLayer: GraphicsLayer): StatisticsPngSource {
+internal suspend fun captureStatisticsPngSource(
+    graphicsLayer: GraphicsLayer,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+): StatisticsPngSource {
     val bitmap = graphicsLayer.toImageBitmap().asAndroidBitmap()
-    return BitmapStatisticsPngSource(bitmap)
+    return BitmapStatisticsPngSource(bitmap, dispatcherProvider)
 }
 
 private class BitmapStatisticsPngSource(
     private val bitmap: android.graphics.Bitmap,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : StatisticsPngSource {
     override suspend fun writeTo(output: OutputStream) {
-        withContext(Dispatchers.Default) {
+        withContext(dispatcherProvider.default) {
             requireSuccessfulPngEncode(
                 bitmap.compress(Bitmap.CompressFormat.PNG, STATS_SCREENSHOT_PNG_QUALITY, output),
             )

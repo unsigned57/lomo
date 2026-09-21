@@ -22,12 +22,12 @@ import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import com.lomo.domain.model.markdown.MarkdownRenderContractException
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
+import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.component.markdown.MarkdownRenderState
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 
@@ -41,6 +41,7 @@ fun LomoAppUpdateDialog(
     dialogState ?: return
 
     val markdownWorkspaceRepository = koinInject<MarkdownWorkspaceRepository>()
+    val dispatcherProvider = koinInject<DispatcherProvider>()
     val haptic = LocalAppHapticFeedback.current
     val updateMessage =
         if (dialogState.version.isBlank()) {
@@ -57,7 +58,7 @@ fun LomoAppUpdateDialog(
         ) {
             if (releaseNotes == null) return@produceState
             value =
-                withContext(Dispatchers.Default) {
+                withContext(dispatcherProvider.default) {
                     try {
                         MarkdownRenderState.Ready(markdownWorkspaceRepository.renderMarkdown(releaseNotes))
                     } catch (cancellation: CancellationException) {

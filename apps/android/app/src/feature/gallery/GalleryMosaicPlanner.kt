@@ -214,8 +214,8 @@ private fun GalleryMosaicOccupancyPlacement.toGalleryMosaicPlacement(
                 plannedTile.columnSpan == size.columnSpan && plannedTile.rowSpan == size.rowSpan
             }
     val repeatShapePenalty =
-        if (plannedTiles.lastOrNull()?.let { tile ->
-                tile.columnSpan == size.columnSpan && tile.rowSpan == size.rowSpan
+        if (plannedTiles.lastOrNull()?.let { lastPlannedTile ->
+                lastPlannedTile.columnSpan == size.columnSpan && lastPlannedTile.rowSpan == size.rowSpan
             } == true
         ) {
             GALLERY_REPEAT_SHAPE_PENALTY
