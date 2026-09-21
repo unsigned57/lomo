@@ -171,7 +171,7 @@ class ShareViewModel(
 
     fun sendMemo(device: DiscoveredDevice) {
         viewModelScope.launch {
-            runCatching {
+            try {
                 val currentContent = memoContentState.value
                 if (currentContent.isBlank()) {
                     _operationError.value = "Share content is unavailable. Please reopen the share page."
@@ -194,11 +194,10 @@ class ShareViewModel(
                 result.exceptionOrNull()?.let { throwable ->
                     reportOperationError(throwable, "Failed to send memo")
                 }
-            }.onFailure { throwable ->
-                if (throwable is CancellationException) {
-                    throw throwable
-                }
-                reportOperationError(throwable, "Failed to send memo")
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                reportOperationError(error, "Failed to send memo")
             }
         }
     }
@@ -220,13 +219,12 @@ class ShareViewModel(
 
     fun updateLanShareDeviceName(deviceName: String) {
         viewModelScope.launch {
-            runCatching {
+            try {
                 lanShareUiCoordinator.setLanShareDeviceName(deviceName)
-            }.onFailure { throwable ->
-                if (throwable is CancellationException) {
-                    throw throwable
-                }
-                reportOperationError(throwable, "Failed to update device name")
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                reportOperationError(error, "Failed to update device name")
             }
         }
     }

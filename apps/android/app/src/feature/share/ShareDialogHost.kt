@@ -20,11 +20,10 @@ private const val BYTES_PER_MEBIBYTE = 1_048_576L
 
 @Composable
 internal fun LanPairingConfirmationDialog(
-    request: LanPairingRequest?,
+    request: LanPairingRequest,
     onConfirm: (String) -> Unit,
     onDecline: (String) -> Unit,
 ) {
-    if (request == null) return
     AlertDialog(
         onDismissRequest = { onDecline(request.pairingId) },
         title = { Text(stringResource(R.string.lan_pairing_confirm_title)) },
@@ -59,11 +58,10 @@ internal fun LanPairingConfirmationDialog(
 
 @Composable
 internal fun LanBatchApprovalDialog(
-    batch: LanIncomingBatch?,
+    batch: LanIncomingBatch,
     onApprove: (String, String) -> Unit,
     onReject: (String, String) -> Unit,
 ) {
-    if (batch == null) return
     AlertDialog(
         onDismissRequest = { onReject(batch.sessionId, batch.batchId) },
         title = { Text(stringResource(R.string.lan_batch_approval_title)) },

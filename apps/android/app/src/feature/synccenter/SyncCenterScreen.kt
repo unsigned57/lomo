@@ -282,6 +282,7 @@ private fun SyncCenterReadyBody(
             SyncCenterOverviewPane(
                 config = ready.config,
                 session = ready.session,
+                conflictPage = ready.conflictPage,
                 onOpenConflicts = { onIntent(SyncCenterIntent.NavigateConflicts) },
                 onCancel = { onIntent(SyncCenterIntent.CancelSession) },
             )

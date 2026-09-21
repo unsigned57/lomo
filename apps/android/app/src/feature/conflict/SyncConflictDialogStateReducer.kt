@@ -1,11 +1,11 @@
 package com.lomo.app.feature.conflict
 
-import com.lomo.domain.model.SyncConflictAutoResolutionAdvisor
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
-import com.lomo.domain.model.SyncReviewAutoResolutionAdvisor
 import com.lomo.domain.model.SyncReviewItemState
+import com.lomo.domain.model.toConflictChoice
+import com.lomo.domain.model.toReviewChoice
 import com.lomo.domain.model.SyncReviewResolution
 import com.lomo.domain.model.SyncReviewResolutionChoice
 import com.lomo.domain.model.SyncReviewSession
@@ -24,14 +24,14 @@ internal fun buildSuggestedChoices(
 ): ImmutableMap<String, SyncConflictResolutionChoice> =
     conflictSet.files.mapNotNull { file ->
         if (file.relativePath in blockedPaths) return@mapNotNull null
-        SyncConflictAutoResolutionAdvisor.suggestedChoice(file)?.let { choice ->
+        file.suggestion?.run { suggested?.toConflictChoice() }?.let { choice ->
             file.relativePath to choice
         }
     }.toMap().toImmutableMap()
 
 internal fun buildSafeChoices(conflictSet: SyncConflictSet): ImmutableMap<String, SyncConflictResolutionChoice> =
     conflictSet.files.mapNotNull { file ->
-        SyncConflictAutoResolutionAdvisor.safeAutoResolutionChoice(file)?.let { choice ->
+        file.suggestion?.run { safe?.toConflictChoice() }?.let { choice ->
             file.relativePath to choice
         }
     }.toMap().toImmutableMap()
@@ -42,7 +42,7 @@ internal fun buildReviewSuggestedChoices(
 ): ImmutableMap<String, SyncReviewResolutionChoice> =
     review.items.mapNotNull { item ->
         if (item.relativePath in blockedPaths) return@mapNotNull null
-        SyncReviewAutoResolutionAdvisor.suggestedChoice(item)?.let { choice ->
+        item.suggestion?.run { suggested?.toReviewChoice() }?.let { choice ->
             item.relativePath to choice
         }
     }.toMap().toImmutableMap()
@@ -53,7 +53,7 @@ internal fun buildReviewSafeChoices(
 ): ImmutableMap<String, SyncReviewResolutionChoice> =
     review.items.mapNotNull { item ->
         if (item.relativePath in blockedPaths) return@mapNotNull null
-        SyncReviewAutoResolutionAdvisor.safeAutoResolutionChoice(item)?.let { choice ->
+        item.suggestion?.run { safe?.toReviewChoice() }?.let { choice ->
             item.relativePath to choice
         }
     }.toMap().toImmutableMap()

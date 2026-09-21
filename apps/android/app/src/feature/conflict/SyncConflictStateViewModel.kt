@@ -35,8 +35,7 @@ class SyncConflictStateViewModel(
             ReviewSyncProviders.map { provider ->
                 syncProviderRegistry
                     .get(provider)
-                    ?.syncState()
-                    ?.map { state -> provider to state }
+                    ?.run { syncState().map { state -> provider to state } }
                     ?: flowOf(provider to UnifiedSyncState.Idle)
             },
         ) { entries -> entries.toMap().toImmutableMap() }

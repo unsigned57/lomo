@@ -11,6 +11,7 @@ import com.lomo.domain.model.RemoteSyncConflictPath
 import com.lomo.domain.model.RemoteSyncConflictPathStatus
 import com.lomo.domain.model.RemoteSyncConflictResolution
 import com.lomo.domain.model.RemoteSyncConflictResolveResult
+import com.lomo.domain.model.RemoteSyncConflictSessionState
 import com.lomo.domain.model.RemoteSyncMarkdownConflictFacts
 import com.lomo.domain.model.RemoteSyncSessionPhase
 import com.lomo.domain.model.RemoteSyncSessionProgress
@@ -18,6 +19,8 @@ import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.SyncMergeChoice
+import com.lomo.domain.model.SyncMergeSuggestion
 import com.lomo.domain.model.SyncReviewItem
 import com.lomo.domain.model.SyncReviewItemState
 import com.lomo.domain.model.SyncReviewResolution
@@ -57,7 +60,18 @@ import kotlinx.coroutines.test.runTest
  *   - Given apply without remote session, when applyResolution, then fail-closed (no Kotlin engine).
  *   - Given inbox review, when apply, then SyncReviewResolutionUseCase path runs independently.
  * - Observable outcomes: ViewModel state, backup log, remote resolve kinds/revision.
+ * - TDD proof: RED before the dialog contract; fail-closed apply without a remote session and
+ *   suggestion-driven preselection are asserted through ViewModel state.
  * - Excludes: Compose UI, BoltFFI/JNI, Sync Center list-detail as primary UX.
+ * Test Change Justification:
+ * - Reason category: domain contract change (T20 owner-side merge suggestions).
+ * - Old behavior/assertion being replaced: conflict-item fixtures carried no suggestion.
+ * - Why old assertion is no longer correct: conflict items now carry a typed SyncMergeSuggestion
+ *   that the ViewModel surfaces as suggested/safe choices.
+ * - Coverage preserved by: all existing pane/dialog assertions are unchanged; fixtures only
+ *   gained the suggestion field.
+ * - Why this is not fitting the test to the implementation: suggestions are the declared domain
+ *   contract asserted through observable pane state.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SyncConflictViewModelTest : AppFunSpec() {
@@ -111,6 +125,12 @@ class SyncConflictViewModelTest : AppFunSpec() {
                                 localContent = "alpha\n\nbeta",
                                 remoteContent = "alpha\n\nbeta\n\ngamma",
                                 isBinary = false,
+                                suggestion =
+                                    SyncMergeSuggestion(
+                                        suggested = SyncMergeChoice.KEEP_OTHER,
+                                        safe = SyncMergeChoice.KEEP_OTHER,
+                                        mergedText = "alpha\n\nbeta\n\ngamma",
+                                    ),
                             ),
                         ),
                 )
@@ -141,6 +161,12 @@ class SyncConflictViewModelTest : AppFunSpec() {
                                 localContent = "start\nlocal\nmiddle\nend",
                                 remoteContent = "start\nmiddle\nremote\nend",
                                 isBinary = false,
+                                suggestion =
+                                    SyncMergeSuggestion(
+                                        suggested = SyncMergeChoice.MERGE_TEXT,
+                                        safe = SyncMergeChoice.MERGE_TEXT,
+                                        mergedText = "start\nlocal\nmiddle\nremote\nend",
+                                    ),
                             ),
                         ),
                 )
@@ -170,6 +196,12 @@ class SyncConflictViewModelTest : AppFunSpec() {
                                 localContent = "start\nlocal\nmiddle\nend",
                                 incomingContent = "start\nmiddle\nremote\nend",
                                 isBinary = false,
+                                suggestion =
+                                    SyncMergeSuggestion(
+                                        suggested = SyncMergeChoice.MERGE_TEXT,
+                                        safe = SyncMergeChoice.MERGE_TEXT,
+                                        mergedText = "start\nlocal\nmiddle\nremote\nend",
+                                    ),
                             ),
                         ),
                 )
@@ -232,6 +264,12 @@ class SyncConflictViewModelTest : AppFunSpec() {
                                 isBinary = false,
                                 localLastModified = 10_000_000L,
                                 remoteLastModified = 1_000L,
+                                suggestion =
+                                    SyncMergeSuggestion(
+                                        suggested = SyncMergeChoice.KEEP_LOCAL,
+                                        safe = SyncMergeChoice.KEEP_LOCAL,
+                                        mergedText = null,
+                                    ),
                             ),
                         ),
                 )
@@ -261,6 +299,12 @@ class SyncConflictViewModelTest : AppFunSpec() {
                                 localContent = "local only",
                                 remoteContent = "",
                                 isBinary = false,
+                                suggestion =
+                                    SyncMergeSuggestion(
+                                        suggested = SyncMergeChoice.KEEP_LOCAL,
+                                        safe = SyncMergeChoice.KEEP_LOCAL,
+                                        mergedText = "local only",
+                                    ),
                             ),
                         ),
                 )
@@ -644,6 +688,7 @@ class SyncConflictViewModelTest : AppFunSpec() {
                     remainingAfterResolve
                 }
             return RemoteSyncConflictPage(
+                session = RemoteSyncConflictSessionState.Present,
                 sessionId = "sess-test",
                 conflictRevision = if (afterResolve) 12L else 11L,
                 items = items,

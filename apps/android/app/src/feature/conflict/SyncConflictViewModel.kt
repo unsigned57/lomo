@@ -9,9 +9,9 @@ import com.lomo.domain.model.SyncReviewResolutionChoice
 import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.usecase.BackupSyncConflictFilesUseCase
 import com.lomo.domain.usecase.RemoteSyncConflictDialogUseCase
+import com.lomo.app.util.runSuspendCatching
 import com.lomo.domain.usecase.SyncReviewResolutionUseCase
 import kotlinx.collections.immutable.toImmutableMap
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -183,14 +183,14 @@ class SyncConflictViewModel(
         _state.value = current.withResolving(true)
 
         viewModelScope.launch {
-            runCatching {
+            runSuspendCatching {
                 when (current) {
                     is SyncConflictDialogState.Showing -> {
                         val session = openRemoteSession
                         if (session == null) {
                             // Fail closed: no dual-stack Kotlin engine resolve without Rust session.
                             _state.value = current.copy(isResolving = false)
-                            return@runCatching
+                            return@runSuspendCatching
                         }
                         val filesToBackup =
                             current.conflictSet.files.filter { file ->
@@ -220,9 +220,6 @@ class SyncConflictViewModel(
                     SyncConflictDialogState.Hidden -> Unit
                 }
             }.onFailure { throwable ->
-                if (throwable is CancellationException) {
-                    throw throwable
-                }
                 _state.update { state ->
                     when (state) {
                         is SyncConflictDialogState.Showing -> state.copy(isResolving = false)

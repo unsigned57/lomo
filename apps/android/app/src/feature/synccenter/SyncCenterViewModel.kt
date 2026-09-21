@@ -6,12 +6,14 @@ import com.lomo.domain.model.RemoteSyncCenterFailure
 import com.lomo.domain.model.RemoteSyncConflictPath
 import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.domain.usecase.RemoteSyncCenterUseCase
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Stage-5 dark Sync Center ViewModel (P5-10).
@@ -29,6 +31,7 @@ class SyncCenterViewModel(
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(initialSyncCenterState())
     val uiState: StateFlow<SyncCenterUiState> = _uiState.asStateFlow()
+    private val loadEpoch = AtomicLong(0)
 
     val open: (workspaceRoot: String, isListDetail: Boolean) -> Unit = { workspaceRoot, isListDetail ->
         applyIntent(SyncCenterIntent.Open(workspaceRoot = workspaceRoot, isListDetail = isListDetail))
@@ -71,24 +74,37 @@ class SyncCenterViewModel(
     }
 
     private fun loadInitial(workspaceRoot: String) {
+        val epoch = loadEpoch.incrementAndGet()
         viewModelScope.launch {
-            runCatching {
-                withContext(dispatcherProvider.io) {
-                    val config = remoteSyncCenter.configSummary(workspaceRoot)
-                    val session = remoteSyncCenter.sessionProgress(workspaceRoot)
-                    val page =
-                        remoteSyncCenter.listConflicts(
-                            workspaceRoot = workspaceRoot,
-                            cursor = 0,
-                            limit = SYNC_CENTER_CONFLICT_PAGE_LIMIT,
-                        )
-                    Triple(config, session, page)
+            try {
+                val (config, session, page) =
+                    withContext(dispatcherProvider.io) {
+                        val config = remoteSyncCenter.configSummary(workspaceRoot)
+                        val session = remoteSyncCenter.sessionProgress(workspaceRoot)
+                        val page =
+                            remoteSyncCenter.listConflicts(
+                                workspaceRoot = workspaceRoot,
+                                cursor = 0,
+                                limit = SYNC_CENTER_CONFLICT_PAGE_LIMIT,
+                            )
+                        Triple(config, session, page)
+                    }
+                _uiState.update { current ->
+                    if (epoch != loadEpoch.get() || current.workspaceRoot != workspaceRoot) {
+                        current
+                    } else {
+                        applySyncCenterLoadSuccess(current, config, session, page)
+                    }
                 }
-            }.onSuccess { (config, session, page) ->
-                _uiState.update { applySyncCenterLoadSuccess(it, config, session, page) }
-            }.onFailure { error ->
-                _uiState.update {
-                    applySyncCenterLoadFailure(it, failureMessage(error))
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                _uiState.update { current ->
+                    if (epoch != loadEpoch.get() || current.workspaceRoot != workspaceRoot) {
+                        current
+                    } else {
+                        applySyncCenterLoadFailure(current, failureMessage(error))
+                    }
                 }
             }
         }
@@ -100,17 +116,19 @@ class SyncCenterViewModel(
         limit: Int,
     ) {
         viewModelScope.launch {
-            runCatching {
-                withContext(dispatcherProvider.io) {
-                    remoteSyncCenter.listConflicts(
-                        workspaceRoot = workspaceRoot,
-                        cursor = cursor,
-                        limit = limit,
-                    )
-                }
-            }.onSuccess { page ->
+            try {
+                val page =
+                    withContext(dispatcherProvider.io) {
+                        remoteSyncCenter.listConflicts(
+                            workspaceRoot = workspaceRoot,
+                            cursor = cursor,
+                            limit = limit,
+                        )
+                    }
                 _uiState.update { applySyncCenterPageAppend(it, page) }
-            }.onFailure { error ->
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
                 _uiState.update { current ->
                     val ready = current.load as? SyncCenterLoadState.Ready ?: return@update current
                     current.copy(load = ready.copy(lastError = failureMessage(error)))
@@ -121,15 +139,15 @@ class SyncCenterViewModel(
 
     private fun resolve(effect: SyncCenterEffect.Resolve) {
         viewModelScope.launch {
-            runCatching {
-                withContext(dispatcherProvider.io) {
-                    remoteSyncCenter.resolveConflicts(
-                        workspaceRoot = effect.workspaceRoot,
-                        expectedRevision = effect.expectedRevision,
-                        resolutions = effect.resolutions,
-                    )
-                }
-            }.onSuccess { result ->
+            try {
+                val result =
+                    withContext(dispatcherProvider.io) {
+                        remoteSyncCenter.resolveConflicts(
+                            workspaceRoot = effect.workspaceRoot,
+                            expectedRevision = effect.expectedRevision,
+                            resolutions = effect.resolutions,
+                        )
+                    }
                 _uiState.update {
                     applySyncCenterResolveSuccess(
                         state = it,
@@ -138,7 +156,9 @@ class SyncCenterViewModel(
                         appliedPaths = result.appliedPaths,
                     )
                 }
-            }.onFailure { error ->
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
                 _uiState.update { applySyncCenterResolveFailure(it, failureMessage(error)) }
             }
         }
@@ -154,28 +174,28 @@ class SyncCenterViewModel(
     private fun loadConflictDetail(effect: SyncCenterEffect.LoadConflictDetail) {
         viewModelScope.launch {
             val path: RemoteSyncConflictPath = effect.path
-            runCatching {
-                withContext(dispatcherProvider.io) {
-                    when {
-                        path.isMarkdown ->
-                            DetailLoad.Markdown(
-                                remoteSyncCenter.markdownConflictFacts(
-                                    workspaceRoot = effect.workspaceRoot,
-                                    path = path,
-                                    mergedDraft = effect.mergedDraft,
-                                ),
-                            )
-                        path.isBinary ->
-                            DetailLoad.Binary(
-                                remoteSyncCenter.binaryConflictFacts(
-                                    workspaceRoot = effect.workspaceRoot,
-                                    path = path,
-                                ),
-                            )
-                        else -> DetailLoad.Unsupported
+            try {
+                val detail =
+                    withContext(dispatcherProvider.io) {
+                        when {
+                            path.isMarkdown ->
+                                DetailLoad.Markdown(
+                                    remoteSyncCenter.markdownConflictFacts(
+                                        workspaceRoot = effect.workspaceRoot,
+                                        path = path,
+                                        mergedDraft = effect.mergedDraft,
+                                    ),
+                                )
+                            path.isBinary ->
+                                DetailLoad.Binary(
+                                    remoteSyncCenter.binaryConflictFacts(
+                                        workspaceRoot = effect.workspaceRoot,
+                                        path = path,
+                                    ),
+                                )
+                            else -> DetailLoad.Unsupported
+                        }
                     }
-                }
-            }.onSuccess { detail ->
                 when (detail) {
                     is DetailLoad.Markdown ->
                         _uiState.update {
@@ -201,7 +221,9 @@ class SyncCenterViewModel(
                             current.copy(load = ready.copy(isLoadingDetail = false))
                         }
                 }
-            }.onFailure { error ->
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
                 _uiState.update {
                     applySyncCenterDetailFailure(
                         state = it,

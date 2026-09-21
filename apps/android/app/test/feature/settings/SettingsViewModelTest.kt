@@ -219,7 +219,10 @@ class SettingsViewModelTest : AppFunSpec() {
         test("testGitConnection keeps structured error code and detail for rendering") {
             runTest {
                 mockCoEvery { gitSyncSettingsUseCase.testConnection() } returns
-                    GitSyncResult.Error("java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall.execute")
+                    GitSyncResult.Error(
+                        code = GitSyncErrorCode.UNKNOWN,
+                        message = "java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall.execute",
+                    )
                 val viewModel = createViewModel()
 
                 viewModel.gitFeature.provider.testConnection()
@@ -316,18 +319,21 @@ class SettingsViewModelTest : AppFunSpec() {
 
     private fun createViewModel(): SettingsViewModel =
         SettingsViewModel(
-            coordinatorFactory = SettingsCoordinatorFactory(
-                appConfigRepository = appConfigRepository,
-                credentialRepository = credentialRepository,
-                lanShareService = shareServiceManager,
-                gitSyncSettingsUseCase = gitSyncSettingsUseCase,
-                webDavSyncSettingsUseCase = webDavSyncSettingsUseCase,
-                s3SyncSettingsUseCase = s3SyncSettingsUseCase,
-                switchRootStorageUseCase = switchRootStorageUseCase,
-                memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
-                customFontStore = FakeCustomFontStore(),
-                engineReadinessRepository = FakeEngineReadinessRepository(),
-            ),
+            coordinatorFactory =
+                SettingsCoordinatorFactory(
+                    SettingsCoordinatorDependencies(
+                        appConfigRepository = appConfigRepository,
+                        credentialRepository = credentialRepository,
+                        lanShareService = shareServiceManager,
+                        gitSyncSettingsUseCase = gitSyncSettingsUseCase,
+                        webDavSyncSettingsUseCase = webDavSyncSettingsUseCase,
+                        s3SyncSettingsUseCase = s3SyncSettingsUseCase,
+                        switchRootStorageUseCase = switchRootStorageUseCase,
+                        memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
+                        customFontStore = FakeCustomFontStore(),
+                        engineReadinessRepository = FakeEngineReadinessRepository(),
+                    ),
+                ),
             exportAllNotesArchiveUseCase = ExportAllNotesArchiveUseCase(migrationRepository),
             importAllNotesArchiveUseCase =
                 ImportAllNotesArchiveUseCase(

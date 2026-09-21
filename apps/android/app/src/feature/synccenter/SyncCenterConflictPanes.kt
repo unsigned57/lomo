@@ -57,6 +57,7 @@ import com.lomo.domain.model.RemoteSyncBinaryConflictFacts
 import com.lomo.domain.model.RemoteSyncConfigSummary
 import com.lomo.domain.model.RemoteSyncConflictPath
 import com.lomo.domain.model.RemoteSyncConflictResolution
+import com.lomo.domain.model.RemoteSyncConflictSessionState
 import com.lomo.domain.model.RemoteSyncMarkdownConflictFacts
 import com.lomo.domain.model.RemoteSyncSessionPhase
 import com.lomo.domain.model.RemoteSyncSessionProgress
@@ -128,70 +129,88 @@ internal fun SyncCenterConflictListPane(
     onIntent: (SyncCenterIntent) -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxSize().testTag("sync_center_conflict_list")) {
-        Text(
-            text =
-                stringResource(
-                    R.string.sync_center_conflict_page_meta,
-                    ready.conflictPage.sessionId,
-                    ready.conflictPage.conflictRevision,
-                ),
-            style = MaterialTheme.typography.labelMedium,
-        )
-        Spacer(Modifier.height(AppSpacing.Small))
-        ready.lastError?.let { error ->
-            Text(
-                text = stringResource(R.string.sync_center_error, error),
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.testTag("sync_center_list_error"),
-            )
-            Spacer(Modifier.height(AppSpacing.Small))
-        }
-        LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall),
-        ) {
-            items(ready.items, key = { it.path }) { item ->
-                SyncCenterConflictRow(
-                    item = item,
-                    selected = item.path == ready.selectedPath,
-                    onClick = { onIntent(SyncCenterIntent.SelectConflict(item.path)) },
+        when (ready.conflictPage.session) {
+            RemoteSyncConflictSessionState.Absent -> {
+                Text(
+                    text = stringResource(R.string.sync_center_conflict_session_absent),
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.testTag("sync_center_conflict_session_absent"),
                 )
             }
-            if (ready.conflictPage.nextCursor != null) {
-                item(key = "load_more") {
-                    OutlinedButton(
-                        onClick = { onIntent(SyncCenterIntent.LoadMoreConflicts) },
-                        enabled = !ready.isResolving,
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .defaultMinSize(minHeight = SyncCenterMinTouchTarget)
-                                .testTag("sync_center_load_more"),
-                    ) {
-                        Text(stringResource(R.string.sync_center_load_more))
+            RemoteSyncConflictSessionState.Present -> {
+                Text(
+                    text =
+                        stringResource(
+                            R.string.sync_center_conflict_page_meta,
+                            ready.conflictPage.sessionId,
+                            ready.conflictPage.conflictRevision,
+                        ),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Spacer(Modifier.height(AppSpacing.Small))
+                ready.lastError?.let { error ->
+                    Text(
+                        text = stringResource(R.string.sync_center_error, error),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.testTag("sync_center_list_error"),
+                    )
+                    Spacer(Modifier.height(AppSpacing.Small))
+                }
+                if (ready.items.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.sync_center_conflict_session_empty),
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.testTag("sync_center_conflict_session_empty"),
+                    )
+                }
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall),
+                ) {
+                    items(ready.items, key = { it.path }) { item ->
+                        SyncCenterConflictRow(
+                            item = item,
+                            selected = item.path == ready.selectedPath,
+                            onClick = { onIntent(SyncCenterIntent.SelectConflict(item.path)) },
+                        )
+                    }
+                    if (ready.conflictPage.nextCursor != null) {
+                        item(key = "load_more") {
+                            OutlinedButton(
+                                onClick = { onIntent(SyncCenterIntent.LoadMoreConflicts) },
+                                enabled = !ready.isResolving,
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .defaultMinSize(minHeight = SyncCenterMinTouchTarget)
+                                        .testTag("sync_center_load_more"),
+                            ) {
+                                Text(stringResource(R.string.sync_center_load_more))
+                            }
+                        }
                     }
                 }
+                Spacer(Modifier.height(AppSpacing.Small))
+                Button(
+                    onClick = { onIntent(SyncCenterIntent.ApplyResolutions) },
+                    enabled = !ready.isResolving && ready.perPathResolutionKind.isNotEmpty(),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = SyncCenterMinTouchTarget)
+                            .testTag("sync_center_apply_resolutions"),
+                ) {
+                    if (ready.isResolving) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.height(24.dp).width(24.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(AppSpacing.Small))
+                    }
+                    Text(stringResource(R.string.sync_center_apply_resolutions))
+                }
             }
-        }
-        Spacer(Modifier.height(AppSpacing.Small))
-        Button(
-            onClick = { onIntent(SyncCenterIntent.ApplyResolutions) },
-            enabled = !ready.isResolving && ready.perPathResolutionKind.isNotEmpty(),
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .defaultMinSize(minHeight = SyncCenterMinTouchTarget)
-                    .testTag("sync_center_apply_resolutions"),
-        ) {
-            if (ready.isResolving) {
-                CircularProgressIndicator(
-                    modifier = Modifier.height(24.dp).width(24.dp),
-                    strokeWidth = 2.dp,
-                )
-                Spacer(Modifier.width(AppSpacing.Small))
-            }
-            Text(stringResource(R.string.sync_center_apply_resolutions))
         }
     }
 }

@@ -55,8 +55,10 @@ import androidx.window.core.layout.WindowSizeClass
 import com.lomo.app.R
 import com.lomo.domain.model.RemoteSyncBinaryConflictFacts
 import com.lomo.domain.model.RemoteSyncConfigSummary
+import com.lomo.domain.model.RemoteSyncConflictPage
 import com.lomo.domain.model.RemoteSyncConflictPath
 import com.lomo.domain.model.RemoteSyncConflictResolution
+import com.lomo.domain.model.RemoteSyncConflictSessionState
 import com.lomo.domain.model.RemoteSyncMarkdownConflictFacts
 import com.lomo.domain.model.RemoteSyncSessionPhase
 import com.lomo.domain.model.RemoteSyncSessionProgress
@@ -66,6 +68,7 @@ import com.lomo.ui.theme.AppSpacing
 internal fun SyncCenterOverviewPane(
     config: RemoteSyncConfigSummary,
     session: RemoteSyncSessionProgress,
+    conflictPage: RemoteSyncConflictPage,
     onOpenConflicts: () -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -77,88 +80,129 @@ internal fun SyncCenterOverviewPane(
                 .testTag("sync_center_overview"),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
     ) {
-        Text(
-            text = stringResource(R.string.sync_center_config_heading),
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Text(
-            text =
-                stringResource(
-                    R.string.sync_center_backend_label,
-                    config.backend.name,
-                ),
-            style = MaterialTheme.typography.bodyLarge,
-        )
-        Text(
-            text =
-                stringResource(
-                    R.string.sync_center_attention_count,
-                    config.attentionCount,
-                ),
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.testTag("sync_center_attention_count"),
-        )
-        val lastVerified = config.lastVerifiedAtEpochMillis
-        Text(
-            text =
-                if (lastVerified == null) {
-                    stringResource(R.string.sync_center_last_verified_never)
-                } else {
-                    stringResource(R.string.sync_center_last_verified_at, lastVerified.toString())
-                },
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        config.schedulePolicyLabel?.let { policy ->
-            Text(
-                text = stringResource(R.string.sync_center_schedule_policy, policy),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-
+        SyncCenterOverviewConfigSection(config)
         HorizontalDivider()
-        Text(
-            text = stringResource(R.string.sync_center_session_heading),
-            style = MaterialTheme.typography.titleMedium,
+        SyncCenterOverviewSessionSection(session)
+        SyncCenterOverviewConflictsSection(
+            conflictPage = conflictPage,
+            session = session,
+            onOpenConflicts = onOpenConflicts,
+            onCancel = onCancel,
         )
+    }
+}
+
+@Composable
+private fun SyncCenterOverviewConfigSection(config: RemoteSyncConfigSummary) {
+    Text(
+        text = stringResource(R.string.sync_center_config_heading),
+        style = MaterialTheme.typography.titleMedium,
+    )
+    Text(
+        text =
+            stringResource(
+                R.string.sync_center_backend_label,
+                config.backend.name,
+            ),
+        style = MaterialTheme.typography.bodyLarge,
+    )
+    Text(
+        text =
+            stringResource(
+                R.string.sync_center_attention_count,
+                config.attentionCount,
+            ),
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier.testTag("sync_center_attention_count"),
+    )
+    val lastVerified = config.lastVerifiedAtEpochMillis
+    Text(
+        text =
+            if (lastVerified == null) {
+                stringResource(R.string.sync_center_last_verified_never)
+            } else {
+                stringResource(R.string.sync_center_last_verified_at, lastVerified.toString())
+            },
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    config.schedulePolicyLabel?.let { policy ->
         Text(
-            text = stringResource(R.string.sync_center_session_phase, session.phase.name),
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.testTag("sync_center_session_phase"),
+            text = stringResource(R.string.sync_center_schedule_policy, policy),
+            style = MaterialTheme.typography.bodyMedium,
         )
-        val total = session.totalActions
-        if (total != null) {
-            Text(
-                text =
-                    stringResource(
-                        R.string.sync_center_session_progress,
-                        session.completedActions,
-                        total,
-                    ),
-                style = MaterialTheme.typography.bodyMedium,
-            )
+    }
+}
+
+@Composable
+private fun SyncCenterOverviewSessionSection(session: RemoteSyncSessionProgress) {
+    Text(
+        text = stringResource(R.string.sync_center_session_heading),
+        style = MaterialTheme.typography.titleMedium,
+    )
+    Text(
+        text = stringResource(R.string.sync_center_session_phase, session.phase.name),
+        style = MaterialTheme.typography.bodyLarge,
+        modifier = Modifier.testTag("sync_center_session_phase"),
+    )
+    val total = session.totalActions
+    if (total != null) {
+        Text(
+            text =
+                stringResource(
+                    R.string.sync_center_session_progress,
+                    session.completedActions,
+                    total,
+                ),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
+@Composable
+private fun SyncCenterOverviewConflictsSection(
+    conflictPage: RemoteSyncConflictPage,
+    session: RemoteSyncSessionProgress,
+    onOpenConflicts: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val conflictStatus =
+        when (conflictPage.session) {
+            RemoteSyncConflictSessionState.Absent ->
+                R.string.sync_center_conflict_session_absent to "sync_center_conflict_session_absent"
+            RemoteSyncConflictSessionState.Present ->
+                if (conflictPage.items.isEmpty()) {
+                    R.string.sync_center_conflict_session_empty to "sync_center_conflict_session_empty"
+                } else {
+                    R.string.sync_center_open_conflicts to "sync_center_conflict_session_present"
+                }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small)) {
-            Button(
-                onClick = onOpenConflicts,
+    HorizontalDivider()
+    Text(
+        text = stringResource(conflictStatus.first),
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.testTag(conflictStatus.second),
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small)) {
+        Button(
+            onClick = onOpenConflicts,
+            modifier =
+                Modifier
+                    .defaultMinSize(minHeight = SyncCenterMinTouchTarget)
+                    .testTag("sync_center_open_conflicts"),
+        ) {
+            Text(stringResource(R.string.sync_center_open_conflicts))
+        }
+        if (session.canCancel) {
+            OutlinedButton(
+                onClick = onCancel,
                 modifier =
                     Modifier
                         .defaultMinSize(minHeight = SyncCenterMinTouchTarget)
-                        .testTag("sync_center_open_conflicts"),
+                        .testTag("sync_center_cancel_session"),
             ) {
-                Text(stringResource(R.string.sync_center_open_conflicts))
-            }
-            if (session.canCancel) {
-                OutlinedButton(
-                    onClick = onCancel,
-                    modifier =
-                        Modifier
-                            .defaultMinSize(minHeight = SyncCenterMinTouchTarget)
-                            .testTag("sync_center_cancel_session"),
-                ) {
-                    Icon(Icons.Outlined.Cancel, contentDescription = null)
-                    Spacer(Modifier.width(AppSpacing.Small))
-                    Text(stringResource(R.string.sync_center_cancel_session))
-                }
+                Icon(Icons.Outlined.Cancel, contentDescription = null)
+                Spacer(Modifier.width(AppSpacing.Small))
+                Text(stringResource(R.string.sync_center_cancel_session))
             }
         }
     }

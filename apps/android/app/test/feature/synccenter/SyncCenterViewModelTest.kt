@@ -22,12 +22,21 @@ package com.lomo.app.feature.synccenter
  *   markdownDetailByPath carries real base/local/remote bodies.
  * - Given binary path, when SelectConflict, then binaryDetailByPath has digests/source and no text
  *   preview fields exist on the facts type.
- * - Given markdownConflictFacts throws RemoteSyncCenterFailure, when SelectConflict, then Ready
- *   lastError is category:code, isLoadingDetail false, and markdownDetailByPath stays empty for path.
+ * - Given two Open workspace roots before idle, when both loads complete, then Ready is the
+ *   later workspace (stale page discarded by load epoch).
+ * - Given an Absent conflict page, when Open completes, then Ready.session is Absent with empty items.
  *
  * Observable outcomes: uiState load fields + fake repository last request / detail calls.
  * TDD proof: Fails before SelectConflict facts wiring because markdown/binary detail maps stay empty.
  * Excludes: Compose, Koin registration, real BoltFFI/JNI.
+ * Test Change Justification:
+ * - Reason category: new coverage for workspace switching and typed session presence.
+ * - Old behavior/assertion being replaced: none; stale-page discard was untested.
+ * - Why old assertion is no longer correct: opening another workspace must discard the prior
+ *   conflict page via load epoch, and an Absent page surfaces as Absent.
+ * - Coverage preserved by: existing ViewModel scenarios unchanged.
+ * - Why this is not fitting the test to the implementation: assertions check the emitted Ready
+ *   state, which is the observable contract.
  */
 
 import com.lomo.app.testing.AppFunSpec
@@ -41,6 +50,7 @@ import com.lomo.domain.model.RemoteSyncConflictPath
 import com.lomo.domain.model.RemoteSyncConflictPathStatus
 import com.lomo.domain.model.RemoteSyncConflictResolution
 import com.lomo.domain.model.RemoteSyncConflictResolveResult
+import com.lomo.domain.model.RemoteSyncConflictSessionState
 import com.lomo.domain.model.RemoteSyncMarkdownConflictFacts
 import com.lomo.domain.model.RemoteSyncSessionPhase
 import com.lomo.domain.model.RemoteSyncSessionProgress
@@ -314,6 +324,78 @@ class SyncCenterViewModelTest : AppFunSpec() {
                 fromState.baseBody.shouldBeNull()
             }
         }
+
+        test("switching workspace discards stale conflict page") {
+            runTest(dispatcher) {
+                val repo =
+                    FakeRemoteSyncCenterRepository(
+                        pagesByWorkspace =
+                            mapOf(
+                                "/ws-stale" to
+                                    RemoteSyncConflictPage(
+                                        session = RemoteSyncConflictSessionState.Present,
+                                        sessionId = "session-stale",
+                                        conflictRevision = 1L,
+                                        items = emptyList(),
+                                        nextCursor = null,
+                                    ),
+                                "/ws-fresh" to
+                                    RemoteSyncConflictPage(
+                                        session = RemoteSyncConflictSessionState.Absent,
+                                        sessionId = "",
+                                        conflictRevision = 0L,
+                                        items = emptyList(),
+                                        nextCursor = null,
+                                    ),
+                            ),
+                    )
+                val viewModel =
+                    SyncCenterViewModel(
+                        remoteSyncCenter = RemoteSyncCenterUseCase(repo),
+                        dispatcherProvider = TestDispatcherProvider(dispatcher),
+                    )
+
+                viewModel.open("/ws-stale", false)
+                viewModel.open("/ws-fresh", false)
+                advanceUntilIdle()
+
+                viewModel.uiState.value.workspaceRoot shouldBe "/ws-fresh"
+                val load = viewModel.uiState.value.load.shouldBeInstanceOf<SyncCenterLoadState.Ready>()
+                load.conflictPage.session shouldBe RemoteSyncConflictSessionState.Absent
+                load.conflictPage.sessionId shouldBe ""
+            }
+        }
+
+        test("absent conflict list is not a present empty session") {
+            runTest(dispatcher) {
+                val repo =
+                    FakeRemoteSyncCenterRepository(
+                        pagesByWorkspace =
+                            mapOf(
+                                "/ws" to
+                                    RemoteSyncConflictPage(
+                                        session = RemoteSyncConflictSessionState.Absent,
+                                        sessionId = "",
+                                        conflictRevision = 0L,
+                                        items = emptyList(),
+                                        nextCursor = null,
+                                    ),
+                            ),
+                    )
+                val viewModel =
+                    SyncCenterViewModel(
+                        remoteSyncCenter = RemoteSyncCenterUseCase(repo),
+                        dispatcherProvider = TestDispatcherProvider(dispatcher),
+                    )
+
+                viewModel.open("/ws", false)
+                advanceUntilIdle()
+
+                val load = viewModel.uiState.value.load.shouldBeInstanceOf<SyncCenterLoadState.Ready>()
+                load.conflictPage.session shouldBe RemoteSyncConflictSessionState.Absent
+                load.items shouldBe emptyList()
+            }
+        }
     }
 }
 
@@ -330,6 +412,7 @@ private class FakeRemoteSyncCenterRepository(
     private val markdownBodies: MarkdownBodies? = null,
     private val markdownDetailFailure: RemoteSyncCenterFailure? = null,
     private val binaryDetailFailure: RemoteSyncCenterFailure? = null,
+    private val pagesByWorkspace: Map<String, RemoteSyncConflictPage> = emptyMap(),
 ) : RemoteSyncCenterRepository {
     var lastListCursor: Int? = null
     var lastListLimit: Int? = null
@@ -364,8 +447,10 @@ private class FakeRemoteSyncCenterRepository(
         listFailure?.let { throw it }
         lastListCursor = cursor
         lastListLimit = limit
+        pagesByWorkspace[workspaceRoot]?.let { return it }
         return if (cursor == 0) {
             RemoteSyncConflictPage(
+                session = RemoteSyncConflictSessionState.Present,
                 sessionId = "session-1",
                 conflictRevision = 3L,
                 items =
@@ -398,6 +483,7 @@ private class FakeRemoteSyncCenterRepository(
             )
         } else {
             RemoteSyncConflictPage(
+                session = RemoteSyncConflictSessionState.Present,
                 sessionId = "session-1",
                 conflictRevision = 3L,
                 items =

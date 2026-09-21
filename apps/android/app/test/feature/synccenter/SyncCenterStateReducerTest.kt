@@ -21,10 +21,23 @@ package com.lomo.app.feature.synccenter
  *   (adapter owns artifact body load).
  * - Given keep_local choice + ApplyResolutions, when reduced, then Resolve effect with revision.
  * - Given ApplyResolutions with empty choices, when reduced, then lastError no_resolutions_selected.
- * - Given SetListDetail expanded, when on ConflictDetail, then pane becomes Conflicts.
+ * - Given applySyncCenterLoadSuccess with Absent vs Present empty items, when compared, then
+ *   session presence differs even though both item lists are empty.
  *
  * Observable outcomes: SyncCenterUiState fields + SyncCenterEffect payloads.
  * Excludes: Compose rendering, production nav/DI, real JNI repository.
+ * TDD proof: RED before the reducer contract; the Absent/Present distinction fails without typed
+ *   session presence on the conflict page.
+ *
+ * Test Change Justification:
+ * - Reason category: new coverage for typed session presence.
+ * - Old behavior/assertion being replaced: none; the Absent-vs-Present-empty distinction was
+ *   untested.
+ * - Why old assertion is no longer correct: RemoteSyncConflictPage.session exists and must keep
+ *   Absent distinct from a Present page with zero items.
+ * - Coverage preserved by: existing reducer scenarios unchanged.
+ * - Why this is not fitting the test to the implementation: the Absent/Present distinction is the
+ *   declared domain law asserted through reduced state.
  */
 
 import com.lomo.app.testing.AppFunSpec
@@ -34,6 +47,7 @@ import com.lomo.domain.model.RemoteSyncConflictPage
 import com.lomo.domain.model.RemoteSyncConflictPath
 import com.lomo.domain.model.RemoteSyncConflictPathStatus
 import com.lomo.domain.model.RemoteSyncConflictResolution
+import com.lomo.domain.model.RemoteSyncConflictSessionState
 import com.lomo.domain.model.RemoteSyncSessionPhase
 import com.lomo.domain.model.RemoteSyncSessionProgress
 import io.kotest.matchers.collections.shouldContainExactly
@@ -333,10 +347,74 @@ class SyncCenterStateReducerTest : AppFunSpec() {
             load.config.attentionCount shouldBe 1
             load.isResolving shouldBe false
         }
+
+        test("absent conflict page stays distinct from present empty page") {
+            val absent =
+                applySyncCenterLoadSuccess(
+                    state = initialSyncCenterState(workspaceRoot = "/ws"),
+                    config =
+                        RemoteSyncConfigSummary(
+                            backend = RemoteSyncBackendLabel.Git,
+                            attentionCount = 0,
+                            lastVerifiedAtEpochMillis = null,
+                            schedulePolicyLabel = null,
+                        ),
+                    session =
+                        RemoteSyncSessionProgress(
+                            phase = RemoteSyncSessionPhase.Idle,
+                            completedActions = 0,
+                            totalActions = null,
+                            canCancel = false,
+                        ),
+                    page =
+                        RemoteSyncConflictPage(
+                            session = RemoteSyncConflictSessionState.Absent,
+                            sessionId = "",
+                            conflictRevision = 0L,
+                            items = emptyList(),
+                            nextCursor = null,
+                        ),
+                )
+            val presentEmpty =
+                applySyncCenterLoadSuccess(
+                    state = initialSyncCenterState(workspaceRoot = "/ws"),
+                    config =
+                        RemoteSyncConfigSummary(
+                            backend = RemoteSyncBackendLabel.Git,
+                            attentionCount = 0,
+                            lastVerifiedAtEpochMillis = null,
+                            schedulePolicyLabel = null,
+                        ),
+                    session =
+                        RemoteSyncSessionProgress(
+                            phase = RemoteSyncSessionPhase.Idle,
+                            completedActions = 0,
+                            totalActions = null,
+                            canCancel = false,
+                        ),
+                    page =
+                        RemoteSyncConflictPage(
+                            session = RemoteSyncConflictSessionState.Present,
+                            sessionId = "empty-present",
+                            conflictRevision = 4L,
+                            items = emptyList(),
+                            nextCursor = null,
+                        ),
+                )
+            val absentLoad = absent.load.shouldBeInstanceOf<SyncCenterLoadState.Ready>()
+            val presentLoad = presentEmpty.load.shouldBeInstanceOf<SyncCenterLoadState.Ready>()
+            absentLoad.conflictPage.session shouldBe RemoteSyncConflictSessionState.Absent
+            presentLoad.conflictPage.session shouldBe RemoteSyncConflictSessionState.Present
+            absentLoad.items shouldBe emptyList()
+            presentLoad.items shouldBe emptyList()
+            presentLoad.conflictPage.sessionId shouldBe "empty-present"
+            absentLoad.conflictPage.sessionId shouldBe ""
+        }
     }
 
     private fun samplePage(nextCursor: Int?): RemoteSyncConflictPage =
         RemoteSyncConflictPage(
+            session = RemoteSyncConflictSessionState.Present,
             sessionId = "session-1",
             conflictRevision = 7L,
             items =

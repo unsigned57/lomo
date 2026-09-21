@@ -59,7 +59,7 @@ private fun reduceRefresh(state: SyncCenterUiState): SyncCenterReduceResult {
 
 private fun reduceLoadMore(state: SyncCenterUiState): SyncCenterReduceResult {
     val ready = state.load as? SyncCenterLoadState.Ready
-    val cursor = ready?.conflictPage?.nextCursor
+    val cursor = ready?.run { conflictPage.nextCursor }
     if (ready == null || cursor == null || ready.isResolving) {
         return SyncCenterReduceResult(state)
     }
