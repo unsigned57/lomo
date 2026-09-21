@@ -35,6 +35,7 @@ val appUpdateDataModule = module {
             installerResultObserver = get(),
             attemptStore = get(),
             installerLauncher = get(),
+            dispatcherProvider = get(),
         )
     } bind AppUpdateDownloadRepository::class
     singleOf(::AppRuntimeInfoRepositoryImpl) bind AppRuntimeInfoRepository::class

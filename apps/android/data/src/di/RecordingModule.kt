@@ -16,7 +16,8 @@ val recordingModule = module {
             appScope = get(named("ApplicationScope")),
             voiceRecordingRepository = get(),
             mediaRepository = get(),
-            serviceController = get()
+            serviceController = get(),
+            dispatcherProvider = get(),
         )
     } bind RecordingSession::class
     single { RecordingServiceControllerImpl(androidContext()) } bind RecordingServiceController::class

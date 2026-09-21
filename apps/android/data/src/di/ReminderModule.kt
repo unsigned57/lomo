@@ -8,12 +8,17 @@ import com.lomo.data.reminder.AndroidAlarmSchedulePort
 import com.lomo.data.reminder.MemoMutationReminderScheduler
 import com.lomo.data.reminder.OwnerReminderTokenFactory
 import com.lomo.data.reminder.ReminderAsyncRunner
+import com.lomo.data.reminder.ReminderExecutionLedger
 import com.lomo.data.reminder.ReminderNotifier
 import com.lomo.data.reminder.ReminderRollingWindowScheduler
+import com.lomo.data.reminder.ReminderRebuildDemand
+import com.lomo.data.reminder.ReminderRebuildWorker
+import com.lomo.data.reminder.WorkManagerReminderRebuildDemand
 import com.lomo.domain.repository.ReminderCoordinator
 import com.lomo.domain.repository.ReminderTokenFactory
 import org.koin.dsl.module
 import org.koin.android.ext.koin.androidContext
+import org.koin.androidx.workmanager.dsl.workerOf
 import org.koin.dsl.bind
 import org.koin.core.qualifier.named
 
@@ -21,11 +26,11 @@ val reminderModule = module {
     single<AlarmSchedulePort> {
         AndroidAlarmSchedulePort(gateway = AndroidAlarmManagerGateway(androidContext()))
     }
-    single { ReminderRollingWindowScheduler(port = get()) }
+    single { ReminderExecutionLedger(androidContext()) }
+    single { ReminderRollingWindowScheduler(port = get(), ledger = get()) }
     single {
         AlarmManagerReminderScheduler(
             context = androidContext(),
-            memoQueryRepository = get(),
             storePort = get(),
             readiness = get(),
             schedulePort = get(),
@@ -43,5 +48,7 @@ val reminderModule = module {
         )
     } bind ReminderCoordinator::class
     single { ReminderAsyncRunner(get(named("ApplicationScope"))) }
+    single<ReminderRebuildDemand> { WorkManagerReminderRebuildDemand(androidContext()) }
+    workerOf(::ReminderRebuildWorker)
     single { ReminderNotifier(androidContext(), get()) }
 }

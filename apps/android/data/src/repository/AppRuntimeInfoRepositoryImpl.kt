@@ -4,18 +4,20 @@ import android.content.Context
 import android.content.pm.PackageInfo
 import androidx.core.content.pm.PackageInfoCompat
 import com.lomo.domain.repository.AppRuntimeInfoRepository
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 
 
 class AppRuntimeInfoRepositoryImpl(
     private val context: Context,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : AppRuntimeInfoRepository {
         override suspend fun getCurrentVersionName(): String =
-            withContext(Dispatchers.Default) {
+            withContext(dispatcherProvider.default) {
                 try {
                     currentPackageInfo().versionName.orEmpty()
                 } catch (error: Exception) {
@@ -27,7 +29,7 @@ class AppRuntimeInfoRepositoryImpl(
             }
 
         override suspend fun getCurrentVersionCode(): Long? =
-            withContext(Dispatchers.Default) {
+            withContext(dispatcherProvider.default) {
                 try {
                     PackageInfoCompat.getLongVersionCode(currentPackageInfo())
                 } catch (error: Exception) {

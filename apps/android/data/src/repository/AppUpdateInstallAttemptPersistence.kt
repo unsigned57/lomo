@@ -57,7 +57,9 @@ internal class JsonFileAppUpdateInstallAttemptStore(
             return null
         }
         return try {
-            json.decodeFromString(StoredAppUpdateInstallAttempt.serializer(), text).toDomain()
+            val stored: StoredAppUpdateInstallAttempt =
+                json.decodeFromString(StoredAppUpdateInstallAttempt.serializer(), text)
+            stored.toDomain()
         } catch (error: SerializationException) {
             throw IllegalStateException("Stored app update install attempt is unreadable", error)
         } catch (error: IllegalArgumentException) {
@@ -106,6 +108,8 @@ private fun AppUpdateInstallAttempt.toStored(): StoredAppUpdateInstallAttempt =
         failureMessage = failureMessage,
     )
 
+// Called on the generic result of `decodeFromString`, which the static unused-symbol check cannot
+// resolve; the call site is `readAttempt()`.
 private fun StoredAppUpdateInstallAttempt.toDomain(): AppUpdateInstallAttempt =
     AppUpdateInstallAttempt(
         updateInfo = updateInfo.toDomain(),

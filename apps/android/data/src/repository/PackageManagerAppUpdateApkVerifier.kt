@@ -50,19 +50,20 @@ internal class PackageManagerAppUpdateApkVerifier(
         val failureMessage = resources.getString(resources.appUpdateInstallNotCompleted)
         val installed =
             withTimeoutOrNull(INSTALLER_RESULT_TIMEOUT_MS) {
-                while (true) {
+                var matched = false
+                while (!matched) {
                     currentCoroutineContext().ensureActive()
-                    if (installedPackageMatchesVerifiedUpdate(
+                    matched =
+                        installedPackageMatchesVerifiedUpdate(
                             installedMetadata = readInstalledMetadata(verifiedDownloadedApk.packageName),
                             verifiedDownloadedApk = verifiedDownloadedApk,
                             updateInfo = updateInfo,
                         )
-                    ) {
-                        return@withTimeoutOrNull true
+                    if (!matched) {
+                        delay(INSTALLER_RESULT_POLL_INTERVAL_MS)
                     }
-                    delay(INSTALLER_RESULT_POLL_INTERVAL_MS)
                 }
-                false
+                true
             }
         return when (installed) {
             true -> AppUpdateInstallerResult.Installed

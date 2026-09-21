@@ -3,9 +3,10 @@ package com.lomo.data.repository
 import android.content.Context
 import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.repository.CustomFontStore
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +20,7 @@ private val SUPPORTED_FONT_EXTENSIONS = setOf("ttf", "otf")
 
 class CustomFontStoreImpl(
     private val context: Context,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : CustomFontStore {
         private val fontDir: File by lazy {
             File(context.filesDir, CUSTOM_FONT_DIR_NAME).apply { if (!exists()) mkdirs() }
@@ -31,7 +33,7 @@ class CustomFontStoreImpl(
             contents: ByteArray,
             originalFileName: String,
         ): CustomFontInfo? =
-            withContext(Dispatchers.IO) {
+            withContext(dispatcherProvider.io) {
                 val decodedName =
                     try {
                         java.net.URLDecoder.decode(originalFileName, "UTF-8")
@@ -39,7 +41,8 @@ class CustomFontStoreImpl(
                         if (error is CancellationException) throw error
                         originalFileName
                     }
-                val extension = decodedName.substringAfterLast('.', missingDelimiterValue = "").lowercase()
+                val extension =
+                    decodedName.substringAfterLast('.', missingDelimiterValue = "").lowercase(java.util.Locale.ROOT)
                 if (extension !in SUPPORTED_FONT_EXTENSIONS) return@withContext null
                 val baseName = decodedName.substringBeforeLast('.').take(MAX_DISPLAY_NAME_CHARS)
                 val id = UUID.randomUUID().toString() + "." + extension
@@ -55,14 +58,14 @@ class CustomFontStoreImpl(
             }
 
         override suspend fun deleteFont(id: String) {
-            withContext(Dispatchers.IO) {
+            withContext(dispatcherProvider.io) {
                 resolveSafeFontFile(id)?.takeIf(File::exists)?.delete()
                 refreshState()
             }
         }
 
         override suspend fun resolveFontPath(id: String): String? =
-            withContext(Dispatchers.IO) {
+            withContext(dispatcherProvider.io) {
                 resolveSafeFontFile(id)?.takeIf(File::exists)?.absolutePath
             }
 
@@ -73,7 +76,9 @@ class CustomFontStoreImpl(
 
         private fun scanFonts(): List<CustomFontInfo> =
             fontDir
-                .listFiles { file -> file.isFile && file.extension.lowercase() in SUPPORTED_FONT_EXTENSIONS }
+                .listFiles { file ->
+                    file.isFile && file.extension.lowercase(java.util.Locale.ROOT) in SUPPORTED_FONT_EXTENSIONS
+                }
                 .orEmpty()
                 .sortedBy(File::lastModified)
                 .map { file ->

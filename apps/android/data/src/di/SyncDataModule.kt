@@ -1,17 +1,20 @@
 package com.lomo.data.di
 
+import com.lomo.data.engine.SessionNativeBridge
 import com.lomo.data.engine.media.WorkspaceFilesystemRoot
 import com.lomo.data.engine.sync.BoltFfiRemoteSyncRepository
 import com.lomo.data.engine.sync.BridgeConflictArtifactSource
 import com.lomo.data.engine.sync.ConflictArtifactSource
 import com.lomo.data.engine.sync.CredentialSecretMaterialSource
-import com.lomo.data.engine.sync.FreeFunctionSyncNativeBridge
+import com.lomo.data.engine.sync.EngineOwnedSyncNativeBridge
 import com.lomo.data.engine.sync.KeystoreRustSyncSecretSupplier
 import com.lomo.data.engine.sync.RemoteSyncCenterRepositoryAdapter
 import com.lomo.data.engine.sync.RemoteSyncRepository
 import com.lomo.data.engine.sync.RustSyncSecretSupplier
 import com.lomo.data.engine.sync.SecretMaterialSource
 import com.lomo.data.engine.sync.SyncNativeBridge
+import com.lomo.data.sync.BoltFfiSyncConflictSuggestionPort
+import com.lomo.data.sync.SyncConflictSuggestionPort
 import com.lomo.data.repository.AppVersionRepositoryImpl
 import com.lomo.data.repository.GitRemoteSyncFacade
 import com.lomo.data.repository.GitSyncConfigurationMutationRepositoryImpl
@@ -26,15 +29,18 @@ import com.lomo.data.repository.WebDavRemoteSyncFacade
 import com.lomo.data.repository.WebDavSyncConfigurationMutationRepositoryImpl
 import com.lomo.data.repository.WebDavSyncConfigurationRepositoryImpl
 import com.lomo.data.repository.WebDavSyncStateRepositoryImpl
-import com.lomo.data.sync.OwnerMemoIdentityConflictMerger
 import com.lomo.data.sync.RustSyncWorkPolicyPlanner
 import com.lomo.data.sync.SyncConflictBackupManager
+import com.lomo.data.worker.DeferredLockAuthorizedWorkResume
+import com.lomo.data.worker.DeferredLockWorkStore
+import com.lomo.data.worker.FileDeferredLockWorkStore
 import com.lomo.data.worker.RemoteSyncRustWorkExecutor
 import com.lomo.data.worker.RustSyncScheduler
 import com.lomo.data.worker.RustSyncWorkExecutor
 import com.lomo.data.worker.RustSyncWorker
 import com.lomo.data.worker.SyncWorker
 import com.lomo.domain.repository.AppVersionRepository
+import com.lomo.domain.repository.AuthorizedWorkResume
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.WebDavSyncStateRepository
 import com.lomo.domain.repository.WebDavSyncConfigurationRepository
@@ -58,8 +64,10 @@ import com.lomo.domain.usecase.WebDavUnifiedSyncProvider
 import org.koin.android.ext.koin.androidContext
 import org.koin.androidx.workmanager.dsl.workerOf
 import org.koin.core.module.dsl.singleOf
+import org.koin.core.qualifier.named
 import org.koin.dsl.bind
 import org.koin.dsl.module
+import java.io.File
 
 /**
  * P5-13 production cutover: single Rust-backed remote sync stack.
@@ -69,12 +77,11 @@ import org.koin.dsl.module
  * Sync Center is the conflict authority over [RemoteSyncCenterRepository].
  */
 val syncDataModule = module {
-    singleOf(::OwnerMemoIdentityConflictMerger) bind com.lomo.domain.repository.MemoIdentityConflictMerger::class
     singleOf(::SyncConflictBackupManager) bind SyncConflictBackupRepository::class
     singleOf(::AppVersionRepositoryImpl) bind AppVersionRepository::class
 
-    // BoltFFI conversion bridge (Rust-owned decisions)
-    single<SyncNativeBridge> { FreeFunctionSyncNativeBridge() }
+    // BoltFFI conversion: apply cycles require the open workspace session.
+    single<SyncNativeBridge> { EngineOwnedSyncNativeBridge(engine = get<SessionNativeBridge>()) }
     single<RemoteSyncRepository> { BoltFfiRemoteSyncRepository(bridge = get()) }
     single<ConflictArtifactSource> { BridgeConflictArtifactSource(bridge = get()) }
     single<SecretMaterialSource> {
@@ -90,10 +97,12 @@ val syncDataModule = module {
         )
     }
     single<RustSyncWorkExecutor> { RemoteSyncRustWorkExecutor(remoteSync = get()) }
+    single<SyncConflictSuggestionPort> { BoltFfiSyncConflictSuggestionPort() }
     single<RemoteSyncCenterRepository> {
         RemoteSyncCenterRepositoryAdapter(
             remoteSync = get(),
             artifactSource = get(),
+            suggestionPort = get(),
         )
     }
 
@@ -121,6 +130,18 @@ val syncDataModule = module {
             workspaceRoot = get(),
             policyPlanner = get(),
             identityMaterial = get(),
+        )
+    }
+    single<DeferredLockWorkStore> {
+        FileDeferredLockWorkStore(
+            File(androidContext().noBackupFilesDir, REMOTE_SYNC_DEFERRED_LOCK_FILE),
+        )
+    }
+    single<AuthorizedWorkResume> {
+        DeferredLockAuthorizedWorkResume(
+            store = get(),
+            scheduler = get(),
+            scope = get(named("ApplicationScope")),
         )
     }
 
@@ -154,6 +175,7 @@ val syncDataModule = module {
             context = androidContext(),
             dataStore = get(),
             rustSyncScheduler = get(),
+            syncStateReset = get(),
         )
     } bind SyncPolicyRepository::class
 
@@ -167,3 +189,5 @@ val syncDataModule = module {
     single<UnifiedSyncProvider> { S3UnifiedSyncProvider(get()) }
     single<UnifiedSyncProvider> { InboxUnifiedSyncProvider(get(), get()) }
 }
+
+private const val REMOTE_SYNC_DEFERRED_LOCK_FILE: String = "remote_sync_deferred_lock.bin"

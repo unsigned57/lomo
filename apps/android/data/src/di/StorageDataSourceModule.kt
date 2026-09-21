@@ -16,14 +16,14 @@ import org.koin.core.module.dsl.singleOf
 import org.koin.dsl.bind
 
 val storageDataSourceModule = module {
-    single { FileStorageBackendResolver(androidContext(), get()) }
+    single { FileStorageBackendResolver(androidContext(), get(), get()) }
     // Bind workspace config separately from markdown/media writers. DirectorySettings (used by
     // ManagedEngineSession) only needs WorkspaceConfigSource; routing it through FileDataSourceImpl
     // also constructed FileMarkdown/Media delegates, which require WorkspaceMutationLease, which
     // requires EngineReadinessRepository (= ManagedEngineSession) — a Koin creation cycle that
     // StackOverflowError'd on cold start.
     single {
-        FileWorkspaceConfigSourceDelegate(androidContext(), get(), get())
+        FileWorkspaceConfigSourceDelegate(androidContext(), get(), get(), get())
     } bind WorkspaceConfigSource::class
     single {
         FileMarkdownStorageDataSourceDelegate(get(), get())

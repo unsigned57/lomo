@@ -5,7 +5,8 @@ import com.lomo.domain.model.AppUpdateAssetUnsupportedReason
 import com.lomo.domain.model.AppUpdateAssetVerification
 import com.lomo.domain.model.LatestAppRelease
 import com.lomo.domain.repository.AppUpdateRepository
-import kotlinx.coroutines.Dispatchers
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -15,9 +16,11 @@ import kotlinx.serialization.json.jsonPrimitive
 import timber.log.Timber
 import java.net.HttpURLConnection
 import java.net.URL
-class AppUpdateRepositoryImpl : AppUpdateRepository {
+class AppUpdateRepositoryImpl(
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+) : AppUpdateRepository {
         override suspend fun fetchLatestRelease(): LatestAppRelease? =
-            withContext(Dispatchers.IO) {
+            withContext(dispatcherProvider.io) {
                 var connection: HttpURLConnection? = null
                 try {
                     runNonFatalCatching {
@@ -127,8 +130,8 @@ private object AppUpdateReleaseAssetNamePolicy {
         Regex("""^lomo-v(?<versionName>[0-9][A-Za-z0-9._-]*?)(?:-vc(?<versionCode>[1-9][0-9]*))?\.apk$""")
     fun parse(fileName: String): ReleaseAssetNameMetadata? {
         val match = assetNamePattern.matchEntire(fileName) ?: return null
-        val versionName = match.groups["versionName"]?.value?.takeIf { it.isNotBlank() } ?: return null
-        val versionCode = match.groups["versionCode"]?.value?.toLongOrNull()
+        val versionName = match.groups["versionName"]?.run { value.takeIf { it.isNotBlank() } } ?: return null
+        val versionCode = match.groups["versionCode"]?.run { value.toLongOrNull() }
         return ReleaseAssetNameMetadata(versionName = versionName, versionCode = versionCode)
     }
 }
@@ -140,7 +143,7 @@ private fun requireJsonString(
 ): String = requireNotNull(json[key].jsonContentOrNull()) { "Missing GitHub release field: $key" }
 private fun JsonElement?.jsonContentOrNull(): String? =
     try {
-        this?.jsonPrimitive?.content
+        this?.run { jsonPrimitive.content }
     } catch (_: IllegalArgumentException) {
         // behavior-contract: silent-result-ok: optional JSON field is absent or not a primitive
         null

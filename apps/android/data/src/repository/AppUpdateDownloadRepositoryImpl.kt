@@ -7,9 +7,10 @@ import com.lomo.domain.model.AppUpdateInstallPhase
 import com.lomo.domain.model.AppUpdateInstallState
 import com.lomo.domain.model.AppUpdateInstallerOutcome
 import com.lomo.domain.repository.AppUpdateDownloadRepository
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -31,6 +32,7 @@ class AppUpdateDownloadRepositoryImpl internal constructor(
         JsonFileAppUpdateInstallAttemptStore(File(context.filesDir, "update-install/attempt.json")),
     private val installerLauncher: AppUpdateInstallerLauncher =
         FileProviderAppUpdateInstallerLauncher(context, resources),
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : AppUpdateDownloadRepository {
         @Volatile
         // behavior-contract: stateful-var-ok: this is process-owned resource/lease/job handle, not a query cache
@@ -120,7 +122,7 @@ class AppUpdateDownloadRepositoryImpl internal constructor(
                 } finally {
                     currentDownloadJob = null
                 }
-            }.flowOn(Dispatchers.IO)
+            }.flowOn(dispatcherProvider.io)
 
         override fun cancelCurrentDownload() {
             currentDownloadJob?.cancel()

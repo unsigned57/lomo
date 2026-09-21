@@ -3,9 +3,10 @@ package com.lomo.data.di
 import com.lomo.data.diagnostics.RingBufferEngineDiagnosticsRecorder
 import com.lomo.data.engine.ManagedEngineSession
 import com.lomo.data.engine.store.BoltFfiStorePort
+import com.lomo.data.engine.store.PublishingStorePort
 import com.lomo.data.engine.store.StorePort
-import com.lomo.data.repository.StoreInvalidationBus
 import com.lomo.data.repository.StoreMemoMutationRepository
+import com.lomo.data.repository.StoreProjectionObserver
 import com.lomo.data.repository.StoreMemoQueryRepository
 import com.lomo.data.repository.StoreMemoSearchRepository
 import com.lomo.data.repository.StoreMemoStatisticsRepository
@@ -37,11 +38,13 @@ import org.koin.dsl.module
 val memoRepositoryModule =
     module {
         singleOf(::MarkdownWorkspaceContentProjector)
-        single { StoreInvalidationBus() }
         single<EngineDiagnosticsRecorder> { RingBufferEngineDiagnosticsRecorder() }
         single<StorePort> {
             val session = get<ManagedEngineSession>()
-            BoltFfiStorePort(nativeBridge = session, session = session)
+            PublishingStorePort(
+                delegate = BoltFfiStorePort(nativeBridge = session, session = session),
+                observer = StoreProjectionObserver(get()),
+            )
         }
 
         single {
@@ -49,6 +52,7 @@ val memoRepositoryModule =
                 port = get(),
                 invalidation = get(),
                 readiness = get(),
+                dispatcherProvider = get(),
             )
         } binds
             arrayOf(
@@ -66,6 +70,7 @@ val memoRepositoryModule =
                 invalidation = get(),
                 diagnostics = get(),
                 pendingStages = get(),
+                dispatcherProvider = get(),
             )
         } bind MemoMutationRepository::class
 
@@ -74,6 +79,7 @@ val memoRepositoryModule =
                 port = get(),
                 session = get<ManagedEngineSession>(),
                 invalidation = get(),
+                dispatcherProvider = get(),
             )
         } bind MemoSearchRepository::class
         single {
@@ -83,6 +89,7 @@ val memoRepositoryModule =
                 invalidation = get(),
                 readiness = get(),
                 applicationScope = get(named("ApplicationScope")),
+                dispatcherProvider = get(),
             )
         } bind MemoStatisticsRepository::class
         single {
@@ -93,6 +100,7 @@ val memoRepositoryModule =
                 readiness = get(),
                 reminderScheduler = get(),
                 mediaRepository = get(),
+                dispatcherProvider = get(),
             )
         } bind MemoTrashRepository::class
         single {
@@ -105,13 +113,13 @@ val memoRepositoryModule =
         single {
             StoreMemoTaskRepository(
                 session = get<ManagedEngineSession>(),
-                invalidation = get(),
                 writeLease = get(),
                 readiness = get(),
+                dispatcherProvider = get(),
             )
         } bind MemoTaskRepository::class
 
         single {
-            StoreWorkspaceStateResolver(port = get(), invalidation = get())
+            StoreWorkspaceStateResolver(port = get(), invalidation = get(), dispatcherProvider = get())
         } bind WorkspaceStateResolver::class
     }

@@ -11,7 +11,11 @@ import com.lomo.data.engine.ManagedEngineSession
 import com.lomo.data.engine.NativeEngineOpenRequest
 import com.lomo.data.engine.SessionNativeBridge
 import com.lomo.data.engine.WorkspaceCandidateProbe
+import com.lomo.data.engine.currentProcessName
+import com.lomo.data.repository.StoreInvalidationBus
 import com.lomo.data.source.isContentStorageUri
+import com.lomo.domain.model.WorkspaceProcessDuty
+import com.lomo.nativebridge.eventSequenceRequiresFullInvalidate
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
@@ -30,11 +34,18 @@ import org.koin.dsl.module
  * Generated BoltFFI classes stay inside `data.engine`; domain only sees
  * [EngineReadinessRepository] and [WorkspaceCandidateValidator]. Close runs through Koin `onClose`
  * so process teardown releases native handles. Workspace activation is performed by the session
- * after selection / cold restore.
+ * after selection / cold restore. Native engine open is started by the session itself on
+ * ApplicationScope (IO) only when the process owns the workspace engine, never as a
+ * constructor side effect of a Koin consumption chain.
  */
 val engineModule =
     module {
         single { CapabilityRegistry() }
+        single {
+            StoreInvalidationBus { lastSeen, incoming ->
+                eventSequenceRequiresFullInvalidate(lastSeen.toULong(), incoming.toULong())
+            }
+        }
         single {
             val request = NativeEngineOpenRequest.forAppFilesDir(androidContext().filesDir)
             ExchangeResolver(request.exchangeRoot)
@@ -42,11 +53,13 @@ val engineModule =
         single<com.lomo.data.engine.PlatformDocumentsGateway> {
             ContentResolverPlatformDocumentsGateway(androidContext().contentResolver)
         }
+        single { com.lomo.data.engine.DirectRootDocumentsGateway() }
         single {
             AndroidPlatformActionAccess(
                 registry = get(),
                 exchange = get(),
                 documents = get(),
+                directDocuments = get(),
             )
         }
         single<com.lomo.data.engine.PlatformActionAccess> {
@@ -62,11 +75,18 @@ val engineModule =
             WorkspaceCandidateProbe(androidContext())
         }
         single {
+            WorkspaceProcessDuty.forProcess(
+                packageName = androidContext().packageName,
+                processName = currentProcessName(androidContext()),
+            )
+        }
+        single {
             val filesDir = androidContext().filesDir
             val registry = get<CapabilityRegistry>()
             val executor = get<AndroidPlatformActionExecutor>()
             val exchangeResolver = get<ExchangeResolver>()
             val documents = get<com.lomo.data.engine.PlatformDocumentsGateway>()
+            val invalidation = get<StoreInvalidationBus>()
             ManagedEngineSession(
                 filesDir = filesDir,
                 capabilityRegistry = registry,
@@ -76,11 +96,14 @@ val engineModule =
                         exchangeResolver,
                         executor,
                         documents,
+                        invalidation,
                     )
                 },
                 directorySettingsRepository = get<DirectorySettingsRepository>(),
                 appScope = get(named("ApplicationScope")),
                 isContentUri = ::isContentStorageUri,
+                invalidation = invalidation,
+                ownsNativeEngine = get(),
             )
         } withOptions {
             onClose { repository ->

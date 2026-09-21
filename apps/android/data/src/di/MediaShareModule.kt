@@ -18,7 +18,7 @@ import org.koin.core.qualifier.named
 import org.koin.dsl.bind
 
 val mediaShareModule = module {
-    single { AudioRecorder(androidContext()) } bind VoiceRecordingRepository::class
+    single { AudioRecorder(androidContext(), get()) } bind VoiceRecordingRepository::class
     singleOf(::AudioPlaybackUriResolverImpl) bind AudioPlaybackResolverRepository::class
 
     single<LanDeviceKey> { AndroidLanDeviceKey() }
@@ -40,6 +40,7 @@ val mediaShareModule = module {
             runtime = get(),
             deviceKey = get(),
             appScope = get(named("ApplicationScope")),
+            dispatcherProvider = get(),
         )
     }
 }
