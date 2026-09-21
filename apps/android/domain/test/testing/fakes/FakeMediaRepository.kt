@@ -41,13 +41,19 @@ class FakeMediaRepository : MediaRepository {
         voiceTargets[entryId] = location
     }
 
-    override suspend fun importImage(source: StorageLocation): StorageLocation {
+    override suspend fun importImage(
+        source: StorageLocation,
+        draftId: com.lomo.domain.model.DraftId,
+    ): StorageLocation {
         importFailure?.let { throw it }
         importedSources += source
         return nextImportResult
     }
 
-    override suspend fun removeImage(entryId: MediaEntryId) {
+    override suspend fun removeImage(
+        entryId: MediaEntryId,
+        draftId: com.lomo.domain.model.DraftId,
+    ) {
         removedImageIds += entryId
     }
 
@@ -68,9 +74,14 @@ class FakeMediaRepository : MediaRepository {
     override suspend fun finalizeVoiceCapture(
         recordingLocation: StorageLocation,
         humanNameHint: String,
+        draftId: com.lomo.domain.model.DraftId,
     ): StorageLocation = StorageLocation(humanNameHint.ifBlank { recordingLocation.raw })
 
-    override suspend fun removeVoiceCapture(entryId: MediaEntryId) {
+    override suspend fun removeVoiceCapture(
+        entryId: MediaEntryId,
+        captureLocation: StorageLocation,
+        draftId: com.lomo.domain.model.DraftId,
+    ) {
         removedVoiceCaptureIds += entryId
     }
 

@@ -1,6 +1,7 @@
 package com.lomo.app.testing.fakes
 
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoOperationId
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.repository.MemoMutationRepository
 
@@ -29,21 +30,22 @@ class FakeMemoMutationRepository(
     }
 
     override suspend fun saveMemo(
-        content: String,
-        timestamp: Long,
-        geoLocation: String?,
-    ): Memo = store.addSavedMemo(content, timestamp, geoLocation)
+        attempt: com.lomo.domain.model.MemoCreateAttempt,
+    ): Memo = store.addSavedMemo(attempt.content, attempt.timestampMillis)
 
     override suspend fun updateMemo(
-        memo: Memo,
-        newContent: String,
-    ) = store.replaceMemoContent(memo, newContent)
+        attempt: com.lomo.domain.model.MemoUpdateAttempt,
+    ) = store.replaceMemoContent(attempt.snapshot.memo, attempt.content)
 
-    override suspend fun deleteMemo(memo: Memo) = store.moveMemoToDeleted(memo)
+    override suspend fun deleteMemo(
+        memo: Memo,
+        operationId: MemoOperationId,
+    ) = store.moveMemoToDeleted(memo)
 
     override suspend fun restoreMemoRevision(
         currentMemo: Memo,
         revision: MemoRevision,
+        operationId: MemoOperationId,
     ) {
         restoreMemoRevisionCallCount += 1
         lastRestoredMemo = currentMemo
@@ -54,5 +56,6 @@ class FakeMemoMutationRepository(
     override suspend fun setMemoPinned(
         memoId: String,
         pinned: Boolean,
+        operationId: MemoOperationId,
     ) = store.updateMemoPinned(memoId, pinned)
 }

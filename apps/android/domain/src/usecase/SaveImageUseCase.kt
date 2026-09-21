@@ -1,5 +1,6 @@
 package com.lomo.domain.usecase
 
+import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MediaRepository
 
@@ -9,17 +10,15 @@ sealed interface SaveImageResult {
     data class SavedAndCacheSynced(
         override val location: StorageLocation,
     ) : SaveImageResult
-
-    data class SavedButCacheSyncFailed(
-        override val location: StorageLocation,
-        val cause: Throwable,
-    ) : SaveImageResult
 }
 
 open class SaveImageUseCase
 (
         private val mediaRepository: MediaRepository,
     ) {
-        open suspend fun saveWithCacheSyncStatus(source: StorageLocation): SaveImageResult =
-            SaveImageResult.SavedAndCacheSynced(mediaRepository.importImage(source))
+        open suspend fun saveWithCacheSyncStatus(
+            source: StorageLocation,
+            draftId: DraftId,
+        ): SaveImageResult =
+            SaveImageResult.SavedAndCacheSynced(mediaRepository.importImage(source, draftId))
     }

@@ -38,7 +38,6 @@ class FakePreferencesRepository : PreferencesRepository {
     private val shareCardShowBrandEnabled = MutableStateFlow(true)
     private val shareCardSignatureText = MutableStateFlow("")
     private val syncInboxEnabled = MutableStateFlow(true)
-    private val draftText = MutableStateFlow("")
     private val fontSizeScale = MutableStateFlow(1f)
     private val lineHeightScale = MutableStateFlow(1f)
     private val letterSpacingScale = MutableStateFlow(1f)
@@ -223,12 +222,6 @@ class FakePreferencesRepository : PreferencesRepository {
 
     override suspend fun setSyncInboxEnabled(enabled: Boolean) {
         syncInboxEnabled.value = enabled
-    }
-
-    override fun getDraftText(): Flow<String> = draftText.asStateFlow()
-
-    override suspend fun setDraftText(text: String?) {
-        draftText.value = text.orEmpty()
     }
 
     override fun getFontSizeScale(): Flow<Float> = fontSizeScale.asStateFlow()

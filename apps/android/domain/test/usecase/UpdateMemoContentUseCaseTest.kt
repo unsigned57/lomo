@@ -1,40 +1,24 @@
 /*
  * Behavior Contract:
- * - Unit under test: UpdateMemoContentUseCaseTest
- * - Owning layer: domain
- * - Priority tier: P0
- *
- * Scenarios:
- * - Happy: standard happy path for UpdateMemoContentUseCaseTest.
- * - Boundary: boundary and edge cases for UpdateMemoContentUseCaseTest.
- * - Failure: failure and error scenarios for UpdateMemoContentUseCaseTest.
- * - Must-not-happen: invariants are never violated for UpdateMemoContentUseCaseTest.
- *
- * - Behavior focus: test behavioral outcomes of UpdateMemoContentUseCaseTest.
- * - Observable outcomes: assertions verify expected outcomes.
- * - TDD proof: Fails before JUnit 4 to Kotest migration due to test runner.
- * - Excludes: none.
+ * Capability: admit a complete edit baseline and validate body before mutation; owner: domain; P0.
+ * Scenarios: Given a complete snapshot, when valid text is submitted, then its body is updated;
+ * blank/oversized bodies fail without deletion or modification. Preview and missing baselines
+ * cannot construct the edit attempt consumed by the repository.
+ * Observable outcomes: persisted fake memo, unchanged memo on rejection and validation failures.
+ * TDD proof: operation-id input RED and command conversion evidence in audit09 command test logs.
+ * Excludes: native persistence and Markdown parsing.
+ * Test Change Justification:
+ * Reason category: stronger editor input contract.
+ * Old behavior/assertion being replaced: a generic Memo with no baseline could invoke update.
+ * Why old assertion is no longer correct: update requires a complete snapshot and frozen operation.
+ * Coverage preserved by: valid/blank/oversized body outcomes with explicit immutable baselines.
+ * Why this is not fitting the test to the implementation: invalid requests are rejected before I/O.
  */
-
 package com.lomo.domain.usecase
 
-/**
- * Behavior Contract:
- * Capability: Kotest Migration
- * Scenarios: Given standard test execution, when tests run, then assertions hold.
- * Observable outcomes: Green tests
- * TDD proof: Compilation failure on Kotest transition
- * Excludes: none
- * 
- * Test Change Justification:
- * Reason category: Migration
- * Old behavior/assertion being replaced: JUnit4 assertions
- * Why old assertion is no longer correct: Transitioning to Kotest
- * Coverage preserved by: Kotest functional matching
- * Why this is not fitting the test to the implementation: Syntax translation
- */
-
-
+import com.lomo.domain.model.EditableMemoSnapshot
+import com.lomo.domain.model.MemoUpdateAttempt
+import com.lomo.domain.model.MemoOperationId
 import com.lomo.domain.model.MemoConstraints
 import com.lomo.domain.model.Memo
 import com.lomo.domain.testing.DomainFunSpec
@@ -58,6 +42,8 @@ class UpdateMemoContentUseCaseTest : DomainFunSpec() {
             content = "old-content",
             rawContent = "- 10:00 old-content",
             dateKey = "2026_03_24",
+            contentRevision = 1L,
+            fileFingerprint = "source-fingerprint",
         )
 
     private lateinit var repository: FakeMemoStore
@@ -77,7 +63,7 @@ class UpdateMemoContentUseCaseTest : DomainFunSpec() {
             runTest {
                 val thrown =
                     runCatching {
-                        useCase(memo, "   ")
+                        useCase(MemoUpdateAttempt(MemoOperationId("update-test"), com.lomo.domain.model.DraftId("draft-test"), EditableMemoSnapshot.fromFullSnapshot(memo), "   "))
                     }.exceptionOrNull()
 
                 thrown.shouldBeInstanceOf<MemoValidationException>()
@@ -89,7 +75,7 @@ class UpdateMemoContentUseCaseTest : DomainFunSpec() {
 
         test("update flow validates first then persists updated content") {
             runTest {
-                useCase(memo, "new-content")
+                useCase(MemoUpdateAttempt(MemoOperationId("update-test"), com.lomo.domain.model.DraftId("draft-test"), EditableMemoSnapshot.fromFullSnapshot(memo), "new-content"))
 
                 repository.updatedMemos shouldBe
                     listOf(FakeMemoStore.UpdatedMemo(memo, "new-content"))
@@ -104,7 +90,7 @@ class UpdateMemoContentUseCaseTest : DomainFunSpec() {
 
                 val thrown =
                     runCatching {
-                        useCase(memo, invalidContent)
+                        useCase(MemoUpdateAttempt(MemoOperationId("update-test"), com.lomo.domain.model.DraftId("draft-test"), EditableMemoSnapshot.fromFullSnapshot(memo), invalidContent))
                     }.exceptionOrNull()
 
                 thrown.shouldBeInstanceOf<MemoValidationException>()

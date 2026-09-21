@@ -36,6 +36,7 @@ package com.lomo.domain.usecase
 
 
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoOperationId
 import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.testing.fakes.FakeMemoStore
 import io.kotest.matchers.shouldBe
@@ -62,7 +63,7 @@ class DeleteMemoUseCaseTest : DomainFunSpec() {
                                 rawContent = "- 10:00 delete me",
                                 dateKey = "2026_03_24",
                             )
-                        useCase(memo)
+                        useCase(memo, MemoOperationId("delete-use-case-test"))
 
                         repository.deletedMemoRequests shouldBe listOf(memo)
                     }

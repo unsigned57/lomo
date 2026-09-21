@@ -149,12 +149,6 @@ interface MemoSnapshotPreferencesRepository {
     suspend fun setMemoSnapshotMaxAgeDays(days: Int)
 }
 
-interface DraftPreferencesRepository {
-    fun getDraftText(): Flow<String>
-
-    suspend fun setDraftText(text: String?)
-}
-
 interface TypographyPreferencesRepository {
     fun getFontSizeScale(): Flow<Float>
 
@@ -200,7 +194,6 @@ interface PreferencesRepository :
     SecurityPreferencesRepository,
     ShareCardPreferencesRepository,
     SyncInboxPreferencesRepository,
-    DraftPreferencesRepository,
     TypographyPreferencesRepository,
     ColorSchemePreferencesRepository,
     FontPreferencesRepository

@@ -5,6 +5,7 @@ import com.lomo.domain.model.DailyReviewCandidateBoundary
 import com.lomo.domain.model.DailyReviewCandidateCursor
 import com.lomo.domain.model.DailyReviewCandidatePage
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoOperationId
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoQuerySpec
@@ -27,6 +28,12 @@ interface MemoListQueryRepository {
     suspend fun getRecentMemos(limit: Int): List<Memo>
 
     suspend fun getMemoCount(): Int
+
+    /**
+     * Emits when the derived list projection accepts a new publication. Non-paging observers
+     * collect this instead of commanding a refresh from a mutation site.
+     */
+    fun observeListProjection(): Flow<Unit>
 }
 
 interface DailyReviewCandidateRepository {
@@ -63,14 +70,16 @@ interface MainListQueryRepository {
     fun getMainListPagingSource(spec: MemoQuerySpec): PagingSource<String, Memo>
 
     /**
-     * Returns the zero-based index of a memo only when it is inside a bounded head window of the
-     * repository's default main-list ordering. This is an explicit focus/navigation policy, not an
-     * exact whole-list position contract.
+     * Returns the zero-based rank of [id] in the repository's default main-list ordering.
+     * Missing or filtered-out identities return null; they must not be reported as head.
      */
-    suspend fun getDefaultMainListIndexInWindow(
-        id: String,
-        limit: Int,
-    ): Int?
+    suspend fun rankInDefaultMainList(id: String): Int?
+
+    /**
+     * Reanchors the live main-list paging source so the next refresh starts at [id].
+     * No-op when no main-list source is registered.
+     */
+    fun reanchorMainListToIdentity(id: String)
 
     /**
      * Returns one memo by id without forcing callers to reload the whole list.
@@ -94,26 +103,28 @@ interface MemoMutationRepository {
     )
 
     suspend fun saveMemo(
-        content: String,
-        timestamp: Long,
-        geoLocation: String? = null,
+        attempt: com.lomo.domain.model.MemoCreateAttempt,
     ): Memo
 
     suspend fun updateMemo(
-        memo: Memo,
-        newContent: String,
+        attempt: com.lomo.domain.model.MemoUpdateAttempt,
     )
 
-    suspend fun deleteMemo(memo: Memo)
+    suspend fun deleteMemo(
+        memo: Memo,
+        operationId: MemoOperationId,
+    )
 
     suspend fun restoreMemoRevision(
         currentMemo: Memo,
         revision: MemoRevision,
+        operationId: MemoOperationId,
     )
 
     suspend fun setMemoPinned(
         memoId: String,
         pinned: Boolean,
+        operationId: MemoOperationId,
     )
 }
 
@@ -133,6 +144,11 @@ interface MemoStatisticsRepository {
         today: LocalDate,
     ): MemoStatistics
 
+    fun observeMemoStatistics(
+        zone: ZoneId,
+        today: LocalDate,
+    ): Flow<MemoStatistics>
+
     fun getMemoCountFlow(): Flow<Int>
 
     fun getSidebarStatisticsFlow(): Flow<com.lomo.domain.model.MemoSidebarStatistics>
@@ -147,11 +163,17 @@ interface MemoStatisticsRepository {
 interface MemoTrashRepository {
     fun getDeletedMemosPagingSource(): PagingSource<String, Memo>
 
-    suspend fun restoreMemo(memo: Memo)
+    suspend fun restoreMemo(
+        memo: Memo,
+        operationId: MemoOperationId,
+    )
 
-    suspend fun deletePermanently(memo: Memo)
+    suspend fun deletePermanently(
+        memo: Memo,
+        operationId: MemoOperationId,
+    )
 
-    suspend fun clearTrash()
+    suspend fun clearTrash(operationId: MemoOperationId)
 }
 
 interface MemoTaskRepository {

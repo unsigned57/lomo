@@ -3,6 +3,7 @@ package com.lomo.app.testing.fakes
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoOperationId
 import com.lomo.domain.repository.MemoTrashRepository
 
 class FakeMemoTrashRepository(
@@ -11,11 +12,17 @@ class FakeMemoTrashRepository(
     override fun getDeletedMemosPagingSource(): PagingSource<String, Memo> =
         FakeTrashMemoPagingSource { limit, offset -> store.deletedMemoPage(limit = limit, offset = offset) }
 
-    override suspend fun restoreMemo(memo: Memo) = store.restoreDeletedMemo(memo)
+    override suspend fun restoreMemo(
+        memo: Memo,
+        operationId: MemoOperationId,
+    ) = store.restoreDeletedMemo(memo)
 
-    override suspend fun deletePermanently(memo: Memo) = store.removeDeletedMemoPermanently(memo)
+    override suspend fun deletePermanently(
+        memo: Memo,
+        operationId: MemoOperationId,
+    ) = store.removeDeletedMemoPermanently(memo)
 
-    override suspend fun clearTrash() = store.removeAllDeletedMemos()
+    override suspend fun clearTrash(operationId: MemoOperationId) = store.removeAllDeletedMemos()
 }
 
 private class FakeTrashMemoPagingSource(

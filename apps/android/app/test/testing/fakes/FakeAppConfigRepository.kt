@@ -70,8 +70,6 @@ open class FakeAppConfigRepository : AppConfigRepository, AppPreferencesSnapshot
 
     private val syncInboxEnabled = MutableStateFlow(PreferenceDefaults.SYNC_INBOX_ENABLED)
 
-    private val draftText = MutableStateFlow("")
-
     private val fontSizeScale = MutableStateFlow(1f)
     private val lineHeightScale = MutableStateFlow(1f)
     private val letterSpacingScale = MutableStateFlow(1f)
@@ -475,12 +473,6 @@ open class FakeAppConfigRepository : AppConfigRepository, AppPreferencesSnapshot
 
     override suspend fun setSyncInboxEnabled(enabled: Boolean) {
         syncInboxEnabled.value = enabled
-    }
-
-    override fun getDraftText(): Flow<String> = draftText.asStateFlow()
-
-    override suspend fun setDraftText(text: String?) {
-        draftText.value = text.orEmpty()
     }
 
     override fun getFontSizeScale(): Flow<Float> = fontSizeScale.asStateFlow()

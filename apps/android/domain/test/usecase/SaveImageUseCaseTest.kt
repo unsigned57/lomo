@@ -51,7 +51,7 @@ class SaveImageUseCaseTest : DomainFunSpec() {
                         val saved = StorageLocation("/images/a.jpg")
                         mediaRepository.nextImportResult = saved
 
-                        val result = useCase.saveWithCacheSyncStatus(source)
+                        val result = useCase.saveWithCacheSyncStatus(source, com.lomo.domain.model.DraftId("draft-test"))
 
                         result shouldBe SaveImageResult.SavedAndCacheSynced(saved)
                         mediaRepository.importedSources shouldBe listOf(source)
@@ -65,7 +65,7 @@ class SaveImageUseCaseTest : DomainFunSpec() {
                         val failure = IllegalArgumentException("invalid source")
                         mediaRepository.importFailure = failure
 
-                        val thrown = runCatching { useCase.saveWithCacheSyncStatus(source) }.exceptionOrNull()
+                        val thrown = runCatching { useCase.saveWithCacheSyncStatus(source, com.lomo.domain.model.DraftId("draft-test")) }.exceptionOrNull()
 
                         thrown shouldBe failure
                         mediaRepository.refreshImageLocationsCallCount shouldBe 0

@@ -2,6 +2,7 @@ package com.lomo.domain.usecase
 
 import androidx.paging.PagingSource
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoOperationId
 import com.lomo.domain.repository.MemoTrashRepository
 
 class MemoTrashUseCase(
@@ -10,15 +11,21 @@ class MemoTrashUseCase(
     fun getDeletedMemosPagingSource(): PagingSource<String, Memo> =
         memoTrashRepository.getDeletedMemosPagingSource()
 
-    suspend fun restoreMemo(memo: Memo) {
-        memoTrashRepository.restoreMemo(memo)
+    suspend fun restoreMemo(
+        memo: Memo,
+        operationId: MemoOperationId,
+    ) {
+        memoTrashRepository.restoreMemo(memo, operationId)
     }
 
-    suspend fun deletePermanently(memo: Memo) {
-        memoTrashRepository.deletePermanently(memo)
+    suspend fun deletePermanently(
+        memo: Memo,
+        operationId: MemoOperationId,
+    ) {
+        memoTrashRepository.deletePermanently(memo, operationId)
     }
 
-    suspend fun clearTrash() {
-        memoTrashRepository.clearTrash()
+    suspend fun clearTrash(operationId: MemoOperationId) {
+        memoTrashRepository.clearTrash(operationId)
     }
 }

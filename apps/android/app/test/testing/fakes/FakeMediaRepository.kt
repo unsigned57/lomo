@@ -15,11 +15,17 @@ class FakeMediaRepository : MediaRepository {
         _imageLocations.value = locations
     }
 
-    override suspend fun importImage(source: StorageLocation): StorageLocation {
+    override suspend fun importImage(
+        source: StorageLocation,
+        draftId: com.lomo.domain.model.DraftId,
+    ): StorageLocation {
         return source
     }
 
-    override suspend fun removeImage(entryId: MediaEntryId) {
+    override suspend fun removeImage(
+        entryId: MediaEntryId,
+        draftId: com.lomo.domain.model.DraftId,
+    ) {
         val current = _imageLocations.value.toMutableMap()
         current.remove(entryId)
         _imageLocations.value = current
@@ -69,9 +75,14 @@ class FakeMediaRepository : MediaRepository {
     override suspend fun finalizeVoiceCapture(
         recordingLocation: StorageLocation,
         humanNameHint: String,
+        draftId: com.lomo.domain.model.DraftId,
     ): StorageLocation = StorageLocation(humanNameHint.ifBlank { "voice.m4a" })
 
-    override suspend fun removeVoiceCapture(entryId: MediaEntryId) {}
+    override suspend fun removeVoiceCapture(
+        entryId: MediaEntryId,
+        captureLocation: StorageLocation,
+        draftId: com.lomo.domain.model.DraftId,
+    ) {}
 
     override suspend fun runOrphanSweepAtOperationBoundary() {}
 }

@@ -30,6 +30,8 @@
 
 package com.lomo.domain.usecase
 
+import com.lomo.domain.model.MemoCreateAttempt
+import com.lomo.domain.model.MemoOperationId
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.EngineRetryDisposition
@@ -83,7 +85,7 @@ class CreateMemoUseCaseTest : DomainFunSpec() {
 
                 val error =
                     runCatching {
-                        useCase(content = "new memo", timestampMillis = 123L)
+                        useCase(MemoCreateAttempt(MemoOperationId("create-test"), com.lomo.domain.model.DraftId("draft-test"), "new memo", 123L))
                     }.exceptionOrNull()
 
                 val blocked = error.shouldBeInstanceOf<IllegalStateException>()
@@ -99,7 +101,7 @@ class CreateMemoUseCaseTest : DomainFunSpec() {
                 val error =
                     workspaceMutationLease.withExclusiveTransition {
                         runCatching {
-                            useCase(content = "new memo", timestampMillis = 123L)
+                            useCase(MemoCreateAttempt(MemoOperationId("create-test"), com.lomo.domain.model.DraftId("draft-test"), "new memo", 123L))
                         }.exceptionOrNull()
                     }
 
@@ -113,7 +115,7 @@ class CreateMemoUseCaseTest : DomainFunSpec() {
             runTest {
                 val error =
                     runCatching {
-                        useCase(content = "new memo", timestampMillis = 123L)
+                        useCase(MemoCreateAttempt(MemoOperationId("create-test"), com.lomo.domain.model.DraftId("draft-test"), "new memo", 123L))
                     }.exceptionOrNull()
 
                 val missingWorkspace = error.shouldBeInstanceOf<IllegalStateException>()
@@ -126,14 +128,13 @@ class CreateMemoUseCaseTest : DomainFunSpec() {
             runTest {
                 directorySettingsRepository.setLocation(StorageArea.ROOT, StorageLocation("/workspace"))
 
-                useCase(content = "meaningful note", timestampMillis = 456L)
+                useCase(MemoCreateAttempt(MemoOperationId("create-test"), com.lomo.domain.model.DraftId("draft-test"), "meaningful note", 456L))
 
                 memoRepository.savedMemos shouldBe
                     listOf(
                         FakeMemoStore.SavedMemo(
                             content = "meaningful note",
                             timestamp = 456L,
-                            geoLocation = null,
                         ),
                     )
             }
@@ -143,7 +144,7 @@ class CreateMemoUseCaseTest : DomainFunSpec() {
             runTest {
                 directorySettingsRepository.setLocation(StorageArea.ROOT, StorageLocation("/workspace"))
 
-                val saved = useCase(content = "voice memo", timestampMillis = 789L)
+                val saved = useCase(MemoCreateAttempt(MemoOperationId("create-test"), com.lomo.domain.model.DraftId("draft-test"), "voice memo", 789L))
 
                 saved.content shouldBe "voice memo"
                 saved.timestamp shouldBe 789L

@@ -1,6 +1,7 @@
 package com.lomo.domain.usecase
 
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoOperationId
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.repository.MemoMutationRepository
 
@@ -10,10 +11,12 @@ class RestoreMemoRevisionUseCase(
     suspend operator fun invoke(
         memo: Memo,
         revision: MemoRevision,
+        operationId: MemoOperationId,
     ) {
         repository.restoreMemoRevision(
             currentMemo = memo,
             revision = revision,
+            operationId = operationId,
         )
     }
 }

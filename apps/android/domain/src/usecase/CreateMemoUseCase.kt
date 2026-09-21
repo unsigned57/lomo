@@ -18,15 +18,13 @@ open class CreateMemoUseCase(
     private val workspaceMutationLease: WorkspaceMutationLease,
 ) {
     open suspend operator fun invoke(
-        content: String,
-        timestampMillis: Long = System.currentTimeMillis(),
-        geoLocation: String? = null,
+        attempt: com.lomo.domain.model.MemoCreateAttempt,
     ): Memo =
         workspaceMutationLease.withWrite {
             checkNotNull(initializeWorkspaceUseCase.currentRootLocation()) {
                 "Please select a folder first"
             }
-            validator.requireValidForCreate(content)
-            memoRepository.saveMemo(content, timestampMillis, geoLocation)
+            validator.requireValidForCreate(attempt.content)
+            memoRepository.saveMemo(attempt)
         }
 }

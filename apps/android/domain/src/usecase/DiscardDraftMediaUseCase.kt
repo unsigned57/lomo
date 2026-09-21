@@ -1,5 +1,6 @@
 package com.lomo.domain.usecase
 
+import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.repository.MediaRepository
 import kotlinx.coroutines.CancellationException
@@ -11,11 +12,14 @@ import kotlinx.coroutines.CancellationException
 open class DiscardDraftMediaUseCase(
     private val mediaRepository: MediaRepository,
 ) {
-    open suspend operator fun invoke(filenames: Collection<String>) {
+    open suspend operator fun invoke(
+        filenames: Collection<String>,
+        draftId: DraftId,
+    ) {
         filenames.forEach { filename ->
             try {
                 // behavior-contract: loop-io-ok: no bulk removeImage API; each iteration is one bounded media id
-                mediaRepository.removeImage(MediaEntryId(filename))
+                mediaRepository.removeImage(MediaEntryId(filename), draftId)
             } catch (error: Exception) {
                 if (error is CancellationException) {
                     throw error
