@@ -32,7 +32,7 @@ mod tests {
     use lomo_core::{
         ActionId, ActionOutcome, CapabilityToken, DocumentLocator, DocumentMetadata, ExchangeToken,
         ExpectedFingerprint, MetadataPage, PageSize, PlatformAction, PlatformActionOutput,
-        RelativeWorkspacePath, WriteMode,
+        RelativeWorkspacePath, Sha256Digest, WriteMode,
     };
     use lomo_platform_fs::{ExchangeDirectory, PosixPlatformActionExecutor};
     use tempfile::TempDir;
@@ -291,8 +291,11 @@ mod tests {
         let touched = stat(&executor);
         assert_eq!(touched.evidence(), before.evidence());
         assert_eq!(
-            before.evidence().fingerprint(),
-            before.evidence().digest().as_str()
+            Some(before.evidence().fingerprint()),
+            before
+                .evidence()
+                .verified_digest()
+                .map(Sha256Digest::as_str),
         );
         let artifact = exchange
             .write_content(

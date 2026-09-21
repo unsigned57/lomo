@@ -246,9 +246,8 @@ pub fn stat_document_fd(
     }
     let is_dir = kind.is_dir();
     if is_dir {
-        let empty_digest = compute_sha256_bytes(b"")?;
-        let fp = empty_digest.as_str().to_owned();
-        let evidence = ActionEvidence::verified(0, empty_digest, &fp)?;
+        let fp = compute_sha256_bytes(handle_str.as_bytes())?;
+        let evidence = ActionEvidence::unknown(0, fp.as_str())?;
         DocumentMetadata::new_with_handle(
             target.clone(),
             doc_handle,

@@ -506,7 +506,7 @@ impl PosixPlatformActionExecutor {
             Err(err) => return ActionOutcome::Failed(err),
         };
 
-        if metadata.evidence().digest() != artifact.digest()
+        if metadata.evidence().verified_digest() != Some(artifact.digest())
             || metadata.evidence().length() != artifact.length()
         {
             return ActionOutcome::Failed(conflict(
@@ -596,7 +596,7 @@ impl PosixPlatformActionExecutor {
         };
 
         if let ExpectedFingerprint::Match(expected) = expected_source
-            && (dst_meta.evidence().digest() != expected.digest()
+            && (dst_meta.evidence().verified_digest() != expected.verified_digest()
                 || dst_meta.evidence().length() != expected.length())
         {
             return ActionOutcome::Failed(conflict(

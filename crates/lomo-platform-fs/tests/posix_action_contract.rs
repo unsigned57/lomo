@@ -174,7 +174,10 @@ mod tests {
         };
         assert_eq!(metadata.kind(), DocumentKind::File);
         assert_eq!(metadata.evidence().length(), 11);
-        assert_eq!(metadata.evidence().digest(), &sha256_hex(b"hello world"));
+        assert_eq!(
+            metadata.evidence().verified_digest(),
+            Some(&sha256_hex(b"hello world"))
+        );
 
         // EnsureDirectory
         let dir_path = RelativeWorkspacePath::parse("sub/new_dir").must_succeed("dir path");
@@ -335,7 +338,10 @@ mod tests {
             panic!("expected applied write complete, got {:?}", res.outcome());
         };
         assert_eq!(metadata.evidence().length(), new_bytes.len() as u64);
-        assert_eq!(metadata.evidence().digest(), &sha256_hex(new_bytes));
+        assert_eq!(
+            metadata.evidence().verified_digest(),
+            Some(&sha256_hex(new_bytes))
+        );
 
         // Verify content on disk
         let written = fs::read(harness.root.join("docs/atomic.md")).must_succeed("read file");
