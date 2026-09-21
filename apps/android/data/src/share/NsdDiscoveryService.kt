@@ -23,6 +23,7 @@ interface LanShareDiscoveryCoordinator {
         port: Int,
         deviceName: String,
         deviceId: String,
+        protocolVersion: UInt,
     ): Boolean
 
     fun unregisterService()
@@ -50,20 +51,23 @@ class NsdDiscoveryService(
     private var registrationListener: NsdManager.RegistrationListener? = null
     private var discoveryListener: NsdManager.DiscoveryListener? = null
     private var localDeviceId: String = ""
+    private var advertisedProtocolVersion: String = ""
 
     override fun registerService(
         port: Int,
         deviceName: String,
         deviceId: String,
+        protocolVersion: UInt,
     ): Boolean {
         unregisterService()
+        advertisedProtocolVersion = protocolVersion.toString()
         val serviceInfo =
             NsdServiceInfo().apply {
                 serviceName = "$SERVICE_NAME_PREFIX$deviceName"
                 serviceType = SERVICE_TYPE
                 setPort(port)
                 setAttribute("device_id", deviceId)
-                setAttribute("protocol_version", "2")
+                setAttribute("protocol_version", advertisedProtocolVersion)
             }
         val listener =
             object : NsdManager.RegistrationListener {
@@ -267,6 +271,7 @@ class NsdDiscoveryService(
                 port = info.port,
                 attributes = info.attributes,
                 localDeviceId = localDeviceId,
+                expectedProtocolVersion = advertisedProtocolVersion,
             )
         if (device == null) {
             removeResolvedService(serviceKey)

@@ -8,7 +8,7 @@ import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.data.sync.SyncConflictMerge
+import com.lomo.data.sync.SyncConflictSuggestionPort
 import com.lomo.domain.model.SyncReviewItem
 import com.lomo.domain.model.SyncReviewItemState
 import com.lomo.domain.model.SyncReviewResolution
@@ -23,6 +23,8 @@ import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.WorkspaceMutationLease
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -36,23 +38,39 @@ internal const val INBOX_PREFIX = "inbox/"
 internal const val WORKSPACE_WRITES_UNAVAILABLE_MESSAGE =
     "Workspace writes are unavailable"
 
+data class SyncInboxRepositoryDependencies(
+    val context: Context,
+    val preferencesRepository: PreferencesRepository,
+    val workspaceConfigSource: WorkspaceConfigSource,
+    val markdownStorageDataSource: MarkdownStorageDataSource,
+    val workspaceMediaAccess: WorkspaceMediaAccess,
+    val memoMutationRepository: MemoMutationRepository,
+    val pendingReviewStore: PendingSyncReviewStore,
+)
+
 class SyncInboxRepositoryImpl(
-    private val context: Context,
-    private val preferencesRepository: PreferencesRepository,
-    private val workspaceConfigSource: WorkspaceConfigSource,
-    private val markdownStorageDataSource: MarkdownStorageDataSource,
-    private val workspaceMediaAccess: WorkspaceMediaAccess,
-    private val memoMutationRepository: MemoMutationRepository,
-    private val pendingReviewStore: PendingSyncReviewStore,
+    dependencies: SyncInboxRepositoryDependencies,
     private val writeLease: WorkspaceMutationLease,
     private val contentProjector: com.lomo.data.util.MarkdownWorkspaceContentProjector,
+    private val suggestionPort: SyncConflictSuggestionPort,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : SyncInboxRepository {
+    private val context: Context = dependencies.context
+    private val preferencesRepository: PreferencesRepository = dependencies.preferencesRepository
+    private val workspaceConfigSource: WorkspaceConfigSource = dependencies.workspaceConfigSource
+    private val markdownStorageDataSource: MarkdownStorageDataSource = dependencies.markdownStorageDataSource
+    private val workspaceMediaAccess: WorkspaceMediaAccess = dependencies.workspaceMediaAccess
+    private val memoMutationRepository: MemoMutationRepository = dependencies.memoMutationRepository
+    private val pendingReviewStore: PendingSyncReviewStore = dependencies.pendingReviewStore
+
     private val state = MutableStateFlow<UnifiedSyncState>(UnifiedSyncState.Idle)
     private val pendingReviewRestorer =
         SyncInboxPendingReviewRestorer(
             context = context,
             markdownStorageDataSource = markdownStorageDataSource,
             contentProjector = contentProjector,
+            suggestionPort = suggestionPort,
+            dispatcherProvider = dispatcherProvider,
         )
 
     override fun syncState(): Flow<UnifiedSyncState> = state
@@ -62,6 +80,7 @@ class SyncInboxRepositoryImpl(
         ensureInboxDirectoryStructure(
             context = context,
             inboxRoot = inboxRoot,
+            dispatcherProvider = dispatcherProvider,
         )
     }
 
@@ -158,7 +177,7 @@ class SyncInboxRepositoryImpl(
         if (inboxRoot == null) {
             return notConfiguredResult()
         }
-        ensureInboxDirectoryStructure(context = context, inboxRoot = inboxRoot)
+        ensureInboxDirectoryStructure(context = context, inboxRoot = inboxRoot, dispatcherProvider = dispatcherProvider)
 
         pendingReviewStore.readDescriptor(SyncBackendType.INBOX)?.let { descriptor ->
             when (val restored = pendingReviewRestorer.restore(inboxRoot = inboxRoot, descriptor = descriptor)) {
@@ -193,8 +212,9 @@ class SyncInboxRepositoryImpl(
         state.value = UnifiedSyncState.Running(SyncBackendType.INBOX, UnifiedSyncPhase.LISTING)
         return try {
             resolveBatchResult(processInboxBatch(inboxRoot))
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
-            if (error is CancellationException) throw error
             val syncError =
                 UnifiedSyncError(
                     provider = SyncBackendType.INBOX,
@@ -215,7 +235,7 @@ class SyncInboxRepositoryImpl(
 
     private suspend fun processInboxBatch(inboxRoot: String): ProcessInboxBatchResult {
         val reviewFiles = mutableListOf<SyncReviewItem>()
-        listInboxMarkdownFiles(context, inboxRoot).forEach { file ->
+        listInboxMarkdownFiles(context, inboxRoot, dispatcherProvider).forEach { file ->
             val reviewFile =
                 try {
                     buildInboxReviewFile(
@@ -251,7 +271,12 @@ class SyncInboxRepositoryImpl(
             .flatMap { committed -> committed.importedAttachmentsToDelete.asSequence() }
             .distinct()
             .forEach { attachment ->
-                deleteInboxFile(context = context, inboxRoot = inboxRoot, relativePath = attachment)
+                deleteInboxFile(
+                    context = context,
+                    inboxRoot = inboxRoot,
+                    relativePath = attachment,
+                    dispatcherProvider = dispatcherProvider,
+                )
             }
     }
 
@@ -319,6 +344,7 @@ class SyncInboxRepositoryImpl(
                 context = context,
                 inboxRoot = inboxRoot,
                 relativePath = relativePath,
+                dispatcherProvider = dispatcherProvider,
             ) ?: return blockedInboxReviewFile(
                 relativePath = relativePath,
                 lastModified = inboxFile.lastModified,
@@ -335,6 +361,7 @@ class SyncInboxRepositoryImpl(
                 inboxRoot = inboxRoot,
                 markdown = markdown,
                 contentProjector = contentProjector,
+                dispatcherProvider = dispatcherProvider,
             )
         val targetFilename = relativePath.substringAfterLast('/')
         val localContent = markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, targetFilename)
@@ -358,6 +385,14 @@ class SyncInboxRepositoryImpl(
             incomingLastModified = inboxFile.lastModified,
             state = reviewState,
             message = missingAttachments.reviewMessageOrNull(),
+            suggestion =
+                suggestionPort.suggest(
+                    localBody = localContent,
+                    remoteBody = imported.rewrittenMarkdown,
+                    localLastModifiedMs = localLastModified,
+                    remoteLastModifiedMs = inboxFile.lastModified,
+                    isBinary = false,
+                ),
         )
     }
 
@@ -395,11 +430,16 @@ class SyncInboxRepositoryImpl(
             }
             val relativePath = item.relativePath.removePrefix(INBOX_PREFIX)
             if (choice == SyncReviewResolutionChoice.KEEP_LOCAL) {
-                deleteInboxFile(context = context, inboxRoot = inboxRoot, relativePath = relativePath)
+                deleteInboxFile(
+                    context = context,
+                    inboxRoot = inboxRoot,
+                    relativePath = relativePath,
+                    dispatcherProvider = dispatcherProvider,
+                )
                 return@forEach
             }
             val inboxContent =
-                readInboxTextFile(context, inboxRoot, relativePath)
+                readInboxTextFile(context, inboxRoot, relativePath, dispatcherProvider)
                     ?: run {
                         unresolvedItems += item
                         return@forEach
@@ -408,13 +448,7 @@ class SyncInboxRepositoryImpl(
                 when (choice) {
                     SyncReviewResolutionChoice.KEEP_LOCAL -> null
                     SyncReviewResolutionChoice.KEEP_INCOMING -> item.incomingContent
-                    SyncReviewResolutionChoice.MERGE_TEXT ->
-                        SyncConflictMerge.merge(
-                            localText = item.localContent,
-                            remoteText = item.incomingContent,
-                            localLastModified = item.localLastModified,
-                            remoteLastModified = item.incomingLastModified,
-                        )
+                    SyncReviewResolutionChoice.MERGE_TEXT -> item.suggestion?.mergedText
                     SyncReviewResolutionChoice.SKIP_FOR_NOW -> null
                 }
             if (targetContent == null) {
@@ -448,6 +482,7 @@ class SyncInboxRepositoryImpl(
                 inboxRoot = inboxRoot,
                 markdown = originalMarkdown,
                 contentProjector = contentProjector,
+                dispatcherProvider = dispatcherProvider,
             )
         val imported =
             when (importResult) {
@@ -461,7 +496,12 @@ class SyncInboxRepositoryImpl(
             content = targetContent,
             append = false,
         )
-        deleteInboxFile(context = context, inboxRoot = inboxRoot, relativePath = relativePath)
+        deleteInboxFile(
+            context = context,
+            inboxRoot = inboxRoot,
+            relativePath = relativePath,
+            dispatcherProvider = dispatcherProvider,
+        )
         return CommittedInboxFile(
             importedAttachmentsToDelete = imported.importedAttachments,
         )

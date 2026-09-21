@@ -11,9 +11,12 @@ package com.lomo.data.engine.lan
  * Scenarios:
  * - Given local-network permission is absent, when services start, then Rust is not started, the
  *   multicast lease is not acquired, and the coordinator exposes a permission failure.
- * - Given Rust returns a session challenge and a committable item before its poll fails, when the
- *   coordinator polls, then the challenge is signed, the item is committed, and the poll failure
- *   remains observable instead of silently terminating the loop.
+ * - Given Rust returns a session challenge and a committable item before its inbox wait fails, when
+ *   the coordinator awaits inbox generations, then the challenge is signed, the item is committed,
+ *   and the wait failure remains observable instead of silently terminating the loop.
+ * - Given the coordinator source is inspected, when the listener loop is read, then it waits on
+ *   inbox generation instead of polling JNI every 100ms.
+
 
  * Observable outcomes: engine calls, lease ownership, signed challenge bytes, commit commands,
  * and the coordinator failure state.
@@ -24,6 +27,16 @@ package com.lomo.data.engine.lan
  * the listener job.
  *
  * Excludes: Android framework callback registration, NSD implementation, Rust protocol semantics.
+ * // architectural-boundary-check: the listener-loop assertion pins the await-based contract.
+ * Test Change Justification:
+ * - Reason category: behavior contract change (inbox-driven listener loop).
+ * - Old behavior/assertion being replaced: the coordinator polled JNI on a 100ms interval.
+ * - Why old assertion is no longer correct: the listener now awaits engine.awaitLanInbox
+ *   generations; the poll loop is removed.
+ * - Coverage preserved by: challenge-signing/commit/failure-visibility scenarios still assert
+ *   observable outcomes; a source-level check pins the await-based loop.
+ * - Why this is not fitting the test to the implementation: the await contract is the declared
+ *   listener design, not an incidental detail.
  */
 
 import com.lomo.data.testing.DataFunSpec
@@ -38,6 +51,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.File
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class LanRuntimeCoordinatorTest : DataFunSpec() {
@@ -130,6 +144,19 @@ class LanRuntimeCoordinatorTest : DataFunSpec() {
             engine.startCalls shouldBe 2
             engine.networkFacts.last().candidates shouldBe listOf(LanBindCandidate("192.168.43.1", 0u))
         }
+
+        test("given coordinator source when the listener loop is inspected then it waits on inbox generation") {
+            val currentDir = File(System.getProperty("user.dir") ?: ".")
+            val source =
+                listOf(
+                    currentDir.resolve("src/engine/lan/LanRuntimeCoordinator.kt"),
+                    currentDir.resolve("data/src/engine/lan/LanRuntimeCoordinator.kt"),
+                ).first { file -> file.isFile }
+            val text = source.readText()
+            text.contains("engine.awaitLanInbox") shouldBe true
+            text.contains("engine.pollLanListener") shouldBe false
+            text.contains("LISTENER_POLL_INTERVAL_MS = 100") shouldBe false
+        }
     }
 
     private fun coordinator(
@@ -147,7 +174,6 @@ class LanRuntimeCoordinatorTest : DataFunSpec() {
             networkMonitor = network,
             multicastLease = lease,
             dispatcher = dispatcher,
-            pollIntervalMillis = 1,
         )
 }
 
@@ -192,7 +218,12 @@ private class FakeLanRuntimeMulticastLease : LanRuntimeMulticastLease {
 private class FakeDiscoveryCoordinator : com.lomo.data.share.LanShareDiscoveryCoordinator {
     private val _devices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
     override val discoveredDevices: StateFlow<List<DiscoveredDevice>> = _devices.asStateFlow()
-    override fun registerService(port: Int, deviceName: String, deviceId: String): Boolean = true
+    override fun registerService(
+        port: Int,
+        deviceName: String,
+        deviceId: String,
+        protocolVersion: UInt,
+    ): Boolean = true
     override fun unregisterService() = Unit
     override fun startDiscovery(deviceId: String): Boolean = true
     override fun stopDiscovery() = Unit
@@ -207,6 +238,7 @@ private class FakeLanCoordinatorEngine(
     val signedSessionIds = mutableListOf<String>()
     val committedItems = mutableListOf<String>()
     val networkFacts = mutableListOf<LanNetworkFacts>()
+    private var waitGeneration = 0uL
 
     override fun configureLanIdentity(identity: LanDeviceIdentity) =
         LanLocalIdentity("local-1", identity.displayName)
@@ -221,19 +253,29 @@ private class FakeLanCoordinatorEngine(
         return LanServiceState(LanServicePhase.Listening, "192.168.1.8:1234")
     }
 
+    override fun lanProtocolLimits(): LanProtocolLimits =
+        LanProtocolLimits(
+            protocolVersion = 3u,
+            pairingTtlMs = 120_000L,
+            sessionTtlMs = 60_000L,
+            approvalTtlMs = 900_000L,
+        )
+
     override fun stopLanService() = LanServiceState(LanServicePhase.Stopped, null)
+
+    override suspend fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait =
+        when {
+            inboxes.isNotEmpty() -> {
+                waitGeneration += 1uL
+                LanInboxWait(waitGeneration, inboxes.removeFirst())
+            }
+            failWhenEmpty -> error("poll failed")
+            else -> kotlinx.coroutines.awaitCancellation()
+        }
+
     override fun lanRuntimeInbox(): LanRuntimeInbox = inboxes.lastOrNull() ?: LanRuntimeInbox(
         emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(),
     )
-
-    override fun pollLanListener(nowMs: Long): LanRuntimeInbox =
-        when {
-            inboxes.isNotEmpty() -> inboxes.removeFirst()
-            failWhenEmpty -> error("poll failed")
-            else -> LanRuntimeInbox(
-                emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(),
-            )
-        }
 
     override fun confirmLanSession(sessionId: String, signature: ByteArray, nowMs: Long) {
         signedSessionIds += sessionId

@@ -9,8 +9,7 @@ internal fun resolveLanShareEligibleNetworkSnapshots(
 ): List<LanShareActiveNetworkSnapshot> {
     val networkSnapshots =
         connectivityManager
-            ?.toLanShareNetworkProbes(candidateNetworks)
-            ?.let(::selectLanShareEligibleNetworkSnapshots)
+            ?.run { selectLanShareEligibleNetworkSnapshots(toLanShareNetworkProbes(candidateNetworks)) }
             .orEmpty()
     val interfaceSnapshots = selectLanShareEligibleInterfaceFallbackSnapshots(enumerateLanShareInterfaceProbes())
     return mergeLanShareEligibleSnapshots(networkSnapshots, interfaceSnapshots)

@@ -37,6 +37,16 @@ package com.lomo.data.engine.sync
  * - Real JNI / process vault / durable .lomo/sync (covered by rust sync_ffi_contract).
  * - Production DI / navigation / ViewModelModule (P5-13).
  * - Compose rendering (app feature shell).
+ * Test Change Justification:
+ * - Reason category: domain contract change (typed session presence and owner-side suggestions).
+ * - Old behavior/assertion being replaced: pages lacked RemoteSyncConflictSessionState and there
+ *   was no SyncConflictSuggestionPort.
+ * - Why old assertion is no longer correct: conflict pages are typed Absent/Present and merges
+ *   come from the owner suggestion port.
+ * - Coverage preserved by: existing page/resolve assertions unchanged; a fake suggestion port
+ *   covers the suggestion path.
+ * - Why this is not fitting the test to the implementation: assertions pin the port protocol and
+ *   the emitted page state.
  */
 
 import com.lomo.domain.model.RemoteSyncBackendLabel
@@ -44,7 +54,11 @@ import com.lomo.domain.model.RemoteSyncCenterFailure
 import com.lomo.domain.model.RemoteSyncConflictPath as DomainConflictPath
 import com.lomo.domain.model.RemoteSyncConflictPathStatus as DomainPathStatus
 import com.lomo.domain.model.RemoteSyncConflictResolution as DomainConflictResolution
+import com.lomo.domain.model.RemoteSyncConflictSessionState as DomainConflictSession
 import com.lomo.domain.model.RemoteSyncSessionPhase
+import com.lomo.domain.model.SyncMergeChoice
+import com.lomo.domain.model.SyncMergeSuggestion
+import com.lomo.data.sync.SyncConflictSuggestionPort
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainExactly
@@ -62,6 +76,7 @@ private class FakeRemoteSyncRepository : RemoteSyncRepository {
     var lastResolutions: List<RemoteSyncConflictResolution>? = null
     var listPage: RemoteSyncConflictPage =
         RemoteSyncConflictPage(
+            session = RemoteSyncConflictSessionState.Present,
             sessionId = "session-1",
             conflictRevision = 3L,
             items =
@@ -131,14 +146,18 @@ private class FakeRemoteSyncRepository : RemoteSyncRepository {
 
     override fun revokeSecretLease(leaseId: String) = error("not used")
 
-    override fun retryHintFromDispositionName(name: String): RemoteSyncRetryHint =
-        error("not used")
-
     override fun inspectCyclePlan(workspaceRoot: String): RemoteSyncCyclePlanSummary =
         error("not used by Sync Center adapter")
 
     override fun runCycle(request: RemoteSyncCycleRequest): RemoteSyncCyclePlanSummary =
         error("not used by Sync Center adapter")
+
+    override fun loadWorkspaceGeneration(workspaceRoot: String): String =
+        error("not used by Sync Center adapter")
+
+    override fun resetControlTree(workspaceRoot: String) {
+        error("not used by Sync Center adapter")
+    }
 }
 
 private class MapConflictArtifactSource(
@@ -175,16 +194,41 @@ private class MapConflictArtifactSource(
     }
 }
 
+private class FakeSyncConflictSuggestionPort(
+    val suggestion: SyncMergeSuggestion =
+        SyncMergeSuggestion(
+            suggested = SyncMergeChoice.MERGE_TEXT,
+            safe = null,
+            mergedText = "owner merged text",
+        ),
+) : SyncConflictSuggestionPort {
+    var lastLocalBody: String? = null
+    var lastRemoteBody: String? = null
+
+    override fun suggest(
+        localBody: String?,
+        remoteBody: String?,
+        localLastModifiedMs: Long?,
+        remoteLastModifiedMs: Long?,
+        isBinary: Boolean,
+    ): SyncMergeSuggestion {
+        lastLocalBody = localBody
+        lastRemoteBody = remoteBody
+        return suggestion
+    }
+}
+
 class RemoteSyncCenterRepositoryAdapterTest : FunSpec({
     test("listConflicts maps digests refs and status without inventing body bytes") {
         val remote = FakeRemoteSyncRepository()
         val artifacts = MapConflictArtifactSource()
-        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts)
+        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, FakeSyncConflictSuggestionPort())
 
         val page = adapter.listConflicts(workspaceRoot = "/ws", cursor = 0, limit = 10)
 
         remote.lastCursor shouldBe 0
         remote.lastLimit shouldBe 10
+        page.session shouldBe DomainConflictSession.Present
         page.sessionId shouldBe "session-1"
         page.conflictRevision shouldBe 3L
         page.nextCursor shouldBe 100
@@ -203,7 +247,7 @@ class RemoteSyncCenterRepositoryAdapterTest : FunSpec({
     test("resolveConflicts maps keep_local and advances domain revision") {
         val remote = FakeRemoteSyncRepository()
         val artifacts = MapConflictArtifactSource()
-        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts)
+        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, FakeSyncConflictSuggestionPort())
 
         val result =
             adapter.resolveConflicts(
@@ -233,7 +277,7 @@ class RemoteSyncCenterRepositoryAdapterTest : FunSpec({
                 retryDisposition = "after_user_action",
                 diagnostic = "expected conflict revision is stale",
             )
-        val adapter = RemoteSyncCenterRepositoryAdapter(remote, MapConflictArtifactSource())
+        val adapter = RemoteSyncCenterRepositoryAdapter(remote, MapConflictArtifactSource(), FakeSyncConflictSuggestionPort())
 
         val failure =
             shouldThrow<RemoteSyncCenterFailure> {
@@ -261,7 +305,8 @@ class RemoteSyncCenterRepositoryAdapterTest : FunSpec({
         artifacts.put("art-base", "# base\n")
         artifacts.put("art-local", "# local side\n")
         artifacts.put("art-remote", "# remote side\n")
-        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts)
+        val suggestionPort = FakeSyncConflictSuggestionPort()
+        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, suggestionPort)
         val path =
             DomainConflictPath(
                 path = "memo/a.md",
@@ -290,12 +335,16 @@ class RemoteSyncCenterRepositoryAdapterTest : FunSpec({
         facts.baseDigest shouldBe "b"
         facts.localDigest shouldBe "l"
         facts.remoteDigest shouldBe "r"
+        // Owner suggestion rides the facts wire; adapter must not recompute.
+        facts.suggestion shouldBe suggestionPort.suggestion
+        suggestionPort.lastLocalBody shouldBe "# local side\n"
+        suggestionPort.lastRemoteBody shouldBe "# remote side\n"
     }
 
     test("markdownConflictFacts leaves body null when artifact ref absent") {
         val remote = FakeRemoteSyncRepository()
         val artifacts = MapConflictArtifactSource()
-        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts)
+        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, FakeSyncConflictSuggestionPort())
         val path =
             DomainConflictPath(
                 path = "memo/a.md",
@@ -322,7 +371,7 @@ class RemoteSyncCenterRepositoryAdapterTest : FunSpec({
         val remote = FakeRemoteSyncRepository()
         val artifacts = MapConflictArtifactSource()
         artifacts.putBytes("bin-local", byteArrayOf(0x00, 0x01, 0xFF.toByte()))
-        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts)
+        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, FakeSyncConflictSuggestionPort())
         val path =
             DomainConflictPath(
                 path = "media/x.bin",
@@ -356,7 +405,7 @@ class RemoteSyncCenterRepositoryAdapterTest : FunSpec({
         val remote = FakeRemoteSyncRepository()
         val artifacts = MapConflictArtifactSource()
         artifacts.putBytes("art-local", byteArrayOf(0xFF.toByte(), 0xFE.toByte()))
-        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts)
+        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, FakeSyncConflictSuggestionPort())
         val path =
             DomainConflictPath(
                 path = "memo/a.md",
@@ -386,6 +435,7 @@ class RemoteSyncCenterRepositoryAdapterTest : FunSpec({
             RemoteSyncCenterRepositoryAdapter(
                 remoteSync = remote,
                 artifactSource = artifacts,
+                suggestionPort = FakeSyncConflictSuggestionPort(),
                 configSummaryProvider = {
                     com.lomo.domain.model.RemoteSyncConfigSummary(
                         backend = RemoteSyncBackendLabel.Git,

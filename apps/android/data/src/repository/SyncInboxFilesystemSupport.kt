@@ -3,7 +3,8 @@ package com.lomo.data.repository
 import android.content.Context
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
-import kotlinx.coroutines.Dispatchers
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -13,11 +14,12 @@ internal suspend fun deleteInboxFile(
     context: Context,
     inboxRoot: String,
     relativePath: String,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) {
     if (isContentUriRoot(inboxRoot)) {
-        deleteSafInboxFile(context, inboxRoot, relativePath)
+        deleteSafInboxFile(context, inboxRoot, relativePath, dispatcherProvider)
     } else {
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             val target = File(inboxRoot, relativePath)
             if (target.exists() && !target.delete()) {
                 throw IOException("Failed to delete inbox file ${target.absolutePath}")
@@ -29,41 +31,51 @@ internal suspend fun deleteInboxFile(
 internal suspend fun listInboxMarkdownFiles(
     context: Context,
     inboxRoot: String,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): List<InboxMarkdownFileMetadata> =
     if (isContentUriRoot(inboxRoot)) {
-        listSafInboxMarkdownFiles(context, inboxRoot)
+        listSafInboxMarkdownFiles(context, inboxRoot, dispatcherProvider)
     } else {
-        listDirectInboxMarkdownFiles(inboxRoot)
+        listDirectInboxMarkdownFiles(inboxRoot, dispatcherProvider)
     }
 
-private suspend fun listDirectInboxMarkdownFiles(inboxRoot: String): List<InboxMarkdownFileMetadata> =
-    withContext(Dispatchers.IO) {
+private suspend fun listDirectInboxMarkdownFiles(
+    inboxRoot: String,
+    dispatcherProvider: DispatcherProvider,
+): List<InboxMarkdownFileMetadata> =
+    withContext(dispatcherProvider.io) {
         val root = File(inboxRoot)
         val memoRoot = File(root, INBOX_MEMO_DIRECTORY)
         val rootLevelFiles =
             root.listFiles()
-                ?.asSequence()
-                ?.filter { it.isFile && it.extension.equals("md", ignoreCase = true) }
-                ?.map { file -> InboxMarkdownFileMetadata(file.name, file.lastModified()) }
+                ?.run {
+                    asSequence()
+                        .filter { it.isFile && it.extension.equals("md", ignoreCase = true) }
+                        .map { file -> InboxMarkdownFileMetadata(file.name, file.lastModified()) }
+                }
                 .orEmpty()
         val memoFiles =
             memoRoot.listFiles()
-                ?.asSequence()
-                ?.filter { it.isFile && it.extension.equals("md", ignoreCase = true) }
-                ?.map { file ->
-                    InboxMarkdownFileMetadata(
-                        relativePath = "$INBOX_MEMO_DIRECTORY/${file.name}",
-                        lastModified = file.lastModified(),
-                    )
-                }.orEmpty()
+                ?.run {
+                    asSequence()
+                        .filter { it.isFile && it.extension.equals("md", ignoreCase = true) }
+                        .map { file ->
+                            InboxMarkdownFileMetadata(
+                                relativePath = "$INBOX_MEMO_DIRECTORY/${file.name}",
+                                lastModified = file.lastModified(),
+                            )
+                        }
+                }
+                .orEmpty()
         (rootLevelFiles + memoFiles).sortedBy { it.relativePath }.toList()
     }
 
 private suspend fun listSafInboxMarkdownFiles(
     context: Context,
     inboxRoot: String,
+    dispatcherProvider: DispatcherProvider,
 ): List<InboxMarkdownFileMetadata> =
-    withContext(Dispatchers.IO) {
+    withContext(dispatcherProvider.io) {
         val root = DocumentFile.fromTreeUri(context, inboxRoot.toUri()) ?: return@withContext emptyList()
         val rootLevelFiles =
             root.listFiles()
@@ -73,16 +85,17 @@ private suspend fun listSafInboxMarkdownFiles(
                     val name = file.name ?: return@mapNotNull null
                     InboxMarkdownFileMetadata(name, file.lastModified())
                 }
+        val memoDirectory = root.findFile(INBOX_MEMO_DIRECTORY)?.takeIf { it.isDirectory }
         val memoFiles =
-            root.findFile(INBOX_MEMO_DIRECTORY)
-                ?.takeIf { it.isDirectory }
+            memoDirectory
                 ?.listFiles()
-                ?.asSequence()
-                ?.filter { it.isFile && it.name?.endsWith(".md", ignoreCase = true) == true }
-                ?.mapNotNull { file ->
+                .orEmpty()
+                .asSequence()
+                .filter { it.isFile && it.name?.endsWith(".md", ignoreCase = true) == true }
+                .mapNotNull { file ->
                     val name = file.name ?: return@mapNotNull null
                     InboxMarkdownFileMetadata("$INBOX_MEMO_DIRECTORY/$name", file.lastModified())
-                }.orEmpty()
+                }
         (rootLevelFiles + memoFiles).sortedBy { it.relativePath }.toList()
     }
 
@@ -90,11 +103,12 @@ internal suspend fun readInboxTextFile(
     context: Context,
     inboxRoot: String,
     relativePath: String,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): String? =
     if (isContentUriRoot(inboxRoot)) {
-        readSafInboxFileBytes(context, inboxRoot, relativePath)?.toString(Charsets.UTF_8)
+        readSafInboxFileBytes(context, inboxRoot, relativePath, dispatcherProvider)?.toString(Charsets.UTF_8)
     } else {
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             val target = File(inboxRoot, relativePath)
             if (target.exists() && target.isFile) target.readText() else null
         }
@@ -104,11 +118,12 @@ internal suspend fun readInboxBinaryFile(
     context: Context,
     inboxRoot: String,
     relativePath: String,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): ByteArray? =
     if (isContentUriRoot(inboxRoot)) {
-        readSafInboxFileBytes(context, inboxRoot, relativePath)
+        readSafInboxFileBytes(context, inboxRoot, relativePath, dispatcherProvider)
     } else {
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             val target = File(inboxRoot, relativePath)
             if (target.exists() && target.isFile) {
                 // behavior-contract: full-load-ok: complete payload required for parse/hash
@@ -123,14 +138,15 @@ internal suspend fun inboxBinaryFileExists(
     context: Context,
     inboxRoot: String,
     relativePath: String,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): Boolean =
     if (isContentUriRoot(inboxRoot)) {
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             resolveSafInboxFile(context, inboxRoot, relativePath)
                 ?.isFile == true
         }
     } else {
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             val target = File(inboxRoot, relativePath)
             target.exists() && target.isFile
         }
@@ -141,9 +157,10 @@ internal suspend fun copyInboxBinaryFileTo(
     inboxRoot: String,
     relativePath: String,
     output: OutputStream,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): Boolean =
     if (isContentUriRoot(inboxRoot)) {
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             val target =
                 resolveSafInboxFile(context, inboxRoot, relativePath)
                     ?.takeIf { it.isFile }
@@ -151,10 +168,10 @@ internal suspend fun copyInboxBinaryFileTo(
             context.contentResolver.openInputStream(target.uri)?.use { input ->
                 input.copyTo(output)
                 true
-            } ?: false
+            } == true
         }
     } else {
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             val target = File(inboxRoot, relativePath)
             if (target.exists() && target.isFile) {
                 target.inputStream().use { input -> input.copyTo(output) }
@@ -169,8 +186,9 @@ private suspend fun readSafInboxFileBytes(
     context: Context,
     inboxRoot: String,
     relativePath: String,
+    dispatcherProvider: DispatcherProvider,
 ): ByteArray? =
-    withContext(Dispatchers.IO) {
+    withContext(dispatcherProvider.io) {
         resolveSafInboxFile(context, inboxRoot, relativePath)
             ?.let { file ->
                 context.contentResolver.openInputStream(file.uri)?.use { input ->
@@ -184,8 +202,9 @@ private suspend fun deleteSafInboxFile(
     context: Context,
     inboxRoot: String,
     relativePath: String,
+    dispatcherProvider: DispatcherProvider,
 ) {
-    withContext(Dispatchers.IO) {
+    withContext(dispatcherProvider.io) {
         val target = resolveSafInboxFile(context, inboxRoot, relativePath) ?: return@withContext
         check(target.delete()) { "Failed to delete inbox SAF file $relativePath" }
     }

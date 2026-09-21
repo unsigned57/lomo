@@ -11,6 +11,7 @@ import com.lomo.data.worker.RustSyncScheduler
 import com.lomo.data.worker.SyncWorker
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.repository.SyncPolicyRepository
+import com.lomo.domain.repository.SyncStateResetRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -20,6 +21,7 @@ class SyncPolicyRepositoryImpl(
     private val context: Context,
     private val dataStore: LomoDataStore,
     private val rustSyncScheduler: RustSyncScheduler,
+    private val syncStateReset: SyncStateResetRepository,
 ) : SyncPolicyRepository {
     override fun ensureCoreSyncActive() {
         val syncRequest =
@@ -44,6 +46,11 @@ class SyncPolicyRepositoryImpl(
         dataStore.syncBackendType.map(::syncBackendFromPreference)
 
     override suspend fun setRemoteSyncBackend(type: SyncBackendType) {
+        val previous = syncBackendFromPreference(dataStore.syncBackendType.first())
+        if (previous != type) {
+            rustSyncScheduler.cancel()
+            syncStateReset.resetWorkspaceScopedSyncState()
+        }
         dataStore.setRemoteSyncBackendFlags(
             backendType = type.preferenceValue,
             gitEnabled = type == SyncBackendType.GIT,

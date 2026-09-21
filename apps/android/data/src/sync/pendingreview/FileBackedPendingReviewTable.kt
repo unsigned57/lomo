@@ -1,10 +1,11 @@
 package com.lomo.data.sync.pendingreview
 
 import android.content.Context
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -18,6 +19,7 @@ import kotlinx.serialization.json.Json
  */
 class FileBackedPendingReviewTable(
     private val rootDir: File,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : PendingReviewTable {
     constructor(context: Context) : this(File(context.filesDir, "lomo-sync-tables"))
 
@@ -69,7 +71,7 @@ class FileBackedPendingReviewTable(
         if (loaded.get()) return
         loadMutex.withLock {
             if (!loaded.get()) {
-                withContext(Dispatchers.IO) {
+                withContext(dispatcherProvider.io) {
                     rootDir.mkdirs()
                     val file = File(rootDir, "pending_reviews.json")
                     if (file.isFile) {
@@ -90,7 +92,7 @@ class FileBackedPendingReviewTable(
     }
 
     private suspend fun persist(items: Collection<PendingSyncReviewRecord>) {
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             val file = File(rootDir, "pending_reviews.json")
             val tmp = File(rootDir, "pending_reviews.json.tmp")
             tmp.writeText(json.encodeToString(ListEnvelope(items = items.toList())))

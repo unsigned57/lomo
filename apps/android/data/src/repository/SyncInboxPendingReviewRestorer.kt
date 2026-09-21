@@ -1,22 +1,27 @@
 package com.lomo.data.repository
 
 import android.content.Context
+import com.lomo.data.sync.SyncConflictSuggestionPort
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.domain.model.SyncReviewItem
 import com.lomo.domain.model.SyncReviewSession
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 
 internal class SyncInboxPendingReviewRestorer(
     private val context: Context,
     private val markdownStorageDataSource: MarkdownStorageDataSource,
     private val contentProjector: com.lomo.data.util.MarkdownWorkspaceContentProjector,
+    private val suggestionPort: SyncConflictSuggestionPort,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) {
     suspend fun restore(
         inboxRoot: String,
         descriptor: PendingSyncReviewDescriptor,
     ): PendingSyncRestoreResult<SyncReviewSession> {
         val inboxFilesByPath =
-            listInboxMarkdownFiles(context = context, inboxRoot = inboxRoot)
+            listInboxMarkdownFiles(context = context, inboxRoot = inboxRoot, dispatcherProvider = dispatcherProvider)
                 .associateBy { it.relativePath }
         val restoredItems = mutableListOf<SyncReviewItem>()
         var invalidation: PendingSyncInvalidationReason? = null
@@ -49,6 +54,7 @@ internal class SyncInboxPendingReviewRestorer(
                 context = context,
                 inboxRoot = inboxRoot,
                 relativePath = inboxRelativePath,
+                dispatcherProvider = dispatcherProvider,
             )
         val inboxMetadata = inboxFilesByPath[inboxRelativePath]
         return when {
@@ -102,7 +108,7 @@ internal class SyncInboxPendingReviewRestorer(
                 !item.local.matchesRemote(
                     actualEtag = localBytes?.md5Hex(),
                     actualLastModified = localLastModified,
-                    actualSize = localBytes?.size?.toLong(),
+                    actualSize = localBytes?.run { size.toLong() },
                 ) -> InboxReviewItemRestore.Invalidated(PendingSyncInvalidationReason.STALE_LOCAL)
             !item.local.wasAbsentWhenCaptured() && !item.local.matchesContent(localContent) ->
                 InboxReviewItemRestore.Invalidated(PendingSyncInvalidationReason.STALE_LOCAL)
@@ -117,6 +123,14 @@ internal class SyncInboxPendingReviewRestorer(
                         incomingLastModified = incomingLastModified,
                         state = item.state,
                         message = item.message,
+                        suggestion =
+                            suggestionPort.suggest(
+                                localBody = localContent,
+                                remoteBody = incomingContent,
+                                localLastModifiedMs = localLastModified,
+                                remoteLastModifiedMs = incomingLastModified,
+                                isBinary = item.isBinary,
+                            ),
                     ),
                 )
         }

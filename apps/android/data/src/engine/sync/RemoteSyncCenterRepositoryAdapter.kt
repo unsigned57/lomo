@@ -9,6 +9,7 @@ import com.lomo.domain.model.RemoteSyncConflictPath
 import com.lomo.domain.model.RemoteSyncConflictPathStatus
 import com.lomo.domain.model.RemoteSyncConflictResolution
 import com.lomo.domain.model.RemoteSyncConflictResolveResult
+import com.lomo.domain.model.RemoteSyncConflictSessionState
 import com.lomo.domain.model.RemoteSyncMarkdownConflictFacts
 import com.lomo.domain.model.RemoteSyncSessionPhase
 import com.lomo.domain.model.RemoteSyncSessionProgress
@@ -21,6 +22,8 @@ import com.lomo.data.engine.sync.RemoteSyncConflictPath as DataConflictPath
 import com.lomo.data.engine.sync.RemoteSyncConflictPathStatus as DataPathStatus
 import com.lomo.data.engine.sync.RemoteSyncConflictResolution as DataConflictResolution
 import com.lomo.data.engine.sync.RemoteSyncConflictResolveResult as DataConflictResolveResult
+import com.lomo.data.sync.SyncConflictSuggestionPort
+import com.lomo.data.engine.sync.RemoteSyncConflictSessionState as DataConflictSession
 
 /**
  * Stage-5 dark adapter: [RemoteSyncRepository] / BoltFFI facts → domain
@@ -35,6 +38,7 @@ import com.lomo.data.engine.sync.RemoteSyncConflictResolveResult as DataConflict
 class RemoteSyncCenterRepositoryAdapter(
     private val remoteSync: RemoteSyncRepository,
     private val artifactSource: ConflictArtifactSource,
+    private val suggestionPort: SyncConflictSuggestionPort,
     private val configSummaryProvider: (String) -> RemoteSyncConfigSummary = {
         RemoteSyncConfigSummary(
             backend = RemoteSyncBackendLabel.None,
@@ -88,15 +92,25 @@ class RemoteSyncCenterRepositoryAdapter(
     ): RemoteSyncMarkdownConflictFacts {
         require(path.isMarkdown) { "markdownConflictFacts requires kind=markdown" }
         return mapBoundary {
+            val localBody = readUtf8Artifact(workspaceRoot, path.localArtifactRef)
+            val remoteBody = readUtf8Artifact(workspaceRoot, path.remoteArtifactRef)
             RemoteSyncMarkdownConflictFacts(
                 path = path.path,
                 baseDigest = path.baselineDigest,
                 localDigest = path.localDigest,
                 remoteDigest = path.remoteDigest,
                 baseBody = readUtf8Artifact(workspaceRoot, path.baselineArtifactRef),
-                localBody = readUtf8Artifact(workspaceRoot, path.localArtifactRef),
-                remoteBody = readUtf8Artifact(workspaceRoot, path.remoteArtifactRef),
+                localBody = localBody,
+                remoteBody = remoteBody,
                 mergedDraft = mergedDraft,
+                suggestion =
+                    suggestionPort.suggest(
+                        localBody = localBody,
+                        remoteBody = remoteBody,
+                        localLastModifiedMs = null,
+                        remoteLastModifiedMs = null,
+                        isBinary = false,
+                    ),
             )
         }
     }
@@ -215,11 +229,18 @@ private fun RemoteSyncBoundaryFailure.toCenterFailure(): RemoteSyncCenterFailure
 
 private fun DataConflictPage.toDomain(): RemoteSyncConflictPage =
     RemoteSyncConflictPage(
+        session = session.toDomain(),
         sessionId = sessionId,
         conflictRevision = conflictRevision,
         items = items.map { it.toDomain() },
         nextCursor = nextCursor,
     )
+
+private fun DataConflictSession.toDomain(): RemoteSyncConflictSessionState =
+    when (this) {
+        DataConflictSession.Absent -> RemoteSyncConflictSessionState.Absent
+        DataConflictSession.Present -> RemoteSyncConflictSessionState.Present
+    }
 
 private fun DataConflictPath.toDomain(): RemoteSyncConflictPath =
     RemoteSyncConflictPath(

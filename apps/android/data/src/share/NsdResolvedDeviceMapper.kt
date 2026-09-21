@@ -10,17 +10,21 @@ internal fun mapResolvedLanShareDevice(
     port: Int,
     attributes: Map<String, ByteArray>,
     localDeviceId: String,
+    expectedProtocolVersion: String,
 ): DiscoveredDevice? {
     val protocolVersion = attributes["protocol_version"]?.let { value -> String(value, Charsets.UTF_8) }
     val remoteDeviceId =
-        attributes["device_id"]?.let { value -> String(value, Charsets.UTF_8) }
-        ?.takeIf { deviceId ->
-            deviceId.length == DEVICE_ID_HEX_LENGTH &&
-                deviceId.all { character -> character in '0'..'9' || character in 'a'..'f' }
+        attributes["device_id"]?.let { value ->
+            String(value, Charsets.UTF_8).takeIf { deviceId ->
+                deviceId.length == DEVICE_ID_HEX_LENGTH &&
+                    deviceId.all { character -> character in '0'..'9' || character in 'a'..'f' }
+            }
         }
     val host = selectLanShareHostAddress(hostAddresses)?.hostAddress?.substringBefore('%')
     val endpointIsValid =
-        port in 1..UShort.MAX_VALUE.toInt() && protocolVersion == "2" && host != null
+        port in 1..UShort.MAX_VALUE.toInt() &&
+            protocolVersion == expectedProtocolVersion &&
+            host != null
     return if (!endpointIsValid || remoteDeviceId == null || remoteDeviceId == localDeviceId) {
         null
     } else {

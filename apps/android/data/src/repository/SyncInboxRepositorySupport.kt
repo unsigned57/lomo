@@ -4,6 +4,8 @@ import android.content.Context
 import com.lomo.data.repository.WorkspaceMediaCategory.IMAGE
 import com.lomo.data.repository.WorkspaceMediaCategory.VOICE
 import com.lomo.domain.model.MediaFileExtensions
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import java.security.MessageDigest
 import java.io.OutputStream
 
@@ -38,6 +40,7 @@ internal suspend fun missingInboxMediaReferences(
     inboxRoot: String,
     markdown: String,
     contentProjector: com.lomo.data.util.MarkdownWorkspaceContentProjector,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): List<String> {
     val missingAttachments = mutableListOf<String>()
     extractInboxAttachmentReferences(markdown, contentProjector).forEach { attachment ->
@@ -46,6 +49,7 @@ internal suspend fun missingInboxMediaReferences(
                 context = context,
                 inboxRoot = inboxRoot,
                 attachment = attachment,
+                dispatcherProvider = dispatcherProvider,
             )
         if (resolvedAttachment == null) {
             missingAttachments += attachment.sourcePath
@@ -60,6 +64,7 @@ internal suspend fun importInboxMediaReferences(
     inboxRoot: String,
     markdown: String,
     contentProjector: com.lomo.data.util.MarkdownWorkspaceContentProjector,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): InboxMediaImportResult {
     val preview = previewInboxMediaReferences(markdown = markdown, contentProjector = contentProjector)
     val resolvedAttachments = mutableListOf<Pair<InboxAttachmentReference, ResolvedInboxAttachmentSource>>()
@@ -70,6 +75,7 @@ internal suspend fun importInboxMediaReferences(
                 context = context,
                 inboxRoot = inboxRoot,
                 attachment = attachment,
+                dispatcherProvider = dispatcherProvider,
             )
         if (resolvedAttachment == null) {
             missingAttachments += attachment.sourcePath
@@ -150,6 +156,7 @@ private suspend fun resolveInboxAttachmentSource(
     context: Context,
     inboxRoot: String,
     attachment: InboxAttachmentReference,
+    dispatcherProvider: DispatcherProvider,
 ): ResolvedInboxAttachmentSource? {
     attachment.sourceCandidates.forEach { candidate ->
         val exists =
@@ -157,6 +164,7 @@ private suspend fun resolveInboxAttachmentSource(
                 context = context,
                 inboxRoot = inboxRoot,
                 relativePath = candidate,
+                dispatcherProvider = dispatcherProvider,
             )
         if (!exists) {
             return@forEach
@@ -170,6 +178,7 @@ private suspend fun resolveInboxAttachmentSource(
                         inboxRoot = inboxRoot,
                         relativePath = candidate,
                         output = output,
+                        dispatcherProvider = dispatcherProvider,
                     ),
                 ) {
                     "Cannot open inbox attachment stream: $candidate"
@@ -204,7 +213,7 @@ private fun stableImportedInboxFilename(attachmentRelativePath: String): String 
     val digest =
         MessageDigest.getInstance("SHA-256")
             .digest(attachmentRelativePath.toByteArray())
-            .joinToString("") { byte -> "%02x".format(byte) }
+            .joinToString("") { byte -> "%02x".format(java.util.Locale.ROOT, byte) }
             .take(IMPORTED_FILENAME_HASH_LENGTH)
     return if (extension.isBlank()) "${baseName}_$digest" else "${baseName}_$digest.$extension"
 }

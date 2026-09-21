@@ -57,4 +57,4 @@ internal fun PendingSyncSideMetadata.hasCompleteRemoteMetadata(): Boolean =
 
 internal fun PendingSyncSideMetadata.matchesContent(content: String?): Boolean =
     contentHash == null ||
-        content?.toByteArray(Charsets.UTF_8)?.md5Hex() == contentHash
+        content?.run { toByteArray(Charsets.UTF_8).md5Hex() } == contentHash

@@ -18,9 +18,10 @@ import com.lomo.domain.model.ShareTransferError
 import com.lomo.domain.model.ShareTransferErrorCode
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.domain.repository.LanShareService
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,6 +52,7 @@ internal class RustLanShareService(
     private val runtime: LanRuntimeCoordinator,
     private val deviceKey: LanDeviceKey,
     private val appScope: CoroutineScope,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
     private val clockMillis: () -> Long = System::currentTimeMillis,
 ) : LanShareService {
     private val _pendingPairing = MutableStateFlow<LanPairingRequest?>(null)
@@ -93,7 +95,7 @@ internal class RustLanShareService(
             .stateIn(appScope, SharingStarted.Eagerly, emptyList())
 
     init {
-        appScope.launch(Dispatchers.IO) {
+        appScope.launch(dispatcherProvider.io) {
             runtime.inbox.collect(::publishInbox)
         }
         appScope.launch {
@@ -130,7 +132,7 @@ internal class RustLanShareService(
     }
 
     override fun startServices() {
-        appScope.launch(Dispatchers.IO) {
+        appScope.launch(dispatcherProvider.io) {
             if (preferences.lanShareEnabledValue()) {
                 runtime.startServices(lanShareDeviceName.value)
                 refreshPeers()
@@ -144,7 +146,7 @@ internal class RustLanShareService(
     }
 
     override fun startDiscovery() {
-        appScope.launch(Dispatchers.IO) {
+        appScope.launch(dispatcherProvider.io) {
             if (preferences.lanShareEnabledValue()) {
                 runtime.startDiscovery(lanShareDeviceName.value)
             }
@@ -154,7 +156,7 @@ internal class RustLanShareService(
     override fun stopDiscovery() = runtime.stopDiscovery()
 
     override fun refreshNetworkPermissionState() {
-        appScope.launch(Dispatchers.IO) {
+        appScope.launch(dispatcherProvider.io) {
             if (preferences.lanShareEnabledValue()) {
                 runtime.startServices(lanShareDeviceName.value)
                 runtime.startDiscovery(lanShareDeviceName.value)
@@ -168,19 +170,21 @@ internal class RustLanShareService(
         timestamp: Long,
         attachmentUris: Map<String, String>,
     ): Result<Unit> =
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             try {
                 check(preferences.lanShareEnabledValue()) { "LAN share is disabled in settings." }
                 refreshPeers()
                 if (_trustedPeers.value.none { peer -> peer.deviceId == device.deviceId }) {
-                    val challenge = engine.beginLanPairing(device.deviceId, clockMillis(), PAIRING_TTL_MS)
+                    val limits = engine.lanProtocolLimits()
+                    val challenge = engine.beginLanPairing(device.deviceId, clockMillis(), limits.pairingTtlMs)
                     _pendingPairing.value = challenge.toDomain()
                     _transferState.value = ShareTransferState.WaitingPairing(device.name)
                     return@withContext Result.success(Unit)
                 }
 
                 _transferState.value = ShareTransferState.Sending
-                val session = engine.beginLanSession(device.deviceId, clockMillis(), SESSION_TTL_MS)
+                val limits = engine.lanProtocolLimits()
+                val session = engine.beginLanSession(device.deviceId, clockMillis(), limits.sessionTtlMs)
                 engine.confirmLanSession(session.sessionId, deviceKey.sign(session), clockMillis())
                 engine.lanSessionState(session.sessionId)
 
@@ -217,7 +221,7 @@ internal class RustLanShareService(
         }
 
     override fun confirmPairing(pairingId: String) {
-        appScope.launch(Dispatchers.IO) {
+        appScope.launch(dispatcherProvider.io) {
             executeCommand {
                 val challenge = engine.lanPairingChallenge(pairingId)
                 engine.confirmLanPairing(pairingId, deviceKey.sign(challenge), clockMillis())
@@ -229,7 +233,7 @@ internal class RustLanShareService(
     }
 
     override fun declinePairing(pairingId: String) {
-        appScope.launch(Dispatchers.IO) {
+        appScope.launch(dispatcherProvider.io) {
             executeCommand {
                 engine.declineLanPairing(pairingId)
                 _pendingPairing.value = null
@@ -239,19 +243,26 @@ internal class RustLanShareService(
     }
 
     override fun approveIncoming(sessionId: String, batchId: String) {
-        appScope.launch(Dispatchers.IO) {
-            executeCommand { engine.approveLanBatch(sessionId, batchId, clockMillis(), APPROVAL_TTL_MS) }
+        appScope.launch(dispatcherProvider.io) {
+            executeCommand {
+                engine.approveLanBatch(
+                    sessionId,
+                    batchId,
+                    clockMillis(),
+                    engine.lanProtocolLimits().approvalTtlMs,
+                )
+            }
         }
     }
 
     override fun rejectIncoming(sessionId: String, batchId: String) {
-        appScope.launch(Dispatchers.IO) {
+        appScope.launch(dispatcherProvider.io) {
             executeCommand { engine.rejectLanBatch(sessionId, batchId, clockMillis()) }
         }
     }
 
     override fun revokePeer(deviceId: String) {
-        appScope.launch(Dispatchers.IO) {
+        appScope.launch(dispatcherProvider.io) {
             executeCommand {
                 engine.revokeLanPeer(deviceId, clockMillis())
                 refreshPeers()
@@ -307,7 +318,7 @@ internal class RustLanShareService(
     private fun transmitOnce(batchId: String) {
         if (!completedOutgoing.add(batchId)) return
         val payload = outgoingPayloads[batchId] ?: return
-        appScope.launch(Dispatchers.IO) {
+        appScope.launch(dispatcherProvider.io) {
             try {
                 _transferState.value = ShareTransferState.Transferring(0f)
                 sendByteArray(payload, payload.shape.bodySlot, payload.content)
@@ -441,11 +452,8 @@ internal class RustLanShareService(
     )
 
     private companion object {
-        const val APPROVAL_TTL_MS = 15 * 60 * 1_000L
         const val MAX_DEVICE_NAME_CHARS = 64
         const val MAX_TITLE_CHARS = 160
-        const val PAIRING_TTL_MS = 2 * 60 * 1_000L
-        const val SESSION_TTL_MS = 60 * 1_000L
         const val STREAM_BUFFER_BYTES = 64 * 1_024
     }
 }
@@ -453,8 +461,11 @@ internal class RustLanShareService(
 private suspend fun LomoLanSharePreferencesStore.lanShareEnabledValue(): Boolean =
     lanShareEnabled.first()
 
-private fun resolvedDeviceName(stored: String?): String =
-    stored?.trim()?.takeIf(String::isNotEmpty) ?: Build.MODEL.trim().takeIf(String::isNotEmpty) ?: "Android"
+private fun resolvedDeviceName(stored: String?): String {
+    val storedName = stored?.trim()
+    if (!storedName.isNullOrEmpty()) return storedName
+    return Build.MODEL.trim().ifEmpty { "Android" }
+}
 
 private fun LanPairingChallenge.toDomain() =
     LanPairingRequest(pairingId, peerDeviceId, peerDisplayName, shortCode, deadlineMs)
@@ -501,7 +512,8 @@ private fun LanBatchPreview.toDomain(
 
 private fun ByteArray.sha256(): String = MessageDigest.getInstance("SHA-256").digest(this).hex()
 
-private fun ByteArray.hex(): String = joinToString(separator = "") { byte -> "%02x".format(byte) }
+private fun ByteArray.hex(): String =
+    joinToString(separator = "") { byte -> "%02x".format(java.util.Locale.ROOT, byte) }
 
 private fun randomId(): String =
     ByteArray(RANDOM_ID_BYTES).also(SecureRandom()::nextBytes).hex()

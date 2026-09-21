@@ -32,12 +32,6 @@ interface RemoteSyncRepository {
     fun revokeSecretLease(leaseId: String)
 
     /**
-     * Maps a Rust disposition **name** (`never` | `after_user_action` | `transient`) to a WM-facing
-     * hint. No fixed three-retry policy.
-     */
-    fun retryHintFromDispositionName(name: String): RemoteSyncRetryHint
-
-    /**
      * Inspects one Rust-owned plan/readiness cycle for [workspaceRoot] (empty-port readiness).
      *
      * Conversion-only: maps `sync_inspect_cycle_plan`. Not the production work unit.
@@ -51,6 +45,20 @@ interface RemoteSyncRepository {
      * Kotlin must not re-plan or construct protocol adapters.
      */
     fun runCycle(request: RemoteSyncCycleRequest): RemoteSyncCyclePlanSummary
+
+    /**
+     * Loads the durable workspace generation fence (read-only; never mints).
+     *
+     * Conversion-only: maps `sync_workspace_generation`.
+     */
+    fun loadWorkspaceGeneration(workspaceRoot: String): String
+
+    /**
+     * Clears durable `.lomo/sync/v1` control records for the workspace (not user Markdown).
+     *
+     * Conversion-only: maps `sync_reset_control_tree`.
+     */
+    fun resetControlTree(workspaceRoot: String)
 }
 
 /**

@@ -57,6 +57,6 @@ internal fun InetAddress.isLanSharePrivateAddress(): Boolean =
         (this is Inet6Address && isLanShareUniqueLocalAddress())
 
 private fun Inet6Address.isLanShareUniqueLocalAddress(): Boolean {
-    val normalized = hostAddress?.substringBefore('%')?.lowercase(Locale.ROOT).orEmpty()
+    val normalized = hostAddress?.run { substringBefore('%').lowercase(Locale.ROOT) }.orEmpty()
     return normalized.startsWith("fc") || normalized.startsWith("fd")
 }

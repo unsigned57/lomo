@@ -20,16 +20,29 @@ package com.lomo.data.engine.sync
  *   edge require fails before bridge call.
  * - Given secret issue→probe→revoke via fake bridge, when supplier issues a lease, then only lease
  *   id is returned and source plaintext is not stored as lease id.
- * - Given disposition names never / after_user_action / transient, when retryHint maps, then
- *   disposition enums match (no maxAttempts=3 policy embedded).
+ * - Given disposition names never / after_user_action / transient / unknown, when
+ *   RemoteSyncRetryDisposition.fromWire maps, then the unique typed map matches (no maxAttempts=3).
+ * - Given a workspace generation id on the bridge, when loadWorkspaceGeneration runs, then the
+ *   hex id is returned and blank roots fail before the bridge.
+ * - Given resetControlTree, when the repository runs, then the bridge receives the trimmed root.
  *
  * Observable outcomes: RemoteSyncConflictPage / ResolveResult / SecretLease / RetryHint fields;
- * last bridge request fields; require / RemoteSyncBoundaryFailure types.
+ * last bridge request fields; require / RemoteSyncBoundaryFailure types; generation hex; reset root.
  *
- * TDD proof:
- * - Target: ./kotlin test --include-module=data --include-classes='com.lomo.data.engine.sync.BoltFfiRemoteSyncRepositoryTest'
- * - RED: dark Kotlin RemoteSyncRepository surface was OPEN / untested before this host contract.
- * - GREEN: list/resolve/stale/oversize-edge mapping + secret lease id-only + disposition map.
+ * TDD proof: RED because the dark Kotlin RemoteSyncRepository surface was unbound before this
+ *   host contract; the disposition map, generation hex, and reset-root assertions fail without it.
+ *
+ * Test Change Justification:
+ * - Task: T20.
+ * - Reason category: Domain contract change.
+ * - Old behavior/assertion being replaced: repository.retryHintFromDispositionName called FFI and
+ *   threw on "three_retries".
+ * - Why old assertion is no longer correct: that named Data method is deleted; production worker
+ *   uses RemoteSyncRetryDisposition.fromWire (unknown → Never). FFI invalid-name throw stays
+ *   locked in sync_ffi_contract.
+ * - Coverage preserved by: fromWire never/after_user_action/transient/unknown plus existing
+ *   list/resolve/cycle mapping.
+ * - Why this is not fitting the test to the implementation: unique typed map is the production owner.
  *
  * Excludes:
  * - Real JNI / process vault / durable .lomo/sync (covered by rust sync_ffi_contract).
@@ -44,6 +57,7 @@ import com.lomo.nativebridge.SyncConflictPathDto as BridgeConflictPath
 import com.lomo.nativebridge.SyncConflictPathStatusDto as BridgePathStatus
 import com.lomo.nativebridge.SyncConflictResolutionDto as BridgeResolution
 import com.lomo.nativebridge.SyncConflictResolveResultDto as BridgeResolveResult
+import com.lomo.nativebridge.SyncConflictSessionStateDto as BridgeConflictSession
 import com.lomo.nativebridge.SyncCyclePlanSummaryDto as BridgeCyclePlan
 import com.lomo.nativebridge.SyncRetryDispositionDto as BridgeRetryDisposition
 import com.lomo.nativebridge.SyncRetryHintDto as BridgeRetryHint
@@ -71,6 +85,7 @@ private class RecordingSyncNativeBridge : SyncNativeBridge {
 
     var listPage: BridgeConflictPage =
         BridgeConflictPage(
+            session = BridgeConflictSession.PRESENT,
             sessionId = "session-1",
             conflictRevision = 1uL,
             items =
@@ -113,6 +128,7 @@ private class RecordingSyncNativeBridge : SyncNativeBridge {
             ensureAbsentCount = 0u,
             pullPresentCount = 0u,
             openConflictCount = 0u,
+            holdCount = 0u,
             openConflictPaths = 0u,
             conflictRevision = null,
             retryDisposition = "after_user_action",
@@ -219,12 +235,27 @@ private class RecordingSyncNativeBridge : SyncNativeBridge {
         runCycleError?.let { throw it }
         return cyclePlan
     }
+
+    var lastGenerationWorkspaceRoot: String? = null
+    var lastResetWorkspaceRoot: String? = null
+    var workspaceGeneration: String = "ab".repeat(32)
+
+    override fun loadWorkspaceGeneration(workspaceRoot: String): String {
+        lastGenerationWorkspaceRoot = workspaceRoot
+        return workspaceGeneration
+    }
+
+    override fun resetControlTree(workspaceRoot: String) {
+        lastResetWorkspaceRoot = workspaceRoot
+    }
 }
 
 private class MemorySecretMaterialSource(
     private val secrets: MutableMap<String, ByteArray> = mutableMapOf(),
 ) : SecretMaterialSource {
     override fun readSecretBytes(fieldKey: String): ByteArray? = secrets[fieldKey]?.copyOf()
+
+    override fun hasMaterial(fieldKey: String): Boolean = secrets[fieldKey]?.isNotEmpty() == true
 
     fun put(
         fieldKey: String,
@@ -244,6 +275,7 @@ class BoltFfiRemoteSyncRepositoryTest : FunSpec({
         bridge.lastWorkspaceRoot shouldBe "/ws"
         bridge.lastCursor shouldBe 0u
         bridge.lastLimit shouldBe 10u
+        page.session shouldBe RemoteSyncConflictSessionState.Present
         page.sessionId shouldBe "session-1"
         page.conflictRevision shouldBe 1L
         page.nextCursor shouldBe 1
@@ -257,6 +289,25 @@ class BoltFfiRemoteSyncRepositoryTest : FunSpec({
         item.remoteDigest shouldBe "bb".repeat(32)
         // List surface must not invent text body preview fields.
         item.toString() shouldNotContain "mergedBody"
+    }
+
+    test("listConflicts maps absent session distinctly from present empty") {
+        val bridge = RecordingSyncNativeBridge()
+        bridge.listPage =
+            BridgeConflictPage(
+                session = BridgeConflictSession.ABSENT,
+                sessionId = "",
+                conflictRevision = 0uL,
+                items = emptyList(),
+                nextCursor = null,
+            )
+        val repository = BoltFfiRemoteSyncRepository(bridge)
+
+        val page = repository.listConflicts(workspaceRoot = "/ws", cursor = 0, limit = 10)
+
+        page.session shouldBe RemoteSyncConflictSessionState.Absent
+        page.items shouldBe emptyList()
+        page.sessionId shouldBe ""
     }
 
     test("resolveConflicts keep_local advances revision via bridge mapping") {
@@ -406,24 +457,13 @@ class BoltFfiRemoteSyncRepositoryTest : FunSpec({
         emptySupplier.issueLease("webdav_password", 30_000).shouldBeNull()
     }
 
-    test("retry disposition mapping has no fixed three-retry policy") {
-        val bridge = RecordingSyncNativeBridge()
-        val repository = BoltFfiRemoteSyncRepository(bridge)
-
-        repository.retryHintFromDispositionName("never").disposition shouldBe
-            RemoteSyncRetryDisposition.Never
-        repository.retryHintFromDispositionName("after_user_action").disposition shouldBe
+    test("retry disposition fromWire has no fixed three-retry policy") {
+        RemoteSyncRetryDisposition.fromWire("never") shouldBe RemoteSyncRetryDisposition.Never
+        RemoteSyncRetryDisposition.fromWire("after_user_action") shouldBe
             RemoteSyncRetryDisposition.AfterUserAction
-        val transient = repository.retryHintFromDispositionName("transient")
-        transient.disposition shouldBe RemoteSyncRetryDisposition.Transient
-        // Free-function dark slice leaves delay null; host scheduler owns concrete backoff.
-        transient.retryAfterMillis.shouldBeNull()
-
-        val invalid =
-            shouldThrow<RemoteSyncBoundaryFailure> {
-                repository.retryHintFromDispositionName("three_retries")
-            }
-        invalid.code shouldBe "sync_ffi_retry_disposition_invalid"
+        RemoteSyncRetryDisposition.fromWire("transient") shouldBe RemoteSyncRetryDisposition.Transient
+        RemoteSyncRetryDisposition.fromWire("three_retries") shouldBe RemoteSyncRetryDisposition.Never
+        RemoteSyncRetryDisposition.fromWire("  TRANSIENT  ") shouldBe RemoteSyncRetryDisposition.Transient
     }
 
     test("runCycle maps composed owner cycle without inventing planner counts") {
@@ -438,6 +478,7 @@ class BoltFfiRemoteSyncRepositoryTest : FunSpec({
                 ensureAbsentCount = 0u,
                 pullPresentCount = 0u,
                 openConflictCount = 0u,
+                holdCount = 0u,
                 openConflictPaths = 0u,
                 conflictRevision = null,
                 retryDisposition = "after_user_action",
@@ -488,6 +529,7 @@ class BoltFfiRemoteSyncRepositoryTest : FunSpec({
                 pullPresentCount = 2u,
                 openConflictCount = 0u,
                 openConflictPaths = 1u,
+                holdCount = 2u,
                 conflictRevision = 3uL,
                 retryDisposition = "after_user_action",
             )
@@ -505,6 +547,7 @@ class BoltFfiRemoteSyncRepositoryTest : FunSpec({
         summary.pullPresentCount shouldBe 2
         summary.openConflictCount shouldBe 0
         summary.openConflictPaths shouldBe 1
+        summary.holdCount shouldBe 2
         summary.conflictRevision shouldBe 3L
         summary.retryDisposition shouldBe "after_user_action"
     }
@@ -541,5 +584,32 @@ class BoltFfiRemoteSyncRepositoryTest : FunSpec({
         failure.category shouldBe "validation"
         failure.code shouldBe "sync_session_missing"
         failure.retryDisposition shouldBe "never"
+    }
+
+    test("loadWorkspaceGeneration maps fence id and rejects blank root") {
+        val bridge = RecordingSyncNativeBridge()
+        bridge.workspaceGeneration = "cd".repeat(32)
+        val repository = BoltFfiRemoteSyncRepository(bridge)
+
+        repository.loadWorkspaceGeneration(" /ws ") shouldBe "cd".repeat(32)
+        bridge.lastGenerationWorkspaceRoot shouldBe "/ws"
+
+        shouldThrow<IllegalArgumentException> {
+            repository.loadWorkspaceGeneration("  ")
+        }
+        bridge.lastGenerationWorkspaceRoot shouldBe "/ws"
+    }
+
+    test("resetControlTree forwards trimmed root and rejects blank") {
+        val bridge = RecordingSyncNativeBridge()
+        val repository = BoltFfiRemoteSyncRepository(bridge)
+
+        repository.resetControlTree(" /ws ")
+        bridge.lastResetWorkspaceRoot shouldBe "/ws"
+
+        shouldThrow<IllegalArgumentException> {
+            repository.resetControlTree(" ")
+        }
+        bridge.lastResetWorkspaceRoot shouldBe "/ws"
     }
 })

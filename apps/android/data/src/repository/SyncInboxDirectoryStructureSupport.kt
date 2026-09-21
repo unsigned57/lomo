@@ -3,23 +3,28 @@ package com.lomo.data.repository
 import android.content.Context
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
-import kotlinx.coroutines.Dispatchers
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.withContext
 import java.io.File
 
 internal suspend fun ensureInboxDirectoryStructure(
     context: Context,
     inboxRoot: String,
+    dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) {
     if (isContentUriRoot(inboxRoot)) {
-        ensureSafInboxDirectoryStructure(context, inboxRoot)
+        ensureSafInboxDirectoryStructure(context, inboxRoot, dispatcherProvider)
     } else {
-        ensureDirectInboxDirectoryStructure(inboxRoot)
+        ensureDirectInboxDirectoryStructure(inboxRoot, dispatcherProvider)
     }
 }
 
-private suspend fun ensureDirectInboxDirectoryStructure(inboxRoot: String) {
-    withContext(Dispatchers.IO) {
+private suspend fun ensureDirectInboxDirectoryStructure(
+    inboxRoot: String,
+    dispatcherProvider: DispatcherProvider,
+) {
+    withContext(dispatcherProvider.io) {
         requiredInboxDirectories().forEach { name ->
             val directory = File(inboxRoot, name)
             when {
@@ -34,8 +39,9 @@ private suspend fun ensureDirectInboxDirectoryStructure(inboxRoot: String) {
 private suspend fun ensureSafInboxDirectoryStructure(
     context: Context,
     inboxRoot: String,
+    dispatcherProvider: DispatcherProvider,
 ) {
-    withContext(Dispatchers.IO) {
+    withContext(dispatcherProvider.io) {
         val root = DocumentFile.fromTreeUri(context, inboxRoot.toUri()) ?: error("Failed to resolve sync inbox root")
         requiredInboxDirectories().forEach { name ->
             val child = root.findFile(name)

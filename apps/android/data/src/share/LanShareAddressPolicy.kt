@@ -96,7 +96,7 @@ internal fun ConnectivityManager.toLanShareNetworkProbes(candidateNetworks: Set<
         val linkProperties = getLinkProperties(network)
         LanShareNetworkProbe(
             networkKey = network.toString(),
-            bindHost = linkProperties?.linkAddresses?.map { it.address }?.let(::selectLanShareBindHostAddress),
+            bindHost = linkProperties?.run { selectLanShareBindHostAddress(linkAddresses.map { it.address }) },
             isActiveNetwork = network == activeNetwork,
             hasWifiTransport = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
             hasEthernetTransport = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),

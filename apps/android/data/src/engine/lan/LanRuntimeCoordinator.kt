@@ -12,7 +12,6 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -83,7 +82,9 @@ internal interface LanCoordinatorEngine {
 
     fun stopLanService(): LanServiceState
 
-    fun pollLanListener(nowMs: Long): LanRuntimeInbox
+    fun lanProtocolLimits(): LanProtocolLimits
+
+    suspend fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait
 
     fun lanRuntimeInbox(): LanRuntimeInbox
 
@@ -111,7 +112,10 @@ private class ManagedLanCoordinatorEngine(
 
     override fun stopLanService(): LanServiceState = engine.stopLanService()
 
-    override fun pollLanListener(nowMs: Long): LanRuntimeInbox = engine.pollLanListener(nowMs)
+    override fun lanProtocolLimits(): LanProtocolLimits = engine.lanProtocolLimits()
+
+    override suspend fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait =
+        engine.awaitLanInbox(lastGeneration, timeoutMs)
 
     override fun lanRuntimeInbox(): LanRuntimeInbox = engine.lanRuntimeInbox()
 
@@ -119,7 +123,7 @@ private class ManagedLanCoordinatorEngine(
         engine.confirmLanSession(sessionId, signature, nowMs)
 
     override fun commitReceivedLanItem(batchId: String, itemIndex: UInt, nowMs: Long): String =
-        engine.commitReceivedLanItem(batchId, itemIndex, nowMs)
+        engine.commitReceivedLanItem(batchId, itemIndex, nowMs).memoId
 }
 
 private class AndroidLanRuntimeMulticastLease(
@@ -159,7 +163,6 @@ internal class LanRuntimeCoordinator internal constructor(
     private val multicastLease: LanRuntimeMulticastLease,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val pollIntervalMillis: Long = LISTENER_POLL_INTERVAL_MS,
 ) : LanRuntimePlatform, AutoCloseable {
     internal constructor(
         context: Context,
@@ -306,12 +309,13 @@ internal class LanRuntimeCoordinator internal constructor(
                     }
                     serviceStarted = true
                     serviceNetwork = snapshot
-                    val port = state.listenAddress?.substringAfterLast(':')?.toIntOrNull()
+                    val port = state.listenAddress?.run { substringAfterLast(':').toIntOrNull() }
                         ?: error("Rust LAN listener did not return a numeric port")
                     discovery.registerService(
                         port = port,
                         deviceName = displayName,
                         deviceId = checkNotNull(localIdentity).deviceId,
+                        protocolVersion = engine.lanProtocolLimits().protocolVersion,
                     )
                     startListenerPolling()
                     _failure.value = null
@@ -366,12 +370,14 @@ internal class LanRuntimeCoordinator internal constructor(
     private fun startListenerPolling() {
         if (listenerJob != null) return
         listenerJob = scope.launch(dispatcher) {
+            var generation = 0uL
             try {
                 while (isActive) {
-                    // behavior-contract: loop-io-ok: no bulk LAN listener API; each iteration is one bounded poll
-                    val observed = engine.pollLanListener(clockMillis())
-                    publishInboxAndProcess(observed)
-                    delay(pollIntervalMillis)
+                    // behavior-contract: loop-io-ok: bounded wait for the next inbox generation
+                    val observed = engine.awaitLanInbox(generation, INBOX_RECONCILE_TIMEOUT_MS)
+                    if (observed.generation == generation) continue
+                    generation = observed.generation
+                    publishInboxAndProcess(observed.inbox)
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -456,7 +462,7 @@ internal class LanRuntimeCoordinator internal constructor(
     }
 
     private companion object {
-        const val LISTENER_POLL_INTERVAL_MS = 100L
+        const val INBOX_RECONCILE_TIMEOUT_MS = 30_000uL
     }
 }
 
@@ -478,6 +484,7 @@ private fun publishDiscoverySnapshot(
     discovery: LanShareDiscoveryCoordinator,
     revision: AtomicLong,
 ): List<LanDiscoveredPeer> {
+    val protocolVersion = engine.lanProtocolLimits().protocolVersion
     val peers =
         discovery.discoveredDevices.value.map { device ->
             LanDiscoveredPeer(
@@ -485,7 +492,7 @@ private fun publishDiscoverySnapshot(
                 displayName = device.name,
                 host = device.host,
                 port = device.port.toUInt(),
-                protocolVersion = 2u,
+                protocolVersion = protocolVersion,
             )
         }
     engine.updateLanDiscoverySnapshot(

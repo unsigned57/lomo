@@ -33,10 +33,17 @@ data class RemoteSyncConflictPath(
     val localArtifactRef: String?,
     val remoteArtifactRef: String?,
     val baselineArtifactRef: String? = null,
-    val status: RemoteSyncConflictPathStatus,
+    val     status: RemoteSyncConflictPathStatus,
 )
 
+/** Proven presence of a durable conflict session head. Absent ≠ Present with zero items. */
+enum class RemoteSyncConflictSessionState {
+    Absent,
+    Present,
+}
+
 data class RemoteSyncConflictPage(
+    val session: RemoteSyncConflictSessionState,
     val sessionId: String,
     val conflictRevision: Long,
     val items: List<RemoteSyncConflictPath>,
@@ -70,6 +77,21 @@ enum class RemoteSyncRetryDisposition {
     Never,
     AfterUserAction,
     Transient,
+    ;
+
+    companion object {
+        /**
+         * Unique typed map from a Rust-owned disposition name. Unknown wires fail closed as
+         * [Never] (no fixed three-retry policy).
+         */
+        fun fromWire(name: String): RemoteSyncRetryDisposition =
+            when (name.trim().lowercase(java.util.Locale.ROOT)) {
+                "never" -> Never
+                "after_user_action" -> AfterUserAction
+                "transient" -> Transient
+                else -> Never
+            }
+    }
 }
 
 /**
@@ -98,6 +120,8 @@ data class RemoteSyncCyclePlanSummary(
     val ensureAbsentCount: Int,
     val pullPresentCount: Int,
     val openConflictCount: Int,
+    /** Mutations held because the provider offered no strong conditional-update validator. */
+    val holdCount: Int,
     val openConflictPaths: Int,
     val conflictRevision: Long?,
     /** `never` | `after_user_action` | `transient` */

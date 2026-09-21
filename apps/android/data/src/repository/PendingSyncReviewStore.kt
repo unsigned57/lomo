@@ -92,7 +92,7 @@ private fun SyncReviewSession.toRecord(
                                         locator = item.relativePath,
                                         contentHash = item.localContent?.pendingContentHash(),
                                         lastModified = item.localLastModified,
-                                        size = item.localContent?.toByteArray(Charsets.UTF_8)?.size?.toLong(),
+                                        size = item.localContent?.run { toByteArray(Charsets.UTF_8).size.toLong() },
                                         etag = item.localContent?.pendingContentHash(),
                                     ),
                                 incoming =
@@ -100,7 +100,7 @@ private fun SyncReviewSession.toRecord(
                                         locator = item.relativePath,
                                         contentHash = item.incomingContent?.pendingContentHash(),
                                         lastModified = item.incomingLastModified,
-                                        size = item.incomingContent?.toByteArray(Charsets.UTF_8)?.size?.toLong(),
+                                        size = item.incomingContent?.run { toByteArray(Charsets.UTF_8).size.toLong() },
                                         etag = item.incomingContent?.pendingContentHash(),
                                     ),
                                 state = item.state.name,

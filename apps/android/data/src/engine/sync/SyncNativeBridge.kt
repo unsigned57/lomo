@@ -55,9 +55,13 @@ interface SyncNativeBridge {
         usernameOrAccessKey: String,
         bucket: String,
         prefix: String,
-        region: String,
-        remoteDatasetId: String,
-        secretLeaseId: String,
-        applyRemote: Boolean,
+        region: String = "",
+        remoteDatasetId: String = "",
+        secretLeaseId: String = "",
+        applyRemote: Boolean = false,
     ): BridgeCyclePlan
+
+    fun loadWorkspaceGeneration(workspaceRoot: String): String
+
+    fun resetControlTree(workspaceRoot: String)
 }

@@ -36,10 +36,6 @@ class GitSyncConfigurationMutationRepositoryImpl(
     private val dataStore: LomoDataStore,
     private val credentialRepository: CredentialRepository,
 ) : GitSyncConfigurationMutationRepository {
-    override suspend fun setGitSyncEnabled(enabled: Boolean) {
-        dataStore.updateGitSyncEnabled(enabled)
-    }
-
     override suspend fun setRemoteUrl(url: String) {
         dataStore.updateGitRemoteUrl(url)
     }

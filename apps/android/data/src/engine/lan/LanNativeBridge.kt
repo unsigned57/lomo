@@ -43,6 +43,13 @@ internal data class LanTransferShape(
     val chunkPlaintextBytes: UInt,
 )
 
+internal data class LanProtocolLimits(
+    val protocolVersion: UInt,
+    val pairingTtlMs: Long,
+    val sessionTtlMs: Long,
+    val approvalTtlMs: Long,
+)
+
 /** Public half of the non-exportable Android Keystore device identity. */
 internal data class LanDeviceIdentity(
     val publicKey: ByteArray,
@@ -182,6 +189,11 @@ internal data class LanCommittableItem(
     val itemIndex: UInt,
 )
 
+internal data class LanInboxWait(
+    val generation: ULong,
+    val inbox: LanRuntimeInbox,
+)
+
 /** Live signing work and durable approval work derived from the Rust runtime. */
 internal data class LanRuntimeInbox(
     val pairingChallenges: List<LanPairingChallenge>,
@@ -201,6 +213,8 @@ internal data class LanRuntimeInbox(
 internal interface LanRuntimeNativeBridge {
     fun lanTransferShape(): LanTransferShape
 
+    fun lanProtocolLimits(): LanProtocolLimits
+
     fun updateLanNetworkSnapshot(snapshot: LanNetworkFacts)
 
     fun updateLanDiscoverySnapshot(snapshot: LanDiscoveryFacts)
@@ -212,6 +226,8 @@ internal interface LanRuntimeNativeBridge {
     fun listLanDiscoveredPeers(): List<LanDiscoveredPeer>
 
     fun configureLanIdentity(identity: LanDeviceIdentity): LanLocalIdentity
+
+    fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait
 
     fun pollLanListener(nowMs: Long): LanRuntimeInbox
 
@@ -295,7 +311,7 @@ internal interface LanTransferNativeBridge {
         batchId: String,
         itemIndex: UInt,
         nowMs: Long,
-    ): String
+    ): com.lomo.nativebridge.StoreMemoCommit
 
     fun listLanPeers(): LanPeerPage
 
