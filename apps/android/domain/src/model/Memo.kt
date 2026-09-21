@@ -36,6 +36,14 @@ data class Memo(
     val fileFingerprint: String? = null,
     /** Whether [content] is a bounded list projection rather than the complete body. */
     val contentKind: MemoContentKind = MemoContentKind.Full,
+    /**
+     * Full-document character count from the store projection.
+     *
+     * List preview rows still carry a bounded [content]; this count is the expand-affordance fact
+     * and must not be inferred from preview length. Null means the caller did not observe a
+     * projection (tests and non-store surfaces).
+     */
+    val projectedCharCount: Long? = null,
 ) {
     /**
      * Domain-facing alias for raw source text persisted for this memo.

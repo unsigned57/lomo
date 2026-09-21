@@ -23,14 +23,12 @@ class MainMemoListQueryUseCase(
     fun getGalleryMemosPagingSource(): PagingSource<String, Memo> =
         memoListQueryRepository.getGalleryMemosPagingSource()
 
-    suspend fun getDefaultMainListIndexInWindow(
-        id: String,
-        limit: Int,
-    ): Int? =
-        mainListQueryRepository.getDefaultMainListIndexInWindow(
-            id = id,
-            limit = limit,
-        )
+    suspend fun rankInDefaultMainList(id: String): Int? =
+        mainListQueryRepository.rankInDefaultMainList(id)
+
+    fun reanchorMainListToIdentity(id: String) {
+        mainListQueryRepository.reanchorMainListToIdentity(id)
+    }
 
     suspend fun getMemoById(id: String): Memo? = mainListQueryRepository.getMemoById(id)
 

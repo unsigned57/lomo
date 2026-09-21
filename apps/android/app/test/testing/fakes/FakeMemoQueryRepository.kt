@@ -8,6 +8,7 @@ import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoQuerySpec
 import com.lomo.domain.repository.MemoQueryRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 class FakeMemoQueryRepository(
     private val store: FakeMemoStore,
@@ -18,6 +19,8 @@ class FakeMemoQueryRepository(
     override suspend fun getRecentMemos(limit: Int): List<Memo> = store.recentActiveMemos(limit)
 
     override suspend fun getMemoCount(): Int = store.activeMemoCount()
+
+    override fun observeListProjection(): Flow<Unit> = store.observeMemoCount().map { }
 
     override suspend fun getDailyReviewCandidateBoundary(): DailyReviewCandidateBoundary? =
         store.captureDailyReviewCandidateBoundary()
@@ -36,10 +39,11 @@ class FakeMemoQueryRepository(
     override fun getMainListPagingSource(spec: MemoQuerySpec): PagingSource<String, Memo> =
         store.mainListPagingSourceFor(spec)
 
-    override suspend fun getDefaultMainListIndexInWindow(
-        id: String,
-        limit: Int,
-    ): Int? = store.defaultMainListIndexInWindow(id = id, limit = limit)
+    override suspend fun rankInDefaultMainList(id: String): Int? = store.rankInDefaultMainList(id)
+
+    override fun reanchorMainListToIdentity(id: String) {
+        store.reanchorMainListToIdentity(id)
+    }
 
     override suspend fun getMemoById(id: String): Memo? = store.findActiveMemoById(id)
 

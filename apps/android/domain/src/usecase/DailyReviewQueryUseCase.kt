@@ -44,10 +44,11 @@ class DailyReviewQueryUseCase(
             return DailyReviewCollectionPage(memos = emptyList(), nextSource = source)
         }
 
+        val boundaryObservedCount = candidateBoundary?.observedCount
         val observedMemoCount =
             source.observedMemoCount
                 .takeIf { count -> count > 0 }
-                ?: candidateBoundary?.observedCount?.takeIf { count -> count > 0 }
+                ?: boundaryObservedCount?.takeIf { count -> count > 0 }
                 ?: currentMemoCount
         val collectedPage =
             collectRandomCandidateMemos(
@@ -67,12 +68,12 @@ class DailyReviewQueryUseCase(
             collectionBatch.size < pageSize &&
             (collectionBatch.isEmpty() || currentMemoCount > observedMemoCount)
         ) {
-            val boundary =
-                pageSource.candidateBoundary
-                    ?: return DailyReviewCollectionPage(
-                        memos = collectionBatch,
-                        nextSource = pageSource.copy(excludeIds = seenIds.toSet()),
-                    )
+            if (pageSource.candidateBoundary == null) {
+                return DailyReviewCollectionPage(
+                    memos = collectionBatch,
+                    nextSource = pageSource.copy(excludeIds = seenIds.toSet()),
+                )
+            }
             val visibleUnseenPage =
                 appendVisibleUnseenMemos(
                     startCursor = pageSource.visibleUnseenCursor,

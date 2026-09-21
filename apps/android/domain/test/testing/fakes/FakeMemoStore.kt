@@ -28,7 +28,6 @@ class FakeMemoStore(
     data class SavedMemo(
         val content: String,
         val timestamp: Long,
-        val geoLocation: String?,
     )
 
     data class UpdatedMemo(
@@ -165,19 +164,15 @@ class FakeMemoStore(
         )
     }
 
-    internal suspend fun defaultMainListIndexInWindow(
-        id: String,
-        limit: Int,
-    ): Int? {
-        if (limit <= 0) {
-            return null
-        }
-        val index =
-            memos.value
-                .take(limit)
-                .indexOfFirst { memo -> memo.id == id }
-        return index.takeIf { value -> value >= 0 }
+    internal suspend fun rankInDefaultMainList(id: String): Int? =
+        memos.value.indexOfFirst { memo -> memo.id == id }.takeIf { value -> value >= 0 }
+
+    internal fun reanchorMainListToIdentity(id: String) {
+        lastReanchoredMainListIdentity = id
     }
+
+    var lastReanchoredMainListIdentity: String? = null
+        private set
 
     internal suspend fun findActiveMemoById(id: String): Memo? = memos.value.firstOrNull { memo -> memo.id == id }
 
@@ -202,9 +197,8 @@ class FakeMemoStore(
     internal suspend fun addSavedMemo(
         content: String,
         timestamp: Long,
-        geoLocation: String?,
     ): Memo {
-        savedMemos += SavedMemo(content = content, timestamp = timestamp, geoLocation = geoLocation)
+        savedMemos += SavedMemo(content = content, timestamp = timestamp)
         val date = Instant.ofEpochMilli(timestamp).atZone(zoneId).toLocalDate()
         val memo =
             Memo(
@@ -214,7 +208,6 @@ class FakeMemoStore(
                 rawContent = content,
                 dateKey = date.toString(),
                 localDate = date,
-                geoLocation = geoLocation,
             )
         memos.value = memos.value + memo
         return memo

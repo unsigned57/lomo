@@ -9,6 +9,7 @@ import io.kotest.matchers.shouldBe
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 
@@ -37,6 +38,15 @@ import kotlinx.coroutines.test.runTest
  * Excludes:
  * - Session FFI mapping, heatmap rendering, and calendar timezone classification owned by
  *   lomo-application.
+ * Test Change Justification:
+ * - Reason category: new coverage for an added repository-facing contract.
+ * - Old behavior/assertion being replaced: none; observe() with an explicit
+ *   MemoStatisticsDateSnapshot did not exist.
+ * - Why old assertion is no longer correct: the use case gained observe() so statistics are
+ *   sampled against a snapshot-provided zone/date instead of a repository-internal clock.
+ * - Coverage preserved by: existing single-shot statistics scenarios are unchanged.
+ * - Why this is not fitting the test to the implementation: assertions pin the observable
+ *   (zone, date) pair sent to the repository and the emitted statistics, not internals.
  */
 class MemoStatisticsUseCaseTest : DomainFunSpec() {
     init {
@@ -82,6 +92,25 @@ class MemoStatisticsUseCaseTest : DomainFunSpec() {
                 useCase() shouldBe expected
             }
         }
+
+        test("observe samples the date snapshot and emits repository statistics") {
+            runTest {
+                val zone = ZoneId.of("Asia/Tokyo")
+                val asOfDate = LocalDate.of(2027, 1, 3)
+                val expected = MemoStatistics.empty(asOfDate).copy(totalMemos = 6)
+                val repository = RecordingMemoStatisticsRepository(result = expected)
+                val useCase =
+                    MemoStatisticsUseCase(
+                        memoStatisticsRepository = repository,
+                        dateSnapshotProvider = {
+                            MemoStatisticsDateSnapshot(zone = zone, asOfDate = asOfDate)
+                        },
+                    )
+
+                useCase.observe().first() shouldBe expected
+                repository.calls shouldBe listOf(zone to asOfDate)
+            }
+        }
     }
 
     private class RecordingMemoStatisticsRepository(
@@ -95,6 +124,14 @@ class MemoStatisticsUseCaseTest : DomainFunSpec() {
         ): MemoStatistics {
             calls += zone to today
             return result
+        }
+
+        override fun observeMemoStatistics(
+            zone: ZoneId,
+            today: LocalDate,
+        ): Flow<MemoStatistics> {
+            calls += zone to today
+            return flowOf(result)
         }
 
         override fun getMemoCountFlow(): Flow<Int> = flowOf(0)

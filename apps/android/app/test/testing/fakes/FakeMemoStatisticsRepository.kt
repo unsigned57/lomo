@@ -18,6 +18,14 @@ class FakeMemoStatisticsRepository(
         today: LocalDate,
     ): MemoStatistics = store.computeMemoStatistics(zone = zone, today = today)
 
+    override fun observeMemoStatistics(
+        zone: ZoneId,
+        today: LocalDate,
+    ): Flow<MemoStatistics> =
+        combine(store.observeMemoCount(), store.observeMemoCountByDate(), store.observeTagCounts()) { _, _, _ ->
+            store.computeMemoStatistics(zone = zone, today = today)
+        }
+
     override fun getMemoCountFlow(): Flow<Int> = store.observeMemoCount()
 
     override fun getSidebarStatisticsFlow(): Flow<MemoSidebarStatistics> =

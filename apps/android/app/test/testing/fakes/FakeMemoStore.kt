@@ -212,19 +212,15 @@ class FakeMemoStore(
         return activeMemos.value.find { it.id == id }
     }
 
-    internal suspend fun defaultMainListIndexInWindow(
-        id: String,
-        limit: Int,
-    ): Int? {
-        if (limit <= 0) {
-            return null
-        }
-        val index =
-            activeMemos.value
-                .take(limit)
-                .indexOfFirst { memo -> memo.id == id }
-        return index.takeIf { value -> value >= 0 }
+    internal suspend fun rankInDefaultMainList(id: String): Int? =
+        activeMemos.value.indexOfFirst { memo -> memo.id == id }.takeIf { value -> value >= 0 }
+
+    internal fun reanchorMainListToIdentity(id: String) {
+        lastReanchoredMainListIdentity = id
     }
+
+    var lastReanchoredMainListIdentity: String? = null
+        private set
 
     internal fun mainListPagingSourceFor(spec: MemoQuerySpec): PagingSource<String, Memo> {
         getMainListPagingSourceCallCount += 1
@@ -264,7 +260,6 @@ class FakeMemoStore(
     internal suspend fun addSavedMemo(
         content: String,
         timestamp: Long,
-        geoLocation: String?,
     ): Memo {
         saveMemoCallCount += 1
         val memo =
@@ -275,7 +270,6 @@ class FakeMemoStore(
                 rawContent = content,
                 dateKey = Instant.ofEpochMilli(timestamp).atZone(zoneId).toLocalDate().toString(),
                 localDate = Instant.ofEpochMilli(timestamp).atZone(zoneId).toLocalDate(),
-                geoLocation = geoLocation,
             )
         activeMemos.value = activeMemos.value + memo
         return memo
