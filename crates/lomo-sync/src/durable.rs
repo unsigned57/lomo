@@ -252,6 +252,8 @@ impl TombstoneSet {
 /// Layout under a workspace root for sync durable trees.
 #[derive(Clone, Debug)]
 pub struct SyncPaths {
+    /// Direct workspace root (parent of `.lomo/`). Local conflict bodies load from here.
+    pub workspace_root: PathBuf,
     pub root: PathBuf,
     pub session: PathBuf,
     pub baseline: PathBuf,
@@ -260,19 +262,24 @@ pub struct SyncPaths {
     pub conflicts: PathBuf,
     /// Conflict candidate artifacts (`artifacts/`).
     pub conflict_artifacts: PathBuf,
+    /// Cross-host exclusive cycle lockfile (`cycle.lock`).
+    pub cycle_lock: PathBuf,
 }
 
 impl SyncPaths {
     /// Resolves `.lomo/sync/v1` roots.
     #[must_use]
     pub fn for_workspace(workspace_root: &Path) -> Self {
+        let workspace_root = workspace_root.to_path_buf();
         let root = workspace_root.join(".lomo").join("sync").join("v1");
         Self {
+            workspace_root,
             session: root.join("session.rec"),
             baseline: root.join("baseline.rec"),
             tombstones: root.join("tombstones.rec"),
             conflicts: root.join("conflicts.rec"),
             conflict_artifacts: root.join("artifacts"),
+            cycle_lock: root.join("cycle.lock"),
             root,
         }
     }

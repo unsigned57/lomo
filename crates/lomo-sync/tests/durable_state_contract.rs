@@ -9,9 +9,14 @@
 //! - Given corrupt magic or checksum, when decode runs, then corruption codes fire and bytes stay.
 //! - Given oversized payload, when encode runs, then resource-limit fails.
 //! - Given mismatched generation fence, when `matches` runs, then validation rejects (no clean slate).
+//! - Given the workspace cycle lock path, when two exclusive acquires run, then the second fails
+//!   `process_lock_held` without sleeping.
+//! - Given a held cycle lock and a written session revision, when the second holder is refused,
+//!   then the on-disk revision is unchanged; after release the next holder advances it.
 //!
-//! Observable outcomes: round-trip equality, error codes/categories, retained corrupt files.
-//! Excludes: `SQLite` authority, production DI, provider adapters.
+//! Observable outcomes: round-trip equality, error codes/categories, retained corrupt files,
+//! exclusive cycle lock, preserved then advanced `session_revision`. Excludes: `SQLite` authority,
+//! production DI, provider adapters.
 
 #[cfg(test)]
 #[expect(
@@ -128,5 +133,47 @@ mod tests {
             .expect_err("mismatch");
         assert_eq!(err.category(), ErrorCategory::Validation);
         assert_eq!(err.code(), "sync_identity_mismatch");
+    }
+
+    #[test]
+    fn cycle_lock_path_is_exclusive_without_sleep() {
+        let temporary = tempdir().expect("temp");
+        let paths = SyncPaths::for_workspace(temporary.path());
+        paths.ensure_layout().expect("layout");
+        assert!(
+            paths.cycle_lock.starts_with(&paths.root),
+            "cycle lock must live under the sync control root"
+        );
+
+        let first = lomo_platform_fs::ProcessFileLock::try_acquire(&paths.cycle_lock)
+            .expect("first holder");
+        let mut session =
+            SyncSession::new(fence(), SessionKind::Incremental, "rev-lock").expect("session");
+        write_session(&paths, &session).expect("write revision 1");
+        assert_eq!(read_session(&paths).expect("read held").session_revision, 1);
+
+        let err = lomo_platform_fs::ProcessFileLock::try_acquire(&paths.cycle_lock)
+            .expect_err("second holder");
+        assert_eq!(err.category(), ErrorCategory::Conflict);
+        assert_eq!(err.code(), "process_lock_held");
+        assert_eq!(
+            read_session(&paths)
+                .expect("refused holder must not clobber")
+                .session_revision,
+            1,
+            "exclusive refusal must leave the durable revision intact"
+        );
+
+        first.unlock().expect("unlock");
+        let _released = lomo_platform_fs::ProcessFileLock::try_acquire(&paths.cycle_lock)
+            .expect("after release");
+        session.session_revision = 2;
+        write_session(&paths, &session).expect("write revision 2");
+        assert_eq!(
+            read_session(&paths)
+                .expect("read after serialize")
+                .session_revision,
+            2
+        );
     }
 }

@@ -38,8 +38,9 @@ mod tests {
 
     use lomo_sync::{
         BatchAtomicity, ContentDigest, PathPublishStatus, PreparedRemoteBatch,
-        ProviderNeutralIntent, RemoteSyncPort, S3WorkspaceFileObjectSource, SyncPath, VerifyStatus,
-        WebDavWorkspaceFileObjectSource, connect_workspace_s3, connect_workspace_webdav,
+        ProviderNeutralIntent, RemoteSyncPort, S3WorkspaceFileObjectSource, SyncPath,
+        VerifyExpectation, VerifyStatus, WebDavWorkspaceFileObjectSource, connect_workspace_s3,
+        connect_workspace_webdav,
     };
 
     const SMOKE_TIMEOUT: Duration = Duration::from_mins(1);
@@ -213,7 +214,18 @@ mod tests {
         assert_all_applied(&publish, 2);
 
         let verified = port
-            .verify(&[markdown.clone(), media.clone()])
+            .verify(&[
+                VerifyExpectation {
+                    path: markdown.clone(),
+                    expected_digest: Some(ContentDigest::from_bytes(MARKDOWN_BODY)),
+                    expected_token: None,
+                },
+                VerifyExpectation {
+                    path: media.clone(),
+                    expected_digest: Some(ContentDigest::from_bytes(MEDIA_BODY)),
+                    expected_token: None,
+                },
+            ])
             .expect("verify must re-read both probe paths");
         assert_verified_present(&verified, &[(markdown, MARKDOWN_BODY), (media, MEDIA_BODY)]);
 
@@ -223,7 +235,18 @@ mod tests {
         assert_all_applied(&cleanup, 2);
 
         let absent = port
-            .verify(&[markdown.clone(), media.clone()])
+            .verify(&[
+                VerifyExpectation {
+                    path: markdown.clone(),
+                    expected_digest: None,
+                    expected_token: None,
+                },
+                VerifyExpectation {
+                    path: media.clone(),
+                    expected_digest: None,
+                    expected_token: None,
+                },
+            ])
             .expect("verify must re-read both probe paths after delete");
         assert_all_absent(&absent, &[markdown, media]);
     }

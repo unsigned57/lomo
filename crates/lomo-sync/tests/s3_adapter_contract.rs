@@ -77,11 +77,12 @@ mod tests {
         BaselineHead, BatchAtomicity, ContentDigest, FakeLocalPort, MAX_ACTION_PAGE_ITEMS,
         MAX_S3_SNAPSHOT_ENTRIES, MapS3ObjectSource, PathPublishStatus, PreparedRemoteBatch,
         ProviderNeutralIntent, RcloneCryptConfig, RcloneFilenameEncoding, RcloneFilenameEncryption,
-        RcloneKeyMaterial, RemoteSyncPort, S3AddressingStyle, S3Credentials, S3Endpoint,
-        S3ObjectSource, SessionKind, SnapshotCompleteness, SyncIdentityFence, SyncPath,
-        SyncSession, TombstoneSet, aws_published_sigv4_example_matches, connect_map_s3_source,
-        decrypt_filename_path, decrypt_payload, encrypt_filename_path, encrypt_payload,
-        error_category, map_s3_http_status, plan_intents, run_sync_cycle_streaming,
+        RcloneKeyMaterial, RemoteDigestFact, RemoteSyncPort, S3AddressingStyle, S3Credentials,
+        S3Endpoint, S3ObjectSource, SessionKind, SnapshotCompleteness, SyncIdentityFence, SyncPath,
+        SyncSession, TombstoneSet, VerifyExpectation, aws_published_sigv4_example_matches,
+        connect_map_s3_source, decrypt_filename_path, decrypt_payload, encrypt_filename_path,
+        encrypt_payload, error_category, map_s3_http_status, plan_intents,
+        run_sync_cycle_streaming,
     };
     use lomo_workspace::{RemoteDatasetId, RemoteIdentityDigest, WorkspaceGenerationId};
     use sha2::{Digest, Sha256};
@@ -1015,8 +1016,10 @@ mod tests {
             .iter()
             .find(|e| e.path.as_str() == "memo/a.md")
             .expect("entry under prefix");
-        assert_eq!(entry.digest.as_str(), content_sha);
-        assert_eq!(entry.revision_token, etag);
+        // Metadata-only listing: the digest stays unresolved until on-demand resolution;
+        // the ETag is the conditional-update validator, never the content digest.
+        assert_eq!(entry.digest, RemoteDigestFact::Unresolved);
+        assert_eq!(entry.validator.strong_token(), Some(etag.as_str()));
     }
 
     #[test]
@@ -1766,7 +1769,18 @@ mod tests {
         server.put_object("lomo/memo/v.md", body);
         let (_dir, adapter) = adapter_with(&server, MapS3ObjectSource::default());
         let verified = adapter
-            .verify(&[path("memo/v.md"), path("memo/missing.md")])
+            .verify(&[
+                VerifyExpectation {
+                    path: path("memo/v.md"),
+                    expected_digest: Some(digest_of(body)),
+                    expected_token: None,
+                },
+                VerifyExpectation {
+                    path: path("memo/missing.md"),
+                    expected_digest: None,
+                    expected_token: None,
+                },
+            ])
             .expect("verify");
         assert_eq!(verified.results.len(), 2);
         match &verified.results[0] {

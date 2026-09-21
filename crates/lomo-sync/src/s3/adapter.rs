@@ -18,10 +18,10 @@ use crate::limits::{
 };
 use crate::pipeline::{
     BatchAtomicity, ContentDigest, PathPublishStatus, PreparedRemoteBatch, ProviderNeutralIntent,
-    PublishReceipt, RemotePathEntry, RemoteSnapshot, SnapshotCompleteness, SyncPath,
-    VerifiedRemoteState, VerifyStatus,
+    PublishReceipt, RemoteDigestFact, RemotePathEntry, RemoteSnapshot, RemoteValidator,
+    SnapshotCompleteness, SyncPath, VerifiedRemoteState, VerifyExpectation, VerifyStatus,
 };
-use crate::ports::{RemoteListingStream, RemoteSyncPort};
+use crate::ports::{RemoteListingStream, RemoteResolvedObject, RemoteSyncPort};
 use crate::s3::endpoint::{S3Credentials, S3Endpoint};
 use crate::s3::transport::S3Transport;
 use lomo_core::LomoError;
@@ -446,6 +446,9 @@ impl<S: S3ObjectSource> S3Adapter<S> {
         (pages, incomplete)
     }
 
+    /// Metadata-only listing entry: `ListObjectsV2` supplies the conditional-update validator
+    /// (`ETag`), never the content digest. Body bytes stay untouched at listing time; the digest
+    /// is resolved on demand through [`RemoteSyncPort::resolve_remote_object`].
     fn snapshot_object(
         &self,
         key: &str,
@@ -453,20 +456,12 @@ impl<S: S3ObjectSource> S3Adapter<S> {
     ) -> Result<RemotePathEntry, LomoError> {
         let relative = self.transport.endpoint().relative_from_key(key)?;
         let path = SyncPath::parse(&relative)?;
-        let (temp_path, etag, digest_hex) = self.transport.get_to_temp(key)?;
-        let _removed: Result<(), std::io::Error> = fs::remove_file(&temp_path);
-        let digest = ContentDigest::parse(&digest_hex)?;
-        let revision_token = etag
-            .or_else(|| list_etag.map(str::to_owned))
-            .unwrap_or_else(|| {
-                let mut token = String::from("sha256:");
-                token.push_str(&digest_hex);
-                token
-            });
         Ok(RemotePathEntry {
             path,
-            digest,
-            revision_token,
+            digest: RemoteDigestFact::Unresolved,
+            validator: list_etag.map_or(RemoteValidator::Absent, |etag| {
+                RemoteValidator::Strong(etag.to_owned())
+            }),
         })
     }
 
@@ -501,12 +496,11 @@ impl<S: S3ObjectSource> S3Adapter<S> {
         };
         match result {
             Ok(etag) => {
-                let new_token = etag.unwrap_or_else(|| {
-                    let mut token = String::from("sha256:");
-                    token.push_str(digest.as_str());
-                    token
-                });
-                PathPublishStatus::Applied { new_token }
+                // The publish receipt token is the server-issued validator only; a missing `ETag`
+                // means verify must re-read the body instead of trusting a forged token.
+                PathPublishStatus::Applied {
+                    new_token: etag.unwrap_or_else(String::new),
+                }
             }
             Err(error) if error.code() == "s3_precondition_failed" => {
                 PathPublishStatus::PreconditionFailed
@@ -591,12 +585,9 @@ impl<S: S3ObjectSource> S3Adapter<S> {
         {
             Ok(etag) => {
                 self.clear_multipart_session(path.as_str());
-                let new_token = etag.unwrap_or_else(|| {
-                    let mut token = String::from("sha256:");
-                    token.push_str(digest.as_str());
-                    token
-                });
-                PathPublishStatus::Applied { new_token }
+                PathPublishStatus::Applied {
+                    new_token: etag.unwrap_or_else(String::new),
+                }
             }
             Err(error) => PathPublishStatus::Failed {
                 code: error.code().to_owned(),
@@ -723,9 +714,43 @@ impl<S: S3ObjectSource> S3Adapter<S> {
         }
     }
 
-    fn verify_path(&self, path: &SyncPath) -> VerifyStatus {
-        let key = match self.transport.endpoint().object_key(path.as_str()) {
-            Ok(key) => key,
+    /// Observes the current validator for one path via `HEAD` without downloading the body.
+    fn observe_validator(&self, path: &SyncPath) -> Result<ObservedRemote, LomoError> {
+        let key = self.transport.endpoint().object_key(path.as_str())?;
+        match self.transport.head(&key) {
+            Ok(etag) => Ok(ObservedRemote::Present { etag }),
+            Err(error) if error.code() == "s3_not_found" => Ok(ObservedRemote::Missing),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Streams one remote object into a temp file and returns body + computed digest + `ETag`.
+    fn fetch_object(&self, path: &SyncPath) -> Result<Option<FetchedObject>, LomoError> {
+        let key = self.transport.endpoint().object_key(path.as_str())?;
+        match self.transport.get_to_temp(&key) {
+            Ok((temp_path, etag, digest_hex)) => {
+                let bytes = fs::read(&temp_path).map_err(|error| {
+                    let _removed: Result<(), std::io::Error> = fs::remove_file(&temp_path);
+                    storage(
+                        "s3_object_read_failed",
+                        &format!("failed to read s3 object body: {error}"),
+                    )
+                })?;
+                let _removed: Result<(), std::io::Error> = fs::remove_file(&temp_path);
+                Ok(Some((bytes, ContentDigest::parse(&digest_hex)?, etag)))
+            }
+            Err(error) if error.code() == "s3_not_found" => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Token-first verify: when `expected_token` still matches the observed `ETag`, the publish
+    /// receipt + validator equality are the postcondition — no body re-read. Otherwise the object
+    /// is streamed once and its digest compared to the expectation.
+    fn verify_expectation(&self, expectation: &VerifyExpectation) -> VerifyStatus {
+        let path = &expectation.path;
+        let observed = match self.observe_validator(path) {
+            Ok(observed) => observed,
             Err(error) => {
                 return VerifyStatus::Failed {
                     path: path.clone(),
@@ -733,28 +758,50 @@ impl<S: S3ObjectSource> S3Adapter<S> {
                 };
             }
         };
-        match self.transport.get_to_temp(&key) {
-            Ok((temp_path, etag, digest_hex)) => {
-                let _removed: Result<(), std::io::Error> = fs::remove_file(temp_path);
-                match ContentDigest::parse(&digest_hex) {
-                    Ok(digest) => VerifyStatus::Verified {
-                        path: path.clone(),
-                        digest,
-                        remote_token: etag.unwrap_or_else(|| {
-                            let mut token = String::from("sha256:");
-                            token.push_str(&digest_hex);
-                            token
-                        }),
-                    },
-                    Err(error) => VerifyStatus::Failed {
-                        path: path.clone(),
-                        code: error.code().to_owned(),
-                    },
+        let ObservedRemote::Present {
+            etag: observed_etag,
+        } = observed
+        else {
+            return match expectation.expected_digest {
+                Some(_) => VerifyStatus::Failed {
+                    path: path.clone(),
+                    code: "verify_expected_present_missing".to_owned(),
+                },
+                None => VerifyStatus::AbsentVerified { path: path.clone() },
+            };
+        };
+        let Some(expected_digest) = expectation.expected_digest.as_ref() else {
+            return VerifyStatus::Failed {
+                path: path.clone(),
+                code: "verify_expected_absent_present".to_owned(),
+            };
+        };
+        if expectation.expected_token.as_deref().is_some()
+            && expectation.expected_token.as_deref() == observed_etag.as_deref()
+        {
+            return VerifyStatus::Verified {
+                path: path.clone(),
+                digest: expected_digest.clone(),
+                remote_token: observed_etag.unwrap_or_else(String::new),
+            };
+        }
+        // Token absent or changed: only then stream the body and compare digests.
+        match self.fetch_object(path) {
+            Ok(Some((_bytes, digest, etag))) if digest.as_str() == expected_digest.as_str() => {
+                VerifyStatus::Verified {
+                    path: path.clone(),
+                    digest,
+                    remote_token: etag.unwrap_or_else(String::new),
                 }
             }
-            Err(error) if error.code() == "s3_not_found" => {
-                VerifyStatus::AbsentVerified { path: path.clone() }
-            }
+            Ok(Some(_)) => VerifyStatus::Failed {
+                path: path.clone(),
+                code: "verify_digest_mismatch".to_owned(),
+            },
+            Ok(None) => VerifyStatus::Failed {
+                path: path.clone(),
+                code: "verify_expected_present_missing".to_owned(),
+            },
             Err(error) => VerifyStatus::Failed {
                 path: path.clone(),
                 code: error.code().to_owned(),
@@ -828,7 +875,8 @@ impl<S: S3ObjectSource> RemoteSyncPort for S3Adapter<S> {
                 }
                 ProviderNeutralIntent::PullPresent { path, .. }
                 | ProviderNeutralIntent::OpenConflict { path, .. }
-                | ProviderNeutralIntent::ReportUnrecognized { path } => {
+                | ProviderNeutralIntent::ReportUnrecognized { path }
+                | ProviderNeutralIntent::Hold { path, .. } => {
                     path_results.push((path.clone(), PathPublishStatus::Skipped));
                 }
             }
@@ -836,11 +884,53 @@ impl<S: S3ObjectSource> RemoteSyncPort for S3Adapter<S> {
         Ok(PublishReceipt { path_results })
     }
 
-    fn verify(&self, paths: &[SyncPath]) -> Result<VerifiedRemoteState, LomoError> {
-        let results = paths.iter().map(|path| self.verify_path(path)).collect();
+    fn verify(&self, expectations: &[VerifyExpectation]) -> Result<VerifiedRemoteState, LomoError> {
+        let results = expectations
+            .iter()
+            .map(|expectation| self.verify_expectation(expectation))
+            .collect();
         Ok(VerifiedRemoteState { results })
     }
+
+    fn resolve_remote_object(
+        &self,
+        path: &SyncPath,
+    ) -> Result<Option<RemoteResolvedObject>, LomoError> {
+        Ok(self
+            .fetch_object(path)?
+            .map(|(body, digest, _etag)| RemoteResolvedObject { digest, body }))
+    }
+
+    fn load_object(
+        &self,
+        path: &SyncPath,
+        expected_digest: &ContentDigest,
+    ) -> Result<Option<Vec<u8>>, LomoError> {
+        match self.fetch_object(path)? {
+            Some((bytes, digest, _etag)) => {
+                if digest.as_str() != expected_digest.as_str() {
+                    return Err(validation(
+                        "s3_object_digest_mismatch",
+                        "s3 object digest does not match the conflict candidate digest",
+                    ));
+                }
+                Ok(Some(bytes))
+            }
+            None => Ok(None),
+        }
+    }
 }
+
+/// Outcome of a metadata validator probe (`HEAD` on the object key).
+enum ObservedRemote {
+    /// The path is absent remotely.
+    Missing,
+    /// The path exists; carries the observed `ETag` when the server returned one.
+    Present { etag: Option<String> },
+}
+
+/// A fetched remote object: body bytes, the digest computed while streaming, and the `ETag`.
+type FetchedObject = (Vec<u8>, ContentDigest, Option<String>);
 
 /// Parameters for the hermetic map-source S3 adapter constructor.
 #[derive(Clone, Debug)]

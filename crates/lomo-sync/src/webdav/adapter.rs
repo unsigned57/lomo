@@ -7,17 +7,17 @@ use std::time::Duration;
 use sha2::{Digest, Sha256};
 use url::Url;
 
-use crate::error::{resource_limit, validation};
+use crate::error::{resource_limit, storage, validation};
 use crate::limits::{
     MAX_ACTION_PAGE_ITEMS, MAX_STREAMING_REMOTE_PATH_KEYS, MAX_WEBDAV_SNAPSHOT_ENTRIES,
     MAX_WEBDAV_TRAVERSAL_DEPTH,
 };
 use crate::pipeline::{
     BatchAtomicity, ContentDigest, PathPublishStatus, PreparedRemoteBatch, ProviderNeutralIntent,
-    PublishReceipt, RemotePathEntry, RemoteSnapshot, SnapshotCompleteness, SyncPath,
-    VerifiedRemoteState, VerifyStatus,
+    PublishReceipt, RemoteDigestFact, RemotePathEntry, RemoteSnapshot, RemoteValidator,
+    SnapshotCompleteness, SyncPath, VerifiedRemoteState, VerifyExpectation, VerifyStatus,
 };
-use crate::ports::{RemoteListingStream, RemoteSyncPort};
+use crate::ports::{RemoteListingStream, RemoteResolvedObject, RemoteSyncPort};
 use crate::webdav::endpoint::{WebDavCredentials, WebDavEndpoint};
 use crate::webdav::multistatus::{MultistatusResource, parse_multistatus};
 use crate::webdav::transport::{RemoteCapabilities, WebDavTransport};
@@ -200,7 +200,7 @@ impl<S: WebDavObjectSource> WebDavAdapter<S> {
                 }
                 continue;
             }
-            match self.snapshot_file(&resource) {
+            match Self::snapshot_file(&resource) {
                 Ok(entry) => {
                     current_page.push(entry);
                     *total_entries = total_entries.saturating_add(1);
@@ -232,24 +232,15 @@ impl<S: WebDavObjectSource> WebDavAdapter<S> {
         Ok(())
     }
 
-    fn snapshot_file(&self, resource: &MultistatusResource) -> Result<RemotePathEntry, LomoError> {
-        let url = self
-            .transport
-            .endpoint()
-            .resolve_path(&resource.relative_path)?;
-        let (temp_path, etag, digest_hex) = self.transport.get_to_temp(&url)?;
-        let _removed: Result<(), std::io::Error> = std::fs::remove_file(&temp_path);
+    /// Metadata-only listing entry: `PROPFIND` supplies the conditional-update validator
+    /// (`ETag`), never the content digest. Body bytes stay untouched at listing time; the digest
+    /// is resolved on demand through [`RemoteSyncPort::resolve_remote_object`].
+    fn snapshot_file(resource: &MultistatusResource) -> Result<RemotePathEntry, LomoError> {
         let path = SyncPath::parse(&resource.relative_path)?;
-        let digest = ContentDigest::parse(&digest_hex)?;
-        let revision_token = etag.or_else(|| resource.etag.clone()).unwrap_or_else(|| {
-            let mut token = String::from("sha256:");
-            token.push_str(&digest_hex);
-            token
-        });
         Ok(RemotePathEntry {
             path,
-            digest,
-            revision_token,
+            digest: RemoteDigestFact::Unresolved,
+            validator: etag_validator(resource.etag.as_deref()),
         })
     }
 
@@ -286,12 +277,11 @@ impl<S: WebDavObjectSource> WebDavAdapter<S> {
         };
         match result {
             Ok(etag) => {
-                let new_token = etag.unwrap_or_else(|| {
-                    let mut token = String::from("sha256:");
-                    token.push_str(digest.as_str());
-                    token
-                });
-                PathPublishStatus::Applied { new_token }
+                // The publish receipt token is the server-issued validator only; a missing `ETag`
+                // means verify must re-read the body instead of trusting a forged token.
+                PathPublishStatus::Applied {
+                    new_token: etag.unwrap_or_else(String::new),
+                }
             }
             Err(error) if error.code() == "webdav_precondition_failed" => {
                 PathPublishStatus::PreconditionFailed
@@ -358,9 +348,50 @@ impl<S: WebDavObjectSource> WebDavAdapter<S> {
         }
     }
 
-    fn verify_path(&self, path: &SyncPath) -> VerifyStatus {
-        let url = match self.transport.endpoint().resolve_path(path.as_str()) {
-            Ok(url) => url,
+    /// Observes the current validator for one path without downloading the body.
+    fn observe_validator(&self, path: &SyncPath) -> Result<ObservedRemote, LomoError> {
+        let url = self.transport.endpoint().resolve_path(path.as_str())?;
+        match self.transport.propfind(&url, 0) {
+            Ok(body) => {
+                let resource = parse_multistatus(self.transport.endpoint(), &body)?
+                    .into_iter()
+                    .next();
+                Ok(ObservedRemote::Present {
+                    etag: resource.and_then(|entry| entry.etag),
+                })
+            }
+            Err(error) if error.code() == "webdav_not_found" => Ok(ObservedRemote::Missing),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Streams one remote object into a temp file and returns body + computed digest + `ETag`.
+    fn fetch_object(&self, path: &SyncPath) -> Result<Option<FetchedObject>, LomoError> {
+        let url = self.transport.endpoint().resolve_path(path.as_str())?;
+        match self.transport.get_to_temp(&url) {
+            Ok((temp_path, etag, digest_hex)) => {
+                let bytes = std::fs::read(&temp_path).map_err(|error| {
+                    let _removed: Result<(), std::io::Error> = std::fs::remove_file(&temp_path);
+                    storage(
+                        "webdav_object_read_failed",
+                        &format!("failed to read webdav object body: {error}"),
+                    )
+                })?;
+                let _removed: Result<(), std::io::Error> = std::fs::remove_file(&temp_path);
+                Ok(Some((bytes, ContentDigest::parse(&digest_hex)?, etag)))
+            }
+            Err(error) if error.code() == "webdav_not_found" => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Token-first verify: when `expected_token` still matches the observed strong `ETag`, the
+    /// publish receipt + validator equality are the postcondition — no body re-read. Otherwise
+    /// the object is streamed once and its digest compared to the expectation.
+    fn verify_expectation(&self, expectation: &VerifyExpectation) -> VerifyStatus {
+        let path = &expectation.path;
+        let observed = match self.observe_validator(path) {
+            Ok(observed) => observed,
             Err(error) => {
                 return VerifyStatus::Failed {
                     path: path.clone(),
@@ -368,33 +399,80 @@ impl<S: WebDavObjectSource> WebDavAdapter<S> {
                 };
             }
         };
-        match self.transport.get_to_temp(&url) {
-            Ok((temp_path, etag, digest_hex)) => {
-                let _removed: Result<(), std::io::Error> = std::fs::remove_file(temp_path);
-                match ContentDigest::parse(&digest_hex) {
-                    Ok(digest) => VerifyStatus::Verified {
-                        path: path.clone(),
-                        digest,
-                        remote_token: etag.unwrap_or_else(|| {
-                            let mut token = String::from("sha256:");
-                            token.push_str(&digest_hex);
-                            token
-                        }),
-                    },
-                    Err(error) => VerifyStatus::Failed {
-                        path: path.clone(),
-                        code: error.code().to_owned(),
-                    },
+        let ObservedRemote::Present {
+            etag: observed_etag,
+        } = observed
+        else {
+            return match expectation.expected_digest {
+                Some(_) => VerifyStatus::Failed {
+                    path: path.clone(),
+                    code: "verify_expected_present_missing".to_owned(),
+                },
+                None => VerifyStatus::AbsentVerified { path: path.clone() },
+            };
+        };
+        let Some(expected_digest) = expectation.expected_digest.as_ref() else {
+            // Expected absent but still present.
+            return VerifyStatus::Failed {
+                path: path.clone(),
+                code: "verify_expected_absent_present".to_owned(),
+            };
+        };
+        let observed_strong = observed_etag
+            .as_deref()
+            .filter(|etag| !etag.starts_with("W/"));
+        if expectation.expected_token.as_deref().is_some()
+            && expectation.expected_token.as_deref() == observed_strong
+        {
+            return VerifyStatus::Verified {
+                path: path.clone(),
+                digest: expected_digest.clone(),
+                remote_token: observed_etag.unwrap_or_else(String::new),
+            };
+        }
+        // Token absent/weak/changed: only then stream the body and compare digests.
+        match self.fetch_object(path) {
+            Ok(Some((_bytes, digest, etag))) if digest.as_str() == expected_digest.as_str() => {
+                VerifyStatus::Verified {
+                    path: path.clone(),
+                    digest,
+                    remote_token: etag.unwrap_or_else(String::new),
                 }
             }
-            Err(error) if error.code() == "webdav_not_found" => {
-                VerifyStatus::AbsentVerified { path: path.clone() }
-            }
+            Ok(Some(_)) => VerifyStatus::Failed {
+                path: path.clone(),
+                code: "verify_digest_mismatch".to_owned(),
+            },
+            Ok(None) => VerifyStatus::Failed {
+                path: path.clone(),
+                code: "verify_expected_present_missing".to_owned(),
+            },
             Err(error) => VerifyStatus::Failed {
                 path: path.clone(),
                 code: error.code().to_owned(),
             },
         }
+    }
+}
+
+/// Outcome of a metadata validator probe (`PROPFIND` depth-0 on the object URL).
+enum ObservedRemote {
+    /// The path is absent remotely.
+    Missing,
+    /// The path exists; carries the observed `ETag` when the server returned one.
+    Present { etag: Option<String> },
+}
+
+/// A fetched remote object: body bytes, the digest computed while streaming, and the `ETag`.
+type FetchedObject = (Vec<u8>, ContentDigest, Option<String>);
+
+/// Types a `WebDAV` `ETag` header into the validator lattice: `W/"…"` weak validators can never
+/// drive conditional writes.
+fn etag_validator(etag: Option<&str>) -> RemoteValidator {
+    match etag {
+        Some(value) if value.starts_with("W/") => RemoteValidator::Weak(value.to_owned()),
+        Some(value) => RemoteValidator::Strong(value.to_owned()),
+        None => RemoteValidator::Absent,
     }
 }
 
@@ -463,7 +541,8 @@ impl<S: WebDavObjectSource> RemoteSyncPort for WebDavAdapter<S> {
                 }
                 ProviderNeutralIntent::PullPresent { path, .. }
                 | ProviderNeutralIntent::OpenConflict { path, .. }
-                | ProviderNeutralIntent::ReportUnrecognized { path } => {
+                | ProviderNeutralIntent::ReportUnrecognized { path }
+                | ProviderNeutralIntent::Hold { path, .. } => {
                     path_results.push((path.clone(), PathPublishStatus::Skipped));
                 }
             }
@@ -471,9 +550,40 @@ impl<S: WebDavObjectSource> RemoteSyncPort for WebDavAdapter<S> {
         Ok(PublishReceipt { path_results })
     }
 
-    fn verify(&self, paths: &[SyncPath]) -> Result<VerifiedRemoteState, LomoError> {
-        let results = paths.iter().map(|path| self.verify_path(path)).collect();
+    fn verify(&self, expectations: &[VerifyExpectation]) -> Result<VerifiedRemoteState, LomoError> {
+        let results = expectations
+            .iter()
+            .map(|expectation| self.verify_expectation(expectation))
+            .collect();
         Ok(VerifiedRemoteState { results })
+    }
+
+    fn resolve_remote_object(
+        &self,
+        path: &SyncPath,
+    ) -> Result<Option<RemoteResolvedObject>, LomoError> {
+        Ok(self
+            .fetch_object(path)?
+            .map(|(body, digest, _etag)| RemoteResolvedObject { digest, body }))
+    }
+
+    fn load_object(
+        &self,
+        path: &SyncPath,
+        expected_digest: &ContentDigest,
+    ) -> Result<Option<Vec<u8>>, LomoError> {
+        match self.fetch_object(path)? {
+            Some((bytes, digest, _etag)) => {
+                if digest.as_str() != expected_digest.as_str() {
+                    return Err(validation(
+                        "webdav_object_digest_mismatch",
+                        "webdav object digest does not match the conflict candidate digest",
+                    ));
+                }
+                Ok(Some(bytes))
+            }
+            None => Ok(None),
+        }
     }
 }
 

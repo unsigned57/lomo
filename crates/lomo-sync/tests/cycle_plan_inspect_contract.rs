@@ -19,6 +19,13 @@
 //!   `ensure_present_count` ≥ 1 and disposition `after_user_action`.
 //! - Given both-modified digests under ports (plan-only), when inspect runs, then
 //!   `open_conflict_count` ≥ 1 and disposition `after_user_action`.
+//! - Given both-modified with local workspace file + remote object bytes, when inspect-with-ports
+//!   runs **without** an injected `ConflictBodySource`, then the cycle loads those bytes and
+//!   durable-opens the conflict (production body path; never constant `None`).
+//! - Given a durable `KeepLocal` resolution, when inspect-with-ports runs with `apply_remote`, then
+//!   the remote port publishes the local candidate body (production `apply_resolved_conflicts_remote`).
+//! - Given both-modified listing facts but no workspace file and no remote object, when inspect
+//!   runs without injected bodies, then `conflict_candidate_body_missing` (hollow still fail-closed).
 //! - Given apply with `PreconditionFailed` under ports, when inspect-with-apply runs, then
 //!   disposition `transient` (replan) and baseline not advanced.
 //! - Given apply with verify failure under ports, when inspect-with-apply runs, then disposition
@@ -31,11 +38,21 @@
 //!   `sync_git_compose_via_remote_port` (Git is composed at the native edge).
 //! - Given a store-backed workspace + hermetic bare Git remote port, when
 //!   `run_composed_sync_cycle_with_remote_port` runs plan-only, then `ensure_present` ≥ 1.
+//! - Given the same Git composition with `apply_remote`, when the cycle runs, then publish
+//!   succeeds (planner `WholeBatchRef` + tip CAS) and the remote listing observes the path.
 //!
 //! Observable outcomes: `SyncCyclePlanSummary` fields; structured error codes; meaningful
-//! disposition under real fake snapshots.
+//! disposition under real fake snapshots; durable conflict artifacts when workspace/remote bodies
+//! exist without an injected `ConflictBodySource`.
+//! TDD proof: RED `with_ports_both_modified_loads_workspace_and_remote_bodies_without_injection`
+//! failed `inspect auto-load bodies` with `conflict_candidate_body_missing` (materialize required
+//! an injected candidate body source); GREEN same command after `RemoteSyncPort::load_object` +
+//! workspace auto-load (then 15 passed). RED `with_ports_apply_remote_publishes_keep_local_from_durable_session`
+//! failed `apply cycle` with `fake_remote_object_source_digest_mismatch` until pending `KeepLocal`
+//! apply ran before plan and existing sessions were not rematerialized; GREEN same command.
 //! Excludes: real provider publish/apply, production DI, `BoltFFI` wire (native contract), Kotlin
-//! planner re-implementation, multi-process death.
+//! planner re-implementation, multi-process death. `KeepRemote` `WorkspaceSession` local pull is
+//! owned by `lomo-native` `sync_session_keep_remote_contract`.
 
 #[cfg(test)]
 #[expect(
@@ -45,12 +62,14 @@
 mod tests {
     use lomo_store::{Store, run_rebuild};
     use lomo_sync::{
-        BaselineHead, ConflictBodySource, ConflictSession, ContentDigest, FakeLocalPort,
-        FakeRemotePort, LocalPathEntry, PathPublishStatus, PublishReceipt, RemotePathEntry,
-        RemoteSnapshot, SessionKind, SnapshotCompleteness, SyncBackendConfig, SyncIdentityFence,
-        SyncPath, SyncPaths, SyncSession, VerifiedRemoteState, VerifyStatus,
+        BaselineHead, ConflictBodySource, ConflictResolution, ConflictSession, ContentDigest,
+        FakeLocalPort, FakeRemotePort, LocalPathEntry, MapRemoteObjectSource, PathPublishStatus,
+        PublishReceipt, RemoteDigestFact, RemotePathEntry, RemoteSnapshot, RemoteValidator,
+        SessionKind, SnapshotCompleteness, SyncBackendConfig, SyncIdentityFence, SyncPath,
+        SyncPaths, SyncSession, VerifiedRemoteState, VerifyStatus, collect_resolved_present_bodies,
         conflict_path_from_open, inspect_sync_cycle_plan, inspect_sync_cycle_plan_with_ports,
-        run_composed_sync_cycle, write_baseline, write_conflict_session, write_session,
+        read_conflict_session, resolve_sync_conflicts, run_composed_sync_cycle, write_baseline,
+        write_conflict_session, write_session,
     };
     use lomo_workspace::{RemoteDatasetId, RemoteIdentityDigest, WorkspaceGenerationId};
     use tempfile::tempdir;
@@ -224,8 +243,8 @@ mod tests {
                 SnapshotCompleteness::Complete,
                 vec![RemotePathEntry {
                     path: path("memo/a.md"),
-                    digest: d_remote,
-                    revision_token: "tok-remote".to_owned(),
+                    digest: RemoteDigestFact::Known(d_remote),
+                    validator: RemoteValidator::Strong("tok-remote".to_owned()),
                 }],
             )
             .expect("snap"),
@@ -257,6 +276,171 @@ mod tests {
     }
 
     #[test]
+    fn with_ports_both_modified_loads_workspace_and_remote_bodies_without_injection() {
+        let temporary = tempdir().expect("temp");
+        let workspace = temporary.path().join("ws");
+        std::fs::create_dir_all(workspace.join("memo")).expect("ws");
+        let paths = SyncPaths::for_workspace(&workspace);
+        let session = SyncSession::new(fence(), SessionKind::Incremental, "cycle-ports-auto")
+            .expect("session");
+        write_session(&paths, &session).expect("write session");
+
+        let local_bytes = b"# local auto-load\n";
+        let remote_bytes = b"# remote auto-load\n";
+        let base_bytes = b"# base auto-load\n";
+        let d_local = ContentDigest::from_bytes(local_bytes);
+        let d_remote = ContentDigest::from_bytes(remote_bytes);
+        let d_base = ContentDigest::from_bytes(base_bytes);
+        std::fs::write(workspace.join("memo/a.md"), local_bytes).expect("local file");
+
+        let mut baseline = BaselineHead::empty();
+        baseline.fence = Some(fence());
+        baseline.upsert(&path("memo/a.md"), &d_base, "tok-base".to_owned());
+        write_baseline(&paths, &baseline).expect("baseline");
+
+        let local = FakeLocalPort {
+            entries: vec![LocalPathEntry {
+                path: path("memo/a.md"),
+                digest: d_local.clone(),
+            }],
+        };
+        let mut objects = MapRemoteObjectSource::empty();
+        objects.insert("memo/a.md", remote_bytes.to_vec());
+        let remote = FakeRemotePort::with_objects(
+            RemoteSnapshot::new(
+                SnapshotCompleteness::Complete,
+                vec![RemotePathEntry {
+                    path: path("memo/a.md"),
+                    digest: RemoteDigestFact::Known(d_remote.clone()),
+                    validator: RemoteValidator::Strong("tok-remote".to_owned()),
+                }],
+            )
+            .expect("snap"),
+            PublishReceipt {
+                path_results: Vec::new(),
+            },
+            VerifiedRemoteState {
+                results: Vec::new(),
+            },
+            objects,
+        );
+
+        let summary = inspect_sync_cycle_plan_with_ports(&paths, &local, &remote, false, None)
+            .expect("inspect auto-load bodies");
+        assert!(
+            summary.open_conflict_count >= 1,
+            "production body load must open conflict: {summary:?}"
+        );
+        assert!(summary.open_conflict_paths >= 1);
+        let session = read_conflict_session(&paths).expect("durable session");
+        let record = session
+            .paths
+            .iter()
+            .find(|item| item.path == "memo/a.md")
+            .expect("conflict path");
+        assert_eq!(record.local_digest.as_deref(), Some(d_local.as_str()));
+        assert_eq!(record.remote_digest.as_deref(), Some(d_remote.as_str()));
+        assert!(record.local_artifact_ref.is_some());
+        assert!(record.remote_artifact_ref.is_some());
+        assert_eq!(record.remote_token.as_deref(), Some("tok-remote"));
+    }
+
+    #[test]
+    fn with_ports_apply_remote_publishes_keep_local_from_durable_session() {
+        let temporary = tempdir().expect("temp");
+        let workspace = temporary.path().join("ws");
+        std::fs::create_dir_all(workspace.join("memo")).expect("ws");
+        let paths = SyncPaths::for_workspace(&workspace);
+        let session =
+            SyncSession::new(fence(), SessionKind::Incremental, "cycle-apply-kl").expect("session");
+        write_session(&paths, &session).expect("write session");
+
+        let local_bytes = b"# keep local apply\n";
+        let remote_bytes = b"# remote losing\n";
+        let base_bytes = b"# base apply\n";
+        let d_local = ContentDigest::from_bytes(local_bytes);
+        let d_remote = ContentDigest::from_bytes(remote_bytes);
+        let d_base = ContentDigest::from_bytes(base_bytes);
+        std::fs::write(workspace.join("memo/a.md"), local_bytes).expect("local file");
+
+        let mut baseline = BaselineHead::empty();
+        baseline.fence = Some(fence());
+        baseline.upsert(&path("memo/a.md"), &d_base, "tok-base".to_owned());
+        write_baseline(&paths, &baseline).expect("baseline");
+
+        let local = FakeLocalPort {
+            entries: vec![LocalPathEntry {
+                path: path("memo/a.md"),
+                digest: d_local.clone(),
+            }],
+        };
+        let listing = RemoteSnapshot::new(
+            SnapshotCompleteness::Complete,
+            vec![RemotePathEntry {
+                path: path("memo/a.md"),
+                digest: RemoteDigestFact::Known(d_remote),
+                validator: RemoteValidator::Strong("tok-remote".to_owned()),
+            }],
+        )
+        .expect("snap");
+        let mut remote_objects = MapRemoteObjectSource::empty();
+        remote_objects.insert("memo/a.md", remote_bytes.to_vec());
+        let open_remote = FakeRemotePort::with_objects(
+            listing.clone(),
+            PublishReceipt {
+                path_results: Vec::new(),
+            },
+            VerifiedRemoteState {
+                results: Vec::new(),
+            },
+            remote_objects,
+        );
+        inspect_sync_cycle_plan_with_ports(&paths, &local, &open_remote, false, None)
+            .expect("materialize");
+        resolve_sync_conflicts(
+            &paths,
+            1,
+            &[ConflictResolution::KeepLocal {
+                path: "memo/a.md".to_owned(),
+            }],
+        )
+        .expect("resolve KeepLocal");
+
+        let apply_objects = collect_resolved_present_bodies(
+            &paths,
+            &read_conflict_session(&paths).expect("session"),
+        )
+        .expect("artifact bodies");
+        let apply_remote = FakeRemotePort::with_objects(
+            listing,
+            PublishReceipt {
+                path_results: vec![(
+                    path("memo/a.md"),
+                    PathPublishStatus::Applied {
+                        new_token: "tok-new".to_owned(),
+                    },
+                )],
+            },
+            VerifiedRemoteState {
+                results: vec![VerifyStatus::Verified {
+                    path: path("memo/a.md"),
+                    digest: d_local.clone(),
+                    remote_token: "tok-new".to_owned(),
+                }],
+            },
+            apply_objects,
+        );
+        inspect_sync_cycle_plan_with_ports(&paths, &local, &apply_remote, true, None)
+            .expect("apply cycle");
+        assert_eq!(apply_remote.publish_call_count(), 1);
+        let published = apply_remote.published_bodies();
+        let first = published.first().expect("published KeepLocal body");
+        assert_eq!(first.path, "memo/a.md");
+        assert_eq!(first.digest, d_local.as_str());
+        assert_eq!(first.body, local_bytes);
+    }
+
+    #[test]
     fn with_ports_hollow_open_without_bodies_fails_closed() {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
@@ -282,8 +466,8 @@ mod tests {
                 SnapshotCompleteness::Complete,
                 vec![RemotePathEntry {
                     path: path("memo/a.md"),
-                    digest: dig(2),
-                    revision_token: "tok-remote".to_owned(),
+                    digest: RemoteDigestFact::Known(dig(2)),
+                    validator: RemoteValidator::Strong("tok-remote".to_owned()),
                 }],
             )
             .expect("snap"),
@@ -382,6 +566,8 @@ mod tests {
         let memos = workspace.join("memos");
         std::fs::create_dir_all(&memos).expect("memos");
         std::fs::write(memos.join("composed.md"), "composed-body").expect("seed markdown");
+        lomo_workspace::load_or_mint_workspace_generation(&workspace)
+            .expect("workspace generation");
         run_rebuild(&workspace, 8).expect("index seed");
 
         let summary = run_composed_sync_cycle(
@@ -405,6 +591,8 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
+        lomo_workspace::load_or_mint_workspace_generation(&workspace)
+            .expect("workspace generation");
         let _store = Store::open(&workspace).expect("open");
         let config = SyncBackendConfig {
             kind: lomo_sync::SyncBackendKind::WebDav,
@@ -464,6 +652,8 @@ mod tests {
         let memos = workspace.join("memos");
         std::fs::create_dir_all(&memos).expect("memos");
         std::fs::write(memos.join("git-port.md"), "git-port-body").expect("seed markdown");
+        lomo_workspace::load_or_mint_workspace_generation(&workspace)
+            .expect("workspace generation");
         run_rebuild(&workspace, 8).expect("index seed");
 
         let remote = connect_map_git_source(MapGitConnectParams {
@@ -495,5 +685,71 @@ mod tests {
             summary.ensure_present_count
         );
         assert_eq!(summary.session_kind, SessionKind::FirstTakeover);
+    }
+
+    #[test]
+    fn composed_git_with_remote_port_apply_publishes_whole_batch_ref() {
+        use std::time::Duration;
+
+        use git2::{Repository, RepositoryInitOptions};
+        use lomo_git::{WorkspaceFileGitObjectSource, connect_workspace_git};
+        use lomo_sync::{RemoteSyncPort, run_composed_sync_cycle_with_remote_port};
+
+        let temporary = tempdir().expect("temp");
+        let workspace = temporary.path().join("ws");
+        std::fs::create_dir_all(&workspace).expect("ws");
+        let bare = temporary.path().join("remote.git");
+        let mirror = temporary.path().join("mirror.git");
+        let mut opts = RepositoryInitOptions::new();
+        opts.bare(true);
+        opts.initial_head("main");
+        Repository::init_opts(&bare, &opts).expect("init bare");
+
+        let memos = workspace.join("memos");
+        std::fs::create_dir_all(&memos).expect("memos");
+        std::fs::write(memos.join("git-apply.md"), "- 10:00:00\ngit-apply-body\n")
+            .expect("seed markdown");
+        lomo_workspace::load_or_mint_workspace_generation(&workspace)
+            .expect("workspace generation");
+        run_rebuild(&workspace, 8).expect("index seed");
+
+        let remote = connect_workspace_git(
+            bare.to_str().expect("utf8"),
+            "main",
+            mirror,
+            "",
+            "",
+            WorkspaceFileGitObjectSource::new(&workspace),
+            "lomo-git",
+            "git@lomo.local",
+            Duration::from_secs(5),
+        )
+        .expect("git adapter");
+
+        let config = SyncBackendConfig {
+            kind: lomo_sync::SyncBackendKind::Git,
+            endpoint_url: bare.to_string_lossy().into_owned(),
+            username_or_access_key: String::new(),
+            bucket: "main".into(),
+            prefix: "Lomo".into(),
+            region: "git@lomo.local".into(),
+            remote_dataset_id: "ds-git-apply".into(),
+        };
+        let summary = run_composed_sync_cycle_with_remote_port(&workspace, &config, &remote, true)
+            .expect("composed git apply");
+        assert!(
+            summary.ensure_present_count >= 1,
+            "apply cycle must still plan EnsurePresent, got {}",
+            summary.ensure_present_count
+        );
+        let listed = remote.list_remote().expect("list after apply");
+        assert!(
+            listed
+                .entries
+                .iter()
+                .any(|entry| entry.path.as_str().ends_with("git-apply.md")),
+            "published tree must contain the local markdown: {:?}",
+            listed.entries
+        );
     }
 }

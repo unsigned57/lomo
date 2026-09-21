@@ -68,3 +68,9 @@ pub const MAX_STREAMING_REMOTE_PATH_KEYS: usize = 100_000;
 /// Host residual: fails closed rather than unbounded `Vec` growth on multi-page plan.
 /// Equals the path-key ceiling so one intent per path remains the structural bound.
 pub const MAX_STREAMING_INTERMEDIATE_INTENTS: usize = MAX_STREAMING_REMOTE_PATH_KEYS;
+
+/// Maximum intents in one whole-batch (Git tree/commit) publish.
+///
+/// Per-path HTTP adapters stay at [`MAX_ACTION_PAGE_ITEMS`]. A Git commit is one CAS of the whole
+/// tree, so the ceiling is the streaming path-key working set rather than one `WebDAV` page.
+pub const MAX_WHOLE_BATCH_INTENTS: usize = MAX_STREAMING_INTERMEDIATE_INTENTS;

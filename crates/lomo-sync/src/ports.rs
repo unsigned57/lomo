@@ -1,8 +1,8 @@
 //! Fake-friendly local and remote ports for hermetic state-machine tests (P5-03/P5-04).
 //!
-//! Production provider adapters (WebDAV/S3/Git) land in later packages. Local mutations always go
-//! through `lomo-store` expected-revision `LocalSyncMutationBatch` ports — this module only bridges
-//! coarse snapshot facts into the planner and never writes user Markdown/media.
+//! Production provider adapters (`WebDAV` / S3 / Git) live in later packages. Durable user-document
+//! writes belong to `lomo-application::WorkspaceSession` at the host/FFI edge. This module only
+//! bridges coarse snapshot facts into the planner and never writes user Markdown/media.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -12,8 +12,9 @@ use sha2::{Digest, Sha256};
 use crate::error::validation;
 use crate::limits::MAX_ACTION_PAGE_ITEMS;
 use crate::pipeline::{
-    ContentDigest, PreparedRemoteBatch, ProviderNeutralIntent, PublishReceipt, RemotePathEntry,
-    RemoteSnapshot, SnapshotCompleteness, SyncPath, VerifiedRemoteState,
+    BatchAtomicity, ContentDigest, PreparedRemoteBatch, ProviderNeutralIntent, PublishReceipt,
+    RemotePathEntry, RemoteSnapshot, SnapshotCompleteness, SyncPath, VerifiedRemoteState,
+    VerifyExpectation,
 };
 use lomo_core::LomoError;
 
@@ -68,6 +69,14 @@ pub trait RemoteSyncPort {
         Ok(RemoteListingStream::from_single_snapshot(snap))
     }
 
+    /// Atomicity this adapter will accept at [`Self::publish`].
+    ///
+    /// Planner output must match this value. Default is per-path CAS (`WebDAV` / S3). Git overrides
+    /// to whole-batch ref CAS so a tree/commit publish is not fed `PerPath` batches.
+    fn batch_atomicity(&self) -> BatchAtomicity {
+        BatchAtomicity::PerPath
+    }
+
     /// Executes a prepared batch (conditional writes only).
     ///
     /// # Errors
@@ -77,10 +86,49 @@ pub trait RemoteSyncPort {
 
     /// Re-reads remote state for applied paths (verify before baseline).
     ///
+    /// Verification is token-first: an `expected_token` that still matches the observed validator
+    /// verifies without re-reading the body; unknown/weak/changed tokens fall back to a streaming
+    /// digest check.
+    ///
     /// # Errors
     ///
     /// Network / validation errors.
-    fn verify(&self, paths: &[SyncPath]) -> Result<VerifiedRemoteState, LomoError>;
+    fn verify(&self, expectations: &[VerifyExpectation]) -> Result<VerifiedRemoteState, LomoError>;
+
+    /// Resolves the content digest (and body) of one remote object on demand.
+    ///
+    /// Metadata-only listings leave [`RemotePathEntry::digest`] unresolved; the planner resolves
+    /// only the paths it needs for byte-level decisions. `Ok(None)` means the object vanished
+    /// since listing. The digest is SHA-256 over the returned bytes — never a metadata guess.
+    ///
+    /// # Errors
+    ///
+    /// Network / validation / storage errors.
+    fn resolve_remote_object(
+        &self,
+        path: &SyncPath,
+    ) -> Result<Option<RemoteResolvedObject>, LomoError> {
+        let _: &SyncPath = path;
+        Err(validation(
+            "remote_object_resolution_unsupported",
+            "remote port does not implement on-demand digest resolution",
+        ))
+    }
+
+    /// Loads one remote object for conflict materialize (conflict paths only, never a listing GET).
+    ///
+    /// `Ok(None)` means the object is absent. Digest mismatch and transport failures are errors
+    /// (fail closed; never invent bytes).
+    ///
+    /// # Errors
+    ///
+    /// Network / validation / storage when the object exists but cannot be loaded or does not
+    /// match `expected_digest`.
+    fn load_object(
+        &self,
+        path: &SyncPath,
+        expected_digest: &ContentDigest,
+    ) -> Result<Option<Vec<u8>>, LomoError>;
 }
 
 /// One remote listing stream: overall completeness + ordered page buffers (≤512 each).
@@ -92,6 +140,8 @@ pub struct RemoteListingStream {
     pub overall_completeness: SnapshotCompleteness,
     /// Page buffers already page-bounded (never a multi-page materialize of all entries).
     pub pages: Vec<Vec<RemotePathEntry>>,
+    /// Snapshot-level CAS token for whole-batch providers (Git branch tip). Per-path: `None`.
+    pub snapshot_revision: Option<String>,
 }
 
 impl RemoteListingStream {
@@ -107,6 +157,7 @@ impl RemoteListingStream {
         Self {
             overall_completeness,
             pages,
+            snapshot_revision: snapshot.snapshot_revision,
         }
     }
 
@@ -119,6 +170,19 @@ impl RemoteListingStream {
         overall_completeness: SnapshotCompleteness,
         pages: Vec<Vec<RemotePathEntry>>,
     ) -> Result<Self, LomoError> {
+        Self::from_pages_with_revision(overall_completeness, pages, None)
+    }
+
+    /// Builds a multi-page stream with an explicit snapshot CAS token (Git branch tip).
+    ///
+    /// # Errors
+    ///
+    /// Resource-limit when any page exceeds the action page ceiling.
+    pub fn from_pages_with_revision(
+        overall_completeness: SnapshotCompleteness,
+        pages: Vec<Vec<RemotePathEntry>>,
+        snapshot_revision: Option<String>,
+    ) -> Result<Self, LomoError> {
         for page in &pages {
             if page.len() > MAX_ACTION_PAGE_ITEMS {
                 return Err(crate::error::resource_limit(
@@ -130,6 +194,7 @@ impl RemoteListingStream {
         Ok(Self {
             overall_completeness,
             pages,
+            snapshot_revision,
         })
     }
 
@@ -137,6 +202,15 @@ impl RemoteListingStream {
     pub fn into_page_iter(self) -> impl Iterator<Item = Result<Vec<RemotePathEntry>, LomoError>> {
         self.pages.into_iter().map(Ok)
     }
+}
+
+/// A remote object resolved on demand: proven content digest plus its body bytes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemoteResolvedObject {
+    /// SHA-256 over `body` — computed, never taken from provider metadata.
+    pub digest: ContentDigest,
+    /// Full object body (already page/object-bounded upstream; re-used for conflict/pull bodies).
+    pub body: Vec<u8>,
 }
 
 /// In-memory fake local port for hermetic contracts.
@@ -396,6 +470,24 @@ impl FakeRemotePort {
 }
 
 impl RemoteSyncPort for FakeRemotePort {
+    fn load_object(
+        &self,
+        path: &SyncPath,
+        expected_digest: &ContentDigest,
+    ) -> Result<Option<Vec<u8>>, LomoError> {
+        let Some(bytes) = self.objects.objects.get(path.as_str()) else {
+            return Ok(None);
+        };
+        let digest = format!("{:x}", Sha256::digest(bytes));
+        if digest != expected_digest.as_str() {
+            return Err(validation(
+                "fake_remote_object_source_digest_mismatch",
+                "fake remote object source digest does not match the conflict candidate digest",
+            ));
+        }
+        Ok(Some(bytes.clone()))
+    }
+
     fn list_remote(&self) -> Result<RemoteSnapshot, LomoError> {
         Ok(self.snapshot.clone())
     }
@@ -444,7 +536,8 @@ impl RemoteSyncPort for FakeRemotePort {
                 | ProviderNeutralIntent::EnsureAbsent { path, .. }
                 | ProviderNeutralIntent::PullPresent { path, .. }
                 | ProviderNeutralIntent::OpenConflict { path, .. }
-                | ProviderNeutralIntent::ReportUnrecognized { path } => (path.as_str(), ()),
+                | ProviderNeutralIntent::ReportUnrecognized { path }
+                | ProviderNeutralIntent::Hold { path, .. } => (path.as_str(), ()),
             })
             .collect();
         let path_results = self
@@ -457,18 +550,34 @@ impl RemoteSyncPort for FakeRemotePort {
         Ok(PublishReceipt { path_results })
     }
 
-    fn verify(&self, paths: &[SyncPath]) -> Result<VerifiedRemoteState, LomoError> {
+    fn resolve_remote_object(
+        &self,
+        path: &SyncPath,
+    ) -> Result<Option<RemoteResolvedObject>, LomoError> {
+        let Some(bytes) = self.objects.objects.get(path.as_str()) else {
+            return Ok(None);
+        };
+        Ok(Some(RemoteResolvedObject {
+            digest: ContentDigest::from_bytes(bytes),
+            body: bytes.clone(),
+        }))
+    }
+
+    fn verify(&self, expectations: &[VerifyExpectation]) -> Result<VerifiedRemoteState, LomoError> {
         if let Ok(mut guard) = self.verify_calls.lock() {
             *guard = guard.saturating_add(1);
         }
         // Page-scoped honesty: filter canned verify fixtures to the requested paths only.
         // Empty request → empty results (domain-empty; not a silent full-fixture dump).
-        if paths.is_empty() {
+        if expectations.is_empty() {
             return Ok(VerifiedRemoteState {
                 results: Vec::new(),
             });
         }
-        let wanted: BTreeMap<&str, ()> = paths.iter().map(|path| (path.as_str(), ())).collect();
+        let wanted: BTreeMap<&str, ()> = expectations
+            .iter()
+            .map(|expectation| (expectation.path.as_str(), ()))
+            .collect();
         let results = self
             .verify_state
             .results

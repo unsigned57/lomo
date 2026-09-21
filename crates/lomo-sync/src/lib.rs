@@ -13,6 +13,7 @@
 #![deny(unsafe_code)]
 
 mod conflict;
+mod conflict_suggest;
 mod durable;
 mod error;
 mod limits;
@@ -26,14 +27,19 @@ mod webdav;
 pub use conflict::{
     ConflictApplyRemoteResult, ConflictBodySource, ConflictCandidateBodies, ConflictContentKind,
     ConflictPage, ConflictPathRecord, ConflictPathStatus, ConflictResolution,
-    ConflictResolveResult, ConflictSession, ResolvedLocalPullMutation,
-    advance_baseline_after_local_pull, apply_resolved_conflicts_remote,
+    ConflictResolveResult, ConflictSession, ConflictSessionPresence, ConflictSessionState,
+    ResolvedLocalPullMutation, advance_baseline_after_local_pull, apply_resolved_conflicts_remote,
     baseline_must_hold_for_path, clear_conflict_session, collect_resolved_local_pull_mutations,
     collect_resolved_present_bodies, conflict_artifacts_dir, conflict_path_from_open,
     decode_conflict_session_bytes, encode_conflict_session, is_markdown_sync_path,
-    list_sync_conflicts, materialize_conflicts_from_plan, may_advance_baseline_for_path,
-    read_conflict_artifact, read_conflict_session, resolve_sync_conflicts,
+    list_sync_conflicts, load_conflict_bodies_for_open_intents,
+    load_conflict_bodies_for_open_pages, materialize_conflicts_from_intent_pages,
+    materialize_conflicts_from_plan, may_advance_baseline_for_path, read_conflict_artifact,
+    read_conflict_session, read_conflict_session_state, resolve_sync_conflicts,
     validate_merged_markdown_body, write_conflict_artifact, write_conflict_session,
+};
+pub use conflict_suggest::{
+    ConflictSuggestion, ConflictSuggestionChoice, suggest_conflict_resolution,
 };
 pub use durable::{
     BaselineEntry, BaselineHead, SYNC_RECORD_MAGIC, SessionKind, SyncIdentityFence, SyncPaths,
@@ -52,24 +58,27 @@ pub use limits::{
     MAX_S3_MULTIPART_PARTS, MAX_S3_OBJECT_BYTES, MAX_S3_SNAPSHOT_ENTRIES,
     MAX_STREAMING_INTERMEDIATE_INTENTS, MAX_STREAMING_REMOTE_PATH_KEYS, MAX_SYNC_PATH_BYTES,
     MAX_WEBDAV_MULTISTATUS_BYTES, MAX_WEBDAV_OBJECT_BYTES, MAX_WEBDAV_SNAPSHOT_ENTRIES,
-    MAX_WEBDAV_TRAVERSAL_DEPTH, S3_MULTIPART_PART_BYTES, SCALE_HOST_PATH_COUNT,
-    SYNC_DURABLE_SCHEMA,
+    MAX_WEBDAV_TRAVERSAL_DEPTH, MAX_WHOLE_BATCH_INTENTS, S3_MULTIPART_PART_BYTES,
+    SCALE_HOST_PATH_COUNT, SYNC_DURABLE_SCHEMA,
 };
 pub use machine::{
     StreamingPlanOutcome, StreamingSyncCycleResult, SyncBackendConfig, SyncBackendKind,
     SyncCyclePlanSummary, SyncCycleResult, apply_with_verify, first_takeover_preflight,
     inspect_sync_cycle_plan, inspect_sync_cycle_plan_with_ports, migration_preflight, plan_intents,
-    plan_intents_streaming, reject_if_migration_class_emitted_delete, run_composed_sync_cycle,
+    plan_intents_streaming, plan_intents_streaming_with_atomicity, plan_intents_with_atomicity,
+    reject_if_migration_class_emitted_delete, run_composed_sync_cycle,
     run_composed_sync_cycle_with_remote_port, run_sync_cycle, run_sync_cycle_streaming,
 };
 pub use pipeline::{
-    BatchAtomicity, ContentDigest, PathPublishStatus, PipelineStage, PreparedRemoteBatch,
-    ProviderNeutralIntent, PublishReceipt, RemotePathEntry, RemoteSnapshot, SnapshotCompleteness,
-    SyncPath, VerifiedRemoteState, VerifyStatus, is_owned_sync_user_path,
+    BatchAtomicity, ContentDigest, HoldReason, PathPublishStatus, PipelineStage,
+    PreparedRemoteBatch, ProviderNeutralIntent, PublishReceipt, RemoteDigestFact, RemotePathEntry,
+    RemotePublishContract, RemoteSnapshot, RemoteValidator, SnapshotCompleteness, SyncPath,
+    VerifiedRemoteState, VerifyExpectation, VerifyStatus, is_owned_sync_user_path,
 };
 pub use ports::{
     FakeLocalPort, FakePublishedBody, FakeRemotePort, LocalPathEntry, LocalSnapshot, LocalSyncPort,
-    MapRemoteObjectSource, RemoteListingStream, RemoteSyncPort, StoreLocalSnapshotPort,
+    MapRemoteObjectSource, RemoteListingStream, RemoteResolvedObject, RemoteSyncPort,
+    StoreLocalSnapshotPort,
 };
 pub use recovery::{
     DeleteVersusEdit, RecoverDeleteRequest, SyncDiagnosticEntry, SyncDiagnosticError,

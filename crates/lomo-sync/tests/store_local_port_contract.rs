@@ -36,6 +36,7 @@ mod tests {
         let dir = root.join("memos");
         std::fs::create_dir_all(&dir).expect("memos");
         std::fs::write(dir.join(format!("{memo_id}.md")), body).expect("write memo");
+        lomo_workspace::load_or_mint_workspace_generation(root).expect("workspace generation");
         run_rebuild(root, 8).expect("index seed markdown");
         Store::open(root).expect("open indexed store")
     }
@@ -81,6 +82,7 @@ mod tests {
     fn hermetic_pull_materializes_via_store_mutation_batch() {
         let temporary = tempdir().expect("temp");
         let root = temporary.path();
+        lomo_workspace::load_or_mint_workspace_generation(root).expect("workspace generation");
         let mut store = Store::open(root).expect("open");
         let error = store
             .apply_local_sync_batch(&LocalSyncMutationBatch {

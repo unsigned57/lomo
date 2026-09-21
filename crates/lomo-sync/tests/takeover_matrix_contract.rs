@@ -60,12 +60,12 @@ mod tests {
     use lomo_sync::{
         BaselineHead, BatchAtomicity, ContentDigest, FakeLocalPort, FakeRemotePort, LocalPathEntry,
         LocalSnapshot, MapRemoteObjectSource, PathPublishStatus, PreparedRemoteBatch,
-        ProviderNeutralIntent, PublishReceipt, RemotePathEntry, RemoteSnapshot, SessionKind,
-        SnapshotCompleteness, StoreLocalSnapshotPort, SyncIdentityFence, SyncPath, SyncPaths,
-        SyncSession, TombstoneSet, VerifiedRemoteState, VerifyStatus, apply_with_verify,
-        assert_fence_for_revival, error_category, first_takeover_preflight,
-        inspect_sync_cycle_plan, migration_preflight, plan_intents, read_session,
-        reject_if_migration_class_emitted_delete, write_session,
+        ProviderNeutralIntent, PublishReceipt, RemoteDigestFact, RemotePathEntry, RemoteSnapshot,
+        RemoteValidator, SessionKind, SnapshotCompleteness, StoreLocalSnapshotPort,
+        SyncIdentityFence, SyncPath, SyncPaths, SyncSession, TombstoneSet, VerifiedRemoteState,
+        VerifyStatus, apply_with_verify, assert_fence_for_revival, error_category,
+        first_takeover_preflight, inspect_sync_cycle_plan, migration_preflight, plan_intents,
+        read_session, reject_if_migration_class_emitted_delete, write_session,
     };
     use lomo_workspace::{RemoteDatasetId, RemoteIdentityDigest, WorkspaceGenerationId};
     use sha2::{Digest, Sha256};
@@ -99,6 +99,7 @@ mod tests {
         let dir = root.join("memos");
         std::fs::create_dir_all(&dir).expect("memos");
         std::fs::write(dir.join(format!("{memo_id}.md")), body).expect("write memo");
+        lomo_workspace::load_or_mint_workspace_generation(root).expect("workspace generation");
         run_rebuild(root, 8).expect("index seed markdown");
         Store::open(root).expect("open indexed store")
     }
@@ -179,8 +180,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memos/overlap.md"),
-                digest: dig(9),
-                revision_token: "r-overlap".to_owned(),
+                digest: RemoteDigestFact::Known(dig(9)),
+                validator: RemoteValidator::Strong("r-overlap".to_owned()),
             }],
         )
         .expect("snap");
@@ -209,13 +210,13 @@ mod tests {
             vec![
                 RemotePathEntry {
                     path: path("memo/remote-a.md"),
-                    digest: dig(2),
-                    revision_token: "ra".to_owned(),
+                    digest: RemoteDigestFact::Known(dig(2)),
+                    validator: RemoteValidator::Strong("ra".to_owned()),
                 },
                 RemotePathEntry {
                     path: path("memo/remote-b.md"),
-                    digest: dig(3),
-                    revision_token: "rb".to_owned(),
+                    digest: RemoteDigestFact::Known(dig(3)),
+                    validator: RemoteValidator::Strong("rb".to_owned()),
                 },
             ],
         )
@@ -317,8 +318,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memo/same.md"),
-                digest: body_digest,
-                revision_token: "r-same".to_owned(),
+                digest: RemoteDigestFact::Known(body_digest),
+                validator: RemoteValidator::Strong("r-same".to_owned()),
             }],
         )
         .expect("snap");
@@ -403,8 +404,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memos/mig-overlap.md"),
-                digest: dig(8),
-                revision_token: "r-mig".to_owned(),
+                digest: RemoteDigestFact::Known(dig(8)),
+                validator: RemoteValidator::Strong("r-mig".to_owned()),
             }],
         )
         .expect("snap");
@@ -433,8 +434,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memos/mig-same.md"),
-                digest,
-                revision_token: "r-same-mig".to_owned(),
+                digest: RemoteDigestFact::Known(digest),
+                validator: RemoteValidator::Strong("r-same-mig".to_owned()),
             }],
         )
         .expect("snap");
@@ -455,7 +456,8 @@ mod tests {
     #[test]
     fn migration_store_remote_only_pulls_without_delete() {
         let temporary = tempdir().expect("temp");
-        // Empty store still supplies a generation fence via open.
+        lomo_workspace::load_or_mint_workspace_generation(temporary.path())
+            .expect("workspace generation");
         let store = Store::open(temporary.path()).expect("open empty");
         let local = store_local_port(&store);
         let local_snap = local.snapshot().expect("local");
@@ -464,8 +466,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memo/remote-mig.md"),
-                digest: dig(3),
-                revision_token: "rm".to_owned(),
+                digest: RemoteDigestFact::Known(dig(3)),
+                validator: RemoteValidator::Strong("rm".to_owned()),
             }],
         )
         .expect("snap");

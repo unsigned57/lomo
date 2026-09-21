@@ -34,8 +34,9 @@
 //! - Given multi-page apply where first page verify fails, when streaming cycle runs, then
 //!   subsequent pages are not published and baseline does not advance.
 //! - Given multi-page `OpenConflict` intents past the first intent page, when streaming cycle
-//!   runs, then validation `streaming_open_conflict_outside_first_page` (permanent product law;
-//!   never full-materialize multi-page conflict view — not a deferred design residual).
+//!   runs with durable paths and candidate bodies, then one `ConflictSession` holds every
+//!   conflict path (including the last intent page). Missing bodies fail closed with
+//!   `conflict_candidate_body_missing`. Never assemble a multi-page listing `RemoteSnapshot`.
 //! - Given multi-page `EnsurePresent` + canned multi-path receipt fixture, when each page
 //!   publishes, then `FakeRemotePort` returns only page-scoped receipt/verify rows (honesty).
 //!
@@ -45,11 +46,17 @@
 //!
 //! TDD proof: fails before `plan_intents_streaming` exists (compile) / before page splits
 //! (single oversize batch) / before key ceiling (silent growth) / before cycle wiring /
-//! before multi-page apply loop (first-page-only residual) / before conflict outside-first-page
-//! reject / before page-scoped fake receipt filter.
+//! before multi-page apply loop (first-page-only residual) / before later-page conflict
+//! materialize / before page-scoped fake receipt filter.
 //!
 //! Excludes: formal APK×1.15 measurement, 100k-path production matrix claim, real provider
 //! list pagination production wire, production DI, body-byte streaming of media payloads, arm64.
+//!
+//! Test Change Justification: domain contract correction (C1). Replaced
+//! `streaming_open_conflict_outside_first_page` as a first-page-only product law. Later-page
+//! `OpenConflict` must persist into the same durable session; fail-closed is missing bodies, not a
+//! first-page view. Coverage: durable later-page materialize success + hollow-open failure. The
+//! lock still forbids silent drop and full multi-page listing materialize.
 
 #[cfg(test)]
 #[expect(
@@ -59,14 +66,15 @@
 mod tests {
     use lomo_core::ErrorCategory;
     use lomo_sync::{
-        BaselineHead, ContentDigest, FakeLocalPort, FakeRemotePort, LocalPathEntry, LocalSnapshot,
-        MAX_ACTION_PAGE_ITEMS, MAX_STREAMING_INTERMEDIATE_INTENTS, MAX_STREAMING_REMOTE_PATH_KEYS,
-        PublishReceipt, RemoteListingStream, RemotePathEntry, RemoteSnapshot,
-        SCALE_HOST_PATH_COUNT, SessionKind, SnapshotCompleteness, SyncIdentityFence, SyncPath,
-        SyncSession, TombstoneSet, VerifiedRemoteState, error_category, plan_intents_streaming,
-        run_sync_cycle_streaming,
+        BaselineHead, ConflictBodySource, ContentDigest, FakeLocalPort, FakeRemotePort,
+        LocalPathEntry, LocalSnapshot, MAX_ACTION_PAGE_ITEMS, MAX_STREAMING_INTERMEDIATE_INTENTS,
+        MAX_STREAMING_REMOTE_PATH_KEYS, PublishReceipt, RemoteDigestFact, RemoteListingStream,
+        RemotePathEntry, RemoteSnapshot, RemoteValidator, SCALE_HOST_PATH_COUNT, SessionKind,
+        SnapshotCompleteness, SyncIdentityFence, SyncPath, SyncPaths, SyncSession, TombstoneSet,
+        VerifiedRemoteState, error_category, plan_intents_streaming, run_sync_cycle_streaming,
     };
     use lomo_workspace::{RemoteDatasetId, RemoteIdentityDigest, WorkspaceGenerationId};
+    use tempfile::tempdir;
 
     fn dig(seed: u8) -> ContentDigest {
         ContentDigest::parse(&format!("{seed:02x}").repeat(32)).expect("digest")
@@ -79,8 +87,8 @@ mod tests {
     fn remote_entry(index: usize, seed: u8) -> RemotePathEntry {
         RemotePathEntry {
             path: path(&format!("memo/scale-{index:05}.md")),
-            digest: dig(seed),
-            revision_token: format!("tok-{index}"),
+            digest: RemoteDigestFact::Known(dig(seed)),
+            validator: RemoteValidator::Strong(format!("tok-{index}")),
         }
     }
 
@@ -619,33 +627,35 @@ mod tests {
         assert_eq!(verified.results.len(), MAX_ACTION_PAGE_ITEMS);
     }
 
-    // --- Wave-13: streaming conflict first-page residual (fail-closed) ---
+    fn body_digest(bytes: &[u8]) -> ContentDigest {
+        ContentDigest::from_bytes(bytes)
+    }
 
-    #[test]
-    fn run_sync_cycle_streaming_rejects_open_conflict_outside_first_intent_page() {
-        // Both-modified paths past one action page (512+64) → OpenConflict intents split into
-        // two intent pages. Materialize only sees the first intent page; later OpenConflict
-        // must fail closed rather than silent drop or multi-page full materialize.
-        let page_size = 64usize;
-        let total = MAX_ACTION_PAGE_ITEMS + 64;
+    /// Both-modified paths split across two intent pages (`MAX_ACTION_PAGE_ITEMS` + 1).
+    fn multi_page_open_conflict_ports() -> (FakeLocalPort, FakeRemotePort, BaselineHead, usize) {
+        let local_d = body_digest(b"# local body\n");
+        let remote_d = body_digest(b"# remote body\n");
+        let baseline_d = body_digest(b"# base body\n");
+        let total = MAX_ACTION_PAGE_ITEMS + 1;
+        let listing_page = 64usize;
         let local = FakeLocalPort {
             entries: (0..total)
                 .map(|i| LocalPathEntry {
                     path: path(&format!("memo/c-{i:05}.md")),
-                    digest: dig(1),
+                    digest: local_d.clone(),
                 })
                 .collect(),
         };
-        let page_count = total.div_ceil(page_size);
+        let page_count = total.div_ceil(listing_page);
         let mut pages = Vec::with_capacity(page_count);
         for page_idx in 0..page_count {
-            let start = page_idx * page_size;
-            let end = (start + page_size).min(total);
+            let start = page_idx * listing_page;
+            let end = (start + listing_page).min(total);
             let page: Vec<_> = (start..end)
                 .map(|i| RemotePathEntry {
                     path: path(&format!("memo/c-{i:05}.md")),
-                    digest: dig(2),
-                    revision_token: format!("tok-{i}"),
+                    digest: RemoteDigestFact::Known(remote_d.clone()),
+                    validator: RemoteValidator::Strong(format!("tok-{i}")),
                 })
                 .collect();
             pages.push(page);
@@ -662,21 +672,93 @@ mod tests {
             },
         )
         .with_listing_pages(stream);
-
         let mut baseline = BaselineHead::empty();
         baseline.fence = Some(fence());
         for i in 0..total {
             baseline.upsert(
                 &path(&format!("memo/c-{i:05}.md")),
-                &dig(3),
+                &baseline_d,
                 format!("base-tok-{i}"),
             );
         }
+        (local, remote, baseline, total)
+    }
+
+    fn multi_page_conflict_bodies(total: usize) -> ConflictBodySource {
+        ConflictBodySource::from_entries((0..total).map(|i| {
+            (
+                format!("memo/c-{i:05}.md"),
+                Some(b"# local body\n".to_vec()),
+                Some(b"# remote body\n".to_vec()),
+                Some(b"# base body\n".to_vec()),
+            )
+        }))
+    }
+
+    // --- Wave-13: streaming conflict materialize across intent pages (C1) ---
+
+    #[test]
+    fn run_sync_cycle_streaming_materializes_open_conflict_across_intent_pages() {
+        let (local, remote, baseline, total) = multi_page_open_conflict_ports();
+        let temporary = tempdir().expect("temp");
+        let paths = SyncPaths::for_workspace(temporary.path());
+        paths.ensure_layout().expect("layout");
+        let bodies = multi_page_conflict_bodies(total);
         let session = SyncSession::new(fence(), SessionKind::Incremental, "stream-conflict")
             .expect("session");
-        let err = run_sync_cycle_streaming(&session, &local, &remote, baseline, None, false, None)
-            .expect_err("open conflict outside first page must fail closed");
-        assert_eq!(err.code(), "streaming_open_conflict_outside_first_page");
+        let result = run_sync_cycle_streaming(
+            &session,
+            &local,
+            &remote,
+            baseline,
+            Some(&paths),
+            false,
+            Some(&bodies),
+        )
+        .expect("later-page OpenConflict must persist into the durable session");
+        assert!(result.plan.intent_pages.len() > 1);
+        assert_eq!(result.plan.open_conflict_count(), total);
+        let conflict = result
+            .conflict_session
+            .as_ref()
+            .expect("durable conflict session");
+        assert_eq!(conflict.open_count(), total);
+        let last = format!("memo/c-{:05}.md", total - 1);
+        assert!(
+            conflict.paths.iter().any(|record| record.path == last),
+            "last intent-page path must be in the same session: {last}"
+        );
+        assert_eq!(
+            conflict
+                .paths
+                .iter()
+                .find(|record| record.path == last)
+                .expect("last")
+                .remote_token
+                .as_deref(),
+            Some(format!("tok-{}", total - 1).as_str())
+        );
+    }
+
+    #[test]
+    fn run_sync_cycle_streaming_later_page_open_conflict_without_bodies_fails_closed() {
+        let (local, remote, baseline, _total) = multi_page_open_conflict_ports();
+        let temporary = tempdir().expect("temp");
+        let paths = SyncPaths::for_workspace(temporary.path());
+        paths.ensure_layout().expect("layout");
+        let session =
+            SyncSession::new(fence(), SessionKind::Incremental, "stream-hollow").expect("session");
+        let err = run_sync_cycle_streaming(
+            &session,
+            &local,
+            &remote,
+            baseline,
+            Some(&paths),
+            false,
+            None,
+        )
+        .expect_err("OpenConflict without bodies must fail closed");
+        assert_eq!(err.code(), "conflict_candidate_body_missing");
         assert_eq!(error_category(&err), ErrorCategory::Validation);
     }
 
@@ -691,8 +773,8 @@ mod tests {
         };
         let remote_entries = vec![RemotePathEntry {
             path: path("memo/only.md"),
-            digest: dig(2),
-            revision_token: "tok-r".to_owned(),
+            digest: RemoteDigestFact::Known(dig(2)),
+            validator: RemoteValidator::Strong("tok-r".to_owned()),
         }];
         let stream = RemoteListingStream::from_pages(
             SnapshotCompleteness::Complete,

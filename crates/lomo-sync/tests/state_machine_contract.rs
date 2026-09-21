@@ -24,10 +24,10 @@
 mod tests {
     use lomo_sync::{
         BaselineHead, ContentDigest, FakeLocalPort, FakeRemotePort, LocalPathEntry, LocalSyncPort,
-        PathPublishStatus, PublishReceipt, RemotePathEntry, RemoteSnapshot, SessionKind,
-        SnapshotCompleteness, SyncIdentityFence, SyncPath, SyncPaths, SyncSession, TombstoneSet,
-        VerifiedRemoteState, VerifyStatus, apply_with_verify, first_takeover_preflight,
-        plan_intents, run_sync_cycle,
+        PathPublishStatus, PublishReceipt, RemoteDigestFact, RemotePathEntry, RemoteSnapshot,
+        RemoteValidator, SessionKind, SnapshotCompleteness, SyncIdentityFence, SyncPath, SyncPaths,
+        SyncSession, TombstoneSet, VerifiedRemoteState, VerifyStatus, apply_with_verify,
+        first_takeover_preflight, plan_intents, run_sync_cycle,
     };
     use lomo_workspace::{RemoteDatasetId, RemoteIdentityDigest, WorkspaceGenerationId};
     use tempfile::tempdir;
@@ -61,8 +61,8 @@ mod tests {
                 SnapshotCompleteness::Complete,
                 vec![RemotePathEntry {
                     path: path("memo/remote-only.md"),
-                    digest: dig(2),
-                    revision_token: "r1".to_owned(),
+                    digest: RemoteDigestFact::Known(dig(2)),
+                    validator: RemoteValidator::Strong("r1".to_owned()),
                 }],
             )
             .expect("snap"),
@@ -269,8 +269,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memo/a.md"),
-                digest: dig(2),
-                revision_token: "r".to_owned(),
+                digest: RemoteDigestFact::Known(dig(2)),
+                validator: RemoteValidator::Strong("r".to_owned()),
             }],
         )
         .expect("snap");
@@ -299,8 +299,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memo/gone.md"),
-                digest: dig(3),
-                revision_token: "r-gone".to_owned(),
+                digest: RemoteDigestFact::Known(dig(3)),
+                validator: RemoteValidator::Strong("r-gone".to_owned()),
             }],
         )
         .expect("snap");
@@ -334,8 +334,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memo/gone.md"),
-                digest: dig(9),
-                revision_token: "r-new".to_owned(),
+                digest: RemoteDigestFact::Known(dig(9)),
+                validator: RemoteValidator::Strong("r-new".to_owned()),
             }],
         )
         .expect("snap");
@@ -369,8 +369,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memo/gone.md"),
-                digest: dig(3),
-                revision_token: "r-gone".to_owned(),
+                digest: RemoteDigestFact::Known(dig(3)),
+                validator: RemoteValidator::Strong("r-gone".to_owned()),
             }],
         )
         .expect("snap");

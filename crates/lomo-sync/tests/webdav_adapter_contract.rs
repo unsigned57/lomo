@@ -63,10 +63,10 @@ mod tests {
     use lomo_sync::{
         BaselineHead, BatchAtomicity, ContentDigest, FakeLocalPort, MAX_ACTION_PAGE_ITEMS,
         MAX_WEBDAV_SNAPSHOT_ENTRIES, MapObjectSource, PathPublishStatus, PreparedRemoteBatch,
-        ProviderNeutralIntent, RemoteSyncPort, SessionKind, SnapshotCompleteness,
-        SyncIdentityFence, SyncPath, SyncSession, TombstoneSet, WebDavAdapter, WebDavCredentials,
-        WebDavEndpoint, WebDavObjectSource, connect_map_source, error_category, is_same_origin,
-        map_http_status, plan_intents, run_sync_cycle_streaming,
+        ProviderNeutralIntent, RemoteDigestFact, RemoteSyncPort, SessionKind, SnapshotCompleteness,
+        SyncIdentityFence, SyncPath, SyncSession, TombstoneSet, VerifyExpectation, WebDavAdapter,
+        WebDavCredentials, WebDavEndpoint, WebDavObjectSource, connect_map_source, error_category,
+        is_same_origin, map_http_status, plan_intents, run_sync_cycle_streaming,
     };
     use lomo_workspace::{RemoteDatasetId, RemoteIdentityDigest, WorkspaceGenerationId};
     use sha2::{Digest, Sha256};
@@ -343,6 +343,40 @@ mod tests {
             .get("depth")
             .and_then(|value| optional_u32(value))
             .unwrap_or(0);
+        let key = rel.trim_matches('/');
+        if !key.is_empty() {
+            let (is_object, has_children) = {
+                let guard = store.lock().expect("store");
+                let is_object = guard.contains_key(key);
+                let has_children = guard
+                    .keys()
+                    .any(|child| child.starts_with(&format!("{key}/")));
+                (is_object, has_children)
+            };
+            if is_object {
+                // PROPFIND on a file returns only the file's own props (files have no children).
+                let obj = {
+                    let guard = store.lock().expect("store");
+                    guard.get(key).expect("object").clone()
+                };
+                let href = format!("/dav/{key}");
+                let xml = format!(
+                    "<?xml version=\"1.0\" encoding=\"utf-8\"?><d:multistatus xmlns:d=\"DAV:\"><d:response><d:href>{href}</d:href><d:propstat><d:prop><d:resourcetype/><d:getetag>{}</d:getetag><d:getcontentlength>{}</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>",
+                    obj.etag,
+                    obj.body.len()
+                );
+                let resp = format!(
+                    "HTTP/1.1 207 Multi-Status\r\nContent-Type: application/xml; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    xml.len()
+                );
+                stream.write_all(resp.as_bytes())?;
+                return stream.write_all(xml.as_bytes());
+            }
+            if !has_children {
+                // Real servers 404 PROPFIND on absent paths — never fabricate a collection.
+                return write_status(stream, 404, b"not found");
+            }
+        }
         let xml = build_multistatus(rel, depth, store, fault);
         let resp = format!(
             "HTTP/1.1 207 Multi-Status\r\nContent-Type: application/xml; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -786,8 +820,13 @@ mod tests {
         assert_eq!(snap.completeness, SnapshotCompleteness::Complete);
         assert_eq!(snap.entries.len(), 1);
         assert_eq!(snap.entries[0].path.as_str(), "memo/a.md");
-        assert_eq!(snap.entries[0].digest.as_str(), digest_of(body).as_str());
-        assert!(!snap.entries[0].revision_token.is_empty());
+        // Metadata-only listing: digest unresolved until on-demand resolution; ETag is the
+        // conditional-update validator.
+        assert_eq!(snap.entries[0].digest, RemoteDigestFact::Unresolved);
+        assert_eq!(
+            snap.entries[0].validator.strong_token(),
+            Some(server.etag_of("memo/a.md").as_str())
+        );
     }
 
     #[test]
@@ -1252,7 +1291,13 @@ mod tests {
             .iter()
             .find(|entry| entry.path.as_str() == rel)
             .expect("unicode path present");
-        assert_eq!(entry.digest.as_str(), digest.as_str());
+        // Metadata-only listing carries no digest; resolve on demand to prove bytes.
+        assert_eq!(entry.digest, RemoteDigestFact::Unresolved);
+        let resolved = adapter
+            .resolve_remote_object(&entry.path)
+            .expect("resolve")
+            .expect("present");
+        assert_eq!(resolved.digest.as_str(), digest.as_str());
     }
 
     #[test]
@@ -1262,7 +1307,18 @@ mod tests {
         server.put_object("memo/v.md", body);
         let (_dir, adapter) = adapter_with(&server, MapObjectSource::default());
         let verified = adapter
-            .verify(&[path("memo/v.md"), path("memo/missing.md")])
+            .verify(&[
+                VerifyExpectation {
+                    path: path("memo/v.md"),
+                    expected_digest: Some(digest_of(body)),
+                    expected_token: None,
+                },
+                VerifyExpectation {
+                    path: path("memo/missing.md"),
+                    expected_digest: None,
+                    expected_token: None,
+                },
+            ])
             .expect("verify");
         assert_eq!(verified.results.len(), 2);
         match &verified.results[0] {

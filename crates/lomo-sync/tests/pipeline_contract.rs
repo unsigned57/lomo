@@ -22,8 +22,8 @@ mod tests {
     use lomo_core::ErrorCategory;
     use lomo_sync::{
         BatchAtomicity, ContentDigest, MAX_ACTION_PAGE_ITEMS, PreparedRemoteBatch,
-        ProviderNeutralIntent, RemotePathEntry, RemoteSnapshot, SYNC_CRATE_NAME,
-        SnapshotCompleteness, SyncOwnerIdentity, SyncPath, error_category,
+        ProviderNeutralIntent, RemoteDigestFact, RemotePathEntry, RemoteSnapshot, RemoteValidator,
+        SYNC_CRATE_NAME, SnapshotCompleteness, SyncOwnerIdentity, SyncPath, error_category,
     };
 
     fn digest(seed: u8) -> ContentDigest {
@@ -67,8 +67,8 @@ mod tests {
         for index in 0..=MAX_ACTION_PAGE_ITEMS {
             entries.push(RemotePathEntry {
                 path: SyncPath::parse(&format!("p/{index}")).expect("path"),
-                digest: digest(1),
-                revision_token: "t".to_owned(),
+                digest: RemoteDigestFact::Known(digest(1)),
+                validator: RemoteValidator::Strong("t".to_owned()),
             });
         }
         let err = RemoteSnapshot::new(SnapshotCompleteness::Complete, entries)
@@ -129,8 +129,8 @@ mod tests {
         for index in 0..MAX_ACTION_PAGE_ITEMS {
             entries.push(RemotePathEntry {
                 path: SyncPath::parse(&format!("ok/{index}")).expect("path"),
-                digest: digest(2),
-                revision_token: "t".to_owned(),
+                digest: RemoteDigestFact::Known(digest(2)),
+                validator: RemoteValidator::Strong("t".to_owned()),
             });
         }
         let snap = RemoteSnapshot::new(SnapshotCompleteness::Complete, entries).expect("at limit");
