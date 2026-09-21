@@ -15,6 +15,7 @@ package com.lomo.data.engine.store
  * - Given a registered source, when a matching store commit is published, then the source is invalidated.
  * - Given a viewport away from the true head, when getRefreshKey runs, then the closest memo id is returned.
  * - Given the true head, when getRefreshKey runs, then null is returned so refresh starts at head.
+ * - Given a pending focus identity, when getRefreshKey runs, then that identity wins over the viewport anchor.
  * - Given a refresh identity, when load runs, then the store is queried from that memo id.
  * - Given an append cursor, when load runs, then the store is queried forward from that cursor.
  * - Given a prepend cursor, when load runs, then the store is queried backward from that cursor.
@@ -96,8 +97,8 @@ private class FakeStorePort : StorePort {
         limit: Int,
     ): StoreMemoHistoryPage = StoreMemoHistoryPage(emptyList(), null)
 
-    override fun queryReminderPlan(query: StoreReminderQuery): StoreReminderPlan =
-        StoreReminderPlan(emptyList(), query.workspaceGeneration.toString())
+    override fun queryReminderPlan(nowUtcMs: Long): StoreReminderPlan =
+        StoreReminderPlan(emptyList(), 0, "gen-test")
 
     override fun applyMemoCommand(
         command: StoreMemoCommand,
@@ -113,6 +114,20 @@ private class FakeStorePort : StorePort {
         mutation: com.lomo.domain.model.MemoDocumentMutation,
     ): StoreMemoCommit = error("not used")
 
+
+    override fun snoozeReminder(
+        opaqueId: String,
+        snoozeDurationMs: Long,
+    ) = error("reminder snooze is not expected")
+
+    override fun clearReminderSnooze(opaqueId: String) =
+        error("reminder clear-snooze is not expected")
+
+    override fun reminderSnoozeRecoveryPending(): Boolean =
+        error("reminder snooze recovery query is not expected")
+
+    override fun recoverReminderSnooze() = error("reminder snooze recovery is not expected")
+
     override fun startRebuild(batchSize: Int): StoreRebuildResult =
         StoreRebuildResult(
             memosIndexed = 0,
@@ -122,6 +137,7 @@ private class FakeStorePort : StorePort {
             storeDigest = "empty",
             corruptLomoIsolated = 0,
             highWaterRevision = 0,
+            rewritten = false,
         )
 }
 
@@ -210,7 +226,7 @@ class StorePagingSourceTest : FunSpec({
                 FakeStorePort(),
                 StoreMemoQuery(),
                 registerInvalidation = { pagingSource ->
-                    bus.register(pagingSource, setOf(StoreInvalidationScope.MemoList))
+                    bus.register(pagingSource)
                 },
             )
 
@@ -268,6 +284,72 @@ class StorePagingSourceTest : FunSpec({
                 leadingPlaceholderCount = 0,
             )
         source.getRefreshKey(state) shouldBe "m2"
+    }
+
+    test("pending focus identity wins over the viewport refresh key") {
+        val port =
+            FakeStorePort().apply {
+                pages += samplePage(ids = listOf("m1", "m2"), itemsBefore = 0, itemsAfter = 3)
+            }
+        val pending = java.util.concurrent.atomic.AtomicReference("focus-deep")
+        val source =
+            StorePagingSource(
+                port = port,
+                query = StoreMemoQuery(),
+                consumeRefreshIdentity = { pending.getAndSet(null) },
+            )
+        val loaded =
+            source
+                .load(PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = true))
+                .shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
+        val state =
+            PagingState(
+                pages = listOf(loaded),
+                anchorPosition = 1,
+                config = PagingConfig(pageSize = 30, enablePlaceholders = true),
+                leadingPlaceholderCount = 0,
+            )
+
+        source.getRefreshKey(state) shouldBe "focus-deep"
+        source.getRefreshKey(state) shouldBe "m2"
+    }
+
+    test("preview rows carry the store projected character count") {
+        val port =
+            FakeStorePort().apply {
+                pages +=
+                    StoreMemoPage(
+                        items =
+                            listOf(
+                                StoreMemoSummary(
+                                    memoId = "m1",
+                                    sourcePath = "memos/2026_09_13.md",
+                                    fileFingerprint = "fp",
+                                    updatedAtMs = 2,
+                                    createdAtMs = 1,
+                                    hasTodo = false,
+                                    hasUrl = false,
+                                    hasAttachment = false,
+                                    isPinned = false,
+                                    isTrashed = false,
+                                    bodyPreview = "short",
+                                    contentRevision = 1L,
+                                    charCount = 900L,
+                                ),
+                            ),
+                        nextCursor = null,
+                        highWaterRevision = 1L,
+                        queryFingerprint = "fp",
+                    )
+            }
+        val source = StorePagingSource(port, StoreMemoQuery())
+        val result =
+            source
+                .load(PagingSource.LoadParams.Refresh(key = null, loadSize = 30, placeholdersEnabled = true))
+                .shouldBeInstanceOf<PagingSource.LoadResult.Page<String, com.lomo.domain.model.Memo>>()
+
+        result.data.single().projectedCharCount shouldBe 900L
+        result.data.single().content shouldBe "short"
     }
 
     test("append load queries the store forward from the page cursor") {

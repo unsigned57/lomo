@@ -1,8 +1,5 @@
 package com.lomo.data.engine.store
 
-private const val MAX_REMINDER_ZONE_TRANSITIONS = 32
-private const val MAX_REMINDER_SESSIONS = 10_000
-
 /**
  * Production store surface (P3-10) over BoltFFI `query_memos` / `get_memo` /
  * `apply_memo_command` / reminder / rebuild APIs.
@@ -75,6 +72,8 @@ data class StoreMemoSummary(
     val reminders: List<com.lomo.domain.model.ReminderMarker> = emptyList(),
     /** Published by a begun create whose durable commit has not landed yet. */
     val isPending: Boolean = false,
+    /** Full-document character count from the store projection (UTF-16 code units). */
+    val charCount: Long = 0,
 )
 
 data class StoreMemoPage(
@@ -200,6 +199,7 @@ data class StoreRebuildResult(
     val storeDigest: String,
     val corruptLomoIsolated: Long,
     val highWaterRevision: Long,
+    val rewritten: Boolean,
 )
 
 /** History-window attachment path for D6 orphan keep-set (store-owned projection). */
@@ -222,66 +222,9 @@ data class StoreMemoHistoryPage(
     val nextCursor: String?,
 )
 
-data class StoreZoneTransition(
-    val transitionUtcMs: Long,
-    val offsetBeforeSecs: Int,
-    val offsetAfterSecs: Int,
-)
-
-data class StoreTimeZoneContext(
-    val zoneId: String,
-    val baseOffsetSecs: Int,
-    val transitions: List<StoreZoneTransition>,
-) {
-    init {
-        require(zoneId.isNotBlank()) { "Reminder zone id must be non-blank" }
-        require(transitions.zipWithNext().all { (left, right) -> left.transitionUtcMs < right.transitionUtcMs }) {
-            "Reminder zone transitions must be strictly ordered"
-        }
-        require(transitions.size <= MAX_REMINDER_ZONE_TRANSITIONS) {
-            "Reminder zone transition list is unbounded"
-        }
-    }
-}
-
-data class StoreReminderSession(
-    val opaqueId: String,
-    val memoIdentity: String,
-    val memoRevision: String,
-    val token: String,
-    val dueAtLocal: String,
-    val repeatCount: Int,
-    val firedCount: Int,
-    val done: Boolean,
-    val intervalMinutes: Int,
-    val recurrenceCode: String,
-) {
-    init {
-        require(opaqueId.isNotBlank()) { "Reminder opaque id must be non-blank" }
-        require(memoIdentity.isNotBlank()) { "Reminder memo identity must be non-blank" }
-        require(memoRevision.isNotBlank()) { "Reminder memo revision must be non-blank" }
-        require(token.isNotBlank()) { "Reminder token must be non-blank" }
-        require(repeatCount > 0) { "Reminder repeat count must be positive" }
-        require(firedCount in 0..repeatCount) { "Reminder fired count is outside repeat count" }
-        require(intervalMinutes >= 0) { "Reminder interval must be non-negative" }
-    }
-}
-
-data class StoreReminderQuery(
-    val nowUtcMs: Long,
-    val zone: StoreTimeZoneContext,
-    val sessions: List<StoreReminderSession>,
-    val rollingWindow: Int,
-    val workspaceGeneration: Long,
-) {
-    init {
-        require(rollingWindow > 0) { "Reminder rolling window must be positive" }
-        require(workspaceGeneration >= 0) { "Reminder workspace generation must be non-negative" }
-        require(sessions.size <= MAX_REMINDER_SESSIONS) { "Reminder session list is unbounded" }
-    }
-}
-
 data class StorePlannedAlarm(
+    /** Durable occurrence identity (`generation␟reminder␟triggerMs`) issued by the Rust plan. */
+    val occurrenceId: String,
     val opaqueId: String,
     val memoIdentity: String,
     val triggerAtUtcMs: Long,
@@ -290,6 +233,11 @@ data class StorePlannedAlarm(
 
 data class StoreReminderPlan(
     val alarms: List<StorePlannedAlarm>,
+    /**
+     * Future alarms omitted because the Rust rolling window is full. Non-zero means the caller
+     * must re-plan after the earliest in-window occurrence completes or is cancelled.
+     */
+    val droppedCount: Int,
     val workspaceGeneration: String,
 )
 
@@ -320,7 +268,7 @@ interface StoreReadPort {
     fun listMemoHistory(memoId: String, cursor: String?, limit: Int): StoreMemoHistoryPage
 
     /** Builds the bounded next-trigger/catch-up plan from Rust-owned reminder semantics. */
-    fun queryReminderPlan(query: StoreReminderQuery): StoreReminderPlan
+    fun queryReminderPlan(nowUtcMs: Long): StoreReminderPlan
 }
 
 /** Durable mutation capabilities owned by the single Rust store writer. */
@@ -330,8 +278,8 @@ interface StoreWritePort {
      *
      * [onPublication] receives projection publications the engine emits while the command is still
      * executing — currently the pending-create publication a SAF create publishes before its
-     * durable platform I/O. The caller feeds them to its invalidation bus so the list shows the
-     * begun memo immediately; the command's own commit is still the returned value.
+     * durable platform I/O. [PublishingStorePort] observes those stamps; command callers must not
+     * publish them onto the invalidation bus. The command's own commit is still the returned value.
      */
     fun applyMemoCommand(
         command: StoreMemoCommand,
@@ -350,6 +298,24 @@ interface StoreWritePort {
     ): StoreMemoCommit
 
     fun startRebuild(batchSize: Int): StoreRebuildResult
+
+    /**
+     * Writes one durable app-private snooze binding scoped to the workspace generation. The caller
+     * supplies a validated duration; the deadline instant is computed on the owner clock.
+     */
+    fun snoozeReminder(
+        opaqueId: String,
+        snoozeDurationMs: Long,
+    )
+
+    /** Clears the durable snooze binding for one reminder definition. */
+    fun clearReminderSnooze(opaqueId: String)
+
+    /** True when durable snooze state is quarantined and scheduling is paused pending recovery. */
+    fun reminderSnoozeRecoveryPending(): Boolean
+
+    /** Explicitly recovers corrupt durable snooze state (quarantine + fresh store). */
+    fun recoverReminderSnooze()
 }
 
 /** Complete boundary retained for callers that need both read and write capabilities. */

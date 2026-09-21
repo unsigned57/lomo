@@ -16,26 +16,35 @@ import kotlinx.coroutines.test.runTest
  * - Unit under test: StoreMemoTaskRepository
  * - Owning layer: data
  * - Priority tier: P0
- * - Capability: list and toggle Markdown tasks through the application session; toggle publishes
- *   the session commit so list/search projections refresh.
+ * - Capability: list and toggle Markdown tasks through the application session. Projection
+ *   publication of the toggle stamp is owned by the engine adapter, not this repository.
  *
  * Scenarios:
  * - Given session task items, when listTasks runs while Ready, then domain tasks map line index
  *   and text without calling a store write.
  * - Given the engine is not Ready, when listTasks runs, then the result is empty and session list
  *   is not called.
- * - Given a domain task, when toggleTask runs, then session toggle receives that memo id / line
- *   and invalidation observes the commit revision.
+ * - Given a domain task, when toggleTask runs, then session toggle receives that memo id / line.
  *
  * Observable outcomes:
- * - Mapped MemoTask fields, session request fields, invalidation coreRevision.
+ * - Mapped MemoTask fields and session request fields.
  *
  * TDD proof:
  * - Target: ./kotlin test --include-module=data --include-classes='com.lomo.data.repository.StoreMemoTaskRepositoryTest'
  * - RED before StoreMemoTaskRepository exists because Android had no session task repository.
  *
+ * Test Change Justification:
+ * - Reason category: T26 single publication exit.
+ * - Old behavior/assertion being replaced: toggleTask asserted StoreInvalidationBus.coreRevision.
+ * - Why old assertion is no longer correct: repositories must not publish owner stamps; the
+ *   engine adapter observes sessionToggleTask receipts.
+ * - Coverage preserved by: session request field assertions here and
+ *   RustEngineAdapterTest toggle publication.
+ * - Why this is not fitting the test to the implementation: locks the remaining repository
+ *   duty (forward the frozen command) instead of re-testing the adapter bus.
+ *
  * Excludes:
- * - JNI, Markdown rewrite internals, and Compose UI.
+ * - JNI, Markdown rewrite internals, Compose UI, and adapter publication.
  */
 class StoreMemoTaskRepositoryTest : FunSpec({
     test("listTasks maps session items while Ready") {
@@ -56,7 +65,6 @@ class StoreMemoTaskRepositoryTest : FunSpec({
             val repository =
                 StoreMemoTaskRepository(
                     session = session,
-                    invalidation = StoreInvalidationBus(),
                     writeLease = alwaysWritableWorkspaceMutationLease(),
                     readiness = FakeEngineReadinessRepository(),
                 )
@@ -85,7 +93,6 @@ class StoreMemoTaskRepositoryTest : FunSpec({
             val repository =
                 StoreMemoTaskRepository(
                     session = session,
-                    invalidation = StoreInvalidationBus(),
                     writeLease = alwaysWritableWorkspaceMutationLease(),
                     readiness = readiness,
                 )
@@ -95,14 +102,12 @@ class StoreMemoTaskRepositoryTest : FunSpec({
         }
     }
 
-    test("toggleTask sends session line-index toggle and publishes the commit") {
+    test("toggleTask sends session line-index toggle") {
         runTest {
             val session = RecordingTaskSessionBridge()
-            val invalidation = StoreInvalidationBus()
             val repository =
                 StoreMemoTaskRepository(
                     session = session,
-                    invalidation = invalidation,
                     writeLease = alwaysWritableWorkspaceMutationLease(),
                     readiness = FakeEngineReadinessRepository(),
                 )
@@ -120,7 +125,6 @@ class StoreMemoTaskRepositoryTest : FunSpec({
             session.lastToggle?.memoId shouldBe task.memoId
             session.lastToggle?.lineIndex shouldBe 1u
             session.lastToggle?.done shouldBe true
-            invalidation.publications.value.coreRevision shouldBe 4L
         }
     }
 })
@@ -145,7 +149,10 @@ private class RecordingTaskSessionBridge(
             eventSequence = 5uL,
             contentRevision = 2uL,
             fileFingerprint = "fp",
-            scopes = listOf("memo_list", "search"),
+            scopes = listOf(
+                com.lomo.nativebridge.StoreInvalidationScope.MEMO_LIST,
+                com.lomo.nativebridge.StoreInvalidationScope.SEARCH,
+            ),
             idempotentReplay = false,
         )
     }

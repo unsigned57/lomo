@@ -17,6 +17,16 @@ package com.lomo.data.repository
  *   Full and every registered projection consumer invalidates.
  * - Given a completed rebuild, when its higher high-water revision is published, then consumers
  *   full-invalidate once; a stale rebuild result is ignored.
+ * - Given a mid-flight pending create, when the durable commit confirms, then the publication clock
+ *   advances and paging sources already rebuilt by the pending publish are not invalidated again.
+ * - Given a replaced projection (archive import) whose high-water is lower, when it is re-anchored,
+ *   then the next commit on the new projection publishes instead of being silently dropped.
+ * - Given a high-water workspace clock, when reanchor installs a lower-water generation, then the
+ *   next commit on the new store publishes instead of being silently dropped.
+ * - Given event sequence advances without core revision, or regresses while revision advances,
+ *   when the publication is accepted, then scopes promote to Full instead of crashing the caller.
+ * - Given a receipt with a non-positive revision or sequence, when it is published, then a
+ *   structured ProtocolFailure is raised instead of an unclassifiable IllegalArgumentException.
  *
  * Observable outcomes:
  * - PagingSource invalid state and StoreProjectionPublication revision, sequence, and scopes.
@@ -25,15 +35,29 @@ package com.lomo.data.repository
  * - RED on 2026-08-09: StoreInvalidationBus exposed only an untyped bump counter, so commit order,
  *   replay identity, lost-event gaps, rebuild high-water revisions, and scoped invalidation were
  *   impossible to represent.
+ * - RED on 2026-09-12: native-owned projection events had no bus entry that invalidates paging
+ *   without fabricating a per-memo StoreMemoCommit.
+ * - RED on 2026-09-12: switching to a lower-water workspace left lastCoreRevision high, so
+ *   acceptPublication dropped every new-store commit; monotonic contradictions threw.
  *
  * Excludes:
  * - Store query contents, JNI transport, Compose rendering, and native event subscription.
+ * Test Change Justification:
+ * - Reason category: domain contract change (publication clock, reanchor, structured failure).
+ * - Old behavior/assertion being replaced: register(scope-set) API and revision-only acceptance.
+ * - Why old assertion is no longer correct: publication now tracks the workspace generation
+ *   high-water with reanchor; scope-set registration was removed.
+ * - Coverage preserved by: existing invalidation scenarios plus new cases for pending-create
+ *   skip, lower-water reanchor, monotonic-contradiction promotion, and malformed receipts.
+ * - Why this is not fitting the test to the implementation: assertions pin observable
+ *   publish/drop/promote outcomes.
  */
 
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.lomo.data.engine.store.StoreInvalidationScope
 import com.lomo.data.engine.store.StoreMemoCommit
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
@@ -67,8 +91,8 @@ class StoreInvalidationBusTest : FunSpec({
         val bus = StoreInvalidationBus()
         val memoList = ProjectionPagingSource()
         val trash = ProjectionPagingSource()
-        bus.register(memoList, setOf(StoreInvalidationScope.MemoList))
-        bus.register(trash, setOf(StoreInvalidationScope.Trash))
+        bus.register(memoList)
+        bus.register(trash)
 
         bus.publish(
             commit(
@@ -96,7 +120,7 @@ class StoreInvalidationBusTest : FunSpec({
             ),
         )
         val afterCommit = ProjectionPagingSource()
-        bus.register(afterCommit, setOf(StoreInvalidationScope.MemoList))
+        bus.register(afterCommit)
 
         bus.publish(
             commit(
@@ -123,7 +147,7 @@ class StoreInvalidationBusTest : FunSpec({
         val bus = StoreInvalidationBus()
         bus.publish(commit(1, 1, listOf(StoreInvalidationScope.Stats)))
         val memoList = ProjectionPagingSource()
-        bus.register(memoList, setOf(StoreInvalidationScope.MemoList))
+        bus.register(memoList)
 
         bus.publish(commit(3, 3, listOf(StoreInvalidationScope.Stats)))
 
@@ -135,17 +159,115 @@ class StoreInvalidationBusTest : FunSpec({
         val bus = StoreInvalidationBus()
         bus.publish(commit(1, 1, listOf(StoreInvalidationScope.MemoList)))
         val beforeRebuild = ProjectionPagingSource()
-        bus.register(beforeRebuild, setOf(StoreInvalidationScope.Trash))
-
+        bus.register(beforeRebuild)
         bus.publishRebuild(highWaterRevision = 4)
         val afterRebuild = ProjectionPagingSource()
-        bus.register(afterRebuild, setOf(StoreInvalidationScope.MemoList))
+        bus.register(afterRebuild)
         bus.publishRebuild(highWaterRevision = 3)
 
         beforeRebuild.invalid shouldBe true
         afterRebuild.invalid shouldBe false
         bus.publications.value.coreRevision shouldBe 4
         bus.publications.value.eventSequence shouldBe null
+        bus.publications.value.scopes shouldContainExactly setOf(StoreInvalidationScope.Full)
+    }
+
+    test("confirming a later commit advances the clock without invalidating paging again") {
+        val bus = StoreInvalidationBus()
+        val pending = ProjectionPagingSource()
+        bus.register(pending)
+        bus.publish(
+            commit(
+                revision = 1,
+                sequence = 1,
+                scopes = listOf(StoreInvalidationScope.MemoList),
+            ),
+        )
+        val afterPending = ProjectionPagingSource()
+        bus.register(afterPending)
+
+        bus.confirm(
+            commit(
+                revision = 2,
+                sequence = 2,
+                scopes = listOf(StoreInvalidationScope.MemoList, StoreInvalidationScope.Stats),
+            ),
+        )
+
+        pending.invalid shouldBe true
+        afterPending.invalid shouldBe false
+        bus.publications.value.coreRevision shouldBe 2
+        bus.publications.value.eventSequence shouldBe 2
+    }
+
+    test("archive projection replacement re-anchors to a lower high-water and accepts the next commit") {
+        val bus = StoreInvalidationBus()
+        bus.publish(commit(9, 9, listOf(StoreInvalidationScope.MemoList)))
+        val beforeReplace = ProjectionPagingSource()
+        bus.register(beforeReplace)
+
+        bus.reanchorProjection(highWaterRevision = 2)
+        val afterReplace = ProjectionPagingSource()
+        bus.register(afterReplace)
+        bus.publish(commit(3, 3, listOf(StoreInvalidationScope.MemoList)))
+
+        beforeReplace.invalid shouldBe true
+        afterReplace.invalid shouldBe true
+        bus.publications.value.coreRevision shouldBe 3
+        bus.publications.value.eventSequence shouldBe 3
+    }
+
+    test("a receipt violating the publication protocol surfaces a structured ProtocolFailure") {
+        val bus = StoreInvalidationBus()
+        val memoList = ProjectionPagingSource()
+        bus.register(memoList)
+
+        val failure =
+            shouldThrow<com.lomo.domain.model.EngineCommandFailureException> {
+                bus.publish(commit(revision = 0, sequence = 0, scopes = emptyList()))
+            }
+
+        failure.failure.code shouldBe StoreInvalidationBus.PROTOCOL_FAILURE_CODE
+        memoList.invalid shouldBe false
+    }
+
+    test("reanchor to a lower-water generation accepts the new store's next commit") {
+        val bus = StoreInvalidationBus()
+        bus.publish(commit(10, 10, listOf(StoreInvalidationScope.MemoList)))
+        val beforeSwitch = ProjectionPagingSource()
+        bus.register(beforeSwitch)
+
+        bus.reanchor(generation = 2, highWaterRevision = 3)
+        val afterSwitch = ProjectionPagingSource()
+        bus.register(afterSwitch)
+        bus.publish(commit(4, 4, listOf(StoreInvalidationScope.MemoList)))
+
+        beforeSwitch.invalid shouldBe true
+        afterSwitch.invalid shouldBe true
+        bus.publications.value.coreRevision shouldBe 4
+        bus.publications.value.eventSequence shouldBe 4
+    }
+
+    test("sequence without revision or sequence regression full-invalidates instead of crashing") {
+        val bus = StoreInvalidationBus()
+        bus.publish(commit(1, 1, listOf(StoreInvalidationScope.MemoList)))
+        val afterContradiction = ProjectionPagingSource()
+        bus.register(afterContradiction)
+
+        bus.publish(commit(1, 2, listOf(StoreInvalidationScope.MemoList)))
+
+        afterContradiction.invalid shouldBe true
+        bus.publications.value.coreRevision shouldBe 1
+        bus.publications.value.eventSequence shouldBe 2
+        bus.publications.value.scopes shouldContainExactly setOf(StoreInvalidationScope.Full)
+
+        val afterRegression = ProjectionPagingSource()
+        bus.register(afterRegression)
+        bus.publish(commit(3, 2, listOf(StoreInvalidationScope.Stats)))
+
+        afterRegression.invalid shouldBe true
+        bus.publications.value.coreRevision shouldBe 3
+        bus.publications.value.eventSequence shouldBe 2
         bus.publications.value.scopes shouldContainExactly setOf(StoreInvalidationScope.Full)
     }
 })

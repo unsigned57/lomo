@@ -6,8 +6,9 @@ import com.lomo.data.engine.media.WorkspaceFilesystemRoot
 import com.lomo.domain.repository.MigrationArchiveRepository
 import com.lomo.domain.usecase.MigrationArchiveSummary
 import com.lomo.domain.usecase.MigrationPasswordException
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.domain.usecase.MigrationSettingsSummary
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import java.io.File
@@ -27,9 +28,11 @@ constructor(
     private val archivePort: ArchivePort,
     private val workspaceRoot: WorkspaceFilesystemRoot,
     private val settingsStore: MigrationSettingsStore,
+    private val invalidation: StoreInvalidationBus,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : MigrationArchiveRepository {
     override suspend fun exportAllNotesArchive(output: OutputStream): MigrationArchiveSummary =
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             val root = requireDirectWorkspaceRoot()
             val archiveFile =
                 File(context.cacheDir, "lomo-archive-export-${UUID.randomUUID()}.zip")
@@ -49,7 +52,7 @@ constructor(
         }
 
     override suspend fun importAllNotesArchive(input: InputStream): MigrationArchiveSummary =
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             val root = requireDirectWorkspaceRoot()
             val archiveFile = stageCompressedArchive(input)
             val staging =
@@ -69,6 +72,9 @@ constructor(
                         backupRoot = backup.absolutePath,
                         rebuildBatchSize = 256,
                     )
+                // The projection was replaced, not advanced: re-anchor so a lower imported high-water
+                // does not make every later commit look stale to the publication clock.
+                invalidation.reanchorProjection(rebuild.highWaterRevision)
                 MigrationArchiveSummary(
                     noteCount = rebuild.memosIndexed.toInt().coerceAtLeast(0),
                     trashCount = 0,

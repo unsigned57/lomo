@@ -4,6 +4,8 @@ import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoContentKind
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.CancellationException
 import java.time.Instant
 import java.time.LocalDate
@@ -23,14 +25,16 @@ class StorePagingSource(
     private val mapItem: (StoreMemoSummary) -> Memo = {
         it.toDomainMemo(body = it.bodyPreview, contentKind = MemoContentKind.Preview)
     },
-    registerInvalidation: ((PagingSource<*, *>) -> Unit)? = null,
+    private val consumeRefreshIdentity: () -> String? = { null },
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+    registerInvalidation: ((PagingSource<String, Memo>) -> Unit)? = null,
 ) : PagingSource<String, Memo>() {
     init {
         registerInvalidation?.invoke(this)
     }
 
     override suspend fun load(params: LoadParams<String>): LoadResult<String, Memo> =
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        kotlinx.coroutines.withContext(dispatcherProvider.io) {
             try {
                 val page = loadStorePage(params)
                 val itemsBefore = page.itemsBefore.toPagingPlaceholderCount("items_before")
@@ -57,6 +61,9 @@ class StorePagingSource(
         }
 
     override fun getRefreshKey(state: PagingState<String, Memo>): String? {
+        consumeRefreshIdentity()?.takeUnless { identity -> identity.isBlank() }?.let { identity ->
+            return identity
+        }
         val anchor = state.anchorPosition ?: return null
         if (anchor == 0) {
             return null
@@ -147,6 +154,7 @@ internal fun StoreMemoSummary.toDomainMemo(
         contentRevision = contentRevision,
         fileFingerprint = fileFingerprint,
         contentKind = contentKind,
+        projectedCharCount = charCount,
     )
 }
 

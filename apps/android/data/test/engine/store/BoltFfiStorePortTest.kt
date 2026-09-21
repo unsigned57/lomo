@@ -6,8 +6,8 @@ package com.lomo.data.engine.store
  * - Owning layer: data
  * - Priority tier: P0
  * - Capability: map domain StorePort requests/results to/from native session and store bridges;
- *   memo writes without staged media go through session FFI; blank operationId is filled only when
- *   no pendingPromotes; promotes require non-blank matching operationId (D4) and ride the same
+ *   memo writes go through session FFI; every operationId is frozen by the caller;
+ *   promotes require that same non-blank operationId and ride the same
  *   session create/update PlannedFile batch; null getMemo remains
  *   null.
  *
@@ -20,19 +20,20 @@ package com.lomo.data.engine.store
  * - Given bridge getMemo returns a snapshot, when getMemo runs, then body and summary map.
  * - Given each StoreMemoCommandKind without staged media, when applyMemoCommand runs, then the
  *   matching session FFI request is recorded and typed invalidation scopes map.
- * - Given an unknown native invalidation scope, when a commit crosses the bridge, then it is
- *   rejected rather than treated as a broad or empty refresh.
- * - Given blank operationId and empty pendingPromotes, when applyMemoCommand runs, then a non-blank
- *   operationId is minted for the session create.
+ * - Given a native invalidation scope enum, when a commit crosses the bridge, then it maps
+ *   onto the data-layer closed enum without a UTF-8 name table.
+ * - Given blank operationId and empty pendingPromotes, when applyMemoCommand runs, then input
+ *   is rejected before the bridge; an adapter cannot invent a retry identity.
  * - Given blank operationId with non-empty pendingPromotes, when applyMemoCommand runs, then fail
  *   closed without calling the bridge (no UUID mint under promote).
  * - Given create with matching pendingPromotes, when applyMemoCommand runs, then session create
  *   receives those plans and store applyMemoCommand is not called.
- * - Given a permanent-delete batch, when permanentDeleteMany runs, then each target is deleted
- *   through session FFI and store batch delete is not called.
- * - Given a rebuild result, when startRebuild runs, then counters map to domain longs.
- * - Given a Rust reminder plan, when queryReminderPlan runs, then the complete session/zone
- *   request crosses the bridge and planned alarms map back without changing identity or generation.
+ * - Given restore or permanent-delete, when applyMemoCommand / permanentDeleteMany run, then
+ *   coreRevision, eventSequence, contentRevision, and scopes come from the session commit DTO.
+ * - Given a rebuild result, when startRebuild runs, then counters map to domain longs
+ *   including whether SQLite was rewritten.
+ * - Given a Rust reminder plan, when queryReminderPlan runs, then sessionReminderPlan receives
+ *   nowUtcMs and planned alarms map back without Kotlin reconstructing reminder sessions.
  * - Given the engine refuses a memo command, query, get or rebuild, when the call crosses the
  *   boundary, then an EngineCommandFailureException carries the typed category/code/retry/ids and a
  *   non-blank message instead of the message-less native carrier.
@@ -42,7 +43,15 @@ package com.lomo.data.engine.store
  * Observable outcomes: domain StoreMemoPage / Snapshot / Commit / RebuildResult; last bridge
  * request fields.
  *
+ * Identity Test Change Justification:
+ * - Reason category: command identity contract correction.
+ * - Old behavior/assertion being replaced: the adapter minted an operation id for blank input.
+ * - Why old assertion is no longer correct: a retry must carry its original logical operation id.
+ * - Coverage preserved by: typed session command mapping and matching-promote scenarios.
+ * - Why this is not fitting the test to the implementation: blank input is rejected with and without media.
+ *
  * TDD proof:
+ * - RED for the identity correction: the blank-id scenario returned a successful commit.
  * - Target: ./kotlin test --include-module=data --include-classes='com.lomo.data.engine.store.BoltFfiStorePortTest'
  * - RED: BoltFfiStorePort untested / zero-hit under coverage before this host contract.
  *
@@ -50,11 +59,18 @@ package com.lomo.data.engine.store
  * - Real BoltFFI/JNI handle lifecycle (packaged native library / native contracts).
  *
  * Test Change Justification:
+ * - Reason category: T12 session-owned reminder plan; store queryReminderPlan is not the write/plan path.
+ * - Old behavior/assertion being replaced: StoreReminderQuery zone/sessions/generation forwarded to store FFI.
+ * - Why old assertion is no longer correct: session_reminder_plan owns the plan from markdown + state_dir.
+ * - Coverage preserved by: nowUtcMs forwarded to sessionReminderPlan and alarm mapping unchanged.
+ * - Why this is not fitting the test to the implementation: locks the session plan boundary, not DTO field echo.
+ *
+ * Test Change Justification:
  * - Reason category: production media promote wiring on session memo commands.
  * - Old behavior/assertion being replaced: staged promotes shared the store Direct writer.
  * - Why old assertion is no longer correct: WorkspaceSession owns document writes and attachment
  *   PlannedFiles in one batch; store applyMemoCommand is not a write path for create/update.
- * - Coverage preserved by: page/get/rebuild mapping and memo-only blank-id mint scenarios remain.
+ * - Coverage preserved by: page/get/rebuild mapping and valid operation-id scenarios remain.
  * - Why this is not fitting the test to the implementation: locks the D4 operation-id boundary and
  *   the session PlannedFile promote handoff, not internal UUID helper details.
  */
@@ -71,17 +87,12 @@ import com.lomo.nativebridge.SessionCreateMemoRequest
 import com.lomo.nativebridge.SessionDeleteMemoRequest
 import com.lomo.nativebridge.SessionPinMemoRequest
 import com.lomo.nativebridge.SessionRestoreRequest
-import com.lomo.nativebridge.SessionRestoreResult
 import com.lomo.nativebridge.SessionRestoreRevisionRequest
 import com.lomo.nativebridge.SessionUpdateMemoRequest
 import com.lomo.data.engine.SessionNativeBridge
 import com.lomo.data.engine.media.MediaPromotePlan
 import com.lomo.data.engine.media.MediaStagedFacts
 import com.lomo.data.engine.store.StorePlannedAlarm
-import com.lomo.data.engine.store.StoreReminderQuery
-import com.lomo.data.engine.store.StoreReminderSession
-import com.lomo.data.engine.store.StoreTimeZoneContext
-import com.lomo.data.engine.store.StoreZoneTransition
 import com.lomo.domain.model.EngineCommandFailureException
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineRetryDisposition
@@ -112,7 +123,6 @@ private class RecordingStoreNativeBridge : StoreNativeBridge, SessionNativeBridg
     var lastSessionPermanentDelete: SessionRestoreRequest? = null
     val sessionPermanentDeletes = mutableListOf<SessionRestoreRequest>()
     var lastRebuildBatch: UInt? = null
-    var lastReminderQuery: com.lomo.nativebridge.StoreReminderQuery? = null
 
     var page: BridgeMemoPage =
         BridgeMemoPage(
@@ -140,7 +150,7 @@ private class RecordingStoreNativeBridge : StoreNativeBridge, SessionNativeBridg
             eventSequence = 2uL,
             contentRevision = 3uL,
             fileFingerprint = "ff",
-            scopes = listOf("memo_list"),
+            scopes = listOf(com.lomo.nativebridge.StoreInvalidationScope.MEMO_LIST),
             idempotentReplay = false,
         )
     var rebuild: BridgeRebuildResult =
@@ -152,6 +162,7 @@ private class RecordingStoreNativeBridge : StoreNativeBridge, SessionNativeBridg
             storeDigest = "ws",
             corruptLomoIsolated = 1uL,
             highWaterRevision = 9uL,
+            rewritten = true,
         )
 
     override fun queryMemos(
@@ -208,18 +219,6 @@ private class RecordingStoreNativeBridge : StoreNativeBridge, SessionNativeBridg
 
     var reminderPlan: com.lomo.nativebridge.StoreReminderPlan? = null
 
-    override fun queryReminderPlan(
-        query: com.lomo.nativebridge.StoreReminderQuery,
-    ): com.lomo.nativebridge.StoreReminderPlan {
-        lastReminderQuery = query
-        failure?.let { throw it }
-        return reminderPlan
-            ?: com.lomo.nativebridge.StoreReminderPlan(
-                alarms = emptyList(),
-                workspaceGeneration = query.workspaceGeneration,
-            )
-    }
-
     override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection = sidebar
 
     override fun applyMemoCommand(
@@ -255,10 +254,10 @@ private class RecordingStoreNativeBridge : StoreNativeBridge, SessionNativeBridg
         return commit
     }
 
-    override fun sessionRestoreMemo(request: SessionRestoreRequest): SessionRestoreResult {
+    override fun sessionRestoreMemo(request: SessionRestoreRequest): BridgeMemoCommit {
         lastSessionRestore = request
         failure?.let { throw it }
-        return SessionRestoreResult(fileFingerprint = commit.fileFingerprint, eventSequence = commit.eventSequence)
+        return commit
     }
 
     override fun sessionRestoreRevision(request: SessionRestoreRevisionRequest): BridgeMemoCommit {
@@ -267,39 +266,30 @@ private class RecordingStoreNativeBridge : StoreNativeBridge, SessionNativeBridg
         return commit
     }
 
-    override fun sessionPermanentlyDeleteMemo(request: SessionRestoreRequest): SessionRestoreResult {
+    override fun sessionPermanentlyDeleteMemo(request: SessionRestoreRequest): BridgeMemoCommit {
         lastSessionPermanentDelete = request
         sessionPermanentDeletes += request
         failure?.let { throw it }
-        return SessionRestoreResult(fileFingerprint = commit.fileFingerprint, eventSequence = commit.eventSequence)
+        return commit
     }
 
-    override fun permanentDeleteMany(
-        request: com.lomo.nativebridge.StoreMemoBatchDelete,
-    ): com.lomo.nativebridge.StoreMemoBatchCommit = error("batch delete not expected")
+    var lastSessionReminderNowUtcMs: Long? = null
 
-    override fun commitSafPermanentDeleteMany(
-        request: com.lomo.nativebridge.StoreMemoBatchDelete,
-    ): com.lomo.nativebridge.StoreMemoBatchCommit = error("SAF batch delete not expected")
-
-    override fun commitSafProjectionMutation(
-        command: BridgeMemoCommand,
-        projection: com.lomo.nativebridge.StoreSafMemoProjection?,
-    ): BridgeMemoCommit = error("SAF projection commit not expected")
+    override fun sessionReminderPlan(nowUtcMs: Long?): com.lomo.nativebridge.StoreReminderPlan {
+        lastSessionReminderNowUtcMs = nowUtcMs
+        failure?.let { throw it }
+        return reminderPlan
+            ?: com.lomo.nativebridge.StoreReminderPlan(
+                alarms = emptyList(),
+                droppedCount = 0u,
+                workspaceGeneration = "gen-empty",
+            )
+    }
 
     override fun commitWorkspaceDocumentFacts(
         command: BridgeMemoCommand,
         projection: com.lomo.nativebridge.StoreSafMemoProjection,
     ): BridgeMemoCommit = error("document projection commit not expected")
-
-    override fun beginSafMemoCreate(
-        begin: com.lomo.nativebridge.StoreSafMemoCreateBegin,
-    ): com.lomo.nativebridge.StoreSafMemoCreateBeginResult = error("SAF create begin not expected")
-
-    override fun rollbackSafMemoCreate(
-        operationId: String,
-        memoId: String,
-    ): com.lomo.nativebridge.StoreSafMemoRollbackResult = error("SAF create rollback not expected")
 
     override fun startRebuild(batchSize: UInt): BridgeRebuildResult {
         lastRebuildBatch = batchSize
@@ -332,6 +322,7 @@ private fun bridgeSummary(
         imageUrls = listOf("images/a.png"),
         reminders = emptyList(),
         isPending = false,
+        charCount = preview.length.toLong(),
     )
 
 class BoltFfiStorePortTest : FunSpec({
@@ -484,7 +475,7 @@ class BoltFfiStorePortTest : FunSpec({
                     eventSequence = 2uL,
                     contentRevision = 3uL,
                     fileFingerprint = "ff",
-                    scopes = listOf("search"),
+                    scopes = listOf(com.lomo.nativebridge.StoreInvalidationScope.SEARCH),
                     idempotentReplay = true,
                 )
             val commit =
@@ -530,6 +521,20 @@ class BoltFfiStorePortTest : FunSpec({
             commit.idempotentReplay shouldBe true
         }
 
+        bridge.commit =
+            BridgeMemoCommit(
+                operationId = "op-restore",
+                memoId = "m-x",
+                coreRevision = 8uL,
+                eventSequence = 9uL,
+                contentRevision = 4uL,
+                fileFingerprint = "ff-restore",
+                scopes = listOf(
+                    com.lomo.nativebridge.StoreInvalidationScope.MEMO_LIST,
+                    com.lomo.nativebridge.StoreInvalidationScope.TRASH,
+                ),
+                idempotentReplay = false,
+            )
         val restoreCommit =
             port.applyMemoCommand(
                 StoreMemoCommand(
@@ -542,48 +547,76 @@ class BoltFfiStorePortTest : FunSpec({
                 onPublication = {},
             )
         bridge.lastSessionRestore?.memoId shouldBe "m-x"
-        restoreCommit.scopes shouldBe listOf(StoreInvalidationScope.Full)
-        restoreCommit.eventSequence shouldBe 2L
+        restoreCommit.coreRevision shouldBe 8L
+        restoreCommit.eventSequence shouldBe 9L
+        restoreCommit.contentRevision shouldBe 4L
+        restoreCommit.fileFingerprint shouldBe "ff-restore"
+        restoreCommit.scopes shouldBe
+            listOf(StoreInvalidationScope.MemoList, StoreInvalidationScope.Trash)
     }
 
-    test("unknown native invalidation scope fails closed at the bridge edge") {
+    test("native invalidation scopes map onto the closed data-layer enum") {
         val bridge =
             RecordingStoreNativeBridge().apply {
-                commit = commit.copy(scopes = listOf("memo:m1"))
+                commit =
+                    commit.copy(
+                        scopes =
+                            listOf(
+                                com.lomo.nativebridge.StoreInvalidationScope.MEMO_LIST,
+                                com.lomo.nativebridge.StoreInvalidationScope.FULL,
+                            ),
+                    )
             }
 
-        val error =
-            shouldThrow<IllegalStateException> {
-                storePort(bridge).applyMemoCommand(
-                    StoreMemoCommand(
-                        operationId = "op-unknown-scope",
-                        kind = StoreMemoCommandKind.Update,
-                        memoId = "m1",
-                        expectedRevision = 1L,
-                        expectedFingerprint = "ff",
-                        content = "body",
-                    ),
-                    onPublication = {},
-                )
-            }
+        val commit =
+            storePort(bridge).applyMemoCommand(
+                StoreMemoCommand(
+                    operationId = "op-scope-enum",
+                    kind = StoreMemoCommandKind.Update,
+                    memoId = "m1",
+                    expectedRevision = 1L,
+                    expectedFingerprint = "ff",
+                    content = "body",
+                ),
+                onPublication = {},
+            )
 
-        error.message shouldContain "Unknown Rust store invalidation scope"
+        commit.scopes shouldBe listOf(StoreInvalidationScope.MemoList, StoreInvalidationScope.Full)
     }
 
-    test("blank operationId without promotes is replaced before bridge apply") {
+    test("blank operationId without promotes is rejected before the bridge") {
         val bridge = RecordingStoreNativeBridge()
+        shouldThrow<IllegalArgumentException> {
+            storePort(bridge).applyMemoCommand(
+                StoreMemoCommand(
+                    operationId = "  ",
+                    kind = StoreMemoCommandKind.Create,
+                    memoId = "",
+                    expectedRevision = 0L,
+                    content = "x",
+                ),
+                onPublication = {},
+            )
+        }
+        bridge.lastSessionCreate.shouldBeNull()
+        bridge.lastCommand.shouldBeNull()
+    }
+
+    test("session memo commands do not synthesize a mid-flight publication from the returned commit") {
+        val bridge = RecordingStoreNativeBridge()
+        var midFlight = 0
         storePort(bridge).applyMemoCommand(
             StoreMemoCommand(
-                operationId = "  ",
+                operationId = "op-create",
                 kind = StoreMemoCommandKind.Create,
                 memoId = "",
                 expectedRevision = 0L,
-                content = "x",
+                content = "body",
             ),
-            onPublication = {},
+            onPublication = { midFlight += 1 },
         )
-        bridge.lastSessionCreate?.operationId.shouldNotBeNull().shouldNotBeBlank()
-        bridge.lastCommand.shouldBeNull()
+        midFlight shouldBe 0
+        bridge.lastSessionCreate.shouldNotBeNull()
     }
 
     test("blank operationId with pendingPromotes fails closed without minting UUID") {
@@ -603,7 +636,7 @@ class BoltFfiStorePortTest : FunSpec({
                 finalRelativePath = "media/a.png",
             )
         val error =
-            shouldThrow<IllegalStateException> {
+            shouldThrow<IllegalArgumentException> {
                 storePort(bridge).applyMemoCommand(
                     StoreMemoCommand(
                         operationId = "",
@@ -667,7 +700,7 @@ class BoltFfiStorePortTest : FunSpec({
                 eventSequence = 11uL,
                 contentRevision = 0uL,
                 fileFingerprint = "ff",
-                scopes = listOf("full"),
+                scopes = listOf(com.lomo.nativebridge.StoreInvalidationScope.FULL),
                 idempotentReplay = false,
             )
         val commit =
@@ -695,6 +728,7 @@ class BoltFfiStorePortTest : FunSpec({
             listOf("op-batch/m-a", "op-batch/m-b")
         commit.operationId shouldBe "op-batch"
         commit.deleted.map { memo -> memo.memoId } shouldBe listOf("m-a", "m-b")
+        commit.coreRevision shouldBe 9L
         commit.eventSequence shouldBe 11L
         commit.scopes shouldBe listOf(StoreInvalidationScope.Full)
     }
@@ -711,6 +745,7 @@ class BoltFfiStorePortTest : FunSpec({
                         storeDigest = "digest-a",
                         corruptLomoIsolated = 2uL,
                         highWaterRevision = 99uL,
+                        rewritten = true,
                     )
             }
         val result = storePort(bridge).startRebuild(batchSize = 64)
@@ -722,6 +757,7 @@ class BoltFfiStorePortTest : FunSpec({
         result.storeDigest shouldBe "digest-a"
         result.corruptLomoIsolated shouldBe 2L
         result.highWaterRevision shouldBe 99L
+        result.rewritten shouldBe true
     }
 
     test("queryMemos maps tags and image urls from bridge summary") {
@@ -751,65 +787,27 @@ class BoltFfiStorePortTest : FunSpec({
                         alarms =
                             listOf(
                                 com.lomo.nativebridge.StorePlannedAlarm(
+                                    occurrenceId = "gen-42␟rem-1␟1700000123",
                                     opaqueId = "rem-1",
                                     memoIdentity = "memo-1",
                                     triggerAtUtcMs = 1_700_000_123L,
                                     isCatchUp = true,
                                 ),
                             ),
-                        workspaceGeneration = 42uL,
+                        droppedCount = 0u,
+                        workspaceGeneration = "gen-42",
                     )
             }
         val port = storePort(bridge)
 
-        val result =
-            port.queryReminderPlan(
-                StoreReminderQuery(
-                    nowUtcMs = 1_700_000_000L,
-                    zone =
-                        StoreTimeZoneContext(
-                            zoneId = "UTC",
-                            baseOffsetSecs = 0,
-                            transitions =
-                                listOf(
-                                    StoreZoneTransition(
-                                        transitionUtcMs = 1_700_000_500L,
-                                        offsetBeforeSecs = 0,
-                                        offsetAfterSecs = 3_600,
-                                    ),
-                                ),
-                        ),
-                    sessions =
-                        listOf(
-                            StoreReminderSession(
-                                opaqueId = "rem-1",
-                                memoIdentity = "memo-1",
-                                memoRevision = "rev-7",
-                                token = "@2023-11-14-22:13",
-                                dueAtLocal = "2023-11-14T22:13",
-                                repeatCount = 2,
-                                firedCount = 1,
-                                done = false,
-                                intervalMinutes = 15,
-                                recurrenceCode = "once",
-                            ),
-                        ),
-                    rollingWindow = 8,
-                    workspaceGeneration = 42L,
-                ),
-            )
+        val result = port.queryReminderPlan(1_700_000_000L)
 
-        val request = bridge.lastReminderQuery.shouldNotBeNull()
-        request.nowUtcMs shouldBe 1_700_000_000L
-        request.zone.zoneId shouldBe "UTC"
-        request.zone.transitions.single().offsetAfterSecs shouldBe 3_600
-        request.sessions.single().memoIdentity shouldBe "memo-1"
-        request.sessions.single().firedCount shouldBe 1u
-        request.rollingWindow shouldBe 8u
-        request.workspaceGeneration shouldBe 42uL
-        result.workspaceGeneration shouldBe "42"
+        bridge.lastSessionReminderNowUtcMs shouldBe 1_700_000_000L
+        result.droppedCount shouldBe 0
+        result.workspaceGeneration shouldBe "gen-42"
         result.alarms.single() shouldBe
             StorePlannedAlarm(
+                occurrenceId = "gen-42␟rem-1␟1700000123",
                 opaqueId = "rem-1",
                 memoIdentity = "memo-1",
                 triggerAtUtcMs = 1_700_000_123L,

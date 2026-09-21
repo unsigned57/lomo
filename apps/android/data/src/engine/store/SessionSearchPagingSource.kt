@@ -5,12 +5,13 @@ import androidx.paging.PagingState
 import com.lomo.data.engine.SessionNativeBridge
 import com.lomo.data.engine.withEngineFailureConversion
 import com.lomo.domain.model.Memo
+import com.lomo.domain.usecase.DefaultDispatcherProvider
+import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.nativebridge.SessionSearchMode
 import com.lomo.nativebridge.SessionSearchOutcome
 import com.lomo.nativebridge.SessionSearchRequest
 import com.lomo.nativebridge.StorePageCursor as BridgePageCursor
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private const val SESSION_SEARCH_MAX_PAGE_SIZE = 256
@@ -18,14 +19,15 @@ private const val SESSION_SEARCH_MAX_PAGE_SIZE = 256
 /**
  * Paging3 source over application-session fuzzy search.
  *
- * Hits are hydrated from the store projection. A stale query epoch is [LoadResult.Invalid] so
+ * Each hit contains the complete bounded summary. A stale query epoch is [LoadResult.Invalid] so
  * Paging3 rebuilds from the factory instead of mixing two search generations.
  */
 internal class SessionSearchPagingSource(
     private val session: SessionNativeBridge,
-    private val port: StorePort,
+    private val filters: StoreMemoFilters,
     private val queryEpoch: ULong,
     private val text: String,
+    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
     registerInvalidation: ((PagingSource<*, *>) -> Unit)? = null,
 ) : PagingSource<String, Memo>() {
     init {
@@ -33,7 +35,7 @@ internal class SessionSearchPagingSource(
     }
 
     override suspend fun load(params: LoadParams<String>): LoadResult<String, Memo> =
-        withContext(Dispatchers.IO) {
+        withContext(dispatcherProvider.io) {
             try {
                 val pageSize = params.loadSize.coerceIn(1, SESSION_SEARCH_MAX_PAGE_SIZE)
                 val outcome =
@@ -41,6 +43,7 @@ internal class SessionSearchPagingSource(
                         session.sessionSearch(
                             SessionSearchRequest(
                                 queryEpoch = queryEpoch,
+                                filters = filters.toNativeFilters(),
                                 mode = SessionSearchMode.FUZZY,
                                 text = text,
                                 cursor = params.key?.let { encoded -> BridgePageCursor(encoded) },
@@ -52,9 +55,9 @@ internal class SessionSearchPagingSource(
                     is SessionSearchOutcome.Discarded -> LoadResult.Invalid()
                     is SessionSearchOutcome.Ready -> {
                         val memos =
-                            outcome.page.items.mapNotNull { hit ->
-                                // behavior-contract: loop-io-ok: search page is bounded; no bulk getMemo API
-                                port.getMemo(hit.memoId)?.toDomainMemo()
+                            outcome.page.items.map { hit ->
+                                val summary = hit.summary.toStoreSummary()
+                                summary.toDomainMemo(summary.bodyPreview, com.lomo.domain.model.MemoContentKind.Preview)
                             }
                         LoadResult.Page(
                             data = memos,
