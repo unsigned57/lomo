@@ -7,5 +7,7 @@ internal object ReminderIntents {
     const val ACTION_DONE = "com.lomo.reminder.action.DONE"
     const val EXTRA_MEMO_ID = "memo_id"
     const val EXTRA_REMINDER_ID = "reminder_id"
+    const val EXTRA_OCCURRENCE_ID = "occurrence_id"
+    const val ALARM_DATA_URI_PREFIX = "lomo-reminder://alarm/"
     const val NOTIFICATION_CHANNEL_ID = "lomo.reminder"
 }

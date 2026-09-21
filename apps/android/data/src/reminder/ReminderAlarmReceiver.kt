@@ -24,6 +24,7 @@ class ReminderAlarmReceiver : BroadcastReceiver(), KoinComponent {
         if (intent.action != ReminderIntents.ACTION_FIRE) return
         val memoId = intent.getStringExtra(ReminderIntents.EXTRA_MEMO_ID) ?: return
         val reminderId = intent.getStringExtra(ReminderIntents.EXTRA_REMINDER_ID) ?: return
+        val occurrenceId = intent.getStringExtra(ReminderIntents.EXTRA_OCCURRENCE_ID) ?: return
         val pendingResult = goAsync()
 
         asyncRunner.launch(pendingResult) {
@@ -37,7 +38,7 @@ class ReminderAlarmReceiver : BroadcastReceiver(), KoinComponent {
             val launchIntent =
                 context.packageManager.getLaunchIntentForPackage(context.packageName)
                     ?: Intent()
-            reminderNotifier.showFor(memoId, marker, title, launchIntent)
+            reminderNotifier.showFor(memoId, marker, occurrenceId, title, launchIntent)
             reminderCoordinator.recordFired(memoId, reminderId)
         }
     }

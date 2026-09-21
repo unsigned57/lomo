@@ -5,10 +5,18 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 
 internal object ReminderRequestCodePolicy {
-    fun alarmRequestCode(
-        memoId: String,
-        reminderId: String,
-    ): Int = stableInt(ALARM_NAMESPACE, memoId, reminderId)
+    /**
+     * Request code for one scheduled occurrence. The code is only the 32-bit half of PendingIntent
+     * identity — the occurrence id is also carried in the intent data URI, so two occurrences can
+     * never alias one PendingIntent even on a digest prefix collision.
+     */
+    fun alarmRequestCode(occurrenceId: String): Int = stableInt(ALARM_NAMESPACE, occurrenceId)
+
+    /**
+     * Notification tag carrying the explicit occurrence identity. NotificationManager dedups on
+     * (tag, id) so a new occurrence never silently reuses a previous occurrence's notification.
+     */
+    fun occurrenceTag(occurrenceId: String): String = "$NOTIFICATION_TAG_PREFIX$occurrenceId"
 
     fun notificationId(
         memoId: String,
@@ -34,7 +42,8 @@ internal object ReminderRequestCodePolicy {
         return ByteBuffer.wrap(digest.digest()).int and Int.MAX_VALUE
     }
 
-    private const val ALARM_NAMESPACE = "lomo.reminder.alarm.v1"
+    private const val ALARM_NAMESPACE = "lomo.reminder.alarm.v2"
+    private const val NOTIFICATION_TAG_PREFIX = "lomo.reminder.occurrence/"
     private const val NOTIFICATION_NAMESPACE = "lomo.reminder.notification.v1"
     private const val ACTION_NAMESPACE = "lomo.reminder.action.v1"
     private const val PART_SEPARATOR: Byte = 0

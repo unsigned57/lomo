@@ -14,23 +14,18 @@ import com.lomo.data.engine.store.StoreMemoQuery
 import com.lomo.data.engine.store.StorePageCursor
 import com.lomo.data.engine.store.StorePort
 import com.lomo.data.engine.store.StoreMemoSummary
-import com.lomo.data.engine.store.StoreReminderQuery
-import com.lomo.data.engine.store.StoreReminderSession
-import com.lomo.data.engine.store.StoreTimeZoneContext
-import com.lomo.data.engine.store.StoreZoneTransition
+import com.lomo.domain.model.EngineCommandFailureException
 import com.lomo.domain.repository.EngineReadinessRepository
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.time.ZoneId
 
 
 private const val PREFS_NAME = "lomo_reminder_prefs"
 private const val KEY_INTERVAL_MILLIS = "reminder_interval_millis"
-private const val REMINDER_MEMO_PAGE_SIZE = 50
 
-internal suspend fun forEachStoreMemoPage(
+internal fun forEachStoreMemoPage(
     pageSize: Int,
     loadPage: (cursor: StorePageCursor?, limit: Int) -> com.lomo.data.engine.store.StoreMemoPage,
     consume: (StoreMemoSummary) -> Unit,
@@ -75,16 +70,18 @@ interface MemoMutationReminderScheduler {
  * - markDone/recordFired still rewrite Markdown via domain repositories until P3-10.
  * - Camera/share/widget external writes still use existing memo mutation paths; they must not
  *   invent private file writes outside command submission (enforced at those call sites).
- * - Snooze interval prefs remain process-local until Rust app-private snooze is production-wired.
+ * - The snooze *interval preference* is a user setting held in prefs; snooze *state* is durable
+ *   app-private Rust data written through `sessionSnoozeReminder` and consumed by the plan query.
+ * - Scheduled-occurrence cancellation is ledger-authoritative
+ *   ([ReminderExecutionLedger]); no process-local map decides which PendingIntents exist.
  */
 class AlarmManagerReminderScheduler(
     private val context: Context,
-    private val memoQueryRepository: MemoQueryRepository,
     private val storePort: StorePort,
     private val readiness: EngineReadinessRepository,
     private val schedulePort: AlarmSchedulePort = AndroidAlarmSchedulePort(context),
     private val rollingWindow: ReminderRollingWindowScheduler =
-        ReminderRollingWindowScheduler(schedulePort),
+        ReminderRollingWindowScheduler(schedulePort, ReminderExecutionLedger(context)),
 ) : MemoMutationReminderScheduler {
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -96,27 +93,16 @@ class AlarmManagerReminderScheduler(
 
     fun exactAlarmCapability(): ExactAlarmCapability = schedulePort.exactAlarmCapability()
 
-    suspend fun setGlobalIntervalMillis(millis: Long) {
-        val sanitized =
-            if (millis in ReminderIntervalDefaults.SUPPORTED_MILLIS) {
-                millis
-            } else {
-                ReminderIntervalDefaults.DEFAULT_MILLIS
-            }
-        prefs.edit { putLong(KEY_INTERVAL_MILLIS, sanitized) }
-        _globalIntervalMillis.value = sanitized
+    fun setGlobalIntervalMillis(millis: Long) {
+        require(millis in ReminderIntervalDefaults.SUPPORTED_MILLIS) {
+            "Unsupported snooze interval: $millis"
+        }
+        prefs.edit { putLong(KEY_INTERVAL_MILLIS, millis) }
+        _globalIntervalMillis.value = millis
     }
 
     override suspend fun syncForMemo(memoId: String) {
-        val memo = memoQueryRepository.getMemoById(memoId)
-        val nowMillis = System.currentTimeMillis()
-        val sessions =
-            if (memo == null) {
-                emptyList()
-            } else {
-                memo.reminders.map { marker -> marker.toStoreSession(memo.id) }
-            }
-        val alarms = queryRustPlan(nowMillis, sessions)
+        val alarms = withSnoozeRecovery { queryRustPlan(System.currentTimeMillis()) }
         rollingWindow.applyPlanForMemos(setOf(memoId), alarms)
     }
 
@@ -128,73 +114,53 @@ class AlarmManagerReminderScheduler(
     }
 
     suspend fun rebuildAll() {
-        val nowMillis = System.currentTimeMillis()
-        val sessions = mutableListOf<StoreReminderSession>()
-        forEachStoreMemoPage(
-            pageSize = REMINDER_MEMO_PAGE_SIZE,
-            loadPage = { cursor, limit ->
-                storePort.queryMemos(
-                    query = StoreMemoQuery(),
-                    cursor = cursor,
-                    pageSize = limit,
-                )
-            },
-        ) { summary ->
-            summary.reminders.mapTo(sessions) { marker -> marker.toStoreSession(summary.memoId) }
-        }
-        val alarms = queryRustPlan(nowMillis, sessions)
+        val alarms = withSnoozeRecovery { queryRustPlan(System.currentTimeMillis()) }
         rollingWindow.applyPlan(alarms)
     }
 
+    /**
+     * Writes the durable snooze binding through the Rust session, then re-plans so the snoozed
+     * occurrence is scheduled from durable state rather than a Kotlin-side ad-hoc alarm. The
+     * deadline instant is computed on the owner clock from the validated duration preference.
+     */
     suspend fun snooze(
         memoId: String,
         reminderId: String,
     ) {
-        val interval = _globalIntervalMillis.value
-        val triggerAt = System.currentTimeMillis() + interval
-        schedulePort.schedule(
-            AlarmScheduleRequest(
-                requestCode = ReminderRequestCodePolicy.alarmRequestCode(memoId, reminderId),
-                triggerAtUtcMillis = triggerAt,
-                memoId = memoId,
-                reminderId = reminderId,
-            ),
-        )
+        withSnoozeRecovery { storePort.snoozeReminder(reminderId, _globalIntervalMillis.value) }
+        syncForMemo(memoId)
     }
 
-    fun cancelAlarm(
+    suspend fun cancelAlarm(
         memoId: String,
         reminderId: String,
     ) {
-        schedulePort.cancel(
-            ReminderRequestCodePolicy.alarmRequestCode(memoId, reminderId),
-            memoId,
-            reminderId,
-        )
+        rollingWindow.cancelForMemo(memoId, setOf(reminderId))
     }
 
-    private fun queryRustPlan(
-        nowMillis: Long,
-        sessions: List<StoreReminderSession>,
-    ): List<PlannedReminderAlarm> {
-        val authority =
-            readiness.workspaceAuthority.value
-                ?: error("Reminder planning requires an active workspace authority")
-        val plan =
-            storePort.queryReminderPlan(
-                StoreReminderQuery(
-                    nowUtcMs = nowMillis,
-                    zone = zoneContext(nowMillis),
-                    sessions = sessions,
-                    rollingWindow = REMINDER_ROLLING_WINDOW,
-                    workspaceGeneration = authority.generation,
-                ),
-            )
-        require(plan.workspaceGeneration == authority.generation.toString()) {
-            "Rust reminder plan belongs to a different workspace generation"
+    /**
+     * Durable snooze corruption pauses planning with `reminder_recovery_needed`. Recovery is an
+     * explicit FFI transition: the corrupt payload is quarantined as evidence and a fresh store is
+     * persisted before the operation retries once.
+     */
+    private fun <T> withSnoozeRecovery(block: () -> T): T =
+        try {
+            block()
+        } catch (failure: EngineCommandFailureException) {
+            if (failure.failure.code != REMINDER_RECOVERY_NEEDED) throw failure
+            storePort.recoverReminderSnooze()
+            block()
         }
+
+    private fun queryRustPlan(nowMillis: Long): List<PlannedReminderAlarm> {
+        readiness.workspaceAuthority.value
+            ?: error("Reminder planning requires an active workspace authority")
+        // Time-zone facts, session set, rolling window, and generation are owned by the Rust
+        // session plan; Kotlin only supplies the wall clock instant and applies the result.
+        val plan = storePort.queryReminderPlan(nowMillis)
         return plan.alarms.map { alarm ->
             PlannedReminderAlarm(
+                occurrenceId = alarm.occurrenceId,
                 memoId = alarm.memoIdentity,
                 reminderId = alarm.opaqueId,
                 triggerAtUtcMillis = alarm.triggerAtUtcMs,
@@ -203,55 +169,8 @@ class AlarmManagerReminderScheduler(
         }
     }
 
-    private fun zoneContext(nowMillis: Long): StoreTimeZoneContext {
-        val zone = ZoneId.systemDefault()
-        val rules = zone.rules
-        val now = java.time.Instant.ofEpochMilli(nowMillis)
-        val start = now.minusSeconds(ZONE_TRANSITION_LOOKBACK_SECONDS)
-        val end = now.plusSeconds(ZONE_TRANSITION_LOOKAHEAD_SECONDS)
-        val transitions = mutableListOf<StoreZoneTransition>()
-        var cursor = start
-        var exhausted = false
-        while (transitions.size < MAX_ZONE_TRANSITIONS && !exhausted) {
-            val transition = rules.nextTransition(cursor)
-            if (transition == null || transition.instant.isAfter(end)) {
-                exhausted = true
-            } else {
-                transitions +=
-                    StoreZoneTransition(
-                        transitionUtcMs = transition.instant.toEpochMilli(),
-                        offsetBeforeSecs = transition.offsetBefore.totalSeconds,
-                        offsetAfterSecs = transition.offsetAfter.totalSeconds,
-                    )
-                cursor = transition.instant.plusMillis(1L)
-            }
-        }
-        return StoreTimeZoneContext(
-            zoneId = zone.id,
-            baseOffsetSecs = rules.getOffset(start).totalSeconds,
-            transitions = transitions,
-        )
-    }
-
-    private fun ReminderMarker.toStoreSession(memoId: String): StoreReminderSession =
-        StoreReminderSession(
-            opaqueId = reference.opaqueId,
-            memoIdentity = memoId,
-            memoRevision = reference.revision,
-            token = token,
-            dueAtLocal = dueAt.format(ReminderMarker.TIMESTAMP_FORMAT),
-            repeatCount = repeatCount,
-            firedCount = firedCount,
-            done = done,
-            intervalMinutes = intervalMinutes,
-            recurrenceCode = recurrence.code,
-        )
-
     private companion object {
-        const val REMINDER_ROLLING_WINDOW = 64
-        const val MAX_ZONE_TRANSITIONS = 32
-        const val ZONE_TRANSITION_LOOKBACK_SECONDS = 370L * 24L * 60L * 60L
-        const val ZONE_TRANSITION_LOOKAHEAD_SECONDS = 370L * 24L * 60L * 60L
+        const val REMINDER_RECOVERY_NEEDED = "reminder_recovery_needed"
     }
 }
 
@@ -317,8 +236,9 @@ class AlarmManagerReminderCoordinator(
             val marker =
                 memoQueryRepository
                     .getMemoById(memoId)
-                    ?.reminders
-                    ?.singleOrNull { it.reference.opaqueId == reminderId }
+                    ?.run {
+                        reminders.singleOrNull { it.reference.opaqueId == reminderId }
+                    }
                     ?: return
             val newToken = planToken(marker.token)
             if (newToken == marker.token) return

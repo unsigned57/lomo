@@ -4,6 +4,7 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import timber.log.Timber
 
@@ -16,10 +17,17 @@ import timber.log.Timber
 interface AlarmPlatformGateway {
     fun canScheduleExactAlarms(): Boolean
 
+    /**
+     * Builds the broadcast PendingIntent for one scheduled occurrence.
+     *
+     * PendingIntent identity is (component, action, data, requestCode) — extras never match — so
+     * [occurrenceId] is carried in the intent data URI and in the deterministic request code.
+     * Two occurrences of the same reminder therefore never alias one PendingIntent.
+     */
     fun pendingIntent(
+        occurrenceId: String,
         memoId: String,
         reminderId: String,
-        requestCode: Int,
     ): PendingIntent
 
     fun setAlarmClock(
@@ -54,19 +62,21 @@ class AndroidAlarmManagerGateway(
         }
 
     override fun pendingIntent(
+        occurrenceId: String,
         memoId: String,
         reminderId: String,
-        requestCode: Int,
     ): PendingIntent {
         val intent =
             Intent(context, ReminderAlarmReceiver::class.java).apply {
                 action = ReminderIntents.ACTION_FIRE
+                data = Uri.parse("${ReminderIntents.ALARM_DATA_URI_PREFIX}${Uri.encode(occurrenceId)}")
                 putExtra(ReminderIntents.EXTRA_MEMO_ID, memoId)
                 putExtra(ReminderIntents.EXTRA_REMINDER_ID, reminderId)
+                putExtra(ReminderIntents.EXTRA_OCCURRENCE_ID, occurrenceId)
             }
         return PendingIntent.getBroadcast(
             context,
-            requestCode,
+            ReminderRequestCodePolicy.alarmRequestCode(occurrenceId),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -122,7 +132,8 @@ class AndroidAlarmSchedulePort(
         )
 
     override fun schedule(request: AlarmScheduleRequest): AlarmScheduleResult {
-        val pendingIntent = gateway.pendingIntent(request.memoId, request.reminderId, request.requestCode)
+        val pendingIntent =
+            gateway.pendingIntent(request.occurrenceId, request.memoId, request.reminderId)
         val capability = exactAlarmCapability()
         return try {
             if (sdkInt >= Build.VERSION_CODES.S && !capability.canScheduleExactAlarms) {
@@ -166,10 +177,10 @@ class AndroidAlarmSchedulePort(
     }
 
     override fun cancel(
-        requestCode: Int,
+        occurrenceId: String,
         memoId: String,
         reminderId: String,
     ) {
-        gateway.cancel(gateway.pendingIntent(memoId, reminderId, requestCode))
+        gateway.cancel(gateway.pendingIntent(occurrenceId, memoId, reminderId))
     }
 }

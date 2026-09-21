@@ -34,12 +34,14 @@ class ReminderNotifier(
         fun showFor(
             memoId: String,
             marker: ReminderMarker,
+            occurrenceId: String,
             memoTitle: String,
             mainActivityIntent: Intent,
         ) {
             ensureChannel()
             val reminderId = marker.reference.opaqueId
             val notificationId = ReminderRequestCodePolicy.notificationId(memoId, reminderId)
+            val tag = ReminderRequestCodePolicy.occurrenceTag(occurrenceId)
 
             val openIntent =
                 mainActivityIntent.apply {
@@ -56,8 +58,8 @@ class ReminderNotifier(
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 )
 
-            val snoozePending = actionBroadcast(ReminderIntents.ACTION_SNOOZE, memoId, reminderId)
-            val donePending = actionBroadcast(ReminderIntents.ACTION_DONE, memoId, reminderId)
+            val snoozePending = actionBroadcast(ReminderIntents.ACTION_SNOOZE, memoId, reminderId, occurrenceId)
+            val donePending = actionBroadcast(ReminderIntents.ACTION_DONE, memoId, reminderId, occurrenceId)
 
             val contentBody =
                 memoTitle.ifBlank { resources.getString(resources.reminderNotificationDefaultBody) }
@@ -76,27 +78,41 @@ class ReminderNotifier(
                     .addAction(0, resources.getString(resources.reminderActionSnooze), snoozePending)
                     .addAction(0, resources.getString(resources.reminderActionDone), donePending)
 
-            notificationManager.notify(notificationId, builder.build())
+            notificationManager.notify(tag, notificationId, builder.build())
         }
 
-        fun cancel(notificationId: Int) {
-            notificationManager.cancel(notificationId)
+        fun cancel(
+            notificationId: Int,
+            occurrenceId: String?,
+        ) {
+            if (occurrenceId == null) {
+                notificationManager.cancel(notificationId)
+            } else {
+                notificationManager.cancel(ReminderRequestCodePolicy.occurrenceTag(occurrenceId), notificationId)
+            }
         }
 
         private fun actionBroadcast(
             action: String,
             memoId: String,
             reminderId: String,
+            occurrenceId: String,
         ): PendingIntent {
             val intent =
                 Intent(context, ReminderActionReceiver::class.java).apply {
                     this.action = action
+                    data =
+                        android.net.Uri.parse(
+                            "${ReminderIntents.ALARM_DATA_URI_PREFIX}action/" +
+                                "${android.net.Uri.encode(occurrenceId)}/$action",
+                        )
                     putExtra(ReminderIntents.EXTRA_MEMO_ID, memoId)
                     putExtra(ReminderIntents.EXTRA_REMINDER_ID, reminderId)
+                    putExtra(ReminderIntents.EXTRA_OCCURRENCE_ID, occurrenceId)
                 }
             return PendingIntent.getBroadcast(
                 context,
-                ReminderRequestCodePolicy.actionRequestCode(memoId, reminderId, action),
+                ReminderRequestCodePolicy.actionRequestCode(memoId, reminderId, "$action:$occurrenceId"),
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )

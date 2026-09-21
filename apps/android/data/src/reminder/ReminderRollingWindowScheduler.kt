@@ -3,10 +3,14 @@ package com.lomo.data.reminder
 /**
  * Applies a Rust-owned rolling-window alarm plan through [AlarmSchedulePort] only.
  *
- * Cancels prior request codes for the same identities when re-applied, then schedules the
- * next N alarms. Boot / cold-start `rebuildAll` feeds a full plan into [applyPlan].
+ * Alarm identity is the durable [PlannedReminderAlarm.occurrenceId] issued by the Rust plan
+ * (workspace generation + reminder definition + trigger instant). Scheduled occurrences are
+ * recorded in [ReminderExecutionLedger] so cancellation survives process death: stale PendingIntents
+ * are discovered from the ledger, never from an in-process map. Boot / cold-start `rebuildAll`
+ * feeds a full plan into [applyPlan].
  */
 data class PlannedReminderAlarm(
+    val occurrenceId: String,
     val memoId: String,
     val reminderId: String,
     val triggerAtUtcMillis: Long,
@@ -18,105 +22,99 @@ data class RollingWindowApplyResult(
     val cancelledCount: Int,
 )
 
-class ReminderRollingWindowScheduler(
+class ReminderRollingWindowScheduler
+internal constructor(
     private val port: AlarmSchedulePort,
-    private val requestCodeOf: (memoId: String, reminderId: String) -> Int =
-        ReminderRequestCodePolicy::alarmRequestCode,
+    private val ledger: ReminderExecutionLedger,
 ) {
-    private val activeKeys = linkedMapOf<String, Pair<String, String>>()
-
     /**
-     * Full rolling-window replace (boot / rebuildAll): cancels identities absent from [alarms],
-     * then schedules the provided window.
+     * Full rolling-window replace (boot / rebuildAll): cancels recorded occurrences absent from
+     * [alarms], then schedules the provided window.
      */
-    fun applyPlan(alarms: List<PlannedReminderAlarm>): RollingWindowApplyResult =
+    suspend fun applyPlan(alarms: List<PlannedReminderAlarm>): RollingWindowApplyResult =
         applyPlanInternal(alarms, scopeMemoIds = null)
 
     /**
-     * Memo-scoped reschedule: only cancels/replaces identities for [memoIds]; other memos keep
+     * Memo-scoped reschedule: only cancels/replaces occurrences for [memoIds]; other memos keep
      * their active alarms.
      */
-    fun applyPlanForMemos(
+    suspend fun applyPlanForMemos(
         memoIds: Set<String>,
         alarms: List<PlannedReminderAlarm>,
     ): RollingWindowApplyResult = applyPlanInternal(alarms, scopeMemoIds = memoIds)
 
     /**
-     * Cancels a memo's alarms from the durable reminder identities supplied by the caller.
+     * Cancels a memo's alarms for the reminder identities supplied by the caller.
      *
-     * [activeKeys] is intentionally only a process-local bookkeeping cache.  A delete can happen
-     * after a process restart (or before this scheduler has ever applied a plan), so cancellation
-     * must derive request codes from the pre-delete projection snapshot rather than from that map.
+     * The durable ledger is the cancellation authority: a delete can happen after a process restart
+     * or before this scheduler instance ever applied a plan, so cancellation enumerates recorded
+     * occurrences for those reminder ids rather than any in-process cache.
      */
-    fun cancelForMemo(
+    suspend fun cancelForMemo(
         memoId: String,
         reminderIds: Set<String>,
     ) {
         require(memoId.isNotBlank()) { "Memo identity must not be blank" }
-        val identities = reminderIds.toList().sorted()
-        identities.forEach { reminderId ->
+        reminderIds.forEach { reminderId ->
             require(reminderId.isNotBlank()) { "Reminder identity must not be blank" }
-            // behavior-contract: loop-io-ok: no bulk alarm cancel API; each iteration is one reminder id
-            port.cancel(requestCodeOf(memoId, reminderId), memoId, reminderId)
         }
-        // Remove only the cache entries; the platform cancellation above is authoritative.
-        val keysToRemove = identities.map { reminderId -> keyOf(memoId, reminderId) }.toSet()
-        keysToRemove.forEach(activeKeys::remove)
+        val removed = ledger.removeForReminders(memoId, reminderIds)
+        // behavior-contract: loop-io-ok: no bulk alarm cancel API; each iteration is one occurrence
+        removed.forEach { (occurrenceId, occurrence) ->
+            port.cancel(occurrenceId, occurrence.memoId, occurrence.reminderId)
+        }
     }
 
-    private fun applyPlanInternal(
+    private suspend fun applyPlanInternal(
         alarms: List<PlannedReminderAlarm>,
         scopeMemoIds: Set<String>?,
     ): RollingWindowApplyResult {
-        var cancelled = 0
-        val nextKeys = alarms.map { keyOf(it.memoId, it.reminderId) }.toSet()
+        val known = ledger.snapshot()
+        val nextIds = alarms.mapTo(HashSet()) { it.occurrenceId }
         val stale =
-            activeKeys.keys.filter { key ->
-                val (memoId, _) = activeKeys[key] ?: return@filter false
-                val inScope = scopeMemoIds == null || memoId in scopeMemoIds
-                inScope && key !in nextKeys
+            known.filter { (occurrenceId, occurrence) ->
+                val inScope = scopeMemoIds == null || occurrence.memoId in scopeMemoIds
+                inScope && occurrenceId !in nextIds
             }
-        for (key in stale) {
-            val (memoId, reminderId) = activeKeys.remove(key) ?: continue
-            // behavior-contract: loop-io-ok: no bulk alarm cancel API; each iteration is one reminder id
-            port.cancel(requestCodeOf(memoId, reminderId), memoId, reminderId)
-            cancelled++
+        ledger.remove(stale.keys)
+        // behavior-contract: loop-io-ok: no bulk alarm cancel API; each iteration is one occurrence
+        stale.forEach { (occurrenceId, occurrence) ->
+            port.cancel(occurrenceId, occurrence.memoId, occurrence.reminderId)
         }
         val scheduled = mutableListOf<AlarmScheduleResult>()
         for (alarm in alarms) {
-            val requestCode = requestCodeOf(alarm.memoId, alarm.reminderId)
-            // behavior-contract: loop-io-ok: no bulk alarm cancel API; each iteration is one reminder id
-            port.cancel(requestCode, alarm.memoId, alarm.reminderId)
+            require(alarm.occurrenceId.isNotBlank()) { "Reminder occurrence identity must not be blank" }
+            // behavior-contract: loop-io-ok: no bulk alarm schedule API; each iteration is one occurrence
             val result =
-                // behavior-contract: loop-io-ok: no bulk alarm schedule API; each iteration is one reminder id
                 port.schedule(
                     AlarmScheduleRequest(
-                        requestCode = requestCode,
+                        occurrenceId = alarm.occurrenceId,
                         triggerAtUtcMillis = alarm.triggerAtUtcMillis,
                         memoId = alarm.memoId,
                         reminderId = alarm.reminderId,
                     ),
                 )
             scheduled += result
-            activeKeys[keyOf(alarm.memoId, alarm.reminderId)] = alarm.memoId to alarm.reminderId
+            ledger.recordScheduled(
+                alarm.occurrenceId,
+                ReminderExecutionLedger.ScheduledOccurrence(
+                    memoId = alarm.memoId,
+                    reminderId = alarm.reminderId,
+                    triggerAtUtcMillis = alarm.triggerAtUtcMillis,
+                ),
+            )
         }
-        return RollingWindowApplyResult(scheduled = scheduled, cancelledCount = cancelled)
+        return RollingWindowApplyResult(scheduled = scheduled, cancelledCount = stale.size)
     }
 
-    fun cancelAll() {
-        for ((_, pair) in activeKeys.toMap()) {
-            val (memoId, reminderId) = pair
-            // behavior-contract: loop-io-ok: no bulk alarm cancel API; each iteration is one reminder id
-            port.cancel(requestCodeOf(memoId, reminderId), memoId, reminderId)
+    suspend fun cancelAll() {
+        val known = ledger.snapshot()
+        ledger.clear()
+        // behavior-contract: loop-io-ok: no bulk alarm cancel API; each iteration is one occurrence
+        known.forEach { (occurrenceId, occurrence) ->
+            port.cancel(occurrenceId, occurrence.memoId, occurrence.reminderId)
         }
-        activeKeys.clear()
     }
 
     fun capability(): ExactAlarmCapability = port.exactAlarmCapability()
-
-    private fun keyOf(
-        memoId: String,
-        reminderId: String,
-    ): String = "$memoId\u001f$reminderId"
-
 }

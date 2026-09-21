@@ -4,30 +4,37 @@ package com.lomo.data.reminder
  * Behavior Contract:
  * - Unit under test: com.lomo.data.reminder.ReminderAsyncRunner
  * - Owning layer: data
- * - Priority tier: P1
- * - Capability: reminder BroadcastReceiver async work completes its PendingResult exactly once
- *   through a shared, injectable runner.
+ * - Priority tier: P0
+ * - Capability: reminder BroadcastReceiver async work always finishes PendingResult; failures are
+ *   domain results that do not cancel ApplicationScope; cancellation still propagates.
  *
  * Scenarios:
- * - Given receiver async work completes normally, when the runner executes it, then PendingResult is finished.
- * - Given receiver async work throws, when the runner executes it, then PendingResult is still finished.
- * - Given tests provide a controlled coroutine scope, when work is launched, then the test scheduler controls completion.
- * - Given receiver code must not own anonymous coroutine scopes, when tests run, then finish behavior is locked in the runner.
+ * - Given receiver async work completes normally, when the runner executes it, then PendingResult
+ *   is finished and the result is Completed.
+ * - Given receiver async work throws, when the runner executes it, then PendingResult is still
+ *   finished, the job completes, and the result is Failed.
+ * - Given the launched job is cancelled, when the runner executes it, then PendingResult is
+ *   finished and CancellationException propagates.
  *
  * Observable outcomes:
- * - PendingResult.finish() call count and coroutine Job completion state.
+ * - PendingResult.finish() call count, Job completion/cancellation, ReminderReceiverWorkResult.
  *
  * TDD proof:
- * - Target command: ./kotlin test
- *   :data:testDebugUnitTest --tests 'com.lomo.data.reminder.ReminderAsyncRunnerTest'
- * - Observed RED: test compilation failed with unresolved reference errors for ReminderAsyncRunner when the normal
- *   completion and throwing-work scenarios tried to construct the shared runner seam.
- * - Why RED proves the behavior was missing: the receiver-owned anonymous coroutine launch could not be injected
- *   with a test scheduler or called directly by the tests, so there was no observable contract guaranteeing that
- *   PendingResult.finish() ran exactly once from a finally path after both successful and failing receiver work.
+ * - Target: ./kotlin test --include-module=data --include-classes='com.lomo.data.reminder.ReminderAsyncRunnerTest'
+ * - GREEN: finish-once on success/failure/cancel; failure does not cancel the supervisor scope.
  *
  * Excludes:
- * - Android BroadcastReceiver dispatch, DI injection wiring, reminder business decisions, and manifest registration.
+ * - Android BroadcastReceiver dispatch, DI injection wiring, reminder planning identity (T30/T38).
+ *
+ * Test Change Justification:
+ * - Reason category: security/reliability contract replacement.
+ * - Old behavior/assertion being replaced: thrown receiver work cancelled the child job and escaped
+ *   to CoroutineExceptionHandler.
+ * - Why old assertion is no longer correct: T24 models failure as a domain result so one reminder
+ *   receiver error cannot look like an uncaught ApplicationScope crash; goAsync still finishes.
+ * - Coverage preserved by: finish() still exactly once; cancellation still propagates.
+ * - Why this is not fitting the test to the implementation: the observable is still PendingResult
+ *   completion plus whether sibling work would survive (supervisor), not a private handler.
  */
 
 import android.content.BroadcastReceiver
@@ -35,10 +42,12 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -52,10 +61,12 @@ class ReminderAsyncRunnerTest : FunSpec({
             val runner = ReminderAsyncRunner(CoroutineScope(SupervisorJob() + dispatcher))
             val pendingResult = pendingResultSpy()
             var workCompleted = false
+            var result: ReminderReceiverWorkResult? = null
 
-            val job = runner.launch(pendingResult) {
-                workCompleted = true
-            }
+            val job =
+                runner.launch(pendingResult, onResult = { result = it }) {
+                    workCompleted = true
+                }
 
             workCompleted shouldBe false
             testScheduler.advanceUntilIdle()
@@ -63,6 +74,7 @@ class ReminderAsyncRunnerTest : FunSpec({
             workCompleted shouldBe true
             job.isCompleted.shouldBeTrue()
             job.isCancelled.shouldBeFalse()
+            result shouldBe ReminderReceiverWorkResult.Completed
             verify(exactly = 1) { pendingResult.finish() }
         }
     }
@@ -70,23 +82,45 @@ class ReminderAsyncRunnerTest : FunSpec({
     test("given receiver async work throws when launched then pending result is still finished") {
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
-            var observedFailure: Throwable? = null
-            val exceptionHandler =
-                CoroutineExceptionHandler { _, error ->
-                    observedFailure = error
-                }
-            val runner = ReminderAsyncRunner(CoroutineScope(SupervisorJob() + dispatcher + exceptionHandler))
+            val runner = ReminderAsyncRunner(CoroutineScope(SupervisorJob() + dispatcher))
             val pendingResult = pendingResultSpy()
             val failure = IllegalStateException("receiver work failed")
+            var result: ReminderReceiverWorkResult? = null
 
             val job: Job =
-                runner.launch(pendingResult) {
+                runner.launch(pendingResult, onResult = { result = it }) {
                     throw failure
                 }
             testScheduler.advanceUntilIdle()
 
+            job.isCompleted.shouldBeTrue()
+            job.isCancelled.shouldBeFalse()
+            result.shouldBeInstanceOf<ReminderReceiverWorkResult.Failed>()
+            (result as ReminderReceiverWorkResult.Failed).cause shouldBe failure
+            verify(exactly = 1) { pendingResult.finish() }
+        }
+    }
+
+    test("given launched work is cancelled when runner executes then pending result finishes and cancel propagates") {
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val runner = ReminderAsyncRunner(CoroutineScope(SupervisorJob() + dispatcher))
+            val pendingResult = pendingResultSpy()
+            val started = CompletableDeferred<Unit>()
+            var result: ReminderReceiverWorkResult? = null
+
+            val job =
+                runner.launch(pendingResult, onResult = { result = it }) {
+                    started.complete(Unit)
+                    CompletableDeferred<Unit>().await()
+                }
+            testScheduler.runCurrent()
+            started.await()
+            job.cancel(CancellationException("receiver cancelled"))
+            testScheduler.advanceUntilIdle()
+
             job.isCancelled.shouldBeTrue()
-            observedFailure shouldBe failure
+            result shouldBe ReminderReceiverWorkResult.Cancelled
             verify(exactly = 1) { pendingResult.finish() }
         }
     }

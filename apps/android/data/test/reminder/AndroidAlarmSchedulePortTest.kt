@@ -24,6 +24,13 @@ package com.lomo.data.reminder
  *
  * Excludes:
  * - Real AlarmManager delivery, notification UI, ReminderAlarmReceiver lifecycle.
+ * Test Change Justification:
+ * - Reason category: domain contract change (occurrence-keyed alarm identity).
+ * - Old behavior/assertion being replaced: PendingIntent identity keyed on an Int requestCode.
+ * - Why old assertion is no longer correct: alarm identity is the durable occurrence id; the
+ *   request code is derived, never the discriminator.
+ * - Coverage preserved by: the same schedule/cancel assertions keyed on occurrenceId.
+ * - Why this is not fitting the test to the implementation: occurrence identity is the domain law.
  */
 
 import android.app.PendingIntent
@@ -41,16 +48,16 @@ private class RecordingAlarmGateway(
     val allowWhileIdleCalls = mutableListOf<Long>()
     val inexactCalls = mutableListOf<Long>()
     val cancelCalls = mutableListOf<PendingIntent>()
-    val pendingIntents = mutableMapOf<Triple<String, String, Int>, PendingIntent>()
+    val pendingIntents = mutableMapOf<Triple<String, String, String>, PendingIntent>()
 
     override fun canScheduleExactAlarms(): Boolean = canExact
 
     override fun pendingIntent(
+        occurrenceId: String,
         memoId: String,
         reminderId: String,
-        requestCode: Int,
     ): PendingIntent =
-        pendingIntents.getOrPut(Triple(memoId, reminderId, requestCode)) {
+        pendingIntents.getOrPut(Triple(occurrenceId, memoId, reminderId)) {
             mockk<android.app.PendingIntent>(relaxed = true)
         }
 
@@ -85,7 +92,7 @@ private class RecordingAlarmGateway(
 class AndroidAlarmSchedulePortTest : FunSpec({
     val request =
         AlarmScheduleRequest(
-            requestCode = 42,
+            occurrenceId = "gen-a␟rem-1␟1700000000000",
             triggerAtUtcMillis = 1_700_000_000_000L,
             memoId = "memo-1",
             reminderId = "rem-1",
@@ -142,9 +149,9 @@ class AndroidAlarmSchedulePortTest : FunSpec({
     test("cancel uses pending intent for the same identity") {
         val gateway = RecordingAlarmGateway()
         val port = AndroidAlarmSchedulePort(gateway = gateway, sdkInt = 34)
-        port.cancel(requestCode = 42, memoId = "memo-1", reminderId = "rem-1")
+        port.cancel(occurrenceId = request.occurrenceId, memoId = "memo-1", reminderId = "rem-1")
         gateway.cancelCalls.shouldHaveSize(1)
-        val expected = gateway.pendingIntent("memo-1", "rem-1", 42)
+        val expected = gateway.pendingIntent(request.occurrenceId, "memo-1", "rem-1")
         gateway.cancelCalls.single() shouldBe expected
     }
 })

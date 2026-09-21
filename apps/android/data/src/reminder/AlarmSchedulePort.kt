@@ -24,7 +24,8 @@ data class ExactAlarmCapability(
 )
 
 data class AlarmScheduleRequest(
-    val requestCode: Int,
+    /** Durable occurrence identity issued by the Rust plan; the sole PendingIntent identity key. */
+    val occurrenceId: String,
     val triggerAtUtcMillis: Long,
     val memoId: String,
     val reminderId: String,
@@ -45,5 +46,9 @@ interface AlarmSchedulePort {
 
     fun schedule(request: AlarmScheduleRequest): AlarmScheduleResult
 
-    fun cancel(requestCode: Int, memoId: String, reminderId: String)
+    /**
+     * Cancels the platform alarm whose PendingIntent carries [occurrenceId]. [memoId] and
+     * [reminderId] are forwarded as receiver extras so the intent shape matches the scheduled one.
+     */
+    fun cancel(occurrenceId: String, memoId: String, reminderId: String)
 }
