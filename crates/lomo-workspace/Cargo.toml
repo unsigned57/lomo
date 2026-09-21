@@ -8,6 +8,10 @@ publish = false
 autotests = false
 
 [[test]]
+name = "source_fingerprint_contract"
+path = "tests/source_fingerprint_contract.rs"
+
+[[test]]
 name = "types_contract"
 path = "tests/types_contract.rs"
 

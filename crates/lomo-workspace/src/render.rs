@@ -1954,6 +1954,13 @@ fn parse_strict_reminder_at(text: &str, start: usize) -> Option<usize> {
             offset = end;
         }
     }
+    if bytes.get(offset) == Some(&b'#') {
+        let id = input.get(offset + 1..offset + 17)?;
+        if !id.bytes().all(is_embedded_id_char) {
+            return None;
+        }
+        offset += 17;
+    }
 
     let right = input.get(offset..).and_then(|tail| tail.chars().next());
     if right.is_some_and(|character| {
@@ -1981,6 +1988,12 @@ pub struct ReminderTokenFacts {
     pub done: bool,
     pub interval_minutes: u32,
     pub recurrence_code: String,
+    /// Durable embedded reminder id (`#<16 lowercase hex>` tail); `None` on legacy tokens.
+    pub embedded_id: Option<String>,
+}
+
+fn is_embedded_id_char(byte: u8) -> bool {
+    byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
 }
 
 /// Constructs one canonical reminder token from typed owner facts.
@@ -1995,6 +2008,7 @@ pub fn build_reminder_token(
     done: bool,
     interval_minutes: u32,
     recurrence_code: &str,
+    embedded_id: Option<&str>,
 ) -> Result<String, LomoError> {
     if !is_ymd_hm(due_at_local) {
         return Err(validation(
@@ -2020,6 +2034,15 @@ pub fn build_reminder_token(
             "reminder recurrence code must be empty, d, or w",
         ));
     }
+    if let Some(id) = embedded_id
+        && (id.len() != crate::identity::REMINDER_EMBEDDED_ID_BYTES * 2
+            || !id.bytes().all(is_embedded_id_char))
+    {
+        return Err(validation(
+            "invalid_reminder_token",
+            "reminder embedded id must be 16 lowercase hex characters",
+        ));
+    }
     let mut token = format!("@{due_at_local}");
     if repeat_count > 1 {
         token.push('x');
@@ -2038,6 +2061,10 @@ pub fn build_reminder_token(
     } else if repeat_count > 1 && fired_count > 0 {
         token.push('.');
         token.push_str(&fired_count.to_string());
+    }
+    if let Some(id) = embedded_id {
+        token.push('#');
+        token.push_str(id);
     }
     validate_reminder_token(&token)?;
     Ok(token)
@@ -2065,6 +2092,13 @@ pub fn plan_reminder_token_mutation(
             if facts.done {
                 return Ok(current_token.to_owned());
             }
+            // Controlled format migration: legacy tokens gain an embedded durable id here, under
+            // the caller's CAS-checked token write; migrated tokens keep theirs.
+            let embedded_id = facts
+                .embedded_id
+                .clone()
+                .map_or_else(crate::identity::mint_reminder_embedded_id, Ok)?;
+            let embedded = Some(embedded_id.as_str());
             if matches!(facts.recurrence_code.as_str(), "d" | "w") {
                 let next_due = advance_due_at_local(&facts.due_at_local, &facts.recurrence_code)?;
                 return build_reminder_token(
@@ -2074,6 +2108,7 @@ pub fn plan_reminder_token_mutation(
                     false,
                     facts.interval_minutes,
                     &facts.recurrence_code,
+                    embedded,
                 );
             }
             build_reminder_token(
@@ -2083,12 +2118,18 @@ pub fn plan_reminder_token_mutation(
                 true,
                 facts.interval_minutes,
                 &facts.recurrence_code,
+                embedded,
             )
         }
         ReminderTokenMutation::RecordFired => {
             if facts.done {
                 return Ok(current_token.to_owned());
             }
+            let embedded_id = facts
+                .embedded_id
+                .clone()
+                .map_or_else(crate::identity::mint_reminder_embedded_id, Ok)?;
+            let embedded = Some(embedded_id.as_str());
             let new_fired = facts.fired_count.saturating_add(1).min(facts.repeat_count);
             let exhausted = new_fired >= facts.repeat_count;
             if exhausted && matches!(facts.recurrence_code.as_str(), "d" | "w") {
@@ -2100,6 +2141,7 @@ pub fn plan_reminder_token_mutation(
                     false,
                     facts.interval_minutes,
                     &facts.recurrence_code,
+                    embedded,
                 );
             }
             build_reminder_token(
@@ -2109,6 +2151,7 @@ pub fn plan_reminder_token_mutation(
                 exhausted,
                 facts.interval_minutes,
                 &facts.recurrence_code,
+                embedded,
             )
         }
     }
@@ -2286,13 +2329,27 @@ pub fn reminder_token_facts(token: &str) -> Result<ReminderTokenFacts, LomoError
             .is_some_and(|tail| tail.starts_with("done"))
         {
             done = true;
+            offset += 5;
         } else {
-            let (value, _end) = parse_decimal(token, offset + 1).ok_or_else(|| {
+            let (value, end) = parse_decimal(token, offset + 1).ok_or_else(|| {
                 validation("invalid_reminder_token", "reminder fired count is invalid")
             })?;
             fired_count = value;
+            offset = end;
         }
     }
+    let embedded_id = if bytes.get(offset) == Some(&b'#') {
+        Some(
+            token
+                .get(offset + 1..offset + 17)
+                .ok_or_else(|| {
+                    validation("invalid_reminder_token", "reminder embedded id is invalid")
+                })?
+                .to_owned(),
+        )
+    } else {
+        None
+    };
     Ok(ReminderTokenFacts {
         due_at_local: token
             .get(1..17)
@@ -2314,6 +2371,7 @@ pub fn reminder_token_facts(token: &str) -> Result<ReminderTokenFacts, LomoError
             validation("invalid_reminder_token", "reminder interval exceeds u32")
         })?,
         recurrence_code,
+        embedded_id,
     })
 }
 

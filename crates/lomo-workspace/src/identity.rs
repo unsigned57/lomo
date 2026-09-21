@@ -18,6 +18,9 @@ use crate::lomo_record::{
 /// Byte length of a workspace generation id (256-bit).
 pub const WORKSPACE_GENERATION_ID_BYTES: usize = 32;
 
+/// Byte length of an embedded reminder id (64-bit, rendered as 16 lowercase hex chars).
+pub const REMINDER_EMBEDDED_ID_BYTES: usize = 8;
+
 /// Real random durable workspace generation fence.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WorkspaceGenerationId(String);
@@ -56,6 +59,17 @@ impl WorkspaceGenerationId {
         fill_csprng(&mut bytes)?;
         Ok(Self(hex_encode(&bytes)))
     }
+}
+
+/// Mints a new embedded reminder id (16 lowercase hex chars; not persisted — the token owns it).
+///
+/// # Errors
+///
+/// Storage when the host CSPRNG cannot be read.
+pub fn mint_reminder_embedded_id() -> Result<String, lomo_core::LomoError> {
+    let mut bytes = [0_u8; REMINDER_EMBEDDED_ID_BYTES];
+    fill_csprng(&mut bytes)?;
+    Ok(hex_encode(&bytes))
 }
 
 /// Opaque remote dataset identity (permanent tombstone binding).

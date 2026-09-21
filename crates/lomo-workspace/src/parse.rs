@@ -5,7 +5,7 @@
 //! [`crate::render::render_markdown`] pipeline; memo storage tags/attachments use that same
 //! node-fact authority (not a second body tokenizer or duplicate tag scanner).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use lomo_core::LomoError;
 
@@ -300,6 +300,19 @@ fn project_document_facts(
         let mut tags = Vec::new();
         let mut attachments = Vec::new();
         let mut reminders = Vec::new();
+        let mut fingerprint_ordinals: BTreeMap<String, u32> = BTreeMap::new();
+        // An embedded id is a durable definition identity only when unique inside the memo;
+        // duplicated ids keep their tokens as evidence but fall back to fingerprint+ordinal
+        // identity rather than guessing one owner.
+        let mut embedded_counts: BTreeMap<String, usize> = BTreeMap::new();
+        for fact in render.semantic_facts() {
+            if fact.kind() == SemanticFactKind::Reminder
+                && span_contains(memo.memo_span(), fact.source_span())
+                && let Some(id) = crate::render::reminder_token_facts(fact.value())?.embedded_id
+            {
+                *embedded_counts.entry(id).or_default() += 1;
+            }
+        }
         let mut has_todo = false;
         let mut has_url = false;
         for fact in render.semantic_facts() {
@@ -309,12 +322,31 @@ fn project_document_facts(
             match fact.kind() {
                 SemanticFactKind::Tag => push_unique(&mut tags, fact.value()),
                 SemanticFactKind::Attachment => push_unique(&mut attachments, fact.value()),
-                SemanticFactKind::Reminder => reminders.push(ReminderRef::from_source_fact(
-                    source,
-                    memo.identity(),
-                    fact.source_span(),
-                    fact.value(),
-                )?),
+                SemanticFactKind::Reminder => {
+                    let token_fingerprint =
+                        crate::source::SourceFingerprint::of_bytes(fact.value().as_bytes());
+                    let ordinal_slot = fingerprint_ordinals
+                        .entry(token_fingerprint.as_str().to_owned())
+                        .or_insert(0);
+                    let fingerprint_ordinal = *ordinal_slot;
+                    *ordinal_slot = fingerprint_ordinal.checked_add(1).ok_or_else(|| {
+                        validation(
+                            "reminder_fingerprint_ordinal_overflow",
+                            "same-fingerprint reminder ordinal exceeds u32",
+                        )
+                    })?;
+                    let embedded_id = crate::render::reminder_token_facts(fact.value())?
+                        .embedded_id
+                        .filter(|id| embedded_counts.get(id.as_str()).copied() == Some(1));
+                    reminders.push(ReminderRef::from_source_fact(
+                        source,
+                        memo.identity(),
+                        fact.source_span(),
+                        fact.value(),
+                        fingerprint_ordinal,
+                        embedded_id,
+                    )?);
+                }
                 SemanticFactKind::TaskItem => has_todo = true,
                 SemanticFactKind::Link => {
                     if is_external_url(fact.value()) {

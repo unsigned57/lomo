@@ -44,7 +44,7 @@ pub use history_v2::{
 pub use identity::{
     RemoteDatasetId, RemoteIdentityDigest, WORKSPACE_GENERATION_ID_BYTES, WorkspaceGenerationId,
     load_or_mint_workspace_generation, load_workspace_generation, mint_new_workspace_generation,
-    persist_workspace_generation,
+    mint_reminder_embedded_id, persist_workspace_generation,
 };
 pub use limits::{
     MAX_EDITABLE_MEMO_UTF8_CHARS, MAX_INLINE_RENDER_UTF8_BYTES, MAX_IR_STRING_UTF8_BYTES,

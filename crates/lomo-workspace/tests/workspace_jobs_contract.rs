@@ -84,11 +84,11 @@ mod tests {
     use std::time::Duration;
 
     use lomo_core::{
-        ActionEvidence, ActionOutcome, ActionResult, DocumentKind, DocumentMetadata, EngineConfig,
-        ErrorCategory, ExchangeArtifact, ExpectedFingerprint, JobStep, LomoEngine, MetadataPage,
-        PlatformAction, PlatformActionBatch, PlatformActionOutput, PlatformBatchResult,
-        RetryDisposition, Sha256Digest, VerifiedAbsence, WorkspaceDescriptor, WorkspaceTarget,
-        WriteMode,
+        ActionEvidence, ActionOutcome, ActionResult, CapabilityToken, DocumentKind,
+        DocumentMetadata, EngineConfig, ErrorCategory, ExchangeArtifact, ExpectedFingerprint,
+        JobStep, LomoEngine, MetadataPage, PlatformAction, PlatformActionBatch,
+        PlatformActionOutput, PlatformBatchResult, RetryDisposition, Sha256Digest, VerifiedAbsence,
+        WorkspaceDescriptor, WorkspaceTarget, WriteMode,
     };
     use lomo_workspace::{
         DOCUMENT_COMMAND_DRIVER_KIND, DocumentCommandKind, DocumentCommandRequest,
@@ -136,7 +136,13 @@ mod tests {
             let config = EngineConfig::new(
                 control,
                 exchange.clone(),
-                Some(WorkspaceDescriptor::direct(&workspace).test_ok("direct")),
+                Some(
+                    WorkspaceDescriptor::direct(
+                        &workspace,
+                        CapabilityToken::parse("notes-root").test_ok("direct capability"),
+                    )
+                    .test_ok("direct"),
+                ),
             )
             .test_ok("config")
             .with_drivers(workspace_driver_registry());
@@ -199,7 +205,10 @@ mod tests {
             expected: &ActionEvidence,
         ) -> Option<ActionOutcome> {
             let current_digest = format!("{:x}", Sha256::digest(current_bytes));
-            if current_digest == expected.digest().as_str() {
+            if expected
+                .verified_digest()
+                .is_some_and(|digest| current_digest == digest.as_str())
+            {
                 return None;
             }
             Some(ActionOutcome::Failed(
@@ -1910,7 +1919,7 @@ mod tests {
                 fingerprint: second.revision.clone(),
             },
             command: DocumentCommandKind::RewriteReminder {
-                reminder: second,
+                reminder: Box::new(second),
                 replacement: replacement.to_owned(),
             },
             history: None,

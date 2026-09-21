@@ -15,6 +15,12 @@ pub struct ReminderReference {
     pub source_start: u64,
     pub source_end: u64,
     pub token_fingerprint: String,
+    #[serde(default)]
+    pub fingerprint_ordinal: u32,
+    /// Resolved embedded reminder id (`#<hex>` tail). `Some` only when the token carries one and it
+    /// is unique inside the memo; `None` for legacy tokens and ambiguous duplicates.
+    #[serde(default)]
+    pub embedded_id: Option<String>,
     pub token: String,
     pub due_at_local: String,
     pub repeat_count: u32,
@@ -24,7 +30,8 @@ pub struct ReminderReference {
     pub recurrence_code: String,
 }
 
-/// Opaque reminder occurrence identity bound to one exact memo revision and source span.
+/// Opaque reminder definition identity bound to memo + token fingerprint + same-fingerprint ordinal.
+/// Source span and memo revision are snapshot facts for CAS, not identity.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ReminderRef {
     opaque_id: String,
@@ -32,6 +39,8 @@ pub struct ReminderRef {
     memo_identity: MemoIdentity,
     source_span: ByteSpan,
     token_fingerprint: SourceFingerprint,
+    fingerprint_ordinal: u32,
+    embedded_id: Option<String>,
     token: String,
     due_at_local: String,
     repeat_count: u32,
@@ -47,6 +56,8 @@ impl ReminderRef {
         memo_identity: &MemoIdentity,
         source_span: ByteSpan,
         token: &str,
+        fingerprint_ordinal: u32,
+        embedded_id: Option<String>,
     ) -> Result<Self, LomoError> {
         if source.slice(source_span)? != token {
             return Err(validation(
@@ -56,11 +67,18 @@ impl ReminderRef {
         }
         let token_fingerprint = SourceFingerprint::of_bytes(token.as_bytes());
         let facts = crate::render::reminder_token_facts(token)?;
-        let opaque_id = opaque_id(
-            source.fingerprint(),
-            memo_identity,
-            source_span,
-            &token_fingerprint,
+        if embedded_id
+            .as_deref()
+            .is_some_and(|id| facts.embedded_id.as_deref() != Some(id))
+        {
+            return Err(validation(
+                "reminder_fact_span_mismatch",
+                "resolved embedded reminder id does not match the token",
+            ));
+        }
+        let opaque_id = embedded_id.as_deref().map_or_else(
+            || opaque_id(memo_identity, &token_fingerprint, fingerprint_ordinal),
+            |id| opaque_id_embedded(memo_identity, id),
         );
         Ok(Self {
             opaque_id,
@@ -68,6 +86,8 @@ impl ReminderRef {
             memo_identity: memo_identity.clone(),
             source_span,
             token_fingerprint,
+            fingerprint_ordinal,
+            embedded_id,
             token: token.to_owned(),
             due_at_local: facts.due_at_local,
             repeat_count: facts.repeat_count,
@@ -101,6 +121,17 @@ impl ReminderRef {
     #[must_use]
     pub const fn token_fingerprint(&self) -> &SourceFingerprint {
         &self.token_fingerprint
+    }
+
+    #[must_use]
+    pub const fn fingerprint_ordinal(&self) -> u32 {
+        self.fingerprint_ordinal
+    }
+
+    /// Resolved embedded reminder id; `None` for legacy tokens and ambiguous duplicates.
+    #[must_use]
+    pub fn embedded_id(&self) -> Option<&str> {
+        self.embedded_id.as_deref()
     }
 
     #[must_use]
@@ -181,11 +212,30 @@ impl ReminderRef {
                 "reminder typed facts do not match the canonical token",
             ));
         }
-        let expected_opaque = opaque_id(&revision, &memo_identity, source_span, &token_fingerprint);
+        if reference
+            .embedded_id
+            .as_deref()
+            .is_some_and(|id| facts.embedded_id.as_deref() != Some(id))
+        {
+            return Err(validation(
+                "invalid_reminder_reference",
+                "reminder embedded id does not match the canonical token",
+            ));
+        }
+        let expected_opaque = reference.embedded_id.as_deref().map_or_else(
+            || {
+                opaque_id(
+                    &memo_identity,
+                    &token_fingerprint,
+                    reference.fingerprint_ordinal,
+                )
+            },
+            |id| opaque_id_embedded(&memo_identity, id),
+        );
         if reference.opaque_id != expected_opaque {
             return Err(validation(
                 "invalid_reminder_reference",
-                "reminder opaque id does not match its revision-bound identity",
+                "reminder opaque id does not match its definition identity",
             ));
         }
         Ok(Self {
@@ -194,6 +244,8 @@ impl ReminderRef {
             memo_identity,
             source_span,
             token_fingerprint,
+            fingerprint_ordinal: reference.fingerprint_ordinal,
+            embedded_id: reference.embedded_id,
             token: reference.token,
             due_at_local: reference.due_at_local,
             repeat_count: reference.repeat_count,
@@ -207,14 +259,18 @@ impl ReminderRef {
     /// Rebinds this source-local reminder to the canonical memo identity supplied by the storage
     /// owner.  Plain direct-mode files do not carry a time header, so the parser necessarily
     /// creates a synthetic identity; the filename/projection identity must then become the sole
-    /// authority while the revision, span, token facts, and opaque-id derivation remain intact.
+    /// authority while the span, token facts, ordinal, and opaque-id derivation remain intact.
     #[must_use]
     pub fn with_memo_identity(&self, memo_identity: MemoIdentity) -> Self {
-        let opaque_id = opaque_id(
-            &self.revision,
-            &memo_identity,
-            self.source_span,
-            &self.token_fingerprint,
+        let opaque_id = self.embedded_id.as_deref().map_or_else(
+            || {
+                opaque_id(
+                    &memo_identity,
+                    &self.token_fingerprint,
+                    self.fingerprint_ordinal,
+                )
+            },
+            |id| opaque_id_embedded(&memo_identity, id),
         );
         Self {
             opaque_id,
@@ -222,6 +278,8 @@ impl ReminderRef {
             memo_identity,
             source_span: self.source_span,
             token_fingerprint: self.token_fingerprint.clone(),
+            fingerprint_ordinal: self.fingerprint_ordinal,
+            embedded_id: self.embedded_id.clone(),
             token: self.token.clone(),
             due_at_local: self.due_at_local.clone(),
             repeat_count: self.repeat_count,
@@ -242,6 +300,8 @@ impl From<&ReminderRef> for ReminderReference {
             source_start: value.source_span.start() as u64,
             source_end: value.source_span.end() as u64,
             token_fingerprint: value.token_fingerprint.as_str().to_owned(),
+            fingerprint_ordinal: value.fingerprint_ordinal,
+            embedded_id: value.embedded_id.clone(),
             token: value.token.clone(),
             due_at_local: value.due_at_local.clone(),
             repeat_count: value.repeat_count,
@@ -254,18 +314,26 @@ impl From<&ReminderRef> for ReminderReference {
 }
 
 fn opaque_id(
-    revision: &SourceFingerprint,
     memo_identity: &MemoIdentity,
-    source_span: ByteSpan,
     token_fingerprint: &SourceFingerprint,
+    fingerprint_ordinal: u32,
 ) -> String {
     let mut opaque = Sha256::new();
-    opaque.update(revision.as_str().as_bytes());
-    opaque.update([0]);
     opaque.update(memo_identity.as_str().as_bytes());
     opaque.update([0]);
-    opaque.update(source_span.start().to_le_bytes());
-    opaque.update(source_span.end().to_le_bytes());
     opaque.update(token_fingerprint.as_str().as_bytes());
+    opaque.update([0]);
+    opaque.update(fingerprint_ordinal.to_le_bytes());
+    format!("reminder:{:x}", opaque.finalize())
+}
+
+/// Definition identity bound to the durable embedded reminder id — stable across token mutations.
+fn opaque_id_embedded(memo_identity: &MemoIdentity, embedded_id: &str) -> String {
+    let mut opaque = Sha256::new();
+    opaque.update(memo_identity.as_str().as_bytes());
+    opaque.update([0]);
+    opaque.update(b"embedded");
+    opaque.update([0]);
+    opaque.update(embedded_id.as_bytes());
     format!("reminder:{:x}", opaque.finalize())
 }

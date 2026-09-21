@@ -7,8 +7,14 @@ use sha2::{Digest, Sha256};
 use crate::limits::{corruption, validation};
 
 /// SHA-256 fingerprint of exact source bytes (including BOM when present).
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize)]
 pub struct SourceFingerprint(String);
+
+impl<'de> Deserialize<'de> for SourceFingerprint {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::parse(&String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
 
 impl SourceFingerprint {
     /// Computes the lowercase hex SHA-256 of `bytes`.

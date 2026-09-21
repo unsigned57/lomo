@@ -673,7 +673,7 @@ fn require_write_postcondition(
     label: &str,
 ) -> Result<(), LomoError> {
     if Some(evidence.length()) != expected_length
-        || Some(evidence.digest().as_str()) != expected_digest
+        || evidence.verified_digest().map(Sha256Digest::as_str) != expected_digest
     {
         return Err(validation(
             "trash_write_postcondition_unproven",

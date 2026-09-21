@@ -79,7 +79,7 @@ pub enum DocumentCommandKind {
         body_end: u64,
     },
     RewriteReminder {
-        reminder: ReminderReference,
+        reminder: Box<ReminderReference>,
         replacement: String,
     },
 }
@@ -412,7 +412,19 @@ fn advance_after_read(
         ExchangeArtifact::new(&write_token, length, Sha256Digest::parse(&digest)?)?;
 
     state.source_evidence_length = Some(metadata.evidence().length());
-    state.source_evidence_digest = Some(metadata.evidence().digest().as_str().to_owned());
+    state.source_evidence_digest = Some(
+        metadata
+            .evidence()
+            .verified_digest()
+            .ok_or_else(|| {
+                validation(
+                    "document_source_digest_unknown",
+                    "source metadata did not hash content bytes",
+                )
+            })?
+            .as_str()
+            .to_owned(),
+    );
     state.source_evidence_fingerprint = Some(metadata.evidence().fingerprint().to_owned());
     state.write_token = Some(write_token);
     state.write_length = Some(length);
@@ -454,7 +466,16 @@ fn advance_after_write(
     })?;
     // Content authority is SHA-256 of bytes. Platform evidence.digest is that digest when the
     // gateway digests written content; require match fail-closed.
-    let written_digest = metadata.evidence().digest().as_str();
+    let written_digest = metadata
+        .evidence()
+        .verified_digest()
+        .ok_or_else(|| {
+            validation(
+                "document_write_digest_unknown",
+                "write receipt did not hash content bytes",
+            )
+        })?
+        .as_str();
     let planned_digest = state.write_digest.as_deref().ok_or_else(|| {
         validation(
             "document_missing_write_digest",
@@ -643,7 +664,7 @@ fn validate_command_shape(
             reminder,
             replacement: _,
         } => {
-            let parsed = ReminderRef::try_from_reference(reminder.clone())?;
+            let parsed = ReminderRef::try_from_reference(reminder.as_ref().clone())?;
             let expected_fingerprint = expected_fingerprint.ok_or_else(|| {
                 validation(
                     "invalid_document_expected_state",
@@ -789,7 +810,10 @@ fn verify_history_write(
         )
     })?;
     if metadata.evidence().length() != expected_length
-        || metadata.evidence().digest().as_str() != expected_digest
+        || metadata
+            .evidence()
+            .verified_digest()
+            .is_none_or(|digest| digest.as_str() != expected_digest)
     {
         return Err(validation(
             "document_history_postcondition_unproven",
@@ -844,7 +868,7 @@ fn to_patch_command(
             replacement,
         } => DocumentPatchCommand::RewriteReminder {
             path: path.clone(),
-            reminder: ReminderRef::try_from_reference(reminder.clone())?,
+            reminder: ReminderRef::try_from_reference(reminder.as_ref().clone())?,
             replacement: replacement.clone(),
         },
     })
