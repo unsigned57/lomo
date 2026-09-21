@@ -23,6 +23,10 @@
 //! TDD proof: RED because `open_workspace_session` / `session_create_memo` / `session_search`
 //! are not exported on `LomoEngine`.
 //! Excludes: Android SAF execution, Kotlin DI cutover, live LAN sockets.
+//! Read-concurrency scenario: Given a session command paused inside platform I/O, When the real
+//! facade reads the current memo, Then the published snapshot is returned before the write resumes.
+//! Read-concurrency TDD proof: RED times out while the native session mutex is held over host I/O;
+//! GREEN uses the same controlled host barrier and asserts the pre-commit body.
 
 #[cfg(test)]
 mod support;
@@ -33,6 +37,12 @@ mod tests {
     use std::{
         fs,
         path::{Path, PathBuf},
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        },
+        time::Duration,
     };
 
     use lomo_core::{CapabilityToken, PlatformActionExecutor};
@@ -59,6 +69,105 @@ mod tests {
         }
     }
 
+    struct PausedBatchHost {
+        executor: PosixPlatformActionExecutor,
+        armed: Arc<AtomicBool>,
+        entered: mpsc::Sender<()>,
+        resume: Mutex<mpsc::Receiver<()>>,
+    }
+
+    impl PlatformBatchHost for PausedBatchHost {
+        fn execute(&self, batch: PlatformActionBatch) -> Result<PlatformBatchResult, EngineError> {
+            let batch = lomo_native::batch_from_ffi(batch)?;
+            if batch.actions().iter().any(|action| matches!(action, lomo_core::PlatformAction::WriteFromExchange { path, .. } if Path::new(path.as_str()).extension().is_some_and(|extension| extension.eq_ignore_ascii_case("md")))) && self.armed.swap(false, Ordering::SeqCst) {
+                self.entered.send(()).test_ok("announce paused write");
+                self.resume.lock().test_ok("resume lock").recv_timeout(Duration::from_secs(5)).test_ok("resume platform write");
+            }
+            self.executor
+                .execute(&batch)
+                .map(|result| lomo_native::result_to_ffi(&result))
+                .map_err(EngineError::from)
+        }
+    }
+
+    #[test]
+    fn session_reads_do_not_queue_behind_a_paused_platform_write() {
+        let session = open_direct_engine();
+        let executor = PosixPlatformActionExecutor::new(&session.exchange).test_ok("executor");
+        executor
+            .bind_root(
+                CapabilityToken::parse("notes-root").test_ok("direct capability"),
+                &session.workspace,
+            )
+            .test_ok("bind");
+        let armed = Arc::new(AtomicBool::new(false));
+        let (entered, entered_rx) = mpsc::channel();
+        let (resume, resume_rx) = mpsc::channel();
+        session
+            .engine
+            .open_workspace_session(
+                Box::new(PausedBatchHost {
+                    executor,
+                    armed: Arc::clone(&armed),
+                    entered,
+                    resume: Mutex::new(resume_rx),
+                }),
+                "UTC".to_owned(),
+            )
+            .test_ok("open session");
+        let created = session
+            .engine
+            .session_create_memo(SessionCreateMemoRequest {
+                operation_id: "create-concurrent".to_owned(),
+                relative_path: None,
+                time_token: None,
+                content: "published body".to_owned(),
+                expected_document_fingerprint: None,
+                pinned: false,
+                pending_promotes: Vec::new(),
+                chronology_epoch_ms: None,
+            })
+            .test_ok("seed memo");
+        armed.store(true, Ordering::SeqCst);
+        std::thread::scope(|scope| {
+            let writer = scope.spawn(|| {
+                session
+                    .engine
+                    .session_update_memo(lomo_native::SessionUpdateMemoRequest {
+                        operation_id: "update-concurrent".to_owned(),
+                        memo_id: created.memo_id.clone(),
+                        content: "new body".to_owned(),
+                        expected_document_fingerprint: created.file_fingerprint.clone(),
+                        pending_promotes: Vec::new(),
+                    })
+                    .map_err(Box::new)
+            });
+            entered_rx
+                .recv_timeout(Duration::from_secs(5))
+                .test_ok("writer reached host barrier");
+            let (read_tx, read_rx) = mpsc::channel();
+            let engine = &session.engine;
+            let memo_id = &created.memo_id;
+            let reader = scope.spawn(move || {
+                read_tx
+                    .send(engine.get_memo(memo_id.clone()))
+                    .test_ok("read result");
+            });
+            let observed = read_rx.recv_timeout(Duration::from_secs(1));
+            resume.send(()).test_ok("release writer");
+            writer
+                .join()
+                .test_ok("writer thread")
+                .test_ok("write commit");
+            reader.join().test_ok("reader thread");
+            let snapshot = observed
+                .test_ok("query must finish before host resumes")
+                .test_ok("read snapshot")
+                .unwrap_or_else(|| panic!("memo must exist"));
+            assert_eq!(snapshot.body, "published body");
+        });
+    }
+
     struct DirectSession {
         _temporary: tempfile::TempDir,
         workspace: PathBuf,
@@ -79,6 +188,7 @@ mod tests {
             exchange_root: exchange.display().to_string(),
             workspace: Some(WorkspaceDescriptor::Direct {
                 root_path: workspace.display().to_string(),
+                capability_token: "notes-root".to_owned(),
             }),
             bootstrap_deadline_millis: 30_000,
         })
@@ -94,7 +204,7 @@ mod tests {
     fn attach_posix_session(session: &DirectSession) {
         let executor =
             PosixPlatformActionExecutor::new(&session.exchange).test_ok("posix executor");
-        let capability = CapabilityToken::parse("direct-root").test_ok("direct capability");
+        let capability = CapabilityToken::parse("notes-root").test_ok("direct capability");
         executor
             .bind_root(capability, &session.workspace)
             .test_ok("bind workspace");
@@ -243,6 +353,7 @@ mod tests {
         let outcome = session
             .engine
             .session_search(SessionSearchRequest {
+                filters: lomo_native::StoreMemoFilters::default(),
                 query_epoch: 1,
                 mode: SessionSearchMode::Fuzzy,
                 text: "bdlcc".to_owned(),
@@ -256,7 +367,7 @@ mod tests {
         assert!(
             page.items
                 .iter()
-                .any(|hit| hit.memo_id == commit.memo_id && hit.score > 0),
+                .any(|hit| hit.summary.memo_id == commit.memo_id && hit.score > 0),
             "fuzzy search must rank the Great Wall memo, got {:?}",
             page.items
         );

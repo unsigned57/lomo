@@ -23,6 +23,8 @@ lomo-sync = { path = "../lomo-sync" }
 lomo-git = { path = "../lomo-git" }
 # Stage-6 LAN conversion surface. `lomo-lan` never depends on `lomo-sync`; both meet only here.
 lomo-lan = { path = "../lomo-lan" }
+# POSIX flock for workspace sync cycle serialization (lomo-sync stays free of platform-fs).
+lomo-platform-fs = { path = "../lomo-platform-fs" }
 serde_json.workspace = true
 
 [dev-dependencies]
@@ -35,7 +37,6 @@ lomo-media = { path = "../lomo-media" }
 lomo-sync = { path = "../lomo-sync" }
 lomo-git = { path = "../lomo-git" }
 lomo-lan = { path = "../lomo-lan" }
-lomo-platform-fs = { path = "../lomo-platform-fs" }
 lomo-core = { path = "../lomo-core" }
 
 [lints]

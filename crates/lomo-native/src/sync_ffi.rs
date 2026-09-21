@@ -6,23 +6,29 @@
 //! git2).
 
 use std::{
+    path::Path,
     sync::{Arc, OnceLock},
     time::Duration,
 };
 
 use boltffi::{data, export};
+use lomo_application::{UpdateMemoRequest, WorkspaceSession};
 use lomo_core::{
-    EphemeralSecretVault, ErrorCategory, LomoError, RetryDisposition, SecretLeaseId,
-    SecretMaterial, SharedSecretVault,
+    self as core, EphemeralSecretVault, ErrorCategory, LomoError, OperationId, RetryDisposition,
+    SecretLeaseId, SecretMaterial, SharedSecretVault,
 };
 use lomo_sync::{
     self as sync, ConflictPage, ConflictPathRecord, ConflictPathStatus, ConflictResolution,
-    SyncBackendConfig, SyncBackendKind, SyncCyclePlanSummary, SyncPaths, inspect_sync_cycle_plan,
-    list_sync_conflicts, read_conflict_artifact, resolve_sync_conflicts, run_composed_sync_cycle,
-    run_composed_sync_cycle_with_remote_port,
+    ConflictSession, ConflictSessionPresence, ConflictSessionState, ResolvedLocalPullMutation,
+    SyncBackendConfig, SyncBackendKind, SyncCyclePlanSummary, SyncPaths,
+    advance_baseline_after_local_pull, collect_resolved_local_pull_mutations,
+    inspect_sync_cycle_plan, list_sync_conflicts, read_baseline, read_conflict_artifact,
+    read_conflict_session_state, reset_sync_control_tree, resolve_sync_conflicts,
+    run_composed_sync_cycle, run_composed_sync_cycle_with_remote_port,
 };
+use lomo_workspace::MemoId;
 
-use crate::EngineError;
+use crate::{EngineError, LomoEngine};
 
 /// Maximum UTF-8 bytes accepted for a free-function resolution batch (fail closed).
 const MAX_RESOLUTION_BATCH_BYTES: usize = 1_048_576;
@@ -64,6 +70,31 @@ fn resource_limit_err(code: &str, diagnostic: &str) -> LomoError {
     }
 }
 
+fn require_workspace_root(workspace_root: &str) -> Result<&Path, EngineError> {
+    if workspace_root.is_empty() || workspace_root.len() > 4096 {
+        return Err(EngineError::from(boundary_err(
+            "sync_ffi_workspace_root_invalid",
+            "workspace_root must be 1..=4096 bytes",
+        )));
+    }
+    Ok(Path::new(workspace_root))
+}
+
+fn acquire_workspace_cycle_lock(
+    workspace_root: &Path,
+) -> Result<lomo_platform_fs::ProcessFileLock, EngineError> {
+    let paths = SyncPaths::for_workspace(workspace_root);
+    paths.ensure_layout().map_err(EngineError::from)?;
+    match lomo_platform_fs::ProcessFileLock::try_acquire(&paths.cycle_lock) {
+        Ok(lock) => Ok(lock),
+        Err(err) if err.code() == "process_lock_held" => Err(EngineError::from(sync::sync_busy(
+            "sync_cycle_lock_held",
+            "another host already holds the workspace sync cycle lock",
+        ))),
+        Err(err) => Err(EngineError::from(err)),
+    }
+}
+
 /// Wire status for one conflict path (no enum ordinals; named variants only).
 #[data]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -92,10 +123,23 @@ pub struct SyncConflictPathDto {
     pub status: SyncConflictPathStatusDto,
 }
 
+/// Proven presence of a durable conflict session on the list wire.
+///
+/// Missing `conflicts.rec` is `Absent` (not an engine error). A decoded session, including one
+/// with zero paths, is `Present`. Truncation / permission stay `EngineError`.
+#[data]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum SyncConflictSessionStateDto {
+    #[default]
+    Absent,
+    Present,
+}
+
 /// Page of conflict paths (coarse-grained; not a DAO).
 #[data]
 #[derive(Clone, Debug, Default)]
 pub struct SyncConflictPageDto {
+    pub session: SyncConflictSessionStateDto,
     pub session_id: String,
     pub conflict_revision: u64,
     pub items: Vec<SyncConflictPathDto>,
@@ -120,6 +164,21 @@ pub struct SyncConflictResolveResultDto {
     pub session_id: String,
     pub conflict_revision: u64,
     pub applied_paths: Vec<String>,
+}
+
+/// Owner-computed conflict suggestion for one path (display-only wire).
+///
+/// `safe_choice` / `suggested_choice` are `keep_local` | `keep_remote` | `merge_text` when
+/// present. `merged_body` is the owner merge output whenever it succeeded, independent of the
+/// suggested choice — the host may display it and submit it back as `merged_body` on resolve.
+/// Binary paths and non-deterministic merges carry `None` choices; the host keeps the conflict
+/// open for user resolution.
+#[data]
+#[derive(Clone, Debug, Default)]
+pub struct SyncConflictSuggestionDto {
+    pub safe_choice: Option<String>,
+    pub suggested_choice: Option<String>,
+    pub merged_body: Option<String>,
 }
 
 /// Opaque secret lease wire (id only — never plaintext).
@@ -161,6 +220,8 @@ pub struct SyncCyclePlanSummaryDto {
     pub ensure_absent_count: u32,
     pub pull_present_count: u32,
     pub open_conflict_count: u32,
+    /// Mutations held because the provider offered no strong conditional-update validator.
+    pub hold_count: u32,
     pub open_conflict_paths: u32,
     pub conflict_revision: Option<u64>,
     /// `never` | `after_user_action` | `transient` (Rust-owned name; no fixed three-retry).
@@ -207,6 +268,10 @@ fn page_to_dto(page: ConflictPage) -> Result<SyncConflictPageDto, LomoError> {
         })?),
     };
     Ok(SyncConflictPageDto {
+        session: match page.session {
+            ConflictSessionPresence::Absent => SyncConflictSessionStateDto::Absent,
+            ConflictSessionPresence::Present => SyncConflictSessionStateDto::Present,
+        },
         session_id: page.session_id,
         conflict_revision: page.conflict_revision,
         items: page.items.iter().map(path_record_to_dto).collect(),
@@ -283,7 +348,7 @@ pub fn sync_list_conflicts(
             "conflict page limit must be 1..=100",
         )));
     }
-    let paths = SyncPaths::for_workspace(std::path::Path::new(&workspace_root));
+    let paths = SyncPaths::for_workspace(Path::new(&workspace_root));
     let page =
         list_sync_conflicts(&paths, cursor as usize, limit as usize).map_err(EngineError::from)?;
     page_to_dto(page).map_err(EngineError::from)
@@ -320,8 +385,59 @@ pub fn sync_read_conflict_artifact(
             "conflict artifact ref must be non-empty and bounded",
         )));
     }
-    let paths = SyncPaths::for_workspace(std::path::Path::new(&workspace_root));
+    let paths = SyncPaths::for_workspace(Path::new(&workspace_root));
     read_conflict_artifact(&paths, &artifact_ref).map_err(EngineError::from)
+}
+
+/// Computes the owner conflict suggestion for one text path (dark free-function).
+///
+/// Kotlin displays `merged_body`/`suggested_choice` and submits the user's choice; the merge
+/// algorithm, identity-keyed memo merge, and newer-side adjudication are owned by `lomo-sync`.
+/// Per-side bodies/mtimes are optional exactly as the conflict/review models carry them.
+///
+/// # Errors
+///
+/// Validation when a supplied body exceeds the durable conflict artifact byte budget.
+#[export]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI free-function boundary requires owned String wire types"
+)]
+pub fn sync_suggest_conflict_resolution(
+    local_body: Option<String>,
+    remote_body: Option<String>,
+    local_last_modified_ms: Option<i64>,
+    remote_last_modified_ms: Option<i64>,
+    is_binary: bool,
+) -> Result<SyncConflictSuggestionDto, EngineError> {
+    for body in [&local_body, &remote_body].into_iter().flatten() {
+        if body.len() > sync::MAX_CONFLICT_ARTIFACT_BYTES {
+            return Err(EngineError::from(resource_limit_err(
+                "sync_ffi_suggestion_body_too_large",
+                "conflict suggestion body exceeds the durable artifact byte budget",
+            )));
+        }
+    }
+    let suggestion = sync::suggest_conflict_resolution(
+        local_body.as_deref(),
+        remote_body.as_deref(),
+        local_last_modified_ms,
+        remote_last_modified_ms,
+        is_binary,
+    );
+    Ok(SyncConflictSuggestionDto {
+        safe_choice: suggestion.safe_choice.map(choice_name),
+        suggested_choice: suggestion.suggested_choice.map(choice_name),
+        merged_body: suggestion.merged_body,
+    })
+}
+
+fn choice_name(choice: sync::ConflictSuggestionChoice) -> String {
+    match choice {
+        sync::ConflictSuggestionChoice::KeepLocal => "keep_local".to_owned(),
+        sync::ConflictSuggestionChoice::KeepRemote => "keep_remote".to_owned(),
+        sync::ConflictSuggestionChoice::MergeText => "merge_text".to_owned(),
+    }
 }
 
 /// Resolves conflict paths with the expected conflict revision fence (dark free-function).
@@ -374,7 +490,7 @@ pub fn sync_resolve_conflicts(
         .map(resolution_from_dto)
         .collect::<Result<Vec<_>, _>>()
         .map_err(EngineError::from)?;
-    let paths = SyncPaths::for_workspace(std::path::Path::new(&workspace_root));
+    let paths = SyncPaths::for_workspace(Path::new(&workspace_root));
     let result =
         resolve_sync_conflicts(&paths, expected_revision, &mapped).map_err(EngineError::from)?;
     Ok(SyncConflictResolveResultDto {
@@ -508,13 +624,8 @@ pub fn sync_retry_disposition_from_name(name: String) -> Result<SyncRetryHintDto
 pub fn sync_inspect_cycle_plan(
     workspace_root: String,
 ) -> Result<SyncCyclePlanSummaryDto, EngineError> {
-    if workspace_root.is_empty() || workspace_root.len() > 4096 {
-        return Err(EngineError::from(boundary_err(
-            "sync_ffi_workspace_root_invalid",
-            "workspace_root must be 1..=4096 bytes",
-        )));
-    }
-    let paths = SyncPaths::for_workspace(std::path::Path::new(&workspace_root));
+    let workspace = require_workspace_root(&workspace_root)?;
+    let paths = SyncPaths::for_workspace(workspace);
     let summary = inspect_sync_cycle_plan(&paths).map_err(EngineError::from)?;
     Ok(cycle_summary_to_dto(summary))
 }
@@ -534,6 +645,7 @@ fn cycle_summary_to_dto(summary: SyncCyclePlanSummary) -> SyncCyclePlanSummaryDt
         ensure_absent_count: summary.ensure_absent_count,
         pull_present_count: summary.pull_present_count,
         open_conflict_count: summary.open_conflict_count,
+        hold_count: summary.hold_count,
         open_conflict_paths: summary.open_conflict_paths,
         conflict_revision: summary.conflict_revision,
         retry_disposition: summary.retry_disposition.to_owned(),
@@ -563,12 +675,17 @@ fn parse_backend_kind(kind: &str) -> Result<SyncBackendKind, EngineError> {
 /// and calls [`run_composed_sync_cycle_with_remote_port`] so `lomo-sync` stays free of `git2`.
 ///
 /// Does **not** re-implement planner rules. Empty-port inspect remains available as
-/// [`sync_inspect_cycle_plan`] for readiness; production work units must call this free-function.
+/// [`sync_inspect_cycle_plan`] for readiness.
+///
+/// Session-less apply refuses pending `KeepRemote` / Merged local pulls
+/// (`sync_local_pull_requires_workspace_session`). Production apply cycles that may pull local
+/// documents must use [`LomoEngine::sync_run_cycle`] so writes go through `WorkspaceSession`.
 ///
 /// # Errors
 ///
 /// Validation for blank/oversize workspace, invalid backend kind, incomplete config, missing/expired
-/// lease when required; store open / adapter / planner boundary errors from the owner.
+/// lease when required; pending local pulls without a session; store open / adapter / planner
+/// boundary errors from the owner.
 #[export]
 #[expect(
     clippy::needless_pass_by_value,
@@ -587,56 +704,101 @@ pub fn sync_run_cycle(
     secret_lease_id: String,
     apply_remote: bool,
 ) -> Result<SyncCyclePlanSummaryDto, EngineError> {
-    if workspace_root.is_empty() || workspace_root.len() > 4096 {
-        return Err(EngineError::from(boundary_err(
-            "sync_ffi_workspace_root_invalid",
-            "workspace_root must be 1..=4096 bytes",
-        )));
-    }
-    let kind = parse_backend_kind(&backend_kind)?;
-    let config = SyncBackendConfig {
-        kind,
+    execute_composed_sync_cycle(
+        &workspace_root,
+        &backend_kind,
         endpoint_url,
         username_or_access_key,
         bucket,
         prefix,
         region,
         remote_dataset_id,
-    };
+        &secret_lease_id,
+        apply_remote,
+        None,
+    )
+}
 
-    // Resolve secret material inside native only — never return plaintext on the wire.
-    let secret_owned: Option<Vec<u8>> = {
-        let trimmed = secret_lease_id.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            let id = SecretLeaseId::parse(trimmed).map_err(EngineError::from)?;
-            let material = process_secret_vault()
-                .resolve(&id)
-                .map_err(EngineError::from)?;
-            Some(material.as_bytes().to_vec())
-        }
-    };
-    let secret_ref = secret_owned.as_deref();
+#[export]
+impl LomoEngine {
+    /// Runs one composed sync cycle, then applies pending `KeepRemote`/Merged local pulls through
+    /// the open [`WorkspaceSession`].
+    ///
+    /// # Errors
+    ///
+    /// Session unavailable, Direct workspace mismatch, pending-pull apply / CAS failures, and the
+    /// same composed-cycle failures as [`sync_run_cycle`].
+    #[expect(
+        clippy::needless_pass_by_value,
+        clippy::too_many_arguments,
+        reason = "BoltFFI instance boundary requires owned String wire types"
+    )]
+    pub fn sync_run_cycle(
+        &self,
+        workspace_root: String,
+        backend_kind: String,
+        endpoint_url: String,
+        username_or_access_key: String,
+        bucket: String,
+        prefix: String,
+        region: String,
+        remote_dataset_id: String,
+        secret_lease_id: String,
+        apply_remote: bool,
+    ) -> Result<SyncCyclePlanSummaryDto, EngineError> {
+        require_engine_direct_workspace(self, Path::new(&workspace_root))?;
+        let session = crate::session_ffi::session_arc(self)?;
+        execute_composed_sync_cycle(
+            &workspace_root,
+            &backend_kind,
+            endpoint_url,
+            username_or_access_key,
+            bucket,
+            prefix,
+            region,
+            remote_dataset_id,
+            &secret_lease_id,
+            apply_remote,
+            Some(session.as_ref()),
+        )
+    }
+}
 
-    let summary = if matches!(kind, SyncBackendKind::Git) {
-        run_composed_git_cycle(
-            std::path::Path::new(&workspace_root),
-            &config,
-            secret_ref,
-            apply_remote,
-        )
-        .map_err(EngineError::from)?
-    } else {
-        run_composed_sync_cycle(
-            std::path::Path::new(&workspace_root),
-            &config,
-            secret_ref,
-            apply_remote,
-        )
-        .map_err(EngineError::from)?
-    };
-    Ok(cycle_summary_to_dto(summary))
+/// Loads the durable `WorkspaceGenerationId` for `workspace_root` (read-only; never mints).
+///
+/// # Errors
+///
+/// Validation when the workspace root is empty/oversize or `generation.rec` is missing/malformed.
+#[export]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI free-function boundary requires owned String wire types"
+)]
+pub fn sync_workspace_generation(workspace_root: String) -> Result<String, EngineError> {
+    let workspace = require_workspace_root(&workspace_root)?;
+    lomo_workspace::load_workspace_generation(workspace)
+        .map(|id| id.as_str().to_owned())
+        .map_err(EngineError::from)
+}
+
+/// Clears durable `.lomo/sync/v1` control records for identity reset (not user Markdown/media).
+///
+/// Serializes against [`sync_run_cycle`] via the workspace cycle lock.
+///
+/// # Errors
+///
+/// Validation when the workspace root is empty/oversize; busy when the cycle lock is held;
+/// storage when control files cannot be removed.
+#[export]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI free-function boundary requires owned String wire types"
+)]
+pub fn sync_reset_control_tree(workspace_root: String) -> Result<(), EngineError> {
+    let workspace = require_workspace_root(&workspace_root)?;
+    let _cycle_lock = acquire_workspace_cycle_lock(workspace)?;
+    let paths = SyncPaths::for_workspace(workspace);
+    reset_sync_control_tree(&paths).map_err(EngineError::from)
 }
 
 /// Composes store local + `lomo-git` remote and runs the owner cycle.
@@ -649,7 +811,7 @@ pub fn sync_run_cycle(
 /// - `region` = author email (default `git@lomo.local`)
 /// - secret lease = token (may be empty for local bare remotes)
 fn run_composed_git_cycle(
-    workspace_root: &std::path::Path,
+    workspace_root: &Path,
     config: &SyncBackendConfig,
     secret_material: Option<&[u8]>,
     apply_remote: bool,
@@ -719,6 +881,224 @@ fn run_composed_git_cycle(
         Duration::from_secs(30),
     )?;
     run_composed_sync_cycle_with_remote_port(workspace_root, config, &remote, apply_remote)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "composed cycle shares the BoltFFI wire arity; session is the only extra composition input"
+)]
+fn execute_composed_sync_cycle(
+    workspace_root: &str,
+    backend_kind: &str,
+    endpoint_url: String,
+    username_or_access_key: String,
+    bucket: String,
+    prefix: String,
+    region: String,
+    remote_dataset_id: String,
+    secret_lease_id: &str,
+    apply_remote: bool,
+    session: Option<&WorkspaceSession>,
+) -> Result<SyncCyclePlanSummaryDto, EngineError> {
+    let workspace = require_workspace_root(workspace_root)?;
+    let kind = parse_backend_kind(backend_kind)?;
+    let config = SyncBackendConfig {
+        kind,
+        endpoint_url,
+        username_or_access_key,
+        bucket,
+        prefix,
+        region,
+        remote_dataset_id,
+    };
+
+    let secret_owned: Option<Vec<u8>> = {
+        let trimmed = secret_lease_id.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            let id = SecretLeaseId::parse(trimmed).map_err(EngineError::from)?;
+            let material = process_secret_vault()
+                .resolve(&id)
+                .map_err(EngineError::from)?;
+            Some(material.as_bytes().to_vec())
+        }
+    };
+    let secret_ref = secret_owned.as_deref();
+    let _cycle_lock = acquire_workspace_cycle_lock(workspace)?;
+
+    if apply_remote && session.is_none() {
+        refuse_sessionless_local_pulls(workspace)?;
+    }
+
+    let summary = if matches!(kind, SyncBackendKind::Git) {
+        run_composed_git_cycle(workspace, &config, secret_ref, apply_remote)
+            .map_err(EngineError::from)?
+    } else {
+        run_composed_sync_cycle(workspace, &config, secret_ref, apply_remote)
+            .map_err(EngineError::from)?
+    };
+
+    if apply_remote && let Some(session) = session {
+        apply_resolved_local_pulls_via_session(workspace, session)?;
+    }
+    Ok(cycle_summary_to_dto(summary))
+}
+
+fn refuse_sessionless_local_pulls(workspace: &Path) -> Result<(), EngineError> {
+    let pulls = pending_resolved_local_pulls(workspace)?;
+    if pulls.is_empty() {
+        Ok(())
+    } else {
+        Err(EngineError::from(boundary_err(
+            "sync_local_pull_requires_workspace_session",
+            "KeepRemote/Merged local apply requires an open WorkspaceSession",
+        )))
+    }
+}
+
+fn pending_resolved_local_pulls(
+    workspace: &Path,
+) -> Result<Vec<ResolvedLocalPullMutation>, EngineError> {
+    let paths = SyncPaths::for_workspace(workspace);
+    match read_conflict_session_state(&paths).map_err(EngineError::from)? {
+        ConflictSessionState::Absent => Ok(Vec::new()),
+        ConflictSessionState::Present(session) => {
+            collect_resolved_local_pull_mutations(&paths, &session).map_err(EngineError::from)
+        }
+    }
+}
+
+fn require_engine_direct_workspace(
+    engine: &LomoEngine,
+    requested: &Path,
+) -> Result<(), EngineError> {
+    match &engine.workspace {
+        Some(core::WorkspaceDescriptor::Direct { canonical_root, .. }) => {
+            if workspace_paths_match(canonical_root, requested)? {
+                Ok(())
+            } else {
+                Err(EngineError::from(boundary_err(
+                    "sync_cycle_workspace_mismatch",
+                    "engine Direct workspace does not match the cycle workspace_root",
+                )))
+            }
+        }
+        Some(core::WorkspaceDescriptor::Saf { .. }) => Err(EngineError::from(boundary_err(
+            "sync_local_pull_requires_direct_workspace",
+            "KeepRemote/Merged session apply is composed for Direct workspaces",
+        ))),
+        None => Err(EngineError::from(boundary_err(
+            "workspace_session_unavailable",
+            "composed sync cycle requires an active Direct workspace",
+        ))),
+    }
+}
+
+fn workspace_paths_match(left: &Path, right: &Path) -> Result<bool, EngineError> {
+    if left == right {
+        return Ok(true);
+    }
+    let left_canon = left.canonicalize().map_err(|err| {
+        EngineError::from(boundary_err(
+            "sync_cycle_workspace_unresolvable",
+            &format!("cannot canonicalize engine workspace: {err}"),
+        ))
+    })?;
+    let right_canon = right.canonicalize().map_err(|err| {
+        EngineError::from(boundary_err(
+            "sync_cycle_workspace_unresolvable",
+            &format!("cannot canonicalize cycle workspace_root: {err}"),
+        ))
+    })?;
+    Ok(left_canon == right_canon)
+}
+
+fn apply_resolved_local_pulls_via_session(
+    workspace: &Path,
+    session: &WorkspaceSession,
+) -> Result<(), EngineError> {
+    let paths = SyncPaths::for_workspace(workspace);
+    let conflict = match read_conflict_session_state(&paths).map_err(EngineError::from)? {
+        ConflictSessionState::Absent => return Ok(()),
+        ConflictSessionState::Present(session_state) => session_state,
+    };
+    let mutations =
+        collect_resolved_local_pull_mutations(&paths, &conflict).map_err(EngineError::from)?;
+    if mutations.is_empty() {
+        return Ok(());
+    }
+    for mutation in &mutations {
+        apply_one_local_pull(session, &conflict, mutation)?;
+    }
+    let baseline = read_baseline(&paths).map_err(EngineError::from)?;
+    advance_baseline_after_local_pull(&paths, conflict.conflict_revision, baseline, &mutations)
+        .map_err(EngineError::from)?;
+    Ok(())
+}
+
+fn apply_one_local_pull(
+    session: &WorkspaceSession,
+    conflict: &ConflictSession,
+    mutation: &ResolvedLocalPullMutation,
+) -> Result<(), EngineError> {
+    let record = conflict
+        .paths
+        .iter()
+        .find(|path| path.path == mutation.path)
+        .ok_or_else(|| {
+            EngineError::from(boundary_err(
+                "conflict_local_pull_path_unknown",
+                "local pull path is not part of the durable conflict session",
+            ))
+        })?;
+    let planning_fingerprint = record.local_digest.as_deref().ok_or_else(|| {
+        EngineError::from(boundary_err(
+            "conflict_local_pull_local_digest_missing",
+            "KeepRemote/Merged session apply requires the planning-time local document digest",
+        ))
+    })?;
+    lomo_workspace::SourceFingerprint::parse(planning_fingerprint).map_err(EngineError::from)?;
+    let source = String::from_utf8(mutation.body.clone()).map_err(|_err| {
+        EngineError::from(boundary_err(
+            "sync_local_pull_body_not_utf8",
+            "KeepRemote/Merged local body must be UTF-8 Markdown",
+        ))
+    })?;
+    let content = lomo_workspace::extract_memo_body_from_raw(&source).map_err(EngineError::from)?;
+    let memo_ids = session
+        .active_memo_ids_for_source_path(&mutation.path)
+        .map_err(EngineError::from)?;
+    let memo_id = match memo_ids.as_slice() {
+        [] => {
+            return Err(EngineError::from(boundary_err(
+                "sync_local_pull_memo_missing",
+                "KeepRemote/Merged local apply requires exactly one active memo at the source path",
+            )));
+        }
+        [one] => MemoId::parse(one).map_err(EngineError::from)?,
+        _ => {
+            return Err(EngineError::from(boundary_err(
+                "sync_local_pull_source_not_unique",
+                "KeepRemote/Merged local apply refuses a source document with multiple memos",
+            )));
+        }
+    };
+    let operation_id = OperationId::parse(&format!(
+        "spull-{}-{}",
+        conflict.conflict_revision, mutation.content_digest
+    ))
+    .map_err(EngineError::from)?;
+    session
+        .update_memo(UpdateMemoRequest {
+            operation_id,
+            memo_id,
+            content,
+            expected_document_fingerprint: planning_fingerprint.to_owned(),
+            pending_promotes: Vec::new(),
+        })
+        .map_err(EngineError::from)?;
+    Ok(())
 }
 
 /// Crate-visible helper for host contract tests: whether a string looks like a lease id (not secret).

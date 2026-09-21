@@ -44,12 +44,12 @@ mod tests {
     };
 
     use lomo_native::{
-        ActionEvidence, ActionOutcome, ActionResult, DocumentKind, DocumentMetadata, EngineConfig,
-        ExchangeArtifact, JobStep, LomoEngine, MetadataPage, PlatformAction, PlatformActionOutput,
-        PlatformBatchResult, RenderNodeKind, RenderRequest, WorkspaceDescriptor,
-        WorkspaceDocumentCommand, WorkspaceDocumentCommandKind, WorkspaceDocumentExpectedState,
-        WorkspaceScanRequest, WorkspaceTarget, WorkspaceTrashCommand, WorkspaceTrashCommandKind,
-        WorkspaceTrashScanRequest,
+        ActionEvidence, ActionOutcome, ActionResult, ContentDigest, DocumentKind, DocumentMetadata,
+        EngineConfig, ExchangeArtifact, JobStep, LomoEngine, MetadataPage, PlatformAction,
+        PlatformActionOutput, PlatformBatchResult, RenderNodeKind, RenderRequest,
+        WorkspaceDescriptor, WorkspaceDocumentCommand, WorkspaceDocumentCommandKind,
+        WorkspaceDocumentExpectedState, WorkspaceScanRequest, WorkspaceTarget,
+        WorkspaceTrashCommand, WorkspaceTrashCommandKind, WorkspaceTrashScanRequest,
     };
     use lomo_workspace::SourceFingerprint;
     use tempfile::tempdir;
@@ -80,6 +80,7 @@ mod tests {
                 exchange_root: exchange.display().to_string(),
                 workspace: Some(WorkspaceDescriptor::Direct {
                     root_path: workspace.display().to_string(),
+                    capability_token: "notes-root".to_owned(),
                 }),
                 bootstrap_deadline_millis: 30_000,
             })
@@ -164,7 +165,9 @@ mod tests {
                                 mime_type: None,
                                 evidence: ActionEvidence {
                                     length: bytes.len() as u64,
-                                    digest: digest.clone(),
+                                    digest: ContentDigest::Verified {
+                                        hex: digest.clone(),
+                                    },
                                     fingerprint: format!("fp.{}", path.replace('/', ".")),
                                 },
                             },
@@ -196,7 +199,7 @@ mod tests {
                                 mime_type: None,
                                 evidence: ActionEvidence {
                                     length: bytes.len() as u64,
-                                    digest,
+                                    digest: ContentDigest::Verified { hex: digest },
                                     fingerprint: format!("fp.{}", path.replace('/', ".")),
                                 },
                             },
@@ -315,7 +318,11 @@ mod tests {
                 mime_type: None,
                 evidence: ActionEvidence {
                     length: bytes.len() as u64,
-                    digest,
+                    digest: if matches!(kind, DocumentKind::Directory) {
+                        ContentDigest::Unknown
+                    } else {
+                        ContentDigest::Verified { hex: digest }
+                    },
                     fingerprint: format!("fp.{}", relative.replace('/', ".")),
                 },
             }
@@ -347,7 +354,11 @@ mod tests {
                 mime_type: None,
                 evidence: ActionEvidence {
                     length: bytes.len() as u64,
-                    digest,
+                    digest: if matches!(kind, DocumentKind::Directory) {
+                        ContentDigest::Unknown
+                    } else {
+                        ContentDigest::Verified { hex: digest }
+                    },
                     fingerprint: format!("fp.{}", relative.replace('/', ".")),
                 },
             }

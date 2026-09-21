@@ -32,7 +32,7 @@ mod tests {
     fn evidence() -> ActionEvidence {
         ActionEvidence {
             length: 1,
-            digest: digest(),
+            digest: ContentDigest::Verified { hex: digest() },
             fingerprint: "fp-coverage".to_owned(),
         }
     }
@@ -166,6 +166,16 @@ mod tests {
         assert!(matches!(matching, ExpectedFingerprint::Match { .. }));
         assert_eq!(artifact_ffi.token, "exchange-token-1");
         assert_eq!(evidence_ffi.fingerprint, "fp-coverage");
+        assert!(matches!(
+            evidence_ffi.digest,
+            ContentDigest::Verified { .. }
+        ));
+        let unknown_ffi = evidence_to_ffi(
+            &core::ActionEvidence::unknown(0, "fp-coverage").test_ok("unknown evidence"),
+        );
+        assert!(matches!(unknown_ffi.digest, ContentDigest::Unknown));
+        let unknown_core = evidence_from_ffi(&unknown_ffi).test_ok("unknown from ffi");
+        assert_eq!(unknown_core.verified_digest(), None);
         assert!(matches!(root, WorkspaceTarget::Root));
         assert!(matches!(relative, WorkspaceTarget::Relative { .. }));
     }
@@ -307,6 +317,7 @@ mod tests {
         std::fs::create_dir(&direct_root).test_ok("workspace dir");
         workspace_from_ffi(WorkspaceDescriptor::Direct {
             root_path: direct_root.display().to_string(),
+            capability_token: "notes-root".to_owned(),
         })
         .test_ok("direct workspace");
         workspace_from_ffi(WorkspaceDescriptor::Saf {

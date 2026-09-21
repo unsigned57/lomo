@@ -12,10 +12,10 @@ use std::{
 use boltffi::data;
 use lomo_core::LomoError;
 use lomo_media::{
-    self as media, AttachmentRef, ContentDigest, MediaMime, MediaRelativePath, MediaSource,
-    MediaStaged, PromotePlan, ReferenceSource, STAGE_DIR_NAME, allocate_recording_target,
-    finalize_recording, promote_staged, stage_media, suggest_human_relative_path, sweep_orphans,
-    wall_clock_ms,
+    self as media, ArtifactId, AttachmentRef, ContentDigest, MediaMime, MediaRelativePath,
+    MediaSource, MediaStaged, PromotePlan, ReferenceSource, STAGE_DIR_NAME, StageLease,
+    StageLedger, StageOwnerKind, allocate_recording_target, finalize_recording, promote_staged,
+    stage_directory, stage_media, suggest_human_relative_path, sweep_orphans, wall_clock_ms,
 };
 use lomo_store::{
     archive_activate, archive_export, archive_import, archive_import_activate_rebuild,
@@ -124,6 +124,56 @@ pub struct MediaOrphanSweepResultDto {
 pub struct MediaManifestDto {
     pub stage_dir_name: String,
     pub entries: Vec<MediaCommittedEntryDto>,
+}
+
+/// Who currently holds staged bytes (owner vocabulary for the stage ledger).
+#[data]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum MediaStageOwnerKindDto {
+    /// An in-progress editor draft that imported the media.
+    #[default]
+    Draft,
+    /// A frozen memo operation committing the staged media.
+    PendingOperation,
+    /// A sync/LAN receive session staging inbound media.
+    IncomingTransfer,
+    /// A committed document reference keeping bytes alive.
+    CommittedReference,
+}
+
+/// One lease over a staged artifact.
+#[data]
+#[derive(Clone, Debug, Default)]
+pub struct MediaStageLeaseDto {
+    pub artifact_id: String,
+    pub owner_kind: MediaStageOwnerKindDto,
+    pub owner_id: String,
+}
+
+/// Durable staged artifact record returned to the host.
+#[data]
+#[derive(Clone, Debug, Default)]
+pub struct MediaStageRecordDto {
+    pub artifact_id: String,
+    pub digest: String,
+    pub size: u64,
+    pub mime: String,
+    pub staging_path: String,
+    pub human_name_hint: String,
+    /// Collision-free workspace-relative destination resolved by the media owner.
+    pub suggested_final_relative_path: String,
+    pub leases: Vec<MediaStageLeaseDto>,
+    /// False when the staged bytes vanished; the draft must surface a recoverable failure.
+    pub staged_bytes_present: bool,
+}
+
+/// Result of releasing one stage lease.
+#[data]
+#[derive(Clone, Debug, Default)]
+pub struct MediaStageReleaseDto {
+    pub artifact_id: String,
+    pub remaining_leases: u64,
+    pub bytes_deleted: bool,
 }
 
 /// Archive export result (path + schema).
@@ -276,6 +326,166 @@ pub fn ffi_finalize_recording(
     )
     .map_err(EngineError::from)?;
     Ok(staged_to_dto(staged))
+}
+
+/// Records a freshly staged artifact in the durable stage ledger and acquires one lease.
+///
+/// `workspace_root` is the Direct workspace used to resolve destination collisions; pass it as
+/// `None` when only a private stage root exists.
+///
+/// # Errors
+///
+/// Media validation/storage errors.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI boundary owns the staged DTO"
+)]
+pub fn ffi_record_stage_lease(
+    workspace_root: Option<&str>,
+    staged: MediaStagedDto,
+    owner_kind: MediaStageOwnerKindDto,
+    owner_id: &str,
+) -> Result<MediaStageRecordDto, EngineError> {
+    let staged = staged_from_dto(&staged)?;
+    let stage_dir =
+        lomo_media::stage_directory_of(&staged.staging_path).map_err(EngineError::from)?;
+    let lease = stage_lease(ArtifactId::of_digest(&staged.digest), owner_kind, owner_id)?;
+    let mut ledger = StageLedger::load(&stage_dir).map_err(EngineError::from)?;
+    let record = ledger
+        .record(workspace_root.map(Path::new), &staged, lease)
+        .map_err(EngineError::from)?;
+    Ok(stage_record_to_dto(&record))
+}
+
+/// Lists the durable stage records currently leased by one exact holder.
+///
+/// # Errors
+///
+/// Media storage/corruption errors.
+pub fn ffi_stage_records_for_owner(
+    media_root: &str,
+    owner_kind: MediaStageOwnerKindDto,
+    owner_id: &str,
+) -> Result<Vec<MediaStageRecordDto>, EngineError> {
+    let ledger = load_ledger(media_root)?;
+    Ok(ledger
+        .records_for_owner(owner_kind_from_dto(owner_kind), owner_id)
+        .iter()
+        .map(stage_record_to_dto)
+        .collect())
+}
+
+/// Transfers one holder's lease to another without deleting staged bytes.
+///
+/// # Errors
+///
+/// Media validation/storage errors.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI boundary owns the lease DTOs"
+)]
+pub fn ffi_transfer_stage_lease(
+    media_root: &str,
+    from: MediaStageLeaseDto,
+    to: MediaStageLeaseDto,
+) -> Result<MediaStageReleaseDto, EngineError> {
+    let from = stage_lease_from_dto(&from)?;
+    let to = stage_lease_from_dto(&to)?;
+    let stage_dir = stage_directory(Path::new(media_root));
+    let mut ledger = StageLedger::load(&stage_dir).map_err(EngineError::from)?;
+    let outcome = ledger
+        .transfer(&stage_dir, &from, to)
+        .map_err(EngineError::from)?;
+    Ok(stage_release_to_dto(&outcome))
+}
+
+/// Releases one lease; staged bytes are deleted only when no lease remains.
+///
+/// # Errors
+///
+/// Media validation/storage errors.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI boundary owns the lease DTO"
+)]
+pub fn ffi_release_stage_lease(
+    media_root: &str,
+    lease: MediaStageLeaseDto,
+) -> Result<MediaStageReleaseDto, EngineError> {
+    let lease = stage_lease_from_dto(&lease)?;
+    let stage_dir = stage_directory(Path::new(media_root));
+    let mut ledger = StageLedger::load(&stage_dir).map_err(EngineError::from)?;
+    let outcome = ledger
+        .release(&stage_dir, &lease)
+        .map_err(EngineError::from)?;
+    Ok(stage_release_to_dto(&outcome))
+}
+
+fn load_ledger(media_root: &str) -> Result<StageLedger, EngineError> {
+    let stage_dir = stage_directory(Path::new(media_root));
+    StageLedger::load(&stage_dir).map_err(EngineError::from)
+}
+
+const fn owner_kind_from_dto(kind: MediaStageOwnerKindDto) -> StageOwnerKind {
+    match kind {
+        MediaStageOwnerKindDto::Draft => StageOwnerKind::Draft,
+        MediaStageOwnerKindDto::PendingOperation => StageOwnerKind::PendingOperation,
+        MediaStageOwnerKindDto::IncomingTransfer => StageOwnerKind::IncomingTransfer,
+        MediaStageOwnerKindDto::CommittedReference => StageOwnerKind::CommittedReference,
+    }
+}
+
+fn stage_lease(
+    artifact_id: ArtifactId,
+    owner_kind: MediaStageOwnerKindDto,
+    owner_id: &str,
+) -> Result<StageLease, EngineError> {
+    StageLease::new(artifact_id, owner_kind_from_dto(owner_kind), owner_id)
+        .map_err(EngineError::from)
+}
+
+fn stage_lease_from_dto(dto: &MediaStageLeaseDto) -> Result<StageLease, EngineError> {
+    let artifact_id = ArtifactId::parse(&dto.artifact_id).map_err(EngineError::from)?;
+    stage_lease(artifact_id, dto.owner_kind, &dto.owner_id)
+}
+
+fn stage_record_to_dto(record: &lomo_media::StageRecord) -> MediaStageRecordDto {
+    MediaStageRecordDto {
+        artifact_id: record.artifact_id.as_str().to_owned(),
+        digest: record.digest.as_str().to_owned(),
+        size: record.size,
+        mime: record.mime.as_str().to_owned(),
+        staging_path: record.staging_path.to_string_lossy().into_owned(),
+        human_name_hint: record.human_name_hint.clone(),
+        suggested_final_relative_path: record.suggested_final_relative_path.clone(),
+        leases: record
+            .leases
+            .iter()
+            .map(|lease| MediaStageLeaseDto {
+                artifact_id: lease.artifact_id.as_str().to_owned(),
+                owner_kind: owner_kind_to_dto(lease.owner_kind),
+                owner_id: lease.owner_id.clone(),
+            })
+            .collect(),
+        staged_bytes_present: record.is_present(),
+    }
+}
+
+const fn owner_kind_to_dto(kind: StageOwnerKind) -> MediaStageOwnerKindDto {
+    match kind {
+        StageOwnerKind::Draft => MediaStageOwnerKindDto::Draft,
+        StageOwnerKind::PendingOperation => MediaStageOwnerKindDto::PendingOperation,
+        StageOwnerKind::IncomingTransfer => MediaStageOwnerKindDto::IncomingTransfer,
+        StageOwnerKind::CommittedReference => MediaStageOwnerKindDto::CommittedReference,
+    }
+}
+
+fn stage_release_to_dto(outcome: &lomo_media::StageRelease) -> MediaStageReleaseDto {
+    MediaStageReleaseDto {
+        artifact_id: outcome.artifact_id.as_str().to_owned(),
+        remaining_leases: outcome.remaining_leases,
+        bytes_deleted: outcome.bytes_deleted,
+    }
 }
 
 /// Promotes one staged item to a final relative path (path-only).
@@ -550,6 +760,7 @@ pub fn ffi_archive_import_activate_rebuild(
         store_digest: result.store_digest,
         corrupt_lomo_isolated: result.corrupt_lomo_isolated,
         high_water_revision: result.high_water_revision,
+        rewritten: result.rewritten,
     })
 }
 

@@ -11,13 +11,14 @@
 use boltffi::{data, export};
 use lomo_core::{ErrorCategory, LomoError, RetryDisposition};
 use lomo_lan::{
-    ATTACHMENT_SLOT_BODY, DeviceId, DevicePublicKey, DiscoveredPeerEndpoint, DisplayName,
-    LanApproval, LanAttachmentRef, LanBatchId, LanBatchPlan, LanBatchPreview, LanBindCandidate,
-    LanDiscoverySnapshot, LanItemPlan, LanJournal, LanJournalPaths, LanNetworkSnapshot,
-    LanOutgoingBatchPhase, LanPairingChallenge, LanPairingId, LanReceivedBatchDecision,
-    LanReceivedItemOutcome, LanRuntimeInbox, LanServiceManager, LanServicePhase,
-    LanServiceSnapshot, LanSessionChallenge, LanSessionId, LanSessionPhase, LanSessionSnapshot,
-    MAX_BATCH_ITEMS, PairingTranscript, RUNTIME_CHUNK_PLAINTEXT_BYTES_U32, derive_pairing_code,
+    APPROVAL_TTL_MS, ATTACHMENT_SLOT_BODY, DeviceId, DevicePublicKey, DiscoveredPeerEndpoint,
+    DisplayName, LAN_PROTOCOL_VERSION, LanApproval, LanAttachmentRef, LanBatchId, LanBatchPlan,
+    LanBatchPreview, LanBindCandidate, LanDiscoverySnapshot, LanItemPlan, LanJournal,
+    LanJournalPaths, LanNetworkSnapshot, LanOutgoingBatchPhase, LanPairingChallenge, LanPairingId,
+    LanReceivedBatchDecision, LanReceivedItemOutcome, LanRuntimeInbox, LanServiceManager,
+    LanServicePhase, LanServiceSnapshot, LanSessionChallenge, LanSessionId, LanSessionPhase,
+    LanSessionSnapshot, MAX_BATCH_ITEMS, PAIRING_TTL_MS, PairingTranscript,
+    RUNTIME_CHUNK_PLAINTEXT_BYTES_U32, SESSION_TTL_MS, derive_pairing_code,
     verify_pairing_confirmation,
 };
 
@@ -43,6 +44,27 @@ pub fn transfer_shape_to_ffi() -> LanTransferShapeDto {
     LanTransferShapeDto {
         body_slot: u32::from(ATTACHMENT_SLOT_BODY),
         chunk_plaintext_bytes: RUNTIME_CHUNK_PLAINTEXT_BYTES_U32,
+    }
+}
+
+/// Protocol version and lifetimes owned by `lomo-lan`. Kotlin only displays remaining time.
+#[data]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct LanProtocolLimitsDto {
+    pub protocol_version: u32,
+    pub pairing_ttl_ms: i64,
+    pub session_ttl_ms: i64,
+    pub approval_ttl_ms: i64,
+}
+
+/// Exposes owner protocol limits without duplicating them in Kotlin.
+#[must_use]
+pub fn protocol_limits_to_ffi() -> LanProtocolLimitsDto {
+    LanProtocolLimitsDto {
+        protocol_version: u32::from(LAN_PROTOCOL_VERSION),
+        pairing_ttl_ms: PAIRING_TTL_MS,
+        session_ttl_ms: SESSION_TTL_MS,
+        approval_ttl_ms: APPROVAL_TTL_MS,
     }
 }
 
@@ -265,6 +287,14 @@ pub struct LanRuntimeInboxDto {
     pub batch_recoveries: Vec<LanBatchRecoveryDto>,
     pub committable_items: Vec<LanCommittableItemDto>,
     pub outgoing_batches: Vec<LanOutgoingBatchDto>,
+}
+
+/// Inbox snapshot plus the generation the listener pump had reached when the wait returned.
+#[data]
+#[derive(Clone, Debug, Default)]
+pub struct LanInboxWaitDto {
+    pub generation: u64,
+    pub inbox: LanRuntimeInboxDto,
 }
 
 /// Parses a foreign send request into the sole Rust-owned batch plan.
@@ -919,6 +949,6 @@ pub fn discovered_peer_to_ffi(peer: &DiscoveredPeerEndpoint) -> LanDiscoveredPee
         display_name: peer.display_name().as_str().to_owned(),
         host: address.ip().to_string(),
         port: u32::from(address.port()),
-        protocol_version: u32::from(lomo_lan::LAN_PROTOCOL_VERSION),
+        protocol_version: u32::from(LAN_PROTOCOL_VERSION),
     }
 }

@@ -18,6 +18,7 @@ use lomo_workspace::{self as workspace, workspace_driver_registry};
 
 // Public so BoltFFI type resolution can name `crate::media_ffi::*` wire DTOs from store_ffi.
 pub mod lan_ffi;
+mod lan_pump;
 pub mod media_ffi;
 mod session_ffi;
 mod store_ffi;
@@ -25,49 +26,49 @@ pub mod sync_ffi;
 pub use lan_ffi::{
     LanAttachmentDto, LanBatchPreviewDto, LanBatchRecoveryDto, LanBindCandidateDto,
     LanCommittableItemDto, LanCommittedReceivedItemDto, LanDeviceIdentityDto, LanDiscoveredPeerDto,
-    LanDiscoverySnapshotDto, LanFailedReceivedItemDto, LanLocalIdentityDto, LanNetworkSnapshotDto,
-    LanOutgoingBatchDto, LanOutgoingBatchPhaseDto, LanPairingChallengeDto, LanPairingTranscriptDto,
-    LanPeerDto, LanPeerPageDto, LanPendingBatchDto, LanPendingReceivedItemDto,
-    LanReceivedBatchDecisionDto, LanRuntimeInboxDto, LanSendItemDto, LanServicePhaseDto,
-    LanServiceSnapshotDto, LanSessionChallengeDto, LanSessionPhaseDto, LanSessionSnapshotDto,
-    LanTransferShapeDto, lan_approval_is_valid, lan_approve_receive, lan_confirm_pairing,
-    lan_list_peers, lan_pairing_short_code, lan_prepare_send, lan_revoke_peer,
-    lan_unconfirmed_chunks,
+    LanDiscoverySnapshotDto, LanFailedReceivedItemDto, LanInboxWaitDto, LanLocalIdentityDto,
+    LanNetworkSnapshotDto, LanOutgoingBatchDto, LanOutgoingBatchPhaseDto, LanPairingChallengeDto,
+    LanPairingTranscriptDto, LanPeerDto, LanPeerPageDto, LanPendingBatchDto,
+    LanPendingReceivedItemDto, LanProtocolLimitsDto, LanReceivedBatchDecisionDto,
+    LanRuntimeInboxDto, LanSendItemDto, LanServicePhaseDto, LanServiceSnapshotDto,
+    LanSessionChallengeDto, LanSessionPhaseDto, LanSessionSnapshotDto, LanTransferShapeDto,
+    lan_approval_is_valid, lan_approve_receive, lan_confirm_pairing, lan_list_peers,
+    lan_pairing_short_code, lan_prepare_send, lan_revoke_peer, lan_unconfirmed_chunks,
 };
 pub use media_ffi::{
     ArchiveExportResultDto, ArchiveInspectResultDto, MediaAttachmentRefDto, MediaCommittedEntryDto,
     MediaManifestDto, MediaOrphanSweepResultDto, MediaPromotePlanDto, MediaPromoteResultDto,
-    MediaSourceKind, MediaStagedDto, MediaTrashEntryDto, pending_promotes_from_ffi,
+    MediaSourceKind, MediaStageLeaseDto, MediaStageOwnerKindDto, MediaStageRecordDto,
+    MediaStageReleaseDto, MediaStagedDto, MediaTrashEntryDto, pending_promotes_from_ffi,
 };
 pub use session_ffi::{
     SessionCivilDate, SessionCivilTime, SessionCreateMemoRequest, SessionDateCount,
     SessionDeleteMemoRequest, SessionFireReminderRequest, SessionHourCount, SessionMemoView,
-    SessionPinMemoRequest, SessionRestoreRequest, SessionRestoreResult,
-    SessionRestoreRevisionRequest, SessionReviewCandidate, SessionSearchHit, SessionSearchMode,
-    SessionSearchOutcome, SessionSearchPage, SessionSearchRequest, SessionStatistics,
-    SessionStatisticsSnapshot, SessionTagCount, SessionTaskItem, SessionToggleTaskRequest,
-    SessionUpdateMemoRequest, SessionWeeklyHourCount, batch_from_ffi, result_to_ffi,
+    SessionPinMemoRequest, SessionRestoreRequest, SessionRestoreRevisionRequest,
+    SessionReviewCandidate, SessionSearchHit, SessionSearchMode, SessionSearchOutcome,
+    SessionSearchPage, SessionSearchRequest, SessionStatistics, SessionStatisticsSnapshot,
+    SessionTagCount, SessionTaskItem, SessionToggleTaskRequest, SessionUpdateMemoRequest,
+    SessionWeeklyHourCount, batch_from_ffi, result_to_ffi,
 };
 pub use store_ffi::{
-    StoreHandle, StoreHistoryAttachmentRef, StoreMemoBatchCommit, StoreMemoBatchDelete,
+    StoreHistoryAttachmentRef, StoreInvalidationScope, StoreMemoBatchCommit, StoreMemoBatchDelete,
     StoreMemoCommand, StoreMemoCommandKind, StoreMemoCommit, StoreMemoDeleteTarget,
     StoreMemoDeletedMemo, StoreMemoFilters, StoreMemoHistoryPage, StoreMemoHistoryRevision,
     StoreMemoPage, StoreMemoQuery, StoreMemoQueryBoundary, StoreMemoSnapshot, StoreMemoSort,
     StoreMemoSortField, StoreMemoStatisticsRow, StoreMemoSummary, StorePageCursor,
-    StorePlannedAlarm, StoreRebuildResult, StoreReminderCommand, StoreReminderCommandKind,
-    StoreReminderCommandResult, StoreReminderPlan, StoreReminderQuery, StoreReminderSession,
-    StoreSafHistoryProjectionReference, StoreSafMemoCreateBegin, StoreSafMemoCreateBeginResult,
-    StoreSafMemoProjection, StoreSafMemoProjectionReference, StoreSafMemoRollbackResult,
-    StoreSafTrashProjectionReference, StoreSidebarDateCount, StoreSidebarProjection,
-    StoreSidebarTagCount, StoreSortDirection, StoreTimeZoneContext, StoreZoneTransition,
+    StorePlannedAlarm, StoreRebuildResult, StoreReminderPlan, StoreSafHistoryProjectionReference,
+    StoreSafMemoCreateBegin, StoreSafMemoCreateBeginResult, StoreSafMemoProjection,
+    StoreSafMemoProjectionReference, StoreSafMemoRollbackResult, StoreSafTrashProjectionReference,
+    StoreSidebarDateCount, StoreSidebarProjection, StoreSidebarTagCount, StoreSortDirection,
 };
 pub use sync_ffi::{
     SyncConflictPageDto, SyncConflictPathDto, SyncConflictPathStatusDto, SyncConflictResolutionDto,
-    SyncConflictResolveResultDto, SyncCyclePlanSummaryDto, SyncRetryDispositionDto,
-    SyncRetryHintDto, SyncSecretLeaseDto, looks_like_lease_id, sync_inspect_cycle_plan,
-    sync_issue_secret_lease, sync_list_conflicts, sync_probe_secret_lease,
-    sync_read_conflict_artifact, sync_resolve_conflicts, sync_retry_disposition_from_name,
-    sync_revoke_secret_lease, sync_run_cycle,
+    SyncConflictResolveResultDto, SyncConflictSessionStateDto, SyncConflictSuggestionDto,
+    SyncCyclePlanSummaryDto, SyncRetryDispositionDto, SyncRetryHintDto, SyncSecretLeaseDto,
+    looks_like_lease_id, sync_inspect_cycle_plan, sync_issue_secret_lease, sync_list_conflicts,
+    sync_probe_secret_lease, sync_read_conflict_artifact, sync_reset_control_tree,
+    sync_resolve_conflicts, sync_retry_disposition_from_name, sync_revoke_secret_lease,
+    sync_run_cycle, sync_suggest_conflict_resolution, sync_workspace_generation,
 };
 
 #[data]
@@ -162,6 +163,9 @@ pub struct WorkspaceReminderReference {
     pub source_start: u64,
     pub source_end: u64,
     pub token_fingerprint: String,
+    pub fingerprint_ordinal: u32,
+    /// Resolved durable embedded reminder id (`#<hex>` tail); `None` for legacy/ambiguous tokens.
+    pub embedded_id: Option<String>,
     pub token: String,
     pub due_at_local: String,
     pub repeat_count: u32,
@@ -199,6 +203,10 @@ pub struct WorkspaceScanPage {
 
 #[data]
 #[derive(Clone, Debug)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "BoltFFI wire enums must stay flat; the payload is serialized across the boundary"
+)]
 pub enum WorkspaceDocumentCommandKind {
     Create {
         time_part: String,
@@ -376,6 +384,7 @@ pub struct EngineConfig {
 pub enum WorkspaceDescriptor {
     Direct {
         root_path: String,
+        capability_token: String,
     },
     Saf {
         stable_workspace_id: String,
@@ -413,9 +422,16 @@ pub enum EngineState {
 
 #[data]
 #[derive(Clone, Debug)]
+pub enum ContentDigest {
+    Unknown,
+    Verified { hex: String },
+}
+
+#[data]
+#[derive(Clone, Debug)]
 pub struct ActionEvidence {
     pub length: u64,
-    pub digest: String,
+    pub digest: ContentDigest,
     pub fingerprint: String,
 }
 
@@ -633,23 +649,6 @@ pub enum ShutdownOutcome {
     AlreadyShutdown,
 }
 
-#[data]
-#[derive(Clone, Debug)]
-pub struct CoreEvent {
-    pub event_sequence: u64,
-    pub core_revision: u64,
-    pub job_id: Option<String>,
-    /// Bounded invalidation scopes (`memo_list`, `search`, `reminder`, `full`, …). Empty when the
-    /// publisher has not attached scopes (legacy core events); consumers treat empty as full
-    /// resnapshot when combined with an event-sequence gap.
-    pub scopes: Vec<String>,
-}
-
-#[export]
-pub trait CoreEventListener: Send + Sync {
-    fn on_event(&self, event: CoreEvent);
-}
-
 /// Synchronous platform-action host injected into the application session.
 ///
 /// Kotlin SAF (and host POSIX tests) execute the batch on the calling thread and return verified
@@ -703,13 +702,11 @@ impl std::error::Error for EngineError {}
 
 pub struct LomoEngine {
     pub(crate) core: Arc<core::LomoEngine>,
-    /// Store handle for Direct workspaces or the app-private projection of a SAF workspace.
-    store: Option<StoreHandle>,
-    /// Sole process-owned Stage-6 LAN lifecycle. Kotlin publishes platform facts but never binds.
-    lan: Mutex<lomo_lan::LanServiceManager>,
+    lan: Arc<Mutex<lomo_lan::LanServiceManager>>,
+    lan_pump: lan_pump::LanInboxPump,
     pub(crate) control_root: PathBuf,
     pub(crate) workspace: Option<core::WorkspaceDescriptor>,
-    pub(crate) session: Mutex<Option<lomo_application::WorkspaceSession>>,
+    pub(crate) session: Mutex<Option<Arc<lomo_application::WorkspaceSession>>>,
 }
 
 impl fmt::Debug for LomoEngine {
@@ -721,39 +718,19 @@ impl fmt::Debug for LomoEngine {
         formatter
             .debug_struct("LomoEngine")
             .field("state", &self.core.state())
-            .field("has_store", &self.store.is_some())
             .field("has_session", &has_session)
             .finish_non_exhaustive()
     }
 }
 
-struct ListenerAdapter {
-    foreign: Box<dyn CoreEventListener>,
-}
-
-impl core::CoreEventListener for ListenerAdapter {
-    fn on_event(&self, event: core::CoreEvent) -> Result<(), core::LomoError> {
-        self.foreign.on_event(CoreEvent {
-            event_sequence: event.event_sequence().get(),
-            core_revision: event.core_revision().get(),
-            job_id: event.job_id().map(|id| id.as_str().to_owned()),
-            scopes: Vec::new(),
-        });
-        Ok(())
-    }
-}
-
-pub struct Subscription {
-    core: core::Subscription,
-}
-
+/// FFI export of the sole event-sequence gap law. Kotlin must not reimplement this predicate.
 #[export]
-impl Subscription {
-    /// Explicitly unregisters the foreign listener before releasing the `BoltFFI` object handle.
-    #[must_use]
-    pub fn unsubscribe(&self) -> bool {
-        self.core.close()
-    }
+#[must_use]
+pub const fn event_sequence_requires_full_invalidate(last_seen: u64, incoming: u64) -> bool {
+    core::event_sequence_requires_full_invalidate(
+        core::EventSequence::from_raw(last_seen),
+        core::EventSequence::from_raw(incoming),
+    )
 }
 
 #[export]
@@ -768,19 +745,6 @@ impl LomoEngine {
         let control_root = PathBuf::from(&config.control_root);
         let lan = lomo_lan::LanServiceManager::open(&control_root).map_err(EngineError::from)?;
         let workspace = config.workspace.map(workspace_from_ffi).transpose()?;
-        let store = match &workspace {
-            Some(core::WorkspaceDescriptor::Direct { canonical_root, .. }) => {
-                Some(StoreHandle::new(canonical_root.clone(), &control_root)?)
-            }
-            Some(core::WorkspaceDescriptor::Saf { identity, .. }) => Some(StoreHandle::new_saf(
-                control_root
-                    .join("store")
-                    .join("saf")
-                    .join(identity.as_str()),
-                &control_root,
-            )?),
-            None => None,
-        };
         let core_config = core::EngineConfig::new(
             control_root.clone(),
             PathBuf::from(config.exchange_root),
@@ -789,11 +753,13 @@ impl LomoEngine {
         .and_then(|config| config.with_bootstrap_deadline(bootstrap_deadline))
         .map(|config| config.with_drivers(workspace_driver_registry()))
         .map_err(EngineError::from)?;
+        let lan = Arc::new(Mutex::new(lan));
+        let lan_pump = lan_pump::LanInboxPump::new(Arc::clone(&lan));
         let core = core::LomoEngine::open(core_config).map_err(EngineError::from)?;
         Ok(Self {
             core,
-            store,
-            lan: Mutex::new(lan),
+            lan,
+            lan_pump,
             control_root,
             workspace,
             session: Mutex::new(None),
@@ -809,6 +775,12 @@ impl LomoEngine {
     #[must_use]
     pub fn lan_transfer_shape(&self) -> LanTransferShapeDto {
         lan_ffi::transfer_shape_to_ffi()
+    }
+
+    /// Returns protocol version and lifetimes owned by `lomo-lan`. Kotlin displays remaining time.
+    #[must_use]
+    pub fn lan_protocol_limits(&self) -> LanProtocolLimitsDto {
+        lan_ffi::protocol_limits_to_ffi()
     }
 
     /// Publishes bounded, monotonic Android network facts to the Rust LAN owner.
@@ -855,10 +827,12 @@ impl LomoEngine {
     ///
     /// Permission/network/lifecycle errors from `lomo-lan`.
     pub fn start_lan_service(&self) -> Result<LanServiceSnapshotDto, EngineError> {
-        self.lan_manager()?
-            .start()
-            .map(|snapshot| lan_ffi::service_snapshot_to_ffi(&snapshot))
-            .map_err(EngineError::from)
+        let snapshot = self.lan_manager()?.start().map_err(EngineError::from)?;
+        if let Err(error) = self.lan_pump.start() {
+            let _stopped = self.lan_manager()?.stop();
+            return Err(error);
+        }
+        Ok(lan_ffi::service_snapshot_to_ffi(&snapshot))
     }
 
     /// Stops and releases the sole Rust-owned LAN listener.
@@ -867,6 +841,7 @@ impl LomoEngine {
     ///
     /// Internal when the lifecycle lock was poisoned by a prior panic.
     pub fn stop_lan_service(&self) -> Result<LanServiceSnapshotDto, EngineError> {
+        self.lan_pump.stop();
         let snapshot = self.lan_manager()?.stop();
         Ok(lan_ffi::service_snapshot_to_ffi(&snapshot))
     }
@@ -942,23 +917,47 @@ impl LomoEngine {
                     "pairing requires a v2 endpoint from the current discovery snapshot",
                 ))
             })?;
+        if ttl_ms != lomo_lan::PAIRING_TTL_MS {
+            return Err(EngineError::from(lomo_lan::lan_validation(
+                "lan_pairing_ttl_invalid",
+                "pairing time-to-live is owned by lomo-lan",
+            )));
+        }
         manager
-            .begin_pairing(&peer, now_ms, ttl_ms)
+            .begin_pairing(&peer, now_ms, lomo_lan::PAIRING_TTL_MS)
             .map(|challenge| lan_ffi::pairing_challenge_to_ffi(&challenge))
             .map_err(EngineError::from)
     }
 
-    /// Processes one inbound Rust-owned LAN control connection.
+    /// Returns the current LAN inbox. Accept/work is owned by the listener pump started with the
+    /// service; this method does not wait on the socket.
     ///
     /// # Errors
     ///
     /// Lifecycle, network, validation or authentication errors from the Rust receive state.
     pub fn poll_lan_listener(&self, now_ms: i64) -> Result<LanRuntimeInboxDto, EngineError> {
-        let mut manager = self.lan_manager()?;
-        manager.poll_listener(now_ms).map_err(EngineError::from)?;
-        let inbox = manager.inbox().map_err(EngineError::from)?;
-        drop(manager);
-        Ok(lan_ffi::runtime_inbox_to_ffi(&inbox))
+        let _: i64 = now_ms;
+        self.lan_runtime_inbox()
+    }
+
+    /// Waits until the listener pump advances the inbox generation or `timeout_ms` elapses.
+    ///
+    /// # Errors
+    ///
+    /// Lifecycle when the pump lock is poisoned; network/validation when a pumped frame fails.
+    pub fn await_lan_inbox(
+        &self,
+        last_generation: u64,
+        timeout_ms: u64,
+    ) -> Result<LanInboxWaitDto, EngineError> {
+        let generation = self
+            .lan_pump
+            .await_generation(last_generation, Duration::from_millis(timeout_ms))?;
+        let inbox = self.lan_manager()?.inbox().map_err(EngineError::from)?;
+        Ok(LanInboxWaitDto {
+            generation,
+            inbox: lan_ffi::runtime_inbox_to_ffi(&inbox),
+        })
     }
 
     /// Returns bounded live and durable LAN work without waiting for a socket connection.
@@ -1063,8 +1062,14 @@ impl LomoEngine {
                     "session requires a v2 endpoint from the current discovery snapshot",
                 ))
             })?;
+        if ttl_ms != lomo_lan::SESSION_TTL_MS {
+            return Err(EngineError::from(lomo_lan::lan_validation(
+                "lan_session_ttl_invalid",
+                "session time-to-live is owned by lomo-lan",
+            )));
+        }
         manager
-            .begin_session(&peer, now_ms, ttl_ms)
+            .begin_session(&peer, now_ms, lomo_lan::SESSION_TTL_MS)
             .map(|challenge| lan_ffi::session_challenge_to_ffi(&challenge))
             .map_err(EngineError::from)
     }
@@ -1157,7 +1162,7 @@ impl LomoEngine {
         batch_id: String,
         items: Vec<LanSendItemDto>,
     ) -> Result<(), EngineError> {
-        self.lan_ready_store()?;
+        self.lan_workspace_root()?;
         let parsed_session =
             lan_ffi::session_id_from_ffi(&session_id).map_err(EngineError::from)?;
         let plan = lan_ffi::batch_plan_from_ffi(&batch_id, &items).map_err(EngineError::from)?;
@@ -1205,17 +1210,28 @@ impl LomoEngine {
         now_ms: i64,
         ttl_ms: i64,
     ) -> Result<(), EngineError> {
-        let generation =
-            workspace::load_or_mint_workspace_generation(self.lan_ready_store()?.workspace_root())
-                .map(|generation| generation.as_str().to_owned())
-                .map_err(EngineError::from)?;
+        let generation = workspace::load_workspace_generation(&self.lan_workspace_root()?)
+            .map(|generation| generation.as_str().to_owned())
+            .map_err(EngineError::from)?;
         let parsed_session =
             lan_ffi::session_id_from_ffi(&session_id).map_err(EngineError::from)?;
         let parsed_batch = lomo_lan::LanBatchId::parse(&batch_id).map_err(EngineError::from)?;
         let generation =
             lomo_lan::ApprovedGeneration::capture(&generation).map_err(EngineError::from)?;
+        if ttl_ms != lomo_lan::APPROVAL_TTL_MS {
+            return Err(EngineError::from(lomo_lan::lan_validation(
+                "lan_approval_ttl_invalid",
+                "approval time-to-live is owned by lomo-lan",
+            )));
+        }
         self.lan_manager()?
-            .approve_batch(&parsed_session, &parsed_batch, generation, now_ms, ttl_ms)
+            .approve_batch(
+                &parsed_session,
+                &parsed_batch,
+                generation,
+                now_ms,
+                lomo_lan::APPROVAL_TTL_MS,
+            )
             .map_err(EngineError::from)
     }
 
@@ -1262,7 +1278,7 @@ impl LomoEngine {
         chunk_index: u32,
         plaintext: Vec<u8>,
     ) -> Result<(), EngineError> {
-        self.lan_ready_store()?;
+        self.lan_workspace_root()?;
         let parsed_session =
             lan_ffi::session_id_from_ffi(&session_id).map_err(EngineError::from)?;
         let parsed_batch = lomo_lan::LanBatchId::parse(&batch_id).map_err(EngineError::from)?;
@@ -1339,8 +1355,8 @@ impl LomoEngine {
         batch_id: String,
         item_index: u32,
         now_ms: i64,
-    ) -> Result<String, EngineError> {
-        let store = self.lan_ready_store()?;
+    ) -> Result<StoreMemoCommit, EngineError> {
+        let workspace_root = self.lan_workspace_root()?;
         let parsed_batch = lomo_lan::LanBatchId::parse(&batch_id).map_err(EngineError::from)?;
         let item_index = u16::try_from(item_index).map_err(|_error| {
             EngineError::from(lomo_lan::lan_validation(
@@ -1354,8 +1370,8 @@ impl LomoEngine {
                 "batch is not present in durable recovery state",
             )));
         }
-        let active_generation = workspace::load_workspace_generation(store.workspace_root())
-            .map_err(EngineError::from)?;
+        let active_generation =
+            workspace::load_workspace_generation(&workspace_root).map_err(EngineError::from)?;
         let command = self
             .lan_manager()?
             .authorize_received_item_create(
@@ -1373,21 +1389,20 @@ impl LomoEngine {
                     "batch disappeared while resolving committed item",
                 ))
             })?;
+            let item = batch
+                .plan()
+                .items()
+                .get(usize::from(item_index))
+                .ok_or_else(|| {
+                    EngineError::from(lomo_lan::lan_validation(
+                        "lan_item_not_in_batch",
+                        "received item index does not belong to the batch",
+                    ))
+                })?;
+            let operation_id = item.item_id().as_str().to_owned();
             let committed_memo_id = batch
                 .snapshot()
-                .outcome(
-                    batch
-                        .plan()
-                        .items()
-                        .get(usize::from(item_index))
-                        .ok_or_else(|| {
-                            EngineError::from(lomo_lan::lan_validation(
-                                "lan_item_not_in_batch",
-                                "received item index does not belong to the batch",
-                            ))
-                        })?
-                        .item_id(),
-                )
+                .outcome(item.item_id())
                 .and_then(|outcome| match outcome {
                     lomo_lan::LanItemOutcome::Committed { memo_id } => Some(memo_id.clone()),
                     lomo_lan::LanItemOutcome::Pending | lomo_lan::LanItemOutcome::Failed { .. } => {
@@ -1401,9 +1416,10 @@ impl LomoEngine {
                     ))
                 })?;
             drop(manager);
-            return Ok(committed_memo_id);
+            return self.lan_already_committed_item(operation_id, committed_memo_id);
         };
-        let (content, pending_promotes) = store.prepare_received_lan_create(&command)?;
+        let (content, pending_promotes) =
+            store_ffi::prepare_received_lan_create(&workspace_root, &command)?;
         let operation_id = command.item_id().as_str().to_owned();
         let chronology_epoch_ms = command.timestamp_ms();
         let created = session_ffi::with_session(self, |session| {
@@ -1422,7 +1438,7 @@ impl LomoEngine {
         self.lan_manager()?
             .record_received_item_committed(&parsed_batch, command.item_id(), &memo_id)
             .map_err(EngineError::from)?;
-        Ok(memo_id)
+        Ok(session_ffi::commit_to_ffi(&memo_id, created.commit_result))
     }
 
     /// Lists the installation-level trusted peer registry owned by Rust.
@@ -1472,21 +1488,6 @@ impl LomoEngine {
             .poll_job(&parsed_job_id)
             .map(job_step_to_ffi)
             .map_err(EngineError::from)
-    }
-
-    /// Registers an explicitly closeable foreign listener.
-    ///
-    /// # Errors
-    ///
-    /// Returns a resource-limit error when the bounded listener registry is full.
-    pub fn subscribe(
-        &self,
-        listener: Box<dyn CoreEventListener>,
-    ) -> Result<Subscription, EngineError> {
-        let adapter: Arc<dyn core::CoreEventListener> =
-            Arc::new(ListenerAdapter { foreign: listener });
-        let subscription = self.core.subscribe(adapter).map_err(EngineError::from)?;
-        Ok(Subscription { core: subscription })
     }
 
     /// Submits an ordered platform result prefix to the core actor.
@@ -1874,7 +1875,7 @@ impl LomoEngine {
                     reminder,
                     replacement,
                 } => workspace::DocumentCommandKind::RewriteReminder {
-                    reminder: workspace_reminder_from_ffi(reminder),
+                    reminder: Box::new(workspace_reminder_from_ffi(reminder)),
                     replacement,
                 },
             },
@@ -2075,6 +2076,12 @@ impl LomoEngine {
     ///
     /// Returns validation, journal, or engine lifecycle errors.
     pub fn shutdown(&self, deadline_millis: u64) -> Result<ShutdownOutcome, EngineError> {
+        self.lan_pump.stop();
+        // Closing the engine retires the operation epoch behind a durable witness, so a stale
+        // retry after reopen fails with `operation_expired` instead of re-executing.
+        if session_ffi::session_is_open(self)? {
+            session_ffi::with_session(self, lomo_application::WorkspaceSession::seal)?;
+        }
         let _stopped = self.lan_manager()?.stop();
         let deadline = core::ShutdownDeadline::new(Duration::from_millis(deadline_millis))
             .map_err(EngineError::from)?;
@@ -2082,6 +2089,38 @@ impl LomoEngine {
             .shutdown(deadline)
             .map(shutdown_to_ffi)
             .map_err(EngineError::from)
+    }
+
+    fn lan_already_committed_item(
+        &self,
+        operation_id: String,
+        memo_id: String,
+    ) -> Result<StoreMemoCommit, EngineError> {
+        session_ffi::with_session(self, |session| {
+            let snapshot = session.projected_memo(&memo_id)?.ok_or_else(|| {
+                lomo_lan::lan_validation(
+                    "lan_item_commit_outcome_missing",
+                    "committed item has no durable projection",
+                )
+            })?;
+            let clock = session.projection_clock()?;
+            if clock.core_revision == 0 || clock.event_sequence == 0 {
+                return Err(lomo_lan::lan_validation(
+                    "lan_item_commit_clock_missing",
+                    "already-committed item has no projection clock",
+                ));
+            }
+            Ok(StoreMemoCommit {
+                operation_id,
+                memo_id,
+                core_revision: clock.core_revision,
+                event_sequence: clock.event_sequence,
+                content_revision: snapshot.summary.content_revision,
+                file_fingerprint: snapshot.summary.file_fingerprint,
+                scopes: Vec::new(),
+                idempotent_replay: true,
+            })
+        })
     }
 
     fn lan_manager(&self) -> Result<MutexGuard<'_, lomo_lan::LanServiceManager>, EngineError> {
@@ -2096,19 +2135,33 @@ impl LomoEngine {
         })
     }
 
-    fn lan_ready_store(&self) -> Result<&StoreHandle, EngineError> {
+    fn lan_workspace_root(&self) -> Result<PathBuf, EngineError> {
         if !matches!(self.core.state(), core::EngineState::Ready { .. }) {
             return Err(EngineError::from(lomo_lan::lan_permission(
                 "lan_workspace_not_ready",
                 "LAN batch transfer requires a Ready workspace",
             )));
         }
-        self.store.as_ref().ok_or_else(|| {
-            EngineError::from(lomo_lan::lan_permission(
+        if !session_ffi::session_is_open(self)? {
+            return Err(EngineError::from(lomo_lan::lan_permission(
+                "workspace_session_unavailable",
+                "LAN batch transfer requires an open workspace session",
+            )));
+        }
+        match &self.workspace {
+            Some(core::WorkspaceDescriptor::Direct { canonical_root, .. }) => {
+                Ok(canonical_root.clone())
+            }
+            Some(core::WorkspaceDescriptor::Saf { identity, .. }) => Ok(self
+                .control_root
+                .join("session")
+                .join(identity.as_str())
+                .join("state")),
+            None => Err(EngineError::from(lomo_lan::lan_permission(
                 "lan_workspace_not_ready",
-                "LAN batch transfer requires an active writable store",
-            ))
-        })
+                "LAN batch transfer requires an active writable workspace",
+            ))),
+        }
     }
 
     /// Dark-build `query_memos` (bounded page; no full list transfer).
@@ -2124,18 +2177,7 @@ impl LomoEngine {
         start_memo_id: Option<String>,
         backward: bool,
     ) -> Result<StoreMemoPage, EngineError> {
-        if session_ffi::session_is_open(self)? {
-            return session_ffi::session_query_memos(
-                self,
-                query,
-                cursor,
-                page_size,
-                start_memo_id,
-                backward,
-            );
-        }
-        self.active_store()?
-            .query_memos(query, cursor, page_size, start_memo_id, backward)
+        session_ffi::session_query_memos(self, query, cursor, page_size, start_memo_id, backward)
     }
 
     /// Counts the rows accepted by the same predicate as `query_memos` without transferring them.
@@ -2144,10 +2186,7 @@ impl LomoEngine {
     ///
     /// No active workspace store, or store query errors.
     pub fn query_count(&self, query: StoreMemoQuery) -> Result<u64, EngineError> {
-        if session_ffi::session_is_open(self)? {
-            return session_ffi::session_query_count(self, query);
-        }
-        self.active_store()?.query_count(query)
+        session_ffi::session_query_count(self, query)
     }
 
     /// Resolves memo-bound staged media with the Rust Markdown owner before platform execution.
@@ -2158,13 +2197,16 @@ impl LomoEngine {
     ///
     /// Returns a typed validation or Markdown-projection error when a candidate is malformed or
     /// the body contains an ambiguous staged destination.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned body and candidate DTOs"
+    )]
     pub fn select_memo_promote_plans(
         &self,
         content: String,
         candidates: Vec<MediaPromotePlanDto>,
     ) -> Result<Vec<MediaPromotePlanDto>, EngineError> {
-        self.active_store()?
-            .select_memo_promote_plans(content, candidates)
+        store_ffi::select_memo_promote_plans_for_ffi(&content, candidates)
     }
 
     /// Reads compact materialized memo statistics without crossing full memo bodies.
@@ -2173,7 +2215,7 @@ impl LomoEngine {
     ///
     /// No active workspace store, or store projection errors.
     pub fn memo_statistics_rows(&self) -> Result<Vec<StoreMemoStatisticsRow>, EngineError> {
-        self.active_store()?.memo_statistics_rows()
+        session_ffi::session_memo_statistics_rows(self)
     }
 
     /// Complete active sidebar aggregate without memo pagination.
@@ -2182,10 +2224,7 @@ impl LomoEngine {
     ///
     /// No active workspace store, or store projection errors.
     pub fn sidebar_projection(&self) -> Result<StoreSidebarProjection, EngineError> {
-        if session_ffi::session_is_open(self)? {
-            return session_ffi::session_sidebar_projection(self);
-        }
-        self.active_store()?.sidebar_projection()
+        session_ffi::session_sidebar_projection(self)
     }
 
     /// Dark-build `get_memo`.
@@ -2198,10 +2237,7 @@ impl LomoEngine {
         reason = "BoltFFI boundary requires owned String for foreign callers"
     )]
     pub fn get_memo(&self, memo_id: String) -> Result<Option<StoreMemoSnapshot>, EngineError> {
-        if session_ffi::session_is_open(self)? {
-            return session_ffi::session_projected_memo(self, &memo_id);
-        }
-        self.active_store()?.get_memo(&memo_id)
+        session_ffi::session_projected_memo(self, &memo_id)
     }
 
     /// Canonical source-document fingerprint for O(1) SAF create/append planning.
@@ -2217,11 +2253,7 @@ impl LomoEngine {
         &self,
         source_path: String,
     ) -> Result<Option<String>, EngineError> {
-        if session_ffi::session_is_open(self)? {
-            return session_ffi::session_source_document_fingerprint(self, &source_path);
-        }
-        self.active_store()?
-            .source_document_fingerprint(&source_path)
+        session_ffi::session_source_document_fingerprint(self, &source_path)
     }
 
     /// Dark-build history attachment paths for D6 orphan keep-set.
@@ -2232,7 +2264,7 @@ impl LomoEngine {
     pub fn list_history_attachment_refs(
         &self,
     ) -> Result<Vec<StoreHistoryAttachmentRef>, EngineError> {
-        self.active_store()?.list_history_attachment_refs()
+        session_ffi::session_list_history_attachment_refs(self)
     }
 
     /// Dark-build bounded memo history page.
@@ -2240,70 +2272,25 @@ impl LomoEngine {
     /// # Errors
     ///
     /// No active workspace store, or store history list errors.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires owned Strings for foreign callers"
-    )]
     pub fn list_memo_history(
         &self,
         memo_id: String,
         cursor: Option<String>,
         limit: u32,
     ) -> Result<StoreMemoHistoryPage, EngineError> {
-        self.active_store()?
-            .list_memo_history(&memo_id, cursor.as_deref(), limit)
+        self.session_list_history(memo_id, cursor, limit)
     }
 
     /// Dark-build `apply_memo_command` (synchronous commit facts + invalidation scopes).
     ///
     /// # Errors
     ///
-    /// No active workspace store, or transaction errors.
+    /// Session owns document writes; this foreign surface fails closed without opening a store.
     pub fn apply_memo_command(
         &self,
-        command: StoreMemoCommand,
+        _command: StoreMemoCommand,
     ) -> Result<StoreMemoCommit, EngineError> {
-        self.active_store()?.apply_memo_command(command)
-    }
-
-    /// Permanently deletes a bounded Direct-workspace trash batch in one publication.
-    ///
-    /// # Errors
-    ///
-    /// No active store, invalid target facts, or batch transaction failure.
-    pub fn permanent_delete_many(
-        &self,
-        request: StoreMemoBatchDelete,
-    ) -> Result<StoreMemoBatchCommit, EngineError> {
-        self.active_store()?.permanent_delete_many(request)
-    }
-
-    /// Commits verified SAF permanent-delete platform results in one projection transaction.
-    ///
-    /// # Errors
-    ///
-    /// Returns validation, conflict, or storage errors when provider results are incomplete or
-    /// stale.
-    pub fn commit_saf_permanent_delete_many(
-        &self,
-        request: StoreMemoBatchDelete,
-    ) -> Result<StoreMemoBatchCommit, EngineError> {
-        self.active_store()?
-            .commit_saf_permanent_delete_many(request)
-    }
-
-    /// Commits a verified SAF platform mutation into the app-private projection only.
-    ///
-    /// # Errors
-    ///
-    /// No SAF store, malformed scanned facts, stale revision, or projection transaction errors.
-    pub fn commit_saf_projection_mutation(
-        &self,
-        command: StoreMemoCommand,
-        projection: Option<StoreSafMemoProjection>,
-    ) -> Result<StoreMemoCommit, EngineError> {
-        self.active_store()?
-            .commit_saf_projection_mutation(command, projection)
+        Err(session_ffi::session_owns_document_writes())
     }
 
     /// Commits Rust-parsed facts from a completed workspace document command into the projection.
@@ -2318,159 +2305,16 @@ impl LomoEngine {
         command: StoreMemoCommand,
         projection: StoreSafMemoProjection,
     ) -> Result<StoreMemoCommit, EngineError> {
-        self.active_store()?
-            .commit_workspace_document_facts(command, projection)
-    }
-
-    /// Publishes a pending SAF memo create projection before durable platform I/O.
-    ///
-    /// # Errors
-    ///
-    /// No SAF store, malformed begin facts, or projection transaction errors.
-    pub fn begin_saf_memo_create(
-        &self,
-        begin: StoreSafMemoCreateBegin,
-    ) -> Result<StoreSafMemoCreateBeginResult, EngineError> {
-        self.active_store()?.begin_saf_memo_create(begin)
-    }
-
-    /// Removes a begun SAF memo create's pending projection when the pipeline fails.
-    ///
-    /// # Errors
-    ///
-    /// No SAF store, malformed identifiers, or projection transaction errors.
-    pub fn rollback_saf_memo_create(
-        &self,
-        operation_id: &str,
-        memo_id: &str,
-    ) -> Result<StoreSafMemoRollbackResult, EngineError> {
-        self.active_store()?
-            .rollback_saf_memo_create(operation_id, memo_id)
-    }
-
-    /// Dark-build `query_reminder_plan`.
-    ///
-    /// # Errors
-    ///
-    /// No active workspace store, or plan errors.
-    pub fn query_reminder_plan(
-        &self,
-        query: StoreReminderQuery,
-    ) -> Result<StoreReminderPlan, EngineError> {
-        self.active_store()?.query_reminder_plan(query)
+        session_ffi::session_commit_workspace_document_facts(self, command, projection)
     }
 
     /// Dark-build `start_rebuild` (synchronous rebuild result).
     ///
     /// # Errors
     ///
-    /// No active workspace store, or rebuild errors.
-    pub fn start_rebuild(&self, batch_size: u32) -> Result<StoreRebuildResult, EngineError> {
-        if session_ffi::session_is_open(self)? {
-            return session_ffi::session_rebuild_projection(self);
-        }
-        self.active_store()?.start_rebuild(batch_size)
-    }
-
-    /// Begins a bounded SAF scan-to-projection rebuild; body bytes stay in Rust exchange storage.
-    ///
-    /// # Errors
-    ///
-    /// Missing/non-SAF store, active rebuild, or temporary projection creation failure.
-    pub fn begin_saf_projection_rebuild(&self) -> Result<String, EngineError> {
-        self.active_store()?.begin_saf_projection_rebuild()
-    }
-
-    /// Appends one raw workspace scan page; Rust resolves and verifies each exchange artifact.
-    ///
-    /// # Errors
-    ///
-    /// Missing/mismatched rebuild, malformed scan facts, exchange verification, or write failure.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires an owned rebuild id"
-    )]
-    pub fn append_saf_projection_rebuild_page(
-        &self,
-        rebuild_id: String,
-        memos: Vec<StoreSafMemoProjectionReference>,
-    ) -> Result<(), EngineError> {
-        self.active_store()?.append_saf_projection_rebuild_page(
-            &rebuild_id,
-            memos,
-            self.core.exchange_root(),
-        )
-    }
-
-    /// Appends one durable trash-record scan page to the active SAF projection rebuild.
-    ///
-    /// # Errors
-    ///
-    /// Missing/mismatched rebuild, malformed trash facts, exchange verification, or write failure.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires an owned rebuild id"
-    )]
-    pub fn append_saf_trash_projection_rebuild_page(
-        &self,
-        rebuild_id: String,
-        memos: Vec<StoreSafTrashProjectionReference>,
-    ) -> Result<(), EngineError> {
-        self.active_store()?
-            .append_saf_trash_projection_rebuild_page(&rebuild_id, memos, self.core.exchange_root())
-    }
-
-    /// Appends one durable history scan page to the active SAF projection rebuild.
-    ///
-    /// # Errors
-    ///
-    /// Missing/mismatched rebuild, exchange verification, or write failure.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires an owned rebuild id"
-    )]
-    pub fn append_saf_history_projection_rebuild_page(
-        &self,
-        rebuild_id: String,
-        revisions: Vec<StoreSafHistoryProjectionReference>,
-    ) -> Result<(), EngineError> {
-        self.active_store()?
-            .append_saf_history_projection_rebuild_page(
-                &rebuild_id,
-                revisions,
-                self.core.exchange_root(),
-            )
-    }
-
-    /// Finishes and atomically publishes a bounded SAF scan-to-projection rebuild.
-    ///
-    /// # Errors
-    ///
-    /// Missing/mismatched rebuild, integrity failure, or atomic publication failure.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires an owned rebuild id"
-    )]
-    pub fn finish_saf_projection_rebuild(
-        &self,
-        rebuild_id: String,
-    ) -> Result<StoreRebuildResult, EngineError> {
-        self.active_store()?
-            .finish_saf_projection_rebuild(&rebuild_id)
-    }
-
-    /// Aborts a bounded SAF scan-to-projection rebuild without modifying the live projection.
-    ///
-    /// # Errors
-    ///
-    /// Missing/mismatched rebuild or temporary artifact removal failure.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires an owned rebuild id"
-    )]
-    pub fn abort_saf_projection_rebuild(&self, rebuild_id: String) -> Result<(), EngineError> {
-        self.active_store()?
-            .abort_saf_projection_rebuild(&rebuild_id)
+    /// No active workspace session, or rebuild errors.
+    pub fn start_rebuild(&self, _batch_size: u32) -> Result<StoreRebuildResult, EngineError> {
+        session_ffi::session_rebuild_projection(self)
     }
 
     /// Dark-build path-only media stage (P4-09). No full media bytes.
@@ -2525,6 +2369,78 @@ impl LomoEngine {
         human_name_hint: String,
     ) -> Result<MediaStagedDto, EngineError> {
         media_ffi::ffi_finalize_recording(&media_root, &recording_path, &human_name_hint)
+    }
+
+    /// Records a staged artifact in the durable stage ledger and acquires one owner lease.
+    ///
+    /// # Errors
+    ///
+    /// Media validation/storage errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary owns the staged DTO and owner token"
+    )]
+    pub fn record_stage_lease(
+        &self,
+        workspace_root: Option<String>,
+        staged: MediaStagedDto,
+        owner_kind: MediaStageOwnerKindDto,
+        owner_id: String,
+    ) -> Result<MediaStageRecordDto, EngineError> {
+        media_ffi::ffi_record_stage_lease(workspace_root.as_deref(), staged, owner_kind, &owner_id)
+    }
+
+    /// Lists durable stage records leased by one exact holder.
+    ///
+    /// # Errors
+    ///
+    /// Media storage/corruption errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned String for foreign callers"
+    )]
+    pub fn stage_records_for_owner(
+        &self,
+        media_root: String,
+        owner_kind: MediaStageOwnerKindDto,
+        owner_id: String,
+    ) -> Result<Vec<MediaStageRecordDto>, EngineError> {
+        media_ffi::ffi_stage_records_for_owner(&media_root, owner_kind, &owner_id)
+    }
+
+    /// Transfers one stage lease to another holder without deleting staged bytes.
+    ///
+    /// # Errors
+    ///
+    /// Media validation/storage errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary owns the lease DTOs"
+    )]
+    pub fn transfer_stage_lease(
+        &self,
+        media_root: String,
+        from: MediaStageLeaseDto,
+        to: MediaStageLeaseDto,
+    ) -> Result<MediaStageReleaseDto, EngineError> {
+        media_ffi::ffi_transfer_stage_lease(&media_root, from, to)
+    }
+
+    /// Releases one stage lease; staged bytes are deleted only when no lease remains.
+    ///
+    /// # Errors
+    ///
+    /// Media validation/storage errors.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary owns the lease DTO"
+    )]
+    pub fn release_stage_lease(
+        &self,
+        media_root: String,
+        lease: MediaStageLeaseDto,
+    ) -> Result<MediaStageReleaseDto, EngineError> {
+        media_ffi::ffi_release_stage_lease(&media_root, lease)
     }
 
     /// Dark-build promote staged media to final relative path (path-only).
@@ -2682,39 +2598,6 @@ impl LomoEngine {
             batch_size,
         )
     }
-
-    fn active_store(&self) -> Result<&StoreHandle, EngineError> {
-        self.store.as_ref().ok_or_else(|| {
-            EngineError::from(
-                match core::LomoError::from_platform_boundary(
-                    core::ErrorCategory::Validation,
-                    "workspace_store_unavailable",
-                    core::RetryDisposition::Never,
-                    None,
-                    None,
-                    "store surface requires an active workspace",
-                ) {
-                    Ok(error) | Err(error) => error,
-                },
-            )
-        })
-    }
-}
-
-impl LomoEngine {
-    /// Dark-build `apply_reminder_command`.
-    ///
-    /// Internal Rust reminder command; excluded from the `BoltFFI` JNI surface.
-    ///
-    /// # Errors
-    ///
-    /// No active workspace store, or command errors.
-    pub fn apply_reminder_command(
-        &self,
-        command: StoreReminderCommand,
-    ) -> Result<StoreReminderCommandResult, EngineError> {
-        self.active_store()?.apply_reminder_command(command)
-    }
 }
 
 pub(crate) fn workspace_reminder_to_ffi(
@@ -2727,6 +2610,8 @@ pub(crate) fn workspace_reminder_to_ffi(
         source_start: value.source_start,
         source_end: value.source_end,
         token_fingerprint: value.token_fingerprint,
+        fingerprint_ordinal: value.fingerprint_ordinal,
+        embedded_id: value.embedded_id,
         token: value.token,
         due_at_local: value.due_at_local,
         repeat_count: value.repeat_count,
@@ -2747,6 +2632,8 @@ pub(crate) fn workspace_reminder_from_ffi(
         source_start: value.source_start,
         source_end: value.source_end,
         token_fingerprint: value.token_fingerprint,
+        fingerprint_ordinal: value.fingerprint_ordinal,
+        embedded_id: value.embedded_id,
         token: value.token,
         due_at_local: value.due_at_local,
         repeat_count: value.repeat_count,
@@ -2762,7 +2649,13 @@ pub fn workspace_from_ffi(
     value: WorkspaceDescriptor,
 ) -> Result<core::WorkspaceDescriptor, EngineError> {
     match value {
-        WorkspaceDescriptor::Direct { root_path } => core::WorkspaceDescriptor::direct(root_path),
+        WorkspaceDescriptor::Direct {
+            root_path,
+            capability_token,
+        } => core::WorkspaceDescriptor::direct(
+            root_path,
+            core::CapabilityToken::parse(&capability_token)?,
+        ),
         WorkspaceDescriptor::Saf {
             stable_workspace_id,
             capability_token,
@@ -2902,9 +2795,15 @@ pub fn target_from_ffi(value: WorkspaceTarget) -> Result<core::WorkspaceTarget, 
 
 #[doc(hidden)]
 pub fn evidence_from_ffi(value: &ActionEvidence) -> Result<core::ActionEvidence, EngineError> {
-    let digest = core::Sha256Digest::parse(&value.digest).map_err(EngineError::from)?;
-    core::ActionEvidence::verified(value.length, digest, &value.fingerprint)
-        .map_err(EngineError::from)
+    match &value.digest {
+        ContentDigest::Unknown => core::ActionEvidence::unknown(value.length, &value.fingerprint)
+            .map_err(EngineError::from),
+        ContentDigest::Verified { hex } => {
+            let digest = core::Sha256Digest::parse(hex).map_err(EngineError::from)?;
+            core::ActionEvidence::verified(value.length, digest, &value.fingerprint)
+                .map_err(EngineError::from)
+        }
+    }
 }
 
 #[doc(hidden)]
@@ -3162,7 +3061,12 @@ pub fn artifact_to_ffi(value: &core::ExchangeArtifact) -> ExchangeArtifact {
 pub fn evidence_to_ffi(value: &core::ActionEvidence) -> ActionEvidence {
     ActionEvidence {
         length: value.length(),
-        digest: value.digest().as_str().to_owned(),
+        digest: match value.content_digest() {
+            core::ContentDigest::Unknown => ContentDigest::Unknown,
+            core::ContentDigest::Verified(digest) => ContentDigest::Verified {
+                hex: digest.as_str().to_owned(),
+            },
+        },
         fingerprint: value.fingerprint().to_owned(),
     }
 }
@@ -3554,6 +3458,16 @@ fn static_boundary_error(
     }
 }
 
+pub(crate) fn lan_pump_boundary_error(code: &'static str, diagnostic: &'static str) -> EngineError {
+    EngineError::from(static_boundary_error(
+        core::ErrorCategory::Internal,
+        code,
+        core::RetryDisposition::AfterUserAction,
+        None,
+        diagnostic,
+    ))
+}
+
 #[data]
 #[derive(Clone, Debug)]
 pub struct AttachmentNameMapping {
@@ -3611,6 +3525,8 @@ pub struct ReminderTokenBuildRequest {
     reason = "BoltFFI free-function boundary requires owned request wire types"
 )]
 pub fn build_reminder_token(request: ReminderTokenBuildRequest) -> Result<String, EngineError> {
+    // Inserts always mint a durable embedded id so the definition identity is born stable.
+    let embedded_id = workspace::mint_reminder_embedded_id().map_err(EngineError::from)?;
     workspace::build_reminder_token(
         &request.due_at_local,
         request.repeat_count,
@@ -3618,6 +3534,7 @@ pub fn build_reminder_token(request: ReminderTokenBuildRequest) -> Result<String
         request.done,
         request.interval_minutes,
         &request.recurrence_code,
+        Some(&embedded_id),
     )
     .map_err(EngineError::from)
 }
@@ -3655,31 +3572,4 @@ pub fn plan_reminder_token_mutation(
 )]
 pub fn extract_memo_body_from_raw(raw: String) -> Result<String, EngineError> {
     workspace::extract_memo_body_from_raw(&raw).map_err(EngineError::from)
-}
-
-#[export]
-/// Owner identity-keyed merge of two Lomo/Thino memo shards for sync conflict write-back.
-///
-/// Returns `None` when the owner declines (no shared identities / not `LomoThino` / preamble).
-///
-/// # Errors
-///
-/// Returns validation/corruption when either source fails owner parse constraints.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "BoltFFI free-function boundary requires owned String wire types"
-)]
-pub fn merge_memo_shard_by_identity(
-    local_text: String,
-    remote_text: String,
-    local_last_modified: Option<i64>,
-    remote_last_modified: Option<i64>,
-) -> Result<Option<String>, EngineError> {
-    workspace::merge_memo_shard_by_identity(
-        &local_text,
-        &remote_text,
-        local_last_modified,
-        remote_last_modified,
-    )
-    .map_err(EngineError::from)
 }

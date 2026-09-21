@@ -10,6 +10,8 @@
 //! Scenarios:
 //! - Given a durable conflict session, when `sync_list_conflicts` runs, then digests/status
 //!   round-trip and remote token values are not exposed (presence only).
+//! - Given no durable `conflicts.rec`, when `sync_list_conflicts` runs, then the page is
+//!   `SyncConflictSessionStateDto::Absent` (not `EngineError`).
 //! - Given durable markdown conflict artifacts, when `sync_read_conflict_artifact` runs, then
 //!   body bytes round-trip; traversal / empty refs fail closed.
 //! - Given expected conflict revision, when `sync_resolve_conflicts` `KeepLocal` runs, then
@@ -33,8 +35,14 @@
 //! - Given a store-backed workspace + hermetic bare Git remote, when `sync_run_cycle` runs with
 //!   backend `git` (plan-only), then real local + `lomo-git` composition yields
 //!   `ensure_present` ≥ 1 (Git-in-native composition GREEN).
+//! - Given a held workspace cycle lock, when `sync_run_cycle` runs, then `sync_cycle_lock_held`
+//!   Busy without entering the owner cycle.
+//! - Given durable session/baseline files, when `sync_reset_control_tree` runs, then control
+//!   records are removed and user Markdown remains.
+//! - Given a minted `generation.rec`, when `sync_workspace_generation` runs, then the hex id
+//!   round-trips; missing generation fails closed without minting.
 //!
-//! Observable outcomes: DTO fields, `EngineError` codes/categories, lease id shape.
+//! Observable outcomes: DTO fields, `EngineError` codes/categories, lease id shape, lock/reset.
 //! Excludes: production DI / registry / navigation / `WorkManager` wiring theater, Kotlin
 //! fake-first production adapters, real providers, arm64 device, Sync Center UI.
 
@@ -49,10 +57,12 @@ mod support;
 mod tests {
     use super::support::ResultTestExt;
     use lomo_native::{
-        SyncConflictPathStatusDto, SyncConflictResolutionDto, SyncRetryDispositionDto,
-        looks_like_lease_id, sync_inspect_cycle_plan, sync_issue_secret_lease, sync_list_conflicts,
-        sync_probe_secret_lease, sync_read_conflict_artifact, sync_resolve_conflicts,
+        SyncConflictPathStatusDto, SyncConflictResolutionDto, SyncConflictSessionStateDto,
+        SyncRetryDispositionDto, looks_like_lease_id, sync_inspect_cycle_plan,
+        sync_issue_secret_lease, sync_list_conflicts, sync_probe_secret_lease,
+        sync_read_conflict_artifact, sync_reset_control_tree, sync_resolve_conflicts,
         sync_retry_disposition_from_name, sync_revoke_secret_lease, sync_run_cycle,
+        sync_workspace_generation,
     };
     use lomo_store::{Store, run_rebuild};
     use lomo_sync::{
@@ -128,6 +138,7 @@ mod tests {
 
         let page =
             sync_list_conflicts(workspace.to_string_lossy().into_owned(), 0, 10).test_ok("list");
+        assert_eq!(page.session, SyncConflictSessionStateDto::Present);
         assert_eq!(page.session_id, "ffi-session-1");
         assert_eq!(page.conflict_revision, 1);
         assert_eq!(page.items.len(), 1);
@@ -145,6 +156,35 @@ mod tests {
             !encoded.contains("tok-secret-value-must-not-leak"),
             "remote token value must not appear on FFI wire: {encoded}"
         );
+    }
+
+    #[test]
+    fn missing_conflict_session_lists_as_absent_not_engine_error() {
+        let temporary = tempdir().expect("temp");
+        let workspace = temporary.path().join("ws");
+        std::fs::create_dir_all(&workspace).expect("ws");
+
+        let page = sync_list_conflicts(workspace.to_string_lossy().into_owned(), 0, 10)
+            .test_ok("absent is a domain state");
+        assert_eq!(page.session, SyncConflictSessionStateDto::Absent);
+        assert!(page.items.is_empty());
+        assert!(page.session_id.is_empty());
+        assert_eq!(page.conflict_revision, 0);
+    }
+
+    #[test]
+    fn truncated_conflict_session_lists_as_structured_corrupt_error() {
+        let temporary = tempdir().expect("temp");
+        let workspace = temporary.path().join("ws");
+        std::fs::create_dir_all(&workspace).expect("ws");
+        let paths = SyncPaths::for_workspace(&workspace);
+        paths.ensure_layout().expect("layout");
+        std::fs::write(&paths.conflicts, b"BAD!").expect("seed");
+
+        let err = sync_list_conflicts(workspace.to_string_lossy().into_owned(), 0, 10)
+            .test_err("truncated is EngineError");
+        assert_eq!(err.category(), "corruption");
+        assert_ne!(err.code(), "conflict_session_missing");
     }
 
     #[test]
@@ -398,6 +438,8 @@ mod tests {
         let memos = workspace.join("memos");
         std::fs::create_dir_all(&memos).expect("memos");
         std::fs::write(memos.join("composed.md"), "composed-body").expect("seed markdown");
+        lomo_workspace::load_or_mint_workspace_generation(&workspace)
+            .expect("workspace generation");
         run_rebuild(&workspace, 8).expect("index seed");
 
         let root = workspace.to_string_lossy().into_owned();
@@ -496,6 +538,8 @@ mod tests {
         let memos = workspace.join("memos");
         std::fs::create_dir_all(&memos).expect("memos");
         std::fs::write(memos.join("git-compose.md"), "git-composed-body").expect("seed markdown");
+        lomo_workspace::load_or_mint_workspace_generation(&workspace)
+            .expect("workspace generation");
         run_rebuild(&workspace, 8).expect("index seed");
 
         let root = workspace.to_string_lossy().into_owned();
@@ -526,6 +570,8 @@ mod tests {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
+        lomo_workspace::load_or_mint_workspace_generation(&workspace)
+            .expect("workspace generation");
         // Ensure store exists so failure is secret/config, not store open.
         let _store = Store::open(&workspace).test_ok("open store");
         let root = workspace.to_string_lossy().into_owned();
@@ -544,5 +590,81 @@ mod tests {
         )
         .test_err("missing secret");
         assert_eq!(err.code(), "webdav_secret_required");
+    }
+
+    #[test]
+    fn run_cycle_held_lock_is_busy_without_entering_cycle() {
+        let temporary = tempdir().expect("temp");
+        let workspace = temporary.path().join("ws-lock");
+        std::fs::create_dir_all(&workspace).expect("ws");
+        let paths = SyncPaths::for_workspace(&workspace);
+        let _held = lomo_platform_fs::ProcessFileLock::try_acquire(&paths.cycle_lock)
+            .test_ok("hold cycle lock");
+
+        let err = sync_run_cycle(
+            workspace.to_string_lossy().into_owned(),
+            "hermetic_fake".to_owned(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            "ds-lock".to_owned(),
+            String::new(),
+            false,
+        )
+        .test_err("lock held");
+        assert_eq!(err.code(), "sync_cycle_lock_held");
+        assert_eq!(err.category(), "busy");
+        assert!(
+            !paths.session.exists(),
+            "lock refusal must not write a durable session"
+        );
+    }
+
+    #[test]
+    fn reset_control_tree_removes_sync_records_not_user_markdown() {
+        let temporary = tempdir().expect("temp");
+        let workspace = temporary.path().join("ws-reset");
+        std::fs::create_dir_all(&workspace).expect("ws");
+        let memo = workspace.join("memos");
+        std::fs::create_dir_all(&memo).expect("memos");
+        std::fs::write(memo.join("keep.md"), "user-bytes").expect("user markdown");
+        let paths = SyncPaths::for_workspace(&workspace);
+        write_session(
+            &paths,
+            &SyncSession::new(fence(), SessionKind::Incremental, "reset-session")
+                .test_ok("session"),
+        )
+        .test_ok("write session");
+        assert!(paths.session.exists());
+
+        sync_reset_control_tree(workspace.to_string_lossy().into_owned()).test_ok("reset");
+
+        assert!(!paths.session.exists());
+        assert_eq!(
+            std::fs::read(memo.join("keep.md")).expect("user survives"),
+            b"user-bytes"
+        );
+    }
+
+    #[test]
+    fn workspace_generation_loads_without_minting() {
+        let temporary = tempdir().expect("temp");
+        let workspace = temporary.path().join("ws-gen");
+        std::fs::create_dir_all(&workspace).expect("ws");
+        let missing = sync_workspace_generation(workspace.to_string_lossy().into_owned())
+            .test_err("missing generation");
+        assert_eq!(missing.code(), "workspace_generation_missing");
+        assert!(
+            !lomo_workspace::LomoPaths::generation_record_path(&workspace).exists(),
+            "read FFI must not mint generation.rec"
+        );
+
+        let minted =
+            lomo_workspace::load_or_mint_workspace_generation(&workspace).test_ok("mint write");
+        let loaded = sync_workspace_generation(workspace.to_string_lossy().into_owned())
+            .test_ok("load generation");
+        assert_eq!(loaded, minted.as_str());
     }
 }

@@ -8,8 +8,9 @@ use std::sync::Arc;
 use boltffi::{data, export};
 use lomo_application::{
     CreateMemoRequest, DeleteMemoRequest, FireReminderRequest, PermanentDeleteRequest,
-    PinMemoRequest, RestoreMemoRequest, RestoreRevisionRequest, SearchMode, SearchOutcome,
-    SearchRequest, ToggleTaskRequest, UpdateMemoRequest, WorkspaceSession, WorkspaceSessionConfig,
+    PinMemoRequest, PinPolicy, RestoreMemoRequest, RestoreRevisionRequest, SearchMode,
+    SearchOutcome, SearchRequest, ToggleTaskRequest, UpdateMemoRequest, WorkspaceSession,
+    WorkspaceSessionConfig,
     calendar::{CivilDate, DateFormat},
     statistics::StatisticsSnapshot,
 };
@@ -17,15 +18,16 @@ use lomo_core::{
     self as core, CapabilityToken, LomoError, OperationId, PageSize, PlatformActionExecutor,
     RelativeWorkspacePath,
 };
-use lomo_store::SafProjectionCommitResult;
+use lomo_store::{SafProjectionCommitResult, list_history_attachment_refs};
 use lomo_workspace::{MemoId, WorkspaceRootId};
 
 use crate::{
     ActionOutcome, ActionResult, DocumentKind, DocumentMetadata, EngineError, ExpectedFingerprint,
     LomoEngine, MetadataPage, PlatformAction, PlatformActionBatch, PlatformActionOutput,
-    PlatformBatchHost, PlatformBatchResult, StoreMemoCommit, StoreMemoHistoryPage,
-    StoreMemoHistoryRevision, StoreMemoPage, StoreMemoQuery, StoreMemoSnapshot, StorePageCursor,
-    StorePlannedAlarm, StoreRebuildResult, StoreReminderPlan, StoreSidebarDateCount,
+    PlatformBatchHost, PlatformBatchResult, StoreHistoryAttachmentRef, StoreMemoCommand,
+    StoreMemoCommit, StoreMemoHistoryPage, StoreMemoHistoryRevision, StoreMemoPage, StoreMemoQuery,
+    StoreMemoSnapshot, StoreMemoStatisticsRow, StorePageCursor, StorePlannedAlarm,
+    StoreRebuildResult, StoreReminderPlan, StoreSafMemoProjection, StoreSidebarDateCount,
     StoreSidebarProjection, StoreSidebarTagCount, VerifiedAbsence, artifact_from_ffi,
     artifact_to_ffi, batch_to_ffi, evidence_from_ffi, evidence_to_ffi, failure_from_core,
     failure_to_core,
@@ -33,7 +35,7 @@ use crate::{
     result_from_ffi,
     store_ffi::{
         decode_cursor, encode_cursor, ffi_query_start, memo_page_to_ffi, memo_query_from_ffi,
-        scope_name, summary_to_ffi,
+        scopes_to_ffi, summary_to_ffi, workspace_document_facts_mutation,
     },
     target_from_ffi, target_to_ffi,
 };
@@ -117,6 +119,7 @@ pub enum SessionSearchMode {
 #[data]
 #[derive(Clone, Debug)]
 pub struct SessionSearchRequest {
+    pub filters: crate::StoreMemoFilters,
     pub query_epoch: u64,
     pub mode: SessionSearchMode,
     pub text: String,
@@ -127,10 +130,8 @@ pub struct SessionSearchRequest {
 #[data]
 #[derive(Clone, Debug)]
 pub struct SessionSearchHit {
-    pub memo_id: String,
+    pub summary: crate::StoreMemoSummary,
     pub score: i64,
-    pub source_path: String,
-    pub body_preview: String,
 }
 
 #[data]
@@ -198,13 +199,6 @@ pub struct SessionRestoreRevisionRequest {
     pub operation_id: String,
     pub memo_id: String,
     pub revision: u64,
-}
-
-#[data]
-#[derive(Clone, Debug)]
-pub struct SessionRestoreResult {
-    pub file_fingerprint: String,
-    pub event_sequence: u64,
 }
 
 #[data]
@@ -316,18 +310,27 @@ impl LomoEngine {
             ));
         }
         let identity = workspace.identity().as_str();
-        let base = self.control_root.join("session").join(identity);
-        let (capability, root_id) = match workspace {
-            core::WorkspaceDescriptor::Direct { .. } => {
-                (CapabilityToken::direct_root(), WorkspaceRootId::Notes)
+        let workspace_generation = match workspace {
+            core::WorkspaceDescriptor::Direct { canonical_root, .. } => {
+                lomo_workspace::load_or_mint_workspace_generation(canonical_root)
+                    .map_err(EngineError::from)?
             }
-            core::WorkspaceDescriptor::Saf { capability, .. } => {
-                (capability.clone(), WorkspaceRootId::Notes)
+            core::WorkspaceDescriptor::Saf { .. } => {
+                let state = self
+                    .control_root
+                    .join("session")
+                    .join(identity)
+                    .join("state");
+                lomo_workspace::load_or_mint_workspace_generation(&state)
+                    .map_err(EngineError::from)?
             }
         };
+        let base = self.control_root.join("session").join(identity);
+        let (capability, root_id) = (workspace.capability().clone(), WorkspaceRootId::Notes);
         let config = WorkspaceSessionConfig {
             capability,
             root_id,
+            workspace_generation,
             time_zone,
             date_format: DateFormat::default(),
             state_dir: base.join("state"),
@@ -338,7 +341,7 @@ impl LomoEngine {
         let executor: Arc<dyn PlatformActionExecutor> = Arc::new(HostedExecutor { host });
         let session = WorkspaceSession::open(config, executor).map_err(EngineError::from)?;
         let device_id = session.device_id().to_owned();
-        *guard = Some(session);
+        *guard = Some(Arc::new(session));
         drop(guard);
         Ok(device_id)
     }
@@ -427,12 +430,17 @@ impl LomoEngine {
         request: SessionPinMemoRequest,
     ) -> Result<StoreMemoCommit, EngineError> {
         let memo_id = request.memo_id.clone();
-        let inner = PinMemoRequest {
-            operation_id: OperationId::parse(&request.operation_id).map_err(EngineError::from)?,
-            memo_id: MemoId::parse(&request.memo_id).map_err(EngineError::from)?,
-            pinned: request.pinned,
-            pinned_at_ms: None,
+        let pin = if request.pinned {
+            PinPolicy::Pinned { at_ms: None }
+        } else {
+            PinPolicy::Unpinned
         };
+        let inner = PinMemoRequest::new(
+            OperationId::parse(&request.operation_id).map_err(EngineError::from)?,
+            MemoId::parse(&request.memo_id).map_err(EngineError::from)?,
+            pin,
+        )
+        .map_err(EngineError::from)?;
         with_session(self, |session| session.pin_memo(inner))
             .map(|result| commit_to_ffi(&memo_id, result.commit_result))
     }
@@ -480,7 +488,7 @@ impl LomoEngine {
             .map(|cursor| decode_cursor(&cursor.encoded))
             .transpose()?;
         let inner = SearchRequest {
-            filters: lomo_application::MemoFilters::default(),
+            filters: crate::store_ffi::memo_filters_from_ffi(request.filters),
             query_epoch: request.query_epoch,
             mode: match request.mode {
                 SessionSearchMode::Fulltext => SearchMode::Fulltext,
@@ -648,17 +656,14 @@ impl LomoEngine {
     pub fn session_restore_memo(
         &self,
         request: SessionRestoreRequest,
-    ) -> Result<SessionRestoreResult, EngineError> {
+    ) -> Result<StoreMemoCommit, EngineError> {
+        let memo_id = request.memo_id.clone();
         let inner = RestoreMemoRequest {
             operation_id: OperationId::parse(&request.operation_id).map_err(EngineError::from)?,
             memo_id: MemoId::parse(&request.memo_id).map_err(EngineError::from)?,
         };
-        with_session(self, |session| session.restore_memo(&inner)).map(|result| {
-            SessionRestoreResult {
-                file_fingerprint: result.file_fingerprint,
-                event_sequence: result.event_sequence,
-            }
-        })
+        with_session(self, |session| session.restore_memo(&inner))
+            .map(|result| commit_to_ffi(&memo_id, result.commit_result))
     }
 
     /// Restores one history revision through the shared write transaction.
@@ -696,17 +701,14 @@ impl LomoEngine {
     pub fn session_permanently_delete_memo(
         &self,
         request: SessionRestoreRequest,
-    ) -> Result<SessionRestoreResult, EngineError> {
+    ) -> Result<StoreMemoCommit, EngineError> {
+        let memo_id = request.memo_id.clone();
         let inner = PermanentDeleteRequest {
             operation_id: OperationId::parse(&request.operation_id).map_err(EngineError::from)?,
             memo_id: MemoId::parse(&request.memo_id).map_err(EngineError::from)?,
         };
-        with_session(self, |session| session.permanently_delete_memo(&inner)).map(|result| {
-            SessionRestoreResult {
-                file_fingerprint: result.file_fingerprint,
-                event_sequence: result.event_sequence,
-            }
-        })
+        with_session(self, |session| session.permanently_delete_memo(&inner))
+            .map(|result| commit_to_ffi(&memo_id, result.commit_result))
     }
 
     /// Plans reminder alarms from projected Markdown tokens.
@@ -724,12 +726,14 @@ impl LomoEngine {
                     .alarms
                     .into_iter()
                     .map(|alarm| StorePlannedAlarm {
+                        occurrence_id: alarm.occurrence_id,
                         opaque_id: alarm.opaque_id,
                         memo_identity: alarm.memo_identity,
                         trigger_at_utc_ms: alarm.trigger_at_utc_ms,
                         is_catch_up: alarm.is_catch_up,
                     })
                     .collect(),
+                dropped_count: plan.dropped_count,
                 workspace_generation: plan.workspace_generation,
             }
         })
@@ -752,6 +756,57 @@ impl LomoEngine {
         };
         with_session(self, |session| session.record_reminder_fired(inner))
             .map(|result| commit_to_ffi(&memo_id, result.commit_result))
+    }
+
+    /// Writes a durable app-private snooze binding for one reminder definition. The caller passes
+    /// a validated duration; the deadline instant is computed by the owner.
+    ///
+    /// # Errors
+    ///
+    /// Session, validation, snooze storage, recovery-pending, or entry-budget failures.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned String for foreign callers"
+    )]
+    pub fn session_snooze_reminder(
+        &self,
+        opaque_id: String,
+        snooze_duration_ms: i64,
+    ) -> Result<(), EngineError> {
+        with_session(self, |session| {
+            session.snooze_reminder(&opaque_id, snooze_duration_ms)
+        })
+    }
+
+    /// Clears the durable snooze binding for one reminder definition.
+    ///
+    /// # Errors
+    ///
+    /// Session, snooze storage, or recovery-pending failures.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned String for foreign callers"
+    )]
+    pub fn session_clear_reminder_snooze(&self, opaque_id: String) -> Result<(), EngineError> {
+        with_session(self, |session| session.clear_reminder_snooze(&opaque_id))
+    }
+
+    /// True when durable snooze state is quarantined and scheduling is paused.
+    ///
+    /// # Errors
+    ///
+    /// Session or snooze storage failures.
+    pub fn session_reminder_snooze_recovery_pending(&self) -> Result<bool, EngineError> {
+        with_session(self, WorkspaceSession::reminder_snooze_recovery_pending)
+    }
+
+    /// Explicitly recovers corrupt durable snooze state (quarantine + fresh store).
+    ///
+    /// # Errors
+    ///
+    /// Session or snooze storage failures.
+    pub fn session_recover_reminder_snooze(&self) -> Result<(), EngineError> {
+        with_session(self, WorkspaceSession::recover_reminder_snooze)
     }
 }
 
@@ -997,6 +1052,11 @@ pub fn with_session<R>(
     engine: &LomoEngine,
     read: impl FnOnce(&WorkspaceSession) -> Result<R, LomoError>,
 ) -> Result<R, EngineError> {
+    let session = session_arc(engine)?;
+    read(&session).map_err(EngineError::from)
+}
+
+pub fn session_arc(engine: &LomoEngine) -> Result<Arc<WorkspaceSession>, EngineError> {
     let guard = engine
         .session
         .lock()
@@ -1007,9 +1067,9 @@ pub fn with_session<R>(
             "workspace session is not open",
         )
     })?;
-    let result = read(session);
+    let session = Arc::clone(session);
     drop(guard);
-    result.map_err(EngineError::from)
+    Ok(session)
 }
 
 pub fn session_is_open(engine: &LomoEngine) -> Result<bool, EngineError> {
@@ -1018,6 +1078,40 @@ pub fn session_is_open(engine: &LomoEngine) -> Result<bool, EngineError> {
         .lock()
         .map_err(|_poison| poisoned("workspace session lock poisoned"))?;
     Ok(guard.is_some())
+}
+
+pub fn session_owns_document_writes() -> EngineError {
+    session_err(
+        "session_owns_document_writes",
+        "document writes belong to the workspace session",
+    )
+}
+
+pub fn session_list_history_attachment_refs(
+    engine: &LomoEngine,
+) -> Result<Vec<StoreHistoryAttachmentRef>, EngineError> {
+    match &engine.workspace {
+        Some(core::WorkspaceDescriptor::Direct { canonical_root, .. }) => {
+            let root = canonical_root.clone();
+            with_session(engine, |_session| list_history_attachment_refs(&root)).map(|refs| {
+                refs.into_iter()
+                    .map(|item| StoreHistoryAttachmentRef {
+                        memo_id: item.memo_id,
+                        revision: item.revision,
+                        relative_path: item.relative_path,
+                        owner_key: item.owner_key,
+                    })
+                    .collect()
+            })
+        }
+        Some(core::WorkspaceDescriptor::Saf { .. }) => {
+            with_session(engine, |_session| Ok(Vec::new()))
+        }
+        None => Err(session_err(
+            "workspace_session_unavailable",
+            "history attachment listing requires an open workspace session",
+        )),
+    }
 }
 
 #[expect(
@@ -1112,10 +1206,38 @@ pub fn session_rebuild_projection(engine: &LomoEngine) -> Result<StoreRebuildRes
         store_digest: result.store_digest,
         corrupt_lomo_isolated: result.corrupt_lomo_isolated,
         high_water_revision: result.high_water_revision,
+        rewritten: result.rewritten,
     })
 }
 
-fn commit_to_ffi(memo_id: &str, result: SafProjectionCommitResult) -> StoreMemoCommit {
+pub fn session_memo_statistics_rows(
+    engine: &LomoEngine,
+) -> Result<Vec<StoreMemoStatisticsRow>, EngineError> {
+    with_session(engine, WorkspaceSession::memo_statistics_rows).map(|rows| {
+        rows.into_iter()
+            .map(|row| StoreMemoStatisticsRow {
+                created_at_ms: row.created_at_ms,
+                word_count: row.word_count,
+                char_count: row.char_count,
+            })
+            .collect()
+    })
+}
+
+pub fn session_commit_workspace_document_facts(
+    engine: &LomoEngine,
+    command: StoreMemoCommand,
+    projection: StoreSafMemoProjection,
+) -> Result<StoreMemoCommit, EngineError> {
+    let memo_id = command.memo_id.clone();
+    let mutation = workspace_document_facts_mutation(command, projection)?;
+    with_session(engine, |session| {
+        session.commit_workspace_document_facts(&mutation)
+    })
+    .map(|result| commit_to_ffi(&memo_id, result))
+}
+
+pub fn commit_to_ffi(memo_id: &str, result: SafProjectionCommitResult) -> StoreMemoCommit {
     StoreMemoCommit {
         operation_id: result.operation_id,
         memo_id: if result.memo_id.is_empty() {
@@ -1127,7 +1249,7 @@ fn commit_to_ffi(memo_id: &str, result: SafProjectionCommitResult) -> StoreMemoC
         event_sequence: result.event_sequence,
         content_revision: result.content_revision,
         file_fingerprint: result.file_fingerprint,
-        scopes: result.scopes.into_iter().map(scope_name).collect(),
+        scopes: scopes_to_ffi(result.scopes),
         idempotent_replay: result.idempotent_replay,
     }
 }
@@ -1145,10 +1267,8 @@ fn search_outcome_to_ffi(outcome: SearchOutcome) -> SessionSearchOutcome {
                     .items
                     .into_iter()
                     .map(|hit| SessionSearchHit {
-                        memo_id: hit.memo_id,
+                        summary: summary_to_ffi(hit.summary),
                         score: hit.score,
-                        source_path: hit.summary.source_path,
-                        body_preview: hit.summary.body_preview,
                     })
                     .collect(),
                 next_cursor: page.next_cursor.map(|cursor| StorePageCursor {

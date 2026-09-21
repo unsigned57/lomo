@@ -8,8 +8,8 @@
 //!   engine reports the Rust-bound address and stop releases it.
 //! - Given a stale platform snapshot, when submitted through `BoltFFI`, then the stable owner error
 //!   crosses unchanged.
-//! - Given a v2 NSD snapshot, when submitted and queried, then the bounded Rust-validated endpoint
-//!   is returned; a foreign version is rejected at conversion.
+//! - Given a discovery snapshot at the active protocol version, when submitted and queried, then
+//!   the bounded Rust-validated endpoint is returned; a foreign version is rejected at conversion.
 //! - Given no pending session, when its challenge or authenticated snapshot is queried, then the
 //!   engine rejects the unknown session identity instead of returning an empty sentinel.
 //! - Given no Ready workspace, when prepare or approve is requested, then the native boundary
@@ -18,6 +18,17 @@
 //! Observable outcomes: `LanServiceSnapshotDto`, discovered endpoint DTOs and `EngineError.code`.
 //!
 //! TDD proof: RED before the native edit because `LomoEngine` had no LAN runtime field or methods.
+//!
+//! Test Change Justification:
+//! Reason category: protocol owner moved to `lomo-lan` (T25).
+//! Old behavior/assertion being replaced: discovery accepted hardcoded protocol version 2; approve
+//! used a 60s TTL that Kotlin also chose.
+//! Why old assertion is no longer correct: v3 AEAD control is the only decoder, and lifetimes are
+//! crate constants echoed through `lan_protocol_limits`.
+//! Coverage preserved by: the same snapshot round-trip plus an explicit foreign-version rejection;
+//! approve still fails `lan_workspace_not_ready` when the workspace is missing.
+//! Why this is not fitting the test to the implementation: the product contract is "one protocol
+//! version, Kotlin does not choose TTL", not a frozen v2 wire.
 //!
 //! Excludes: generated Kotlin, Android network callbacks, Keystore, pairing and transfer wire.
 
@@ -38,6 +49,7 @@ mod tests {
         net::{SocketAddr, TcpListener},
     };
 
+    use lomo_lan::{APPROVAL_TTL_MS, LAN_PROTOCOL_VERSION, PAIRING_TTL_MS, SESSION_TTL_MS};
     use lomo_native::{
         EngineConfig, LanBindCandidateDto, LanDeviceIdentityDto, LanDiscoveredPeerDto,
         LanDiscoverySnapshotDto, LanNetworkSnapshotDto, LanSendItemDto, LanServicePhaseDto,
@@ -100,21 +112,21 @@ mod tests {
     }
 
     #[test]
-    fn discovery_is_v2_only_and_round_trips_as_validated_facts() {
+    fn discovery_accepts_only_the_active_protocol_version_and_round_trips_as_validated_facts() {
         let (_root, engine) = engine();
         let peer = LanDiscoveredPeerDto {
             device_id: "a".repeat(64),
             display_name: "Tablet".to_owned(),
             host: "127.0.0.1".to_owned(),
             port: 43123,
-            protocol_version: 2,
+            protocol_version: u32::from(LAN_PROTOCOL_VERSION),
         };
         engine
             .update_lan_discovery_snapshot(LanDiscoverySnapshotDto {
                 revision: 1,
                 peers: vec![peer.clone()],
             })
-            .test_ok("v2 discovery publishes");
+            .test_ok("active protocol discovery publishes");
         assert_eq!(
             engine.list_lan_discovered_peers().test_ok("list"),
             vec![peer]
@@ -133,6 +145,16 @@ mod tests {
             })
             .test_err("foreign protocol is rejected");
         assert_eq!(foreign.code(), "lan_discovery_protocol_unsupported");
+    }
+
+    #[test]
+    fn protocol_limits_are_owned_by_rust_and_not_invented_at_the_ffi_edge() {
+        let (_root, engine) = engine();
+        let limits = engine.lan_protocol_limits();
+        assert_eq!(limits.protocol_version, u32::from(LAN_PROTOCOL_VERSION));
+        assert_eq!(limits.pairing_ttl_ms, PAIRING_TTL_MS);
+        assert_eq!(limits.session_ttl_ms, SESSION_TTL_MS);
+        assert_eq!(limits.approval_ttl_ms, APPROVAL_TTL_MS);
     }
 
     #[test]
@@ -207,7 +229,7 @@ mod tests {
                 "0".repeat(32),
                 "batch-native-runtime".to_owned(),
                 1_000,
-                60_000,
+                APPROVAL_TTL_MS,
             )
             .test_err("approval requires a Ready workspace");
         assert_eq!(unknown_approve.code(), "lan_workspace_not_ready");

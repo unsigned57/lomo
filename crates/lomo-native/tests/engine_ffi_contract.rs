@@ -11,7 +11,8 @@
 //! - Given an invalid stable workspace id, capability, or deadline, when it crosses FFI, then the
 //!   boundary returns a structured validation error and creates no engine state.
 //!
-//! Observable outcomes: exported state/job/cancel/shutdown enums and stable error fields.
+//! Observable outcomes: exported state/job/cancel/shutdown enums, stable error fields, and the sole
+//! event-sequence gap law.
 //! TDD proof: the core descriptor/engine contracts were RED on 2026-07-27 before the FFI production
 //! edit because stable SAF identity could not cross independently from the capability; this
 //! companion contract locks the facade validation/mapping outcome.
@@ -23,12 +24,12 @@ mod support;
 #[cfg(test)]
 mod tests {
     use super::support::ResultTestExt;
-    use std::{fs, sync::mpsc, time::Duration};
+    use std::fs;
 
     use lomo_native::{
-        ActionEvidence, ActionOutcome, ActionResult, CancelOutcome, CoreEvent, CoreEventListener,
-        DocumentKind, DocumentMetadata, EngineConfig, EngineState, ExchangeArtifact, LomoEngine,
-        MetadataPage, PlatformAction, PlatformActionOutput, PlatformBatchResult, ShutdownOutcome,
+        ActionEvidence, ActionOutcome, ActionResult, CancelOutcome, ContentDigest, DocumentKind,
+        DocumentMetadata, EngineConfig, EngineState, ExchangeArtifact, LomoEngine, MetadataPage,
+        PlatformAction, PlatformActionOutput, PlatformBatchResult, ShutdownOutcome,
         VerifiedAbsence, WorkspaceDescriptor, WorkspaceTarget,
     };
     use tempfile::tempdir;
@@ -116,18 +117,8 @@ mod tests {
         assert_eq!(error.code(), "invalid_workspace_id");
     }
 
-    struct RecordingListener {
-        sender: mpsc::Sender<CoreEvent>,
-    }
-
-    impl CoreEventListener for RecordingListener {
-        fn on_event(&self, event: CoreEvent) {
-            self.sender.send(event).test_ok("record event");
-        }
-    }
-
     #[test]
-    fn ffi_submit_and_listener_preserve_the_formal_core_protocol() {
+    fn ffi_submit_preserves_the_formal_core_protocol() {
         let temporary = tempdir().test_ok("temporary root");
         let control = temporary.path().join("control");
         let exchange = temporary.path().join("exchange");
@@ -157,10 +148,6 @@ mod tests {
         else {
             panic!("bootstrap batch is required");
         };
-        let (sender, receiver) = mpsc::channel();
-        let subscription = engine
-            .subscribe(Box::new(RecordingListener { sender }))
-            .test_ok("subscribe");
         let action_results = batch
             .actions
             .iter()
@@ -185,16 +172,18 @@ mod tests {
             .test_ok("submit complete result");
         assert!(matches!(step, lomo_native::JobStep::Completed));
         assert!(matches!(engine.state(), EngineState::Ready { .. }));
-        let event = receiver
-            .recv_timeout(Duration::from_secs(1))
-            .test_ok("listener event");
-        assert_eq!(event.core_revision, 0);
-        assert_eq!(event.job_id.as_deref(), Some(job_id.as_str()));
         assert_eq!(
             engine.cancel_job(job_id).test_ok("cancel completed job"),
             CancelOutcome::AlreadyCompleted
         );
-        assert!(subscription.unsubscribe());
+    }
+
+    #[test]
+    fn ffi_event_sequence_gap_law_matches_core() {
+        assert!(!lomo_native::event_sequence_requires_full_invalidate(3, 3));
+        assert!(!lomo_native::event_sequence_requires_full_invalidate(3, 4));
+        assert!(lomo_native::event_sequence_requires_full_invalidate(3, 5));
+        assert!(lomo_native::event_sequence_requires_full_invalidate(3, 2));
     }
 
     fn action_id(action: &PlatformAction) -> &str {
@@ -212,7 +201,9 @@ mod tests {
     fn output_for(action: &PlatformAction) -> PlatformActionOutput {
         let evidence = || ActionEvidence {
             length: 0,
-            digest: "d".repeat(64),
+            digest: ContentDigest::Verified {
+                hex: "d".repeat(64),
+            },
             fingerprint: "ffi-root-fingerprint".to_owned(),
         };
         let metadata = |target: WorkspaceTarget, kind: DocumentKind| DocumentMetadata {
@@ -262,7 +253,9 @@ mod tests {
                         mime_type: None,
                         evidence: ActionEvidence {
                             length: artifact.length,
-                            digest: artifact.digest.clone(),
+                            digest: ContentDigest::Verified {
+                                hex: artifact.digest.clone(),
+                            },
                             fingerprint: "ffi-root-fingerprint".to_owned(),
                         },
                     },

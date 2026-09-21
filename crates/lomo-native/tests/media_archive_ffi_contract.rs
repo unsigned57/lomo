@@ -79,6 +79,7 @@ mod tests {
             bootstrap_deadline_millis: 30_000,
             workspace: Some(WorkspaceDescriptor::Direct {
                 root_path: workspace.to_string_lossy().into_owned(),
+                capability_token: "notes-root".to_owned(),
             }),
         })
         .test_ok("open engine")
@@ -86,7 +87,7 @@ mod tests {
 
     fn attach_posix_session(engine: &LomoEngine, workspace: &Path, exchange: &Path) {
         let executor = PosixPlatformActionExecutor::new(exchange).test_ok("posix executor");
-        let capability = CapabilityToken::parse("direct-root").test_ok("direct capability");
+        let capability = CapabilityToken::parse("notes-root").test_ok("direct capability");
         executor
             .bind_root(capability, workspace)
             .test_ok("bind workspace");
