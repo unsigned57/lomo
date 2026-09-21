@@ -1,149 +1,90 @@
 # Lomo Agent Guide
 
-This is the AI-first repository entrypoint. Read it first, open only the task-specific document
-needed next, and stop descending once the current layer is sufficient.
+Read this entrypoint first. Work from the current tree, preserve other edits, and stop reading when
+the owning boundary and required checks are clear. Do not read all documentation before every task.
 
-## 1. First-Principles Gate
+## 1. Read only the relevant contract
 
-Before any non-trivial bug fix, refactor, architecture change, or behavior change, state:
+| Task | Read next |
+| --- | --- |
+| Architecture, dependency, authority, state or cross-language change | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| Build, lint, coverage, generated outputs or quality commands | [quality/README.md](quality/README.md) |
+| Any test authoring, editing or review | [Meaningful Tests](quality/testing/ai-meaningful-tests.md), then the relevant [Kotlin](quality/testing/ai-kotlin-test-style.md) or [Rust](quality/testing/ai-rust-test-style.md) guide |
+| ViewModel state, events or paging presentation | [UDF contract](quality/udf-contract.md) |
+| Release, signing or release resources | [quality/release.md](quality/release.md) |
 
-1. **Fundamental invariant**: the irreducible type law, state transition, domain constraint, or
-   resource property that must hold.
-2. **Axiom violation**: the input, boundary, missing type, or code path that allowed it to become
-   false.
-3. **Rebuild from truth**: the type, parser, state machine, permission boundary, or canonical
-   workflow that makes the violation structurally impossible.
-4. **Edge enforcement**: how invalid state is rejected at the furthest boundary before domain logic.
-5. **Tail deletion**: which old fallbacks, flags, duplicate validations, compatibility paths, and
-   null-vs-empty ambiguities must disappear in the same change.
+`ARCHITECTURE.md` alone defines immutable module authority and dependency direction. Change it only
+when those boundaries fundamentally change; never turn it into a migration ledger. Apply fixes at
+the owning layer. Architecture-sensitive handoffs name the owner, boundary effect and exceptions in
+an **Architecture Impact** note.
 
-Do not edit until these are answerable. Scope search is evidence for this gate, not the goal.
+Use `rg` to verify paths, APIs and callers. Code and manifests own implementation facts. Read audit
+history only for the relevant regression or an explicit investigation; reports do not override the
+current architecture. Do not repeatedly reopen an unchanged contract already read in this task.
 
-Rejected by default:
+## 2. Explain the invariant before editing
 
-- one-off conditionals or defensive fallbacks that compensate for a broken invariant
-- duplicate helpers where the underlying property is unmodeled
-- compatibility parameters, overloads, deprecated paths, feature flags, TODO migrations, or
-  parallel implementations
-- `NoOp`, `Disabled`, `Empty`, or sentinel placeholders for undefined state
-- `@Suppress`, `@SuppressLint`, or `@SuppressWarnings` used to silence a structural failure
-- copying an existing pattern without first proving that the pattern follows the invariant
+Before a non-trivial fix, refactor or behavior change, answer these five points concretely:
 
-Invalid upstream state must be modeled, rejected, or surfaced. Do not hide it with swallowed
-`Throwable`, `runCatching { ... }.getOrNull()`, zero/empty `getOrDefault` or `getOrElse`, or Elvis
-fallbacks to empty strings, collections, or numbers. A default is valid only when it is a real domain
-state documented by a Behavior Contract. Mark an intentional silent `runCatching` result with
-`// behavior-contract: silent-result-ok: <reason>`.
+1. **Fundamental invariant** — the type law, state transition, domain constraint or resource bound.
+2. **Axiom violation** — the input, boundary or path that can break it.
+3. **Rebuild from truth** — the type, parser, state machine or canonical workflow that prevents it.
+4. **Edge enforcement** — where invalid input is rejected before domain logic.
+5. **Tail deletion** — the old fallbacks, flags, duplicate checks, compatibility paths and ambiguous
+   null/empty states removed in the same change.
 
-Mechanical non-behavioral edits are exempt from the design gate. An explicitly requested emergency
-hotfix must be labeled temporary and name the first-principles replacement.
+Mechanical edits are exempt. An explicitly requested emergency hotfix is temporary and names its
+first-principles replacement. Do not copy a pattern until it satisfies the invariant.
 
-## 2. Architecture Gate
+Do not add compensating conditionals, duplicate helpers, compatibility overloads, feature flags,
+TODO migrations, parallel implementations or `NoOp`/`Disabled`/`Empty` placeholders for undefined
+state. Do not suppress structural failures with `@Suppress`, `@SuppressLint` or `@SuppressWarnings`.
 
-[ARCHITECTURE.md](ARCHITECTURE.md) is the sole source of truth for immutable architecture,
-module authority, and dependency direction. It is an invariant architectural standard, not a
-reconciliation ledger ("对账文件"), status tracker, or migration log: do not edit it for routine
-features, incremental refactorings, or temporary transitions. It may be updated only when an
-irreducible architectural boundary or module ownership fundamentally shifts.
+Model, reject or surface invalid upstream state. Do not silently swallow `Throwable`, discarded
+`runCatching`, `getOrNull`, zero/empty `getOrDefault`/`getOrElse`, or Elvis fallbacks. Defaults must be
+real domain states documented by a Behavior Contract. An intentional silent `runCatching` result
+requires `// behavior-contract: silent-result-ok: <reason>`; a comment is not proof of correctness.
 
-Read it before architecture-sensitive work, apply the fix at the owning layer, and never use an
-existing violation as precedent. Every architecture-sensitive handoff must include an
-`Architecture Impact` note naming the owner, boundary effect, and any exception.
+## 3. Implement with observable evidence
 
-## 3. Task Routing
+Features, bug fixes, contract changes and behavior-affecting test edits use BDD + TDD:
+state capability, Given/When/Then scenarios, observable outcomes and exclusions; write the narrowest
+failing test; observe a real RED failure; implement GREEN; refactor under GREEN.
 
-- Build, lint, coverage, generated state, and quality gates: [quality/README.md](quality/README.md)
-- Release builds, signing, and release resource review: [quality/release.md](quality/release.md)
-- Any test authoring, editing, or review: [AI Meaningful Tests](quality/testing/ai-meaningful-tests.md)
-- Kotlin tests after the common test contract: [AI Kotlin Test Style](quality/testing/ai-kotlin-test-style.md)
-- Rust tests after the common test contract: [AI Rust Test Style](quality/testing/ai-rust-test-style.md)
+Kotlin tests use one `FunSpec({ ... })` or one `init { ... }`, stateful fakes and observable assertions.
+Rust tests live outside production sources and never require test-only production dependencies.
+The linked test guides own the detailed conventions. Do not weaken existing behavior locks to make
+a change pass.
 
-Concrete paths, APIs, and implementation details are code facts. Verify them with repository search;
-do not rely on hand-maintained module file inventories.
+Keep unrelated and overlapping working-tree edits intact. Kotlin sources use Amper `src/`, `test/`
+and resource roots, without Maven/Java or common package-root directories; package declarations
+remain `com.lomo.*`. The sole source-layout exception is Android baseline profiles:
+`apps/android/app/src/main/baseline-prof.txt` and `apps/android/app/src/main/baselineProfiles/generated.txt` (regenerate
+with `quality/scripts/generate_static_baseline_profile.py --build-dir <build-dir>`).
+Update both `values` and `values-zh-rCN` for i18n changes. Read version pins from manifests/toolchain
+configuration; do not introduce another pin or orchestration entrypoint.
 
-## 4. Behavior And Tests
+## 4. Verify at the appropriate boundary
 
-- Use BDD + TDD for features, bug fixes, contract changes, and behavior-affecting test edits.
-- State capability, Given/When/Then scenarios, observable outcomes, and exclusions first.
-- Write or update the narrowest failing test before production code and observe a real RED failure.
-- Implement the first-principles fix to reach GREEN, then refactor under GREEN.
-- Kotlin tests use one `FunSpec({ ... })` or one `init { ... }`, fake-first stateful collaborators,
-  and observable behavior rather than interaction-only assertions.
-- Rust tests stay outside production sources and assert observable behavior without adding test-only
-  dependencies to the production graph.
+Run commands from the repository root. `Justfile` delegates to `lomo-xtask`; gate contents and build
+facts are defined in [quality/README.md](quality/README.md).
 
-## 5. Verification
+- **During implementation:** narrow RED/GREEN tests. Do not run the full release gate after each edit.
+- **Before closing a Rust package:** `cargo clippy -p <crate> --all-targets --locked -- -D warnings`
+  and relevant `cargo test -p <crate> … --locked`.
+- **Before closing a Kotlin package:** `./kotlin test --include-module=<module> --include-classes='…'`
+  for changed specs, or the module suite for a broad change.
+- **Native/FFI/lock/packaging changes:** regenerate and validate the affected generated/pack surface.
+- **Review/push handoff:** `just check`. Manual `just preflight` is an iteration aid, not a substitute.
+- **Merge/shared-branch delivery:** `just ci`. Pre-push automatically runs `just preflight push`.
 
-Run commands from the repository root. `Justfile` delegates to repository-owned `lomo-xtask`, so
-local and CI orchestration share one graph.
+Record actual commands and results. Compilation alone is not GREEN when behavior tests exist.
+A required failing/unavailable gate keeps the package **open**; report its blocker and never mark
+STAGE evidence GREEN. No first-party unsafe or `#[allow(unsafe_code)]` without an explicit
+architecture exception and a same-change removal plan.
 
-### 5.1 Done means gates are green
-
-A coding turn is **not complete** when only source edits land. Before reporting success, handoff,
-or moving to the next package, the agent must run the gates that cover the changed surface and
-record real command output. “Looks correct” / “tests should pass” is not verification.
-
-Mandatory minimum after production or test code changes:
-
-1. **Targeted RED/GREEN first** while implementing (narrowest failing then passing tests for the
-   package under change).
-2. **Surface gate before claiming the package done**:
-   - Rust production/tests/clippy: `cargo clippy -p <crate> --all-targets --locked -- -D warnings`
-     and the relevant `cargo test -p <crate> … --locked`.
-   - Kotlin production/tests: `./kotlin test --include-module=<module> --include-classes='…'`
-     for the changed specs, or the module suite when the change is broad.
-   - Native/FFI: regenerate/pack as required when engine, lock, or packaging surface changed.
-3. **Path-aware pre-push gate (automatic)**: pre-push runs `just preflight push`; only surfaces
-   touched by pushed commits run (Rust-only pushes skip the Kotlin gate). A missing remote base
-   falls back to the full iterative surface. Run `just check` before push/handoff when the full
-   gate is wanted.
-4. **Full handoff gate before merge / shared-branch delivery**: `just ci`.
-
-If a required gate cannot run (missing secret, tool outage), say so explicitly, keep the
-package **open**, and do not mark STAGE evidence GREEN for that gate.
-
-Do **not**:
-
-- claim GREEN from compilation alone when behavior tests exist;
-- skip Clippy when workspace `unsafe_code = "deny"` / pedantic Clippy is the contract;
-- leave `#[allow(unsafe_code)]` or first-party `unsafe` without an explicit architecture exception
-  and a same-change plan to remove it;
-- treat `just preflight` as a substitute for `just check` on handoff.
-
-### 5.2 Command menu
-
-- **Bootstrap**: `just bootstrap`
-- **Lightweight commit hook**: format staged sources + staged meaningful-test contracts only
-- **Path-aware iteration**: `just preflight staged` for the staged surface, `just preflight push`
-  (also the pre-push hook) for the pushed surface; manual preflight is never the final handoff
-- **Iterative Check**: `just check` (full local iterative validation before handoff)
-- **Full Gate**: `just ci` (coverage + fat-LTO release native; PR/merge handoff and local confirmation)
-- **Linux TUI**: `just tui` (forwards extra args to `lomo-tui`)
-- **Android Build**: `just android debug` or `just android release`
-- **Commit Rule**: pre-commit stays cheap (fmt + contracts); pre-push runs `just preflight push`
-  (path-aware); before merge or shared-branch handoff run `just ci` (GitHub Actions enforces the
-  PR surface). Use `just preflight` while iterating when you want a path-aware subset without a
-  full check.
-
-### 5.3 Permission failures
-
-When a repository-owned build, test, or quality command fails because a user-level toolchain,
-distribution, daemon, telemetry path, or cache is not writable in the sandbox, immediately request
-permission to rerun the original command with elevated access.
-
-Do not redirect `XDG_CACHE_HOME`, `GRADLE_USER_HOME`, `CARGO_HOME`, Kotlin toolchain build paths, or
-similar state into the repository. Do not create repository-local isolation, cache, toolchain, or
-distribution directories as a workaround for a permission failure. If such a directory was created,
-stop the process using it and remove that exact directory before continuing.
-
-## 6. Repository Facts
-
-- `minSdk` and native Android API are `26`; Rust is `1.98`; Android NDK is `29.0.14206865`.
-- i18n changes update both `values` and `values-zh-rCN`.
-- Version-controlled Kotlin modules use Amper roots such as `src/`, `test/`, `resources/`, and
-  Android/Compose resource roots. Never add Maven/Java source hierarchies or common package-root
-  directories on disk; keep full `package com.lomo.*` declarations.
-- Baseline Profile packaging is the sole source-layout exception: keep
-  `apps/android/app/src/main/baseline-prof.txt` and `apps/android/app/src/main/baselineProfiles/generated.txt`; regenerate the
-  latter with `quality/scripts/generate_static_baseline_profile.py --build-dir <build-dir>`.
-- Assume others may be editing the tree. Preserve unrelated changes and work with overlapping ones.
+If a repository-owned command fails because a standard user toolchain/cache/daemon/telemetry path
+is not writable in the sandbox, immediately request elevated rerun of the **original command**.
+Do not redirect HOME/XDG/Gradle/Cargo/Kotlin caches into the repository as a workaround. Stop and
+remove any exact workaround directory created for that failure. Reuse standard dependency caches
+and the canonical shared build outputs.

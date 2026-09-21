@@ -25,6 +25,8 @@ This document defines the immutable architecture and authority model for Lomo. I
 - `lomo-media`: Media identity and lifecycle operations.
 - `lomo-platform-fs`: Linux POSIX implementation of the core `PlatformActionExecutor` protocol. Owns descriptor-bound root capabilities, SHA-256 checked atomic file I/O, process file locks, and directory change observation. It contains no application, SQLite, UI, or network policy.
 - `lomo-native`: Sole business FFI facade and JNI boundary. Converts foreign DTOs onto `lomo-application` and owner crates; it does not own document, projection, or network policy.
+- `boltffi-facade` (package `boltffi`): Repository-owned facade over `boltffi_core` controlling macro expansion without enabling codec features.
+- `lomo-feasibility`: Corpus extraction, redaction, and offline feasibility analysis tooling.
 - `lomo-xtask`: Build, packaging, and quality orchestration tooling.
 - `lomo-architecture-tests`: Repository and cross-language architecture locks.
 - `lomo-tui`: Linux TUI binary crate. Presentation and composition only; business writes go through `lomo-application`.
