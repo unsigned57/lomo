@@ -2,10 +2,22 @@
 <data-extraction-rules>
     <cloud-backup>
         <include domain="sharedpref" path="."/>
+        <exclude domain="sharedpref" path="git_credentials.xml"/>
+        <exclude domain="sharedpref" path="webdav_credentials.xml"/>
+        <exclude domain="sharedpref" path="s3_credentials.xml"/>
+        <exclude domain="sharedpref" path="trusted_launch_intents.xml"/>
+        <exclude domain="sharedpref" path="external_app_commands.xml"/>
         <include domain="database" path="."/>
+        <exclude domain="database" path="androidx.work.workdb"/>
     </cloud-backup>
     <device-transfer>
         <include domain="sharedpref" path="."/>
+        <exclude domain="sharedpref" path="git_credentials.xml"/>
+        <exclude domain="sharedpref" path="webdav_credentials.xml"/>
+        <exclude domain="sharedpref" path="s3_credentials.xml"/>
+        <exclude domain="sharedpref" path="trusted_launch_intents.xml"/>
+        <exclude domain="sharedpref" path="external_app_commands.xml"/>
         <include domain="database" path="."/>
+        <exclude domain="database" path="androidx.work.workdb"/>
     </device-transfer>
 </data-extraction-rules>

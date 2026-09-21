@@ -37,6 +37,7 @@ data class RustSyncWorkRequest(
     val prefix: String = "",
     val region: String = "",
     val remoteDatasetId: String = "",
+    val identityFieldKey: String? = null,
     val secretFieldKey: String? = null,
     val leaseTtlMillis: Long = DEFAULT_LEASE_TTL_MILLIS,
     /** Populated by the worker after a successful lease issue; null when no secret field. */
@@ -47,7 +48,7 @@ data class RustSyncWorkRequest(
         const val INPUT_WORKSPACE_ROOT: String = "rust_sync_workspace_root"
         const val INPUT_BACKEND_KIND: String = "rust_sync_backend_kind"
         const val INPUT_ENDPOINT_URL: String = "rust_sync_endpoint_url"
-        const val INPUT_USERNAME_OR_ACCESS_KEY: String = "rust_sync_username_or_access_key"
+        const val INPUT_IDENTITY_FIELD_KEY: String = "rust_sync_identity_field_key"
         const val INPUT_BUCKET: String = "rust_sync_bucket"
         const val INPUT_PREFIX: String = "rust_sync_prefix"
         const val INPUT_REGION: String = "rust_sync_region"

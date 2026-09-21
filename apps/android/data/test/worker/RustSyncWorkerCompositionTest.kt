@@ -25,6 +25,16 @@ package com.lomo.data.worker
  * Excludes:
  * - Real JNI / durable .lomo/sync.
  * - Full provider plan/apply publish.
+ * Test Change Justification:
+ * - Reason category: FFI surface contract change and worker composition refactor.
+ * - Old behavior/assertion being replaced: the fake bridge implemented
+ *   retryHintFromDispositionName and the worker was constructed directly.
+ * - Why old assertion is no longer correct: that bridge method is deleted; the bridge exposes
+ *   loadWorkspaceGeneration/resetControlTree/identityUtf8 and composition goes through
+ *   rustSyncCompositionWorker.
+ * - Coverage preserved by: composition scenarios unchanged; unused bridge members fail loudly.
+ * - Why this is not fitting the test to the implementation: the fake follows the generated FFI
+ *   interface and the composition factory is the production wiring.
  */
 
 import android.content.Context
@@ -38,9 +48,9 @@ import com.lomo.data.engine.sync.RemoteSyncCyclePlanSummary
 import com.lomo.data.engine.sync.RemoteSyncCycleRequest
 import com.lomo.data.engine.sync.RemoteSyncRepository
 import com.lomo.data.engine.sync.RemoteSyncRetryDisposition
-import com.lomo.data.engine.sync.RemoteSyncRetryHint
 import com.lomo.data.engine.sync.RemoteSyncSecretLease
 import com.lomo.data.engine.sync.RustSyncSecretSupplier
+import com.lomo.data.repository.AuthorizedCredentialReadSessionPolicy
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
@@ -66,6 +76,7 @@ private class CompositionFakeRepository : RemoteSyncRepository {
             ensureAbsentCount = 0,
             pullPresentCount = 0,
             openConflictCount = 0,
+            holdCount = 0,
             openConflictPaths = 0,
             conflictRevision = null,
             retryDisposition = "after_user_action",
@@ -99,17 +110,6 @@ private class CompositionFakeRepository : RemoteSyncRepository {
         error("revoke owned by worker lifecycle")
     }
 
-    override fun retryHintFromDispositionName(name: String): RemoteSyncRetryHint {
-        val disposition =
-            when (name.trim().lowercase()) {
-                "never" -> RemoteSyncRetryDisposition.Never
-                "after_user_action" -> RemoteSyncRetryDisposition.AfterUserAction
-                "transient" -> RemoteSyncRetryDisposition.Transient
-                else -> RemoteSyncRetryDisposition.Never
-            }
-        return RemoteSyncRetryHint(disposition = disposition)
-    }
-
     override fun inspectCyclePlan(workspaceRoot: String): RemoteSyncCyclePlanSummary {
         inspectCount += 1
         error("composition production path must call runCycle, not inspectCyclePlan")
@@ -120,6 +120,13 @@ private class CompositionFakeRepository : RemoteSyncRepository {
         lastRunCycleRequest = request
         runCycleError?.let { throw it }
         return cycleSummary
+    }
+
+    override fun loadWorkspaceGeneration(workspaceRoot: String): String =
+        error("generation not used by composition")
+
+    override fun resetControlTree(workspaceRoot: String) {
+        error("reset not used by composition")
     }
 }
 
@@ -150,6 +157,8 @@ private class CompositionFakeSecretSupplier(
         revokeCount += 1
         revokedIds += leaseId
     }
+
+    override fun identityUtf8(fieldKey: String): String? = null
 }
 
 class RustSyncWorkerCompositionTest : FunSpec({
@@ -171,7 +180,7 @@ class RustSyncWorkerCompositionTest : FunSpec({
             val repo = CompositionFakeRepository()
             val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val worker = RustSyncWorker(context, params, supplier, executor)
+            val worker = rustSyncCompositionWorker(context, params, supplier, executor)
             val result = worker.doWork()
 
             result.shouldBeInstanceOf<ListenableWorker.Result.Success>()
@@ -196,7 +205,7 @@ class RustSyncWorkerCompositionTest : FunSpec({
             val repo = CompositionFakeRepository()
             val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val worker = RustSyncWorker(context, params, supplier, executor)
+            val worker = rustSyncCompositionWorker(context, params, supplier, executor)
             val result = worker.doWork()
 
             result.shouldBeInstanceOf<ListenableWorker.Result.Failure>()
@@ -222,7 +231,7 @@ class RustSyncWorkerCompositionTest : FunSpec({
             val repo = CompositionFakeRepository()
             val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val worker = RustSyncWorker(context, params, supplier, executor)
+            val worker = rustSyncCompositionWorker(context, params, supplier, executor)
             val result = worker.doWork()
 
             result.shouldBeInstanceOf<ListenableWorker.Result.Failure>()
@@ -258,7 +267,7 @@ class RustSyncWorkerCompositionTest : FunSpec({
                 )
             val executor = RemoteSyncRustWorkExecutor(repo)
 
-            val worker = RustSyncWorker(context, params, supplier, executor)
+            val worker = rustSyncCompositionWorker(context, params, supplier, executor)
             val result = worker.doWork()
 
             result.shouldBeInstanceOf<ListenableWorker.Result.Retry>()
@@ -275,3 +284,24 @@ private fun workDataOfBlank() =
                     remoteDatasetId = "ds-compose",
                     applyRemote = false,
                     workspaceRoot = "  ")
+
+private class CompositionDeferredLockStore : DeferredLockWorkStore {
+    override fun save(input: androidx.work.Data) = Unit
+
+    override fun take(): androidx.work.Data? = null
+}
+
+private fun rustSyncCompositionWorker(
+    context: Context,
+    params: WorkerParameters,
+    supplier: RustSyncSecretSupplier,
+    executor: RustSyncWorkExecutor,
+): RustSyncWorker =
+    RustSyncWorker(
+        appContext = context,
+        workerParams = params,
+        secretSupplier = supplier,
+        workExecutor = executor,
+        securitySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+        deferredLockStore = CompositionDeferredLockStore(),
+    )

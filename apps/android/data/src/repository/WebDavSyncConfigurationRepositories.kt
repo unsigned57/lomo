@@ -58,12 +58,7 @@ class WebDavSyncConfigurationMutationRepositoryImpl(
     private val dataStore: LomoDataStore,
     private val credentialStore: WebDavCredentialStore,
     private val credentialRepository: CredentialRepository,
-    private val securitySessionPolicy: SecuritySessionPolicy,
 ) : WebDavSyncConfigurationMutationRepository {
-    override suspend fun setWebDavSyncEnabled(enabled: Boolean) {
-        dataStore.updateWebDavSyncEnabled(enabled)
-    }
-
     override suspend fun setProvider(provider: WebDavProvider) {
         dataStore.updateWebDavProvider(provider.preferenceValue)
     }
@@ -77,11 +72,11 @@ class WebDavSyncConfigurationMutationRepositoryImpl(
     }
 
     override suspend fun setUsername(username: String) {
-        credentialRepository.writeSecret(CredentialField.WEBDAV_USERNAME, username.trim())
+        credentialRepository.writeSecret(CredentialField.WEBDAV_USERNAME, username)
     }
 
     override suspend fun setPassword(password: String) {
-        credentialRepository.writeSecret(CredentialField.WEBDAV_PASSWORD, password.trim())
+        credentialRepository.writeSecret(CredentialField.WEBDAV_PASSWORD, password)
     }
 
     override suspend fun getPasswordStatus(): StoredCredentialStatus = credentialStore.passwordStatus

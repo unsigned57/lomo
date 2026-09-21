@@ -13,6 +13,7 @@ import com.lomo.domain.model.CredentialSecretReadResult
 import com.lomo.domain.model.StoredCredentialStatus
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.test.runTest
 
 /*
  * Behavior Contract:
@@ -86,6 +87,17 @@ class UnifiedCredentialRepositoryTest : DataFunSpec() {
                     ),
             ) shouldBe CredentialSecretReadResult.Unauthorized(CredentialReadDenialReason.SecuritySessionLocked)
         }
+
+        test("given password with surrounding spaces when written then stored bytes keep the spaces") {
+            val webDavStore = RecordingSecureStringStore()
+            val repository = repository(webDavStore = webDavStore)
+
+            runTest {
+                repository.writeSecret(CredentialField.WEBDAV_PASSWORD, "  hunter2  ")
+            }
+
+            webDavStore.written["webdav_password"] shouldBe "  hunter2  "
+        }
     }
 
     private fun repository(
@@ -110,4 +122,18 @@ private class UnifiedCredentialFakeStore(
         key: String,
         value: String?,
     ) = Unit
+}
+
+private class RecordingSecureStringStore : SecureStringStore {
+    val written: MutableMap<String, String?> = mutableMapOf()
+
+    override fun readString(key: String): SecureStringReadResult =
+        written[key]?.let(SecureStringReadResult::Present) ?: SecureStringReadResult.Missing
+
+    override fun putString(
+        key: String,
+        value: String?,
+    ) {
+        written[key] = value
+    }
 }

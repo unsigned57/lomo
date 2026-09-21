@@ -37,6 +37,17 @@ package com.lomo.data.worker
  * - Real JNI / durable .lomo/sync (native sync_ffi_contract).
  * - Provider-specific sync bodies.
  * - Kotlin business planner.
+ * Test Change Justification:
+ * - Reason category: FFI surface contract change.
+ * - Old behavior/assertion being replaced: the fake bridge implemented
+ *   retryHintFromDispositionName.
+ * - Why old assertion is no longer correct: that bridge method is deleted; the bridge now exposes
+ *   loadWorkspaceGeneration/resetControlTree and retry dispositions flow through the typed
+ *   RemoteSyncRetryDisposition wire.
+ * - Coverage preserved by: executor scenarios unchanged; new bridge members stub as error("not
+ *   used") so accidental use fails loudly.
+ * - Why this is not fitting the test to the implementation: the fake follows the generated FFI
+ *   interface.
  */
 
 import com.lomo.data.engine.sync.RemoteSyncBoundaryFailure
@@ -72,6 +83,7 @@ private class FakeRemoteSyncRepository : RemoteSyncRepository {
             ensureAbsentCount = 0,
             pullPresentCount = 0,
             openConflictCount = 0,
+            holdCount = 0,
             openConflictPaths = 0,
             conflictRevision = null,
             retryDisposition = "after_user_action",
@@ -111,17 +123,6 @@ private class FakeRemoteSyncRepository : RemoteSyncRepository {
         error("revoke is owned by worker lease lifecycle, not work executor")
     }
 
-    override fun retryHintFromDispositionName(name: String): RemoteSyncRetryHint {
-        val disposition =
-            when (name.trim().lowercase()) {
-                "never" -> RemoteSyncRetryDisposition.Never
-                "after_user_action" -> RemoteSyncRetryDisposition.AfterUserAction
-                "transient" -> RemoteSyncRetryDisposition.Transient
-                else -> RemoteSyncRetryDisposition.Never
-            }
-        return RemoteSyncRetryHint(disposition = disposition)
-    }
-
     override fun inspectCyclePlan(workspaceRoot: String): RemoteSyncCyclePlanSummary {
         inspectCount += 1
         error("inspectCyclePlan is readiness-only; production work unit must call runCycle")
@@ -132,6 +133,13 @@ private class FakeRemoteSyncRepository : RemoteSyncRepository {
         lastCycleRequest = request
         runCycleError?.let { throw it }
         return cycleSummary
+    }
+
+    override fun loadWorkspaceGeneration(workspaceRoot: String): String =
+        error("generation not used by work executor unit")
+
+    override fun resetControlTree(workspaceRoot: String) {
+        error("reset not used by work executor unit")
     }
 }
 

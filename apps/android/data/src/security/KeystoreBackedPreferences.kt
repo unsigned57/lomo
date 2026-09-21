@@ -2,7 +2,6 @@ package com.lomo.data.security
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import androidx.core.content.edit
@@ -18,7 +17,6 @@ internal class KeystoreBackedPreferences(
     preferenceFileName: String,
     keyAlias: String,
     private val removeCorruptedEntryOnDecryptFailure: Boolean = false,
-    private val userAuthenticationRequired: Boolean = false,
 ) : SecureStringStore {
     private val keyStoreAlias = "$KEY_ALIAS_PREFIX$keyAlias"
     private val prefs: SharedPreferences =
@@ -85,23 +83,7 @@ internal class KeystoreBackedPreferences(
                 ).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(KEY_SIZE_BITS)
-                .apply {
-                    if (userAuthenticationRequired) {
-                        setUserAuthenticationRequired(true)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            setUserAuthenticationParameters(
-                                USER_AUTH_VALIDITY_DURATION_SECONDS,
-                                resolveAuthenticatorTypes(),
-                            )
-                        } else {
-                            javaClass
-                                .getMethod(
-                                    "setUserAuthenticationValidityDurationSeconds",
-                                    Int::class.javaPrimitiveType,
-                                ).invoke(this, USER_AUTH_VALIDITY_DURATION_SECONDS)
-                        }
-                    }
-                }.build()
+                .build()
         keyGenerator.init(spec)
         return keyGenerator.generateKey()
     }
@@ -115,16 +97,9 @@ internal class KeystoreBackedPreferences(
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val KEY_SIZE_BITS = 256
         const val GCM_TAG_LENGTH_BITS = 128
-        const val USER_AUTH_VALIDITY_DURATION_SECONDS = 30
         const val KEY_ALIAS_PREFIX = "com.lomo.secure."
         const val PAYLOAD_PART_LIMIT = 3
         const val PAYLOAD_VERSION = "v1"
         const val PAYLOAD_SEPARATOR = ":"
     }
 }
-
-private fun resolveAuthenticatorTypes(): Int =
-    readKeyPropertiesInt("AUTH_BIOMETRIC_STRONG") or readKeyPropertiesInt("AUTH_DEVICE_CREDENTIAL")
-
-private fun readKeyPropertiesInt(fieldName: String): Int =
-    KeyProperties::class.java.getField(fieldName).getInt(null)

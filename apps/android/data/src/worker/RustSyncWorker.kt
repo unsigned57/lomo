@@ -9,6 +9,8 @@ import com.lomo.data.engine.sync.RemoteSyncBoundaryFailure
 import com.lomo.data.engine.sync.RemoteSyncRetryDisposition
 import com.lomo.data.engine.sync.RemoteSyncRetryHint
 import com.lomo.data.engine.sync.RustSyncSecretSupplier
+import com.lomo.domain.model.CredentialReadAuthorization
+import com.lomo.domain.repository.SecuritySessionPolicy
 import timber.log.Timber
 
 /**
@@ -25,14 +27,24 @@ object RustSyncRetryPolicy {
      *
      * - [RemoteSyncRetryDisposition.Never] → failure (do not retry)
      * - [RemoteSyncRetryDisposition.AfterUserAction] → success (stop automatic retry; UI owns next step)
-     * - [RemoteSyncRetryDisposition.Transient] → retry (scheduler backoff owns delay; optional
-     *   [RemoteSyncRetryHint.retryAfterMillis] is retained for enqueue-time policy only)
+     * - [RemoteSyncRetryDisposition.Transient] → retry while [runAttemptCount] is below [maxAttempts];
+     *   at/over the ceiling → failure (terminal). Missing/non-positive ceiling fails closed as
+     *   failure rather than unbounded retry.
      */
-    fun workResult(hint: RemoteSyncRetryHint): ListenableWorker.Result =
+    fun workResult(
+        hint: RemoteSyncRetryHint,
+        runAttemptCount: Int = 0,
+        maxAttempts: Int? = null,
+    ): ListenableWorker.Result =
         when (hint.disposition) {
             RemoteSyncRetryDisposition.Never -> ListenableWorker.Result.failure()
             RemoteSyncRetryDisposition.AfterUserAction -> ListenableWorker.Result.success()
-            RemoteSyncRetryDisposition.Transient -> ListenableWorker.Result.retry()
+            RemoteSyncRetryDisposition.Transient ->
+                if (maxAttempts != null && maxAttempts > 0 && runAttemptCount < maxAttempts) {
+                    ListenableWorker.Result.retry()
+                } else {
+                    ListenableWorker.Result.failure()
+                }
         }
 
     /**
@@ -51,16 +63,8 @@ object RustSyncRetryPolicy {
      * Maps a structured boundary failure's disposition **name** into a hint.
      * Unknown / blank names fail closed as [RemoteSyncRetryDisposition.Never].
      */
-    fun hintFromBoundaryFailure(failure: RemoteSyncBoundaryFailure): RemoteSyncRetryHint {
-        val disposition =
-            when (failure.retryDisposition.trim().lowercase()) {
-                "never" -> RemoteSyncRetryDisposition.Never
-                "after_user_action" -> RemoteSyncRetryDisposition.AfterUserAction
-                "transient" -> RemoteSyncRetryDisposition.Transient
-                else -> RemoteSyncRetryDisposition.Never
-            }
-        return RemoteSyncRetryHint(disposition = disposition)
-    }
+    fun hintFromBoundaryFailure(failure: RemoteSyncBoundaryFailure): RemoteSyncRetryHint =
+        RemoteSyncRetryHint(disposition = RemoteSyncRetryDisposition.fromWire(failure.retryDisposition))
 }
 
 /**
@@ -75,6 +79,8 @@ class RustSyncWorker(
     workerParams: WorkerParameters,
     private val secretSupplier: RustSyncSecretSupplier,
     private val workExecutor: RustSyncWorkExecutor,
+    private val securitySessionPolicy: SecuritySessionPolicy,
+    private val deferredLockStore: DeferredLockWorkStore,
     /**
      * Host-test stop probe. Production uses WorkManager [isStopped] only; tests inject true to
      * exercise cancel/stale without subclassing final [ListenableWorker.isStopped].
@@ -90,6 +96,18 @@ class RustSyncWorker(
         if (invalid != null) {
             return invalid
         }
+        when (val authorization = securitySessionPolicy.authorizeCredentialRead()) {
+            is CredentialReadAuthorization.Denied -> {
+                Timber.i(
+                    "%s deferred for security session reason=%s",
+                    WORKER_NAME,
+                    authorization.reason,
+                )
+                deferredLockStore.save(inputData)
+                return Result.success()
+            }
+            CredentialReadAuthorization.Authorized -> Unit
+        }
 
         var issuedLeaseId: String? = null
         return try {
@@ -102,18 +120,15 @@ class RustSyncWorker(
                 failure.code,
                 failure.retryDisposition,
             )
-            RustSyncRetryPolicy.workResult(RustSyncRetryPolicy.hintFromBoundaryFailure(failure))
+            resultFor(RustSyncRetryPolicy.hintFromBoundaryFailure(failure))
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (error: Exception) {
             if (error is kotlinx.coroutines.CancellationException) throw error
-            // Unexpected host failures are transient for scheduler backoff — never embed maxAttempts=3.
             Timber.e(error, "%s unexpected host failure", WORKER_NAME)
-            RustSyncRetryPolicy.workResult(
-                RemoteSyncRetryHint(disposition = RemoteSyncRetryDisposition.Transient),
-            )
+            resultFor(RemoteSyncRetryHint(disposition = RemoteSyncRetryDisposition.Transient))
         } finally {
-            revokeLeaseQuietly(issuedLeaseId)
+            issuedLeaseId?.let(::revokeLeaseQuietly)
         }
     }
 
@@ -136,7 +151,7 @@ class RustSyncWorker(
         return if (workIsStopped()) {
             Result.success()
         } else {
-            RustSyncRetryPolicy.workResult(hint)
+            resultFor(hint)
         }
     }
 
@@ -153,27 +168,33 @@ class RustSyncWorker(
     }
 
     private fun issueLeaseIfNeeded(request: RustSyncWorkRequest): RustSyncWorkRequest? {
-        val secretFieldKey = request.secretFieldKey
+        var next = request
+        val identityFieldKey = request.identityFieldKey
+        if (!identityFieldKey.isNullOrBlank()) {
+            val identity = secretSupplier.identityUtf8(identityFieldKey)
+            if (identity.isNullOrEmpty()) {
+                Timber.e("%s missing identity material for field", WORKER_NAME)
+                return null
+            }
+            next = next.copy(usernameOrAccessKey = identity)
+        }
+        val secretFieldKey = next.secretFieldKey
         if (secretFieldKey.isNullOrBlank()) {
-            return request
+            return next
         }
         val lease =
             secretSupplier.issueLease(
                 fieldKey = secretFieldKey,
-                ttlMillis = request.leaseTtlMillis,
+                ttlMillis = next.leaseTtlMillis,
             )
         if (lease == null) {
-            // Fail closed: required credential field is unset / empty.
             Timber.e("%s missing secret lease for field", WORKER_NAME)
             return null
         }
-        return request.copy(secretLeaseId = lease.leaseId)
+        return next.copy(secretLeaseId = lease.leaseId)
     }
 
-    private fun revokeLeaseQuietly(leaseId: String?) {
-        if (leaseId == null) {
-            return
-        }
+    private fun revokeLeaseQuietly(leaseId: String) {
         runCatching { secretSupplier.revokeLease(leaseId) }
             // behavior-contract: silent-result-ok: revoke best-effort; process death drops leases
             .onFailure { err ->
@@ -182,26 +203,46 @@ class RustSyncWorker(
     }
 
     private fun neverResult(): Result =
-        RustSyncRetryPolicy.workResult(
-            RemoteSyncRetryHint(disposition = RemoteSyncRetryDisposition.Never),
+        resultFor(RemoteSyncRetryHint(disposition = RemoteSyncRetryDisposition.Never))
+
+    private fun resultFor(hint: RemoteSyncRetryHint): Result {
+        val maxAttempts =
+            inputData.getInt(SYNC_WORK_MAX_RETRY_ATTEMPTS_INPUT_KEY, 0).takeIf { it > 0 }
+        return RustSyncRetryPolicy.workResult(
+            hint = hint,
+            runAttemptCount = runAttemptCount,
+            maxAttempts = maxAttempts,
         )
+    }
 
     companion object {
         private const val WORKER_NAME: String = "RustSyncWorker"
         const val WORK_NAME: String = "com.lomo.data.worker.RustSyncWorker"
+        const val ONESHOT_WORK_NAME: String = "$WORK_NAME:oneshot"
+        const val DEFERRED_WORK_NAME: String = "$WORK_NAME:deferred"
 
-        fun mapRetryHint(hint: RemoteSyncRetryHint): ListenableWorker.Result =
-            RustSyncRetryPolicy.workResult(hint)
+        fun cancelTargets(): List<String> = listOf(WORK_NAME, ONESHOT_WORK_NAME, DEFERRED_WORK_NAME)
+
+        fun mapRetryHint(
+            hint: RemoteSyncRetryHint,
+            runAttemptCount: Int = 0,
+            maxAttempts: Int = com.lomo.data.sync.REMOTE_AUTO_SYNC_RETRY_POLICY.maxAttempts,
+        ): ListenableWorker.Result =
+            RustSyncRetryPolicy.workResult(
+                hint = hint,
+                runAttemptCount = runAttemptCount,
+                maxAttempts = maxAttempts,
+            )
 
         fun inputData(
             workspaceRoot: String,
             backendKind: String,
             endpointUrl: String = "",
-            usernameOrAccessKey: String = "",
             bucket: String = "",
             prefix: String = "",
             region: String = "",
             remoteDatasetId: String = "",
+            identityFieldKey: String? = null,
             secretFieldKey: String? = null,
             leaseTtlMillis: Long = RustSyncWorkRequest.DEFAULT_LEASE_TTL_MILLIS,
             applyRemote: Boolean = true,
@@ -212,13 +253,19 @@ class RustSyncWorker(
                     .putString(RustSyncWorkRequest.INPUT_WORKSPACE_ROOT, workspaceRoot)
                     .putString(RustSyncWorkRequest.INPUT_BACKEND_KIND, backendKind)
                     .putString(RustSyncWorkRequest.INPUT_ENDPOINT_URL, endpointUrl)
-                    .putString(RustSyncWorkRequest.INPUT_USERNAME_OR_ACCESS_KEY, usernameOrAccessKey)
                     .putString(RustSyncWorkRequest.INPUT_BUCKET, bucket)
                     .putString(RustSyncWorkRequest.INPUT_PREFIX, prefix)
                     .putString(RustSyncWorkRequest.INPUT_REGION, region)
                     .putString(RustSyncWorkRequest.INPUT_REMOTE_DATASET_ID, remoteDatasetId)
                     .putLong(RustSyncWorkRequest.INPUT_LEASE_TTL_MILLIS, leaseTtlMillis)
                     .putBoolean(RustSyncWorkRequest.INPUT_APPLY_REMOTE, applyRemote)
+                    .putInt(
+                        SYNC_WORK_MAX_RETRY_ATTEMPTS_INPUT_KEY,
+                        com.lomo.data.sync.REMOTE_AUTO_SYNC_RETRY_POLICY.maxAttempts,
+                    )
+            if (!identityFieldKey.isNullOrBlank()) {
+                builder.putString(RustSyncWorkRequest.INPUT_IDENTITY_FIELD_KEY, identityFieldKey)
+            }
             if (!secretFieldKey.isNullOrBlank()) {
                 builder.putString(RustSyncWorkRequest.INPUT_SECRET_FIELD_KEY, secretFieldKey)
             }
@@ -232,13 +279,15 @@ class RustSyncWorker(
                 inputData.getString(RustSyncWorkRequest.INPUT_BACKEND_KIND).orEmpty()
             val endpointUrl =
                 inputData.getString(RustSyncWorkRequest.INPUT_ENDPOINT_URL).orEmpty()
-            val usernameOrAccessKey =
-                inputData.getString(RustSyncWorkRequest.INPUT_USERNAME_OR_ACCESS_KEY).orEmpty()
             val bucket = inputData.getString(RustSyncWorkRequest.INPUT_BUCKET).orEmpty()
             val prefix = inputData.getString(RustSyncWorkRequest.INPUT_PREFIX).orEmpty()
             val region = inputData.getString(RustSyncWorkRequest.INPUT_REGION).orEmpty()
             val remoteDatasetId =
                 inputData.getString(RustSyncWorkRequest.INPUT_REMOTE_DATASET_ID).orEmpty()
+            val identityFieldKey =
+                inputData
+                    .getString(RustSyncWorkRequest.INPUT_IDENTITY_FIELD_KEY)
+                    ?.takeIf { it.isNotBlank() }
             val secretFieldKey =
                 inputData
                     .getString(RustSyncWorkRequest.INPUT_SECRET_FIELD_KEY)
@@ -255,11 +304,11 @@ class RustSyncWorker(
                 workspaceRoot = workspaceRoot,
                 backendKind = backendKind,
                 endpointUrl = endpointUrl,
-                usernameOrAccessKey = usernameOrAccessKey,
                 bucket = bucket,
                 prefix = prefix,
                 region = region,
                 remoteDatasetId = remoteDatasetId,
+                identityFieldKey = identityFieldKey,
                 secretFieldKey = secretFieldKey,
                 leaseTtlMillis = leaseTtlMillis,
                 applyRemote = applyRemote,

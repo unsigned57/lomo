@@ -11,9 +11,10 @@ package com.lomo.data.repository
  * - Excludes: production authorization, SecuritySessionController, UI integration.
  *
  * Test Change Justification:
- * - Reason category: security session contract extension.
- * - Old behavior/assertion being replaced: fixture policies only implemented credential-read authorization.
- * - Why old assertion is no longer correct: SecuritySessionPolicy now also exposes app-lock satisfaction for tile entry checks.
+ * - Reason category: security session contract replacement.
+ * - Old behavior/assertion being replaced: fixture policies exposed isAppLockSatisfied booleans.
+ * - Why old assertion is no longer correct: SecuritySessionPolicy now exposes a queryable
+ *   SecuritySessionState instead of a parallel satisfaction boolean.
  * - Coverage preserved by: authorized and locked credential-read fixture behavior remains explicit.
  * - Why this is not fitting the test to the implementation: fixture values model the same security session states.
  */
@@ -24,24 +25,36 @@ import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.CredentialState
 import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.CredentialReadAuthorization
+import com.lomo.domain.model.SecuritySessionState
 import com.lomo.domain.repository.CredentialRepository
 import com.lomo.domain.model.CredentialSecretReadResult
 import com.lomo.domain.repository.SecuritySessionPolicy
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOf
 
 internal object AuthorizedCredentialReadSessionPolicy : SecuritySessionPolicy {
+    private val states = MutableStateFlow<SecuritySessionState>(SecuritySessionState.LockOff)
+
     override suspend fun authorizeCredentialRead(): CredentialReadAuthorization =
         CredentialReadAuthorization.Authorized
 
-    override suspend fun isAppLockSatisfied(): Boolean = true
+    override suspend fun current(): SecuritySessionState = SecuritySessionState.LockOff
+
+    override fun observe(): StateFlow<SecuritySessionState> = states.asStateFlow()
 }
 
 internal object LockedCredentialReadSessionPolicy : SecuritySessionPolicy {
+    private val states = MutableStateFlow<SecuritySessionState>(SecuritySessionState.Locked)
+
     override suspend fun authorizeCredentialRead(): CredentialReadAuthorization =
         CredentialReadAuthorization.Denied(com.lomo.domain.model.CredentialReadDenialReason.SecuritySessionLocked)
 
-    override suspend fun isAppLockSatisfied(): Boolean = false
+    override suspend fun current(): SecuritySessionState = SecuritySessionState.Locked
+
+    override fun observe(): StateFlow<SecuritySessionState> = states.asStateFlow()
 }
 
 internal fun testS3CredentialRepository(

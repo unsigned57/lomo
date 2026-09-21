@@ -3,6 +3,8 @@ package com.lomo.data.engine.sync
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.CredentialReadAuthorization
 import com.lomo.domain.model.CredentialSecretReadResult
+import com.lomo.domain.model.StoredCredentialStatus
+import com.lomo.domain.model.provider
 import com.lomo.domain.repository.CredentialRepository
 import com.lomo.domain.repository.SecuritySessionPolicy
 import kotlinx.coroutines.runBlocking
@@ -39,5 +41,17 @@ class CredentialSecretMaterialSource(
             CredentialSecretReadResult.Unreadable -> null
             is CredentialSecretReadResult.Unauthorized -> null
         }
+    }
+
+    override fun hasMaterial(fieldKey: String): Boolean {
+        val field =
+            // behavior-contract: silent-result-ok: unknown field keys are non-secret miss, not crash
+            runCatching { CredentialField.valueOf(fieldKey.trim()) }.getOrNull()
+                ?: return false
+        val status =
+            runBlocking {
+                credentialRepository.credentialState(field.provider).statusFor(field)
+            }
+        return status == StoredCredentialStatus.Present
     }
 }

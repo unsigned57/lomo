@@ -81,11 +81,12 @@ class RemoteSyncRustWorkExecutor(
                         prefix = request.prefix,
                         region = request.region,
                         remoteDatasetId = request.remoteDatasetId,
-                        secretLeaseId = request.secretLeaseId?.trim()?.takeIf { it.isNotEmpty() },
+                        secretLeaseId =
+                            request.secretLeaseId?.run { trim().takeIf { it.isNotEmpty() } },
                         applyRemote = request.applyRemote,
                     ),
                 )
-            hintFromDispositionName(summary.retryDisposition)
+            hintFromDisposition(RemoteSyncRetryDisposition.fromWire(summary.retryDisposition))
         } catch (failure: RemoteSyncBoundaryFailure) {
             Timber.e(
                 "%s runCycle boundary category=%s code=%s disposition=%s",
@@ -101,22 +102,14 @@ class RemoteSyncRustWorkExecutor(
      * Maps a structured boundary failure's disposition **name** into a hint.
      * Unknown / blank names fail closed as [RemoteSyncRetryDisposition.Never].
      *
-     * Same policy as [RustSyncRetryPolicy.hintFromBoundaryFailure] so worker body and work unit
+     * Same policy as [RemoteSyncRetryDisposition.fromWire] so worker body and work unit
      * agree without inventing a second retry budget.
      */
     private fun hintFromBoundaryFailure(failure: RemoteSyncBoundaryFailure): RemoteSyncRetryHint =
-        hintFromDispositionName(failure.retryDisposition)
+        hintFromDisposition(RemoteSyncRetryDisposition.fromWire(failure.retryDisposition))
 
-    private fun hintFromDispositionName(name: String): RemoteSyncRetryHint {
-        val disposition =
-            when (name.trim().lowercase()) {
-                "never" -> RemoteSyncRetryDisposition.Never
-                "after_user_action" -> RemoteSyncRetryDisposition.AfterUserAction
-                "transient" -> RemoteSyncRetryDisposition.Transient
-                else -> RemoteSyncRetryDisposition.Never
-            }
-        return RemoteSyncRetryHint(disposition = disposition)
-    }
+    private fun hintFromDisposition(disposition: RemoteSyncRetryDisposition): RemoteSyncRetryHint =
+        RemoteSyncRetryHint(disposition = disposition)
 
     private fun neverHint(): RemoteSyncRetryHint =
         RemoteSyncRetryHint(disposition = RemoteSyncRetryDisposition.Never)

@@ -51,7 +51,7 @@ internal inline fun <reified T : ListenableWorker> WorkManager.enqueueSyncSchedu
     scheduledWork: SyncScheduledWork,
     inputData: Data? = null,
 ) {
-    when (val cadence = scheduledWork.cadence) {
+    when (scheduledWork.cadence) {
         is SyncWorkCadence.Periodic ->
             enqueueUniquePeriodicWork(
                 scheduledWork.uniqueWorkName,
@@ -113,13 +113,12 @@ private fun <BuilderT : androidx.work.WorkRequest.Builder<BuilderT, *>> BuilderT
     return this
 }
 
-private fun Data?.withRetryPolicy(scheduledWork: SyncScheduledWork): Data =
-    Data
-        .Builder()
-        .apply {
-            this@withRetryPolicy?.let(::putAll)
-            putInt(SYNC_WORK_MAX_RETRY_ATTEMPTS_INPUT_KEY, scheduledWork.retryPolicy.maxAttempts)
-        }.build()
+private fun Data?.withRetryPolicy(scheduledWork: SyncScheduledWork): Data {
+    val builder = Data.Builder()
+    this?.let(builder::putAll)
+    builder.putInt(SYNC_WORK_MAX_RETRY_ATTEMPTS_INPUT_KEY, scheduledWork.retryPolicy.maxAttempts)
+    return builder.build()
+}
 
 private fun SyncWorkBackoffPolicy.toWorkBackoffPolicy(): BackoffPolicy =
     when (this) {

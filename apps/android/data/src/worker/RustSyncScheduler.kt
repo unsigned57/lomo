@@ -8,7 +8,10 @@ import com.lomo.data.engine.media.WorkspaceFilesystemRoot
 import com.lomo.data.engine.sync.SecretMaterialSource
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.sync.RustSyncWorkPolicyPlanner
+import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.SyncBackendType
+import com.lomo.domain.model.identityField
+import com.lomo.domain.model.secretField
 import kotlinx.coroutines.flow.first
 import timber.log.Timber
 import java.util.Locale
@@ -16,9 +19,8 @@ import java.util.Locale
 /**
  * Post P5-13 single remote-sync enqueue path for WorkManager [RustSyncWorker].
  *
- * Provider-specific workers/schedulers are deleted. Auto-schedule uses the active backend interval
- * from DataStore when auto-sync is enabled. Non-secret backend fields travel in WorkManager input;
- * secrets only as Keystore → process lease ids.
+ * Non-secret backend fields travel in WorkManager input; credential fields travel only as
+ * [CredentialField] names. Identity and secrets are read at the worker execution boundary.
  */
 class RustSyncScheduler(
     private val context: Context,
@@ -87,8 +89,23 @@ class RustSyncScheduler(
     }
 
     fun cancel() {
-        WorkManager.getInstance(context).cancelUniqueWork(RustSyncWorker.WORK_NAME)
+        val workManager = WorkManager.getInstance(context)
+        RustSyncWorker.cancelTargets().forEach(workManager::cancelUniqueWork)
         Timber.d("Rust remote sync cancelled")
+    }
+
+    fun enqueueSaved(input: androidx.work.Data) {
+        val request =
+            OneTimeWorkRequestBuilder<RustSyncWorker>()
+                .setInputData(input)
+                .build()
+        WorkManager
+            .getInstance(context)
+            .enqueueUniqueWork(
+                RustSyncWorker.DEFERRED_WORK_NAME,
+                ExistingWorkPolicy.REPLACE,
+                request,
+            )
     }
 
     suspend fun enqueueOneShot(secretFieldKey: String?) {
@@ -114,7 +131,7 @@ class RustSyncScheduler(
         WorkManager
             .getInstance(context)
             .enqueueUniqueWork(
-                RustSyncWorker.WORK_NAME + ":oneshot",
+                RustSyncWorker.ONESHOT_WORK_NAME,
                 ExistingWorkPolicy.REPLACE,
                 request,
             )
@@ -131,22 +148,21 @@ class RustSyncScheduler(
                     dataStore.webDavEndpointUrl.first()?.trim().orEmpty().ifBlank {
                         dataStore.webDavBaseUrl.first()?.trim().orEmpty()
                     }
-                val username =
-                    identityMaterial
-                        ?.readSecretBytes("WEBDAV_USERNAME")
-                        ?.toString(Charsets.UTF_8)
-                        ?.trim()
-                        .orEmpty()
-                if (endpoint.isBlank() || username.isBlank()) {
+                val provider = CredentialProvider.WEBDAV
+                val identityField = provider.identityField()
+                if (endpoint.isBlank() ||
+                    identityField == null ||
+                    identityMaterial?.hasMaterial(identityField.name) != true
+                ) {
                     return null
                 }
                 RustSyncWorker.inputData(
                     workspaceRoot = root,
                     backendKind = "webdav",
                     endpointUrl = endpoint,
-                    usernameOrAccessKey = username,
+                    identityFieldKey = identityField.name,
                     remoteDatasetId = datasetId("webdav", endpoint, ""),
-                    secretFieldKey = secretFieldKeyOverride ?: "WEBDAV_PASSWORD",
+                    secretFieldKey = secretFieldKeyOverride ?: provider.secretField().name,
                     applyRemote = true,
                 )
             }
@@ -155,32 +171,27 @@ class RustSyncScheduler(
                 val region = dataStore.s3Region.first()?.trim().orEmpty()
                 val bucket = dataStore.s3Bucket.first()?.trim().orEmpty()
                 val prefix = dataStore.s3Prefix.first()?.trim().orEmpty()
-                val accessKey =
-                    identityMaterial
-                        ?.readSecretBytes("S3_ACCESS_KEY_ID")
-                        ?.toString(Charsets.UTF_8)
-                        ?.trim()
-                        .orEmpty()
-                if (endpoint.isBlank() || region.isBlank() || bucket.isBlank() || accessKey.isBlank()) {
+                val provider = CredentialProvider.S3
+                val identityField = provider.identityField()
+                val identityReady =
+                    identityField != null && identityMaterial?.hasMaterial(identityField.name) == true
+                if (endpoint.isBlank() || region.isBlank() || bucket.isBlank() || !identityReady) {
                     return null
                 }
                 RustSyncWorker.inputData(
                     workspaceRoot = root,
                     backendKind = "s3",
                     endpointUrl = endpoint,
-                    usernameOrAccessKey = accessKey,
                     bucket = bucket,
                     prefix = prefix,
                     region = region,
+                    identityFieldKey = identityField.name,
                     remoteDatasetId = datasetId("s3", endpoint, bucket),
-                    secretFieldKey = secretFieldKeyOverride ?: "S3_SECRET_ACCESS_KEY",
+                    secretFieldKey = secretFieldKeyOverride ?: provider.secretField().name,
                     applyRemote = true,
                 )
             }
             SyncBackendType.GIT -> {
-                // Git composition: native constructs lomo-git (app-private bare mirror) and runs the
-                // owner cycle via run_composed_sync_cycle_with_remote_port. Wire field reuse:
-                // bucket=branch, prefix=author name, region=author email.
                 val remote = dataStore.gitRemoteUrl.first()?.trim().orEmpty()
                 if (remote.isBlank()) {
                     return null
@@ -195,13 +206,11 @@ class RustSyncScheduler(
                     workspaceRoot = root,
                     backendKind = "git",
                     endpointUrl = remote,
-                    // HTTPS username defaults to "git" inside native when blank + token present.
-                    usernameOrAccessKey = "",
                     bucket = "main",
                     prefix = authorName,
                     region = authorEmail,
                     remoteDatasetId = datasetId("git", remote, ""),
-                    secretFieldKey = secretFieldKeyOverride ?: "GIT_TOKEN",
+                    secretFieldKey = secretFieldKeyOverride ?: CredentialProvider.GIT.secretField().name,
                     applyRemote = true,
                 )
             }

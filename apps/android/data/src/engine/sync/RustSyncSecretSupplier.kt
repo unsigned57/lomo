@@ -10,12 +10,15 @@ package com.lomo.data.engine.sync
  * Not production-wired until P5-13. Process death drops leases (re-issue credentials — not
  * journal restore of secret bytes).
  */
-fun interface SecretMaterialSource {
+interface SecretMaterialSource {
     /**
      * Returns secret bytes for [fieldKey], or null when unset.
      * Implementations wipe/zero buffers when they own them; callers must not journal the array.
      */
     fun readSecretBytes(fieldKey: String): ByteArray?
+
+    /** Presence only — must not copy secret bytes into scheduler/WorkData. */
+    fun hasMaterial(fieldKey: String): Boolean
 }
 
 /**
@@ -32,6 +35,12 @@ interface RustSyncSecretSupplier {
     ): RemoteSyncSecretLease?
 
     fun revokeLease(leaseId: String)
+
+    /**
+     * Execution-boundary identity material (username / access key). Never journaled.
+     * Surrounding whitespace is preserved.
+     */
+    fun identityUtf8(fieldKey: String): String?
 }
 
 /**
@@ -56,5 +65,13 @@ class KeystoreRustSyncSecretSupplier(
 
     override fun revokeLease(leaseId: String) {
         remoteSync.revokeSecretLease(leaseId)
+    }
+
+    override fun identityUtf8(fieldKey: String): String? {
+        val material = materialSource.readSecretBytes(fieldKey) ?: return null
+        if (material.isEmpty()) {
+            return null
+        }
+        return material.toString(Charsets.UTF_8)
     }
 }

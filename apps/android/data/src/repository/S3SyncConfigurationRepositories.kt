@@ -68,10 +68,6 @@ class S3SyncConfigurationMutationRepositoryImpl(
     private val dataStore: LomoDataStore,
     private val credentialRepository: CredentialRepository,
 ) : S3SyncConfigurationMutationRepository {
-    override suspend fun setS3SyncEnabled(enabled: Boolean) {
-        dataStore.updateS3SyncEnabled(enabled)
-    }
-
     override suspend fun setEndpointUrl(url: String) {
         dataStore.updateS3EndpointUrl(url.trim())
     }
@@ -97,15 +93,15 @@ class S3SyncConfigurationMutationRepositoryImpl(
     }
 
     override suspend fun setAccessKeyId(accessKeyId: String) {
-        credentialRepository.writeSecret(CredentialField.S3_ACCESS_KEY_ID, accessKeyId.trim())
+        credentialRepository.writeSecret(CredentialField.S3_ACCESS_KEY_ID, accessKeyId)
     }
 
     override suspend fun setSecretAccessKey(secretAccessKey: String) {
-        credentialRepository.writeSecret(CredentialField.S3_SECRET_ACCESS_KEY, secretAccessKey.trim())
+        credentialRepository.writeSecret(CredentialField.S3_SECRET_ACCESS_KEY, secretAccessKey)
     }
 
     override suspend fun setSessionToken(sessionToken: String) {
-        credentialRepository.writeSecret(CredentialField.S3_SESSION_TOKEN, sessionToken.trim())
+        credentialRepository.writeSecret(CredentialField.S3_SESSION_TOKEN, sessionToken)
     }
 
     override suspend fun setPathStyle(pathStyle: S3PathStyle) {
@@ -137,11 +133,11 @@ class S3SyncConfigurationMutationRepositoryImpl(
     }
 
     override suspend fun setEncryptionPassword(password: String) {
-        credentialRepository.writeSecret(CredentialField.S3_ENCRYPTION_PASSWORD, password.trim())
+        credentialRepository.writeSecret(CredentialField.S3_ENCRYPTION_PASSWORD, password)
     }
 
     override suspend fun setEncryptionPassword2(password: String) {
-        credentialRepository.writeSecret(CredentialField.S3_ENCRYPTION_PASSWORD2, password.trim())
+        credentialRepository.writeSecret(CredentialField.S3_ENCRYPTION_PASSWORD2, password)
     }
 
     override suspend fun getAccessKeyStatus(): StoredCredentialStatus =
