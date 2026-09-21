@@ -39,10 +39,11 @@ mod tests {
     use lomo_sync::{
         BaselineHead, ContentDigest, FakeLocalPort, FakeRemotePort, LocalPathEntry, LocalSnapshot,
         PathPublishStatus, PreparedRemoteBatch, ProviderNeutralIntent, PublishReceipt,
-        RemotePathEntry, RemoteSnapshot, SessionKind, SnapshotCompleteness, SyncDiagnosticExport,
-        SyncIdentityFence, SyncPath, SyncPaths, SyncSession, TombstoneSet, VerifiedRemoteState,
-        VerifyStatus, apply_with_verify, build_default_diagnostic_export, is_owned_sync_user_path,
-        plan_intents, reset_sync_control_tree, write_session,
+        RemoteDigestFact, RemotePathEntry, RemoteSnapshot, RemoteValidator, SessionKind,
+        SnapshotCompleteness, SyncDiagnosticExport, SyncIdentityFence, SyncPath, SyncPaths,
+        SyncSession, TombstoneSet, VerifiedRemoteState, VerifyStatus, apply_with_verify,
+        build_default_diagnostic_export, is_owned_sync_user_path, plan_intents,
+        reset_sync_control_tree, write_session,
     };
     use lomo_workspace::{RemoteDatasetId, RemoteIdentityDigest, WorkspaceGenerationId};
     use serde::Deserialize;
@@ -146,8 +147,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memo/b.md"),
-                digest: dig(2),
-                revision_token: "r1".to_owned(),
+                digest: RemoteDigestFact::Known(dig(2)),
+                validator: RemoteValidator::Strong("r1".to_owned()),
             }],
         )
         .expect("snap");
@@ -271,8 +272,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memo/a.md"),
-                digest: dig(2),
-                revision_token: "tok-remote".to_owned(),
+                digest: RemoteDigestFact::Known(dig(2)),
+                validator: RemoteValidator::Strong("tok-remote".to_owned()),
             }],
         )
         .expect("snap");
@@ -369,8 +370,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("unknown/tooling.bin"),
-                digest: dig(3),
-                revision_token: "r-x".to_owned(),
+                digest: RemoteDigestFact::Known(dig(3)),
+                validator: RemoteValidator::Strong("r-x".to_owned()),
             }],
         )
         .expect("snap");

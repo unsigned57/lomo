@@ -480,6 +480,7 @@ pub fn build_default_diagnostic_export(
                 ProviderNeutralIntent::ReportUnrecognized { path } => {
                     (path.as_str(), "unrecognized", None)
                 }
+                ProviderNeutralIntent::Hold { path, .. } => (path.as_str(), "hold", None),
             };
             entries.push(SyncDiagnosticEntry {
                 path: path.to_owned(),

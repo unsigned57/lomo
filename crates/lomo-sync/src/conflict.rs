@@ -7,6 +7,7 @@
 //! limits before acceptance.
 
 use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -15,14 +16,15 @@ use sha2::{Digest, Sha256};
 use crate::durable::{
     SyncIdentityFence, SyncPaths, decode_sync_record, encode_sync_record, write_sync_record_atomic,
 };
-use crate::error::{conflict, corrupt_state, resource_limit, storage, validation};
+use crate::error::{conflict, corrupt_state, permission, resource_limit, storage, validation};
 use crate::limits::{
     MAX_CONFLICT_ARTIFACT_BYTES, MAX_CONFLICT_PAGE_ITEMS, MAX_DURABLE_RECORD_BYTES,
     SYNC_DURABLE_SCHEMA,
 };
 use crate::pipeline::{
-    BatchAtomicity, ContentDigest, PathPublishStatus, PreparedRemoteBatch, ProviderNeutralIntent,
-    PublishReceipt, RemoteSnapshot, SyncPath, VerifiedRemoteState, VerifyStatus,
+    ContentDigest, PathPublishStatus, PreparedRemoteBatch, ProviderNeutralIntent, PublishReceipt,
+    RemotePathEntry, RemotePublishContract, RemoteSnapshot, SyncPath, VerifiedRemoteState,
+    VerifyExpectation, VerifyStatus,
 };
 use crate::ports::RemoteSyncPort;
 use lomo_core::LomoError;
@@ -144,6 +146,7 @@ impl ConflictSession {
         let next_cursor = cursor.saturating_add(slice.len());
         let has_more = next_cursor < self.paths.len();
         Ok(ConflictPage {
+            session: ConflictSessionPresence::Present,
             session_id: self.session_id.clone(),
             conflict_revision: self.conflict_revision,
             items: slice,
@@ -152,13 +155,47 @@ impl ConflictSession {
     }
 }
 
+/// Proven presence of a durable conflict session head.
+///
+/// `Absent` is a normal domain state (no `conflicts.rec`). `Present` is a decoded session,
+/// including a session whose path list is empty. Truncation, decode failure, and permission
+/// errors are never this enum — they stay structured `LomoError`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictSessionPresence {
+    Absent,
+    Present,
+}
+
+/// Closed read of the durable conflict session head.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ConflictSessionState {
+    Absent,
+    Present(ConflictSession),
+}
+
 /// Page of conflict path records for Sync Center listing.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ConflictPage {
+    pub session: ConflictSessionPresence,
     pub session_id: String,
     pub conflict_revision: u64,
     pub items: Vec<ConflictPathRecord>,
     pub next_cursor: Option<usize>,
+}
+
+impl ConflictPage {
+    /// Listing result when the durable conflict head is proven absent.
+    #[must_use]
+    pub const fn absent() -> Self {
+        Self {
+            session: ConflictSessionPresence::Absent,
+            session_id: String::new(),
+            conflict_revision: 0,
+            items: Vec::new(),
+            next_cursor: None,
+        }
+    }
 }
 
 /// User-submitted resolution for one conflict path.
@@ -361,19 +398,45 @@ pub fn write_conflict_session(
     write_sync_record_atomic(&paths.conflicts, SYNC_DURABLE_SCHEMA, &body)
 }
 
-/// Loads a conflict session; missing file → storage (not empty session).
+/// Loads the durable conflict session as a closed `Absent` / `Present` / Failure result.
+///
+/// Missing `conflicts.rec` is `Absent`. Truncation, bad magic, payload decode, and schema
+/// mismatch stay `corrupt_state`. Permission denied is `permission` (not Absent). Callers that
+/// require a session use [`read_conflict_session`], which maps `Absent` to
+/// `storage("conflict_session_missing")` without string sniffing at the call site.
 ///
 /// # Errors
 ///
-/// Storage when missing; corruption when payload fails decode.
-pub fn read_conflict_session(paths: &SyncPaths) -> Result<ConflictSession, LomoError> {
-    if !paths.conflicts.exists() {
-        return Err(storage(
-            "conflict_session_missing",
-            "no durable conflict session on disk",
+/// Corruption when payload fails decode; permission / storage when the file is unreadable.
+pub fn read_conflict_session_state(paths: &SyncPaths) -> Result<ConflictSessionState, LomoError> {
+    let bytes = match fs::read(&paths.conflicts) {
+        Ok(bytes) => bytes,
+        Err(err) if err.kind() == ErrorKind::NotFound => {
+            return Ok(ConflictSessionState::Absent);
+        }
+        Err(err) if err.kind() == ErrorKind::PermissionDenied => {
+            return Err(permission(
+                "conflict_session_permission",
+                &format!(
+                    "cannot read conflict session {}: {err}",
+                    paths.conflicts.display()
+                ),
+            ));
+        }
+        Err(err) => {
+            return Err(storage(
+                "sync_record_open_failed",
+                &format!("cannot open {}: {err}", paths.conflicts.display()),
+            ));
+        }
+    };
+    if bytes.len() > MAX_DURABLE_RECORD_BYTES + 64 {
+        return Err(corrupt_state(
+            "sync_record_too_large",
+            "sync durable file exceeds hard size limit",
         ));
     }
-    let (_schema, body) = crate::durable::read_sync_record(&paths.conflicts)?;
+    let (_schema, body) = decode_sync_record(&bytes)?;
     let session: ConflictSession = serde_json::from_str(&body).map_err(|err| {
         corrupt_state(
             "conflict_session_payload_invalid",
@@ -386,21 +449,47 @@ pub fn read_conflict_session(paths: &SyncPaths) -> Result<ConflictSession, LomoE
             "conflict session schema does not match SYNC_DURABLE_SCHEMA",
         ));
     }
-    Ok(session)
+    Ok(ConflictSessionState::Present(session))
 }
 
-/// Lists a conflict page from the durable session.
+/// Loads a conflict session. `Absent` → `storage("conflict_session_missing")` for callers that
+/// require a present session (resolve / apply). Listing uses [`read_conflict_session_state`].
 ///
 /// # Errors
 ///
-/// Session load / page limit errors.
+/// Storage when missing; corruption when payload fails decode; permission when unreadable.
+pub fn read_conflict_session(paths: &SyncPaths) -> Result<ConflictSession, LomoError> {
+    match read_conflict_session_state(paths)? {
+        ConflictSessionState::Absent => Err(storage(
+            "conflict_session_missing",
+            "no durable conflict session on disk",
+        )),
+        ConflictSessionState::Present(session) => Ok(session),
+    }
+}
+
+/// Lists a conflict page from the durable session. Missing head is `ConflictPage::absent()`.
+///
+/// # Errors
+///
+/// Session load / page limit errors. Missing file is not an error.
 pub fn list_sync_conflicts(
     paths: &SyncPaths,
     cursor: usize,
     limit: usize,
 ) -> Result<ConflictPage, LomoError> {
-    let session = read_conflict_session(paths)?;
-    session.page(cursor, limit)
+    match read_conflict_session_state(paths)? {
+        ConflictSessionState::Absent => {
+            if limit == 0 || limit > MAX_CONFLICT_PAGE_ITEMS {
+                return Err(resource_limit(
+                    "conflict_page_limit_invalid",
+                    "conflict page limit must be 1..=100",
+                ));
+            }
+            Ok(ConflictPage::absent())
+        }
+        ConflictSessionState::Present(session) => session.page(cursor, limit),
+    }
 }
 
 /// Re-parses a Markdown merged body through the workspace owner parser + resource budgets.
@@ -687,6 +776,104 @@ impl ConflictBodySource {
     }
 }
 
+/// Loads `OpenConflict` candidate bytes from the Direct workspace and remote objects.
+///
+/// Local missing file → that side absent. Remote [`RemoteSyncPort::load_object`] `Ok(None)` →
+/// that side absent. Both sides absent for any open path fails closed.
+///
+/// # Errors
+///
+/// Validation when both sides are missing or a digest mismatches; storage/network from ports.
+pub fn load_conflict_bodies_for_open_pages(
+    workspace_root: &Path,
+    pages: &[PreparedRemoteBatch],
+    remote: &dyn RemoteSyncPort,
+) -> Result<ConflictBodySource, LomoError> {
+    let mut source = ConflictBodySource::empty();
+    for page in pages {
+        load_open_intent_bodies(workspace_root, &page.intents, remote, &mut source)?;
+    }
+    Ok(source)
+}
+
+/// Single-shot variant of [`load_conflict_bodies_for_open_pages`].
+///
+/// # Errors
+///
+/// Same as [`load_conflict_bodies_for_open_pages`].
+pub fn load_conflict_bodies_for_open_intents(
+    workspace_root: &Path,
+    intents: &[ProviderNeutralIntent],
+    remote: &dyn RemoteSyncPort,
+) -> Result<ConflictBodySource, LomoError> {
+    let mut source = ConflictBodySource::empty();
+    load_open_intent_bodies(workspace_root, intents, remote, &mut source)?;
+    Ok(source)
+}
+
+fn load_open_intent_bodies(
+    workspace_root: &Path,
+    intents: &[ProviderNeutralIntent],
+    remote: &dyn RemoteSyncPort,
+    source: &mut ConflictBodySource,
+) -> Result<(), LomoError> {
+    for intent in intents {
+        let ProviderNeutralIntent::OpenConflict {
+            path,
+            local_digest,
+            remote_digest,
+            ..
+        } = intent
+        else {
+            continue;
+        };
+        let local = load_workspace_conflict_candidate(workspace_root, path, local_digest)?;
+        let remote_bytes = remote.load_object(path, remote_digest)?;
+        if local.is_none() && remote_bytes.is_none() {
+            return Err(validation(
+                "conflict_candidate_body_missing",
+                "OpenConflict requires local and/or remote candidate body bytes",
+            ));
+        }
+        source.insert(path.as_str(), local, remote_bytes, None);
+    }
+    Ok(())
+}
+
+fn load_workspace_conflict_candidate(
+    workspace_root: &Path,
+    path: &SyncPath,
+    expected: &ContentDigest,
+) -> Result<Option<Vec<u8>>, LomoError> {
+    let absolute = workspace_root.join(path.as_str());
+    match fs::read(&absolute) {
+        Ok(bytes) => {
+            if bytes.len() > MAX_CONFLICT_ARTIFACT_BYTES {
+                return Err(resource_limit(
+                    "conflict_artifact_too_large",
+                    "conflict candidate body exceeds 1 MiB",
+                ));
+            }
+            let actual = format!("{:x}", Sha256::digest(&bytes));
+            if actual != expected.as_str() {
+                return Err(validation(
+                    "conflict_candidate_body_digest_mismatch",
+                    "conflict local candidate body SHA-256 does not match the planner digest",
+                ));
+            }
+            Ok(Some(bytes))
+        }
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(storage(
+            "conflict_local_body_read_failed",
+            &format!(
+                "failed to read local conflict candidate {}: {err}",
+                path.as_str()
+            ),
+        )),
+    }
+}
+
 /// Materializes durable `ConflictSession` + candidate artifacts from planner `OpenConflict` intents.
 ///
 /// Requires candidate bodies for each open path (at least one of local/remote must be present for
@@ -708,23 +895,98 @@ pub fn materialize_conflicts_from_plan(
     remote_snapshot: &RemoteSnapshot,
     bodies: &ConflictBodySource,
 ) -> Result<Option<ConflictSession>, LomoError> {
-    let open_intents: Vec<&ProviderNeutralIntent> = batch
-        .intents
-        .iter()
-        .filter(|intent| matches!(intent, ProviderNeutralIntent::OpenConflict { .. }))
-        .collect();
-    if open_intents.is_empty() {
-        return Ok(None);
-    }
-
-    let remote_tokens: BTreeMap<&str, &str> = remote_snapshot
+    let remote_tokens: BTreeMap<String, String> = remote_snapshot
         .entries
         .iter()
-        .map(|entry| (entry.path.as_str(), entry.revision_token.as_str()))
+        .filter_map(|entry| {
+            entry
+                .validator
+                .token()
+                .map(|token| (entry.path.as_str().to_owned(), token.to_owned()))
+        })
         .collect();
+    let records = conflict_records_from_open_intents(
+        paths,
+        session_id,
+        &batch.intents,
+        &remote_tokens,
+        bodies,
+    )?;
+    write_open_conflict_session(paths, fence, session_id, records)
+}
 
-    let mut records = Vec::with_capacity(open_intents.len());
-    for intent in open_intents {
+/// Materializes `OpenConflict` intents page-by-page into one durable session.
+///
+/// Each intent page uses only that page's remote tokens (page-bounded). Never builds a
+/// multi-page listing [`RemoteSnapshot`].
+///
+/// # Errors
+///
+/// Same as [`materialize_conflicts_from_plan`].
+pub fn materialize_conflicts_from_intent_pages(
+    paths: &SyncPaths,
+    fence: &SyncIdentityFence,
+    session_id: &str,
+    pages: &[PreparedRemoteBatch],
+    conflict_remote_entries: &[RemotePathEntry],
+    bodies: &ConflictBodySource,
+) -> Result<Option<ConflictSession>, LomoError> {
+    let token_by_path: BTreeMap<String, String> = conflict_remote_entries
+        .iter()
+        .filter_map(|entry| {
+            entry
+                .validator
+                .token()
+                .map(|token| (entry.path.as_str().to_owned(), token.to_owned()))
+        })
+        .collect();
+    let mut records = Vec::new();
+    for page in pages {
+        if page.open_conflict_count() == 0 {
+            continue;
+        }
+        let mut page_tokens = BTreeMap::new();
+        for intent in &page.intents {
+            if let ProviderNeutralIntent::OpenConflict { path, .. } = intent
+                && let Some(token) = token_by_path.get(path.as_str())
+            {
+                page_tokens.insert(path.as_str().to_owned(), token.clone());
+            }
+        }
+        records.extend(conflict_records_from_open_intents(
+            paths,
+            session_id,
+            &page.intents,
+            &page_tokens,
+            bodies,
+        )?);
+    }
+    write_open_conflict_session(paths, fence, session_id, records)
+}
+
+fn write_open_conflict_session(
+    paths: &SyncPaths,
+    fence: &SyncIdentityFence,
+    session_id: &str,
+    records: Vec<ConflictPathRecord>,
+) -> Result<Option<ConflictSession>, LomoError> {
+    if records.is_empty() {
+        return Ok(None);
+    }
+    let session = ConflictSession::open(fence.clone(), session_id, records)?;
+    write_conflict_session(paths, &session)?;
+    Ok(Some(session))
+}
+
+fn conflict_records_from_open_intents(
+    paths: &SyncPaths,
+    session_id: &str,
+    intents: &[ProviderNeutralIntent],
+    remote_tokens: &BTreeMap<String, String>,
+    bodies: &ConflictBodySource,
+) -> Result<Vec<ConflictPathRecord>, LomoError> {
+    let mut records = Vec::new();
+    for intent in intents {
         let ProviderNeutralIntent::OpenConflict {
             path,
             local_digest,
@@ -766,7 +1028,7 @@ pub fn materialize_conflicts_from_plan(
             Some(local_digest),
             Some(remote_digest),
             baseline_digest.as_ref(),
-            remote_tokens.get(path_s).copied(),
+            remote_tokens.get(path_s).map(String::as_str),
         )?;
 
         if let Some(bytes) = candidate.local.as_deref() {
@@ -783,10 +1045,7 @@ pub fn materialize_conflicts_from_plan(
         }
         records.push(record);
     }
-
-    let session = ConflictSession::open(fence.clone(), session_id, records)?;
-    write_conflict_session(paths, &session)?;
-    Ok(Some(session))
+    Ok(records)
 }
 
 fn assert_body_matches_digest(
@@ -885,9 +1144,9 @@ pub fn collect_resolved_present_bodies(
 ///   SHA-256(body) == session `local_digest`, then `EnsurePresent` with that digest and expected
 ///   remote token; verify; then baseline. The verified body map is returned as `publish_bodies` so
 ///   adapters / `FakeRemotePort::with_objects` can bind an `ObjectSource` to the same bytes.
-/// - `ResolvedKeepRemote` → no remote write and **no** baseline advance here. Local store
-///   expected-revision apply uses [`collect_resolved_local_pull_mutations`] + host
-///   `LocalSyncMutationBatch`, then [`advance_baseline_after_local_pull`]. Session status alone is
+/// - `ResolvedKeepRemote` → no remote write and **no** baseline advance here. Local workspace
+///   apply uses [`collect_resolved_local_pull_mutations`] then `lomo-application::WorkspaceSession`
+///   at the host/FFI edge, then [`advance_baseline_after_local_pull`]. Session status alone is
 ///   not applied user-byte state.
 /// - `Open` / `SkippedForNow` → excluded; baseline for those paths is held
 ///   (`baseline_must_hold_for_path` / `may_advance_baseline_for_path`).
@@ -945,9 +1204,10 @@ pub fn apply_resolved_conflicts_remote(
         }
     }
 
-    if intents.is_empty() {
+    let batch = compile_conflict_remote_batch(remote, intents)?;
+    if batch.intents.is_empty() {
         return Ok(ConflictApplyRemoteResult {
-            batch: PreparedRemoteBatch::new(BatchAtomicity::PerPath, Vec::new())?,
+            batch,
             receipt: None,
             verified: None,
             baseline_advanced: false,
@@ -956,20 +1216,14 @@ pub fn apply_resolved_conflicts_remote(
         });
     }
 
-    let batch = PreparedRemoteBatch::new(BatchAtomicity::PerPath, intents)?;
     let receipt = remote.publish(&batch)?;
-    let mut verify_paths = Vec::new();
-    for (path, status) in &receipt.path_results {
-        if matches!(status, PathPublishStatus::Applied { .. }) {
-            verify_paths.push(path.clone());
-        }
-    }
-    let verified = if verify_paths.is_empty() {
+    let verify_expectations = verify_expectations_for_receipt(&batch, &receipt);
+    let verified = if verify_expectations.is_empty() {
         VerifiedRemoteState {
             results: Vec::new(),
         }
     } else {
-        remote.verify(&verify_paths)?
+        remote.verify(&verify_expectations)?
     };
 
     let mut baseline_advanced = false;
@@ -1010,14 +1264,60 @@ pub fn apply_resolved_conflicts_remote(
     })
 }
 
-/// One resolved path whose **local** workspace must receive candidate body bytes via the store
-/// expected-revision port (`LocalSyncMutationBatch` at the host/FFI edge).
+/// Verify expectations for a conflict-apply publish receipt: `Applied` paths verify against the
+/// intent digest with the receipt's fresh token as the observed validator.
+fn verify_expectations_for_receipt(
+    batch: &PreparedRemoteBatch,
+    receipt: &PublishReceipt,
+) -> Vec<VerifyExpectation> {
+    receipt
+        .path_results
+        .iter()
+        .filter_map(|(path, status)| {
+            let PathPublishStatus::Applied { new_token } = status else {
+                return None;
+            };
+            let expected_digest = batch.intents.iter().find_map(|intent| {
+                if let ProviderNeutralIntent::EnsurePresent {
+                    path: intent_path,
+                    digest,
+                    ..
+                } = intent
+                    && intent_path.as_str() == path.as_str()
+                {
+                    Some(digest.clone())
+                } else {
+                    None
+                }
+            });
+            Some(VerifyExpectation {
+                path: path.clone(),
+                expected_digest,
+                expected_token: Some(new_token.clone()),
+            })
+        })
+        .collect()
+}
+
+fn compile_conflict_remote_batch(
+    remote: &dyn RemoteSyncPort,
+    intents: Vec<ProviderNeutralIntent>,
+) -> Result<PreparedRemoteBatch, LomoError> {
+    let listing = remote.list_remote()?;
+    PreparedRemoteBatch::from_contract(
+        RemotePublishContract::from_atomicity(remote.batch_atomicity(), listing.snapshot_revision),
+        intents,
+    )
+}
+
+/// One resolved path whose **local** workspace must receive candidate body bytes through
+/// `lomo-application::WorkspaceSession` at the host/FFI edge.
 ///
 /// - `ResolvedKeepRemote` → durable remote candidate body (SHA-256 == `remote_digest`)
 /// - `ResolvedMerged` → durable merged body stored as `local_artifact_ref` (SHA-256 == `local_digest`)
 ///
-/// This type is intentionally store-agnostic: `lomo-sync` never opens `SQLite` or writes user
-/// Markdown; the host maps `path` + `body` into `lomo-store::LocalSyncMutationBatch`.
+/// This type is store-agnostic: `lomo-sync` never opens `SQLite` or writes user Markdown. The host
+/// maps `path` + `body` into a session write (`create`/`update` under the workspace generation fence).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedLocalPullMutation {
     pub path: String,

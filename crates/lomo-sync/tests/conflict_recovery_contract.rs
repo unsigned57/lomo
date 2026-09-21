@@ -25,6 +25,12 @@
 //!   When tombstone-first is attempted, Then each reject code fires.
 //! - Given invalid `MergedBody` (resource budget), When resolve runs, Then validation/resource-limit
 //!   rejects without advancing revision.
+//! - Given no `conflicts.rec` on a Direct workspace, When `list_sync_conflicts` runs, Then the
+//!   page is `ConflictSessionPresence::Absent` (not `storage("conflict_session_missing")`).
+//! - Given a durable session with zero paths, When listed, Then presence is `Present` with empty
+//!   items — distinct from Absent.
+//! - Given truncated or unreadable `conflicts.rec`, When listed, Then structured Corruption /
+//!   Permission failure (not Absent).
 //! - Given durable tombstone after crash, When `run_sync_cycle` revives the session, Then
 //!   `recover_pending_delete_intent` re-issues `EnsureAbsent` and verify-before-baseline advances.
 //! - Given identity fence mismatch on revival, When `assert_fence_for_revival` runs, Then
@@ -51,20 +57,22 @@ mod tests {
     use lomo_store::{Store, fingerprint_content};
     use lomo_sync::{
         BaselineHead, ConflictBodySource, ConflictContentKind, ConflictPathStatus,
-        ConflictResolution, ConflictSession, ContentDigest, DeleteVersusEdit, FakeLocalPort,
-        FakeRemotePort, LocalPathEntry, LocalSnapshot, PathPublishStatus, ProviderNeutralIntent,
-        PublishReceipt, RecoverDeleteRequest, RemotePathEntry, RemoteSnapshot, SessionKind,
-        SnapshotCompleteness, SyncDiagnosticError, SyncDiagnosticExport, SyncIdentityFence,
-        SyncPath, SyncPaths, SyncSession, TombstoneSet, UserDeleteContext, UserDeleteRequest,
-        VerifiedRemoteState, VerifyStatus, advance_baseline_after_local_pull,
+        ConflictResolution, ConflictSession, ConflictSessionPresence, ConflictSessionState,
+        ContentDigest, DeleteVersusEdit, FakeLocalPort, FakeRemotePort, LocalPathEntry,
+        LocalSnapshot, PathPublishStatus, ProviderNeutralIntent, PublishReceipt,
+        RecoverDeleteRequest, RemoteDigestFact, RemotePathEntry, RemoteSnapshot, RemoteValidator,
+        SessionKind, SnapshotCompleteness, SyncDiagnosticError, SyncDiagnosticExport,
+        SyncIdentityFence, SyncPath, SyncPaths, SyncSession, TombstoneSet, UserDeleteContext,
+        UserDeleteRequest, VerifiedRemoteState, VerifyStatus, advance_baseline_after_local_pull,
         apply_resolved_conflicts_remote, assert_fence_for_revival, baseline_must_hold_for_path,
         build_default_diagnostic_export, classify_delete_versus_edit,
         collect_resolved_local_pull_mutations, collect_resolved_present_bodies,
         conflict_path_from_open, error_category, list_sync_conflicts,
         materialize_conflicts_from_plan, plan_intents, read_baseline, read_conflict_artifact,
-        read_conflict_session, read_session, read_tombstones, record_user_delete_tombstone_first,
-        recover_pending_delete_intent, reset_sync_control_tree, resolve_sync_conflicts,
-        run_sync_cycle, tombstone_authoritative_for_fence, user_delete_gate_for_path,
+        read_conflict_session, read_conflict_session_state, read_session, read_tombstones,
+        record_user_delete_tombstone_first, recover_pending_delete_intent, reset_sync_control_tree,
+        resolve_sync_conflicts, run_sync_cycle, run_sync_cycle_streaming,
+        tombstone_authoritative_for_fence, user_delete_gate_for_path,
         validate_merged_markdown_body, write_baseline, write_conflict_artifact,
         write_conflict_session, write_diagnostic_export, write_session,
     };
@@ -146,6 +154,7 @@ mod tests {
             ConflictPathStatus::ResolvedKeepLocal
         );
         let page = list_sync_conflicts(&paths, 0, 10).expect("page");
+        assert_eq!(page.session, ConflictSessionPresence::Present);
         assert_eq!(page.conflict_revision, 2);
         assert_eq!(
             page.items.first().expect("item").status,
@@ -557,8 +566,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memo/a.md"),
-                digest: remote_d.clone(),
-                revision_token: "tok-r".to_owned(),
+                digest: RemoteDigestFact::Known(remote_d.clone()),
+                validator: RemoteValidator::Strong("tok-r".to_owned()),
             }],
         )
         .expect("snap");
@@ -631,8 +640,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memo/a.md"),
-                digest: dig(2),
-                revision_token: "tok-r".to_owned(),
+                digest: RemoteDigestFact::Known(dig(2)),
+                validator: RemoteValidator::Strong("tok-r".to_owned()),
             }],
         )
         .expect("snap");
@@ -676,8 +685,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memo/a.md"),
-                digest: dig(2),
-                revision_token: "tok-r".to_owned(),
+                digest: RemoteDigestFact::Known(dig(2)),
+                validator: RemoteValidator::Strong("tok-r".to_owned()),
             }],
         )
         .expect("snap");
@@ -718,8 +727,8 @@ mod tests {
                 SnapshotCompleteness::Complete,
                 vec![RemotePathEntry {
                     path: path("memo/a.md"),
-                    digest: dig(2),
-                    revision_token: "tok-r".to_owned(),
+                    digest: RemoteDigestFact::Known(dig(2)),
+                    validator: RemoteValidator::Strong("tok-r".to_owned()),
                 }],
             )
             .expect("snap"),
@@ -786,13 +795,13 @@ mod tests {
             vec![
                 RemotePathEntry {
                     path: path("memo/a.md"),
-                    digest: d_remote.clone(),
-                    revision_token: "tok-r".to_owned(),
+                    digest: RemoteDigestFact::Known(d_remote.clone()),
+                    validator: RemoteValidator::Strong("tok-r".to_owned()),
                 },
                 RemotePathEntry {
                     path: path("memo/ok.md"),
-                    digest: d_ok.clone(),
-                    revision_token: "tok-ok".to_owned(),
+                    digest: RemoteDigestFact::Known(d_ok.clone()),
+                    validator: RemoteValidator::Strong("tok-ok".to_owned()),
                 },
             ],
         )
@@ -905,8 +914,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memo/a.md"),
-                digest: d_remote,
-                revision_token: "tok-r".to_owned(),
+                digest: RemoteDigestFact::Known(d_remote),
+                validator: RemoteValidator::Strong("tok-r".to_owned()),
             }],
         )
         .expect("snap");
@@ -1077,8 +1086,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memo/a.md"),
-                digest: d_remote,
-                revision_token: "tok-r".to_owned(),
+                digest: RemoteDigestFact::Known(d_remote),
+                validator: RemoteValidator::Strong("tok-r".to_owned()),
             }],
         )
         .expect("snap");
@@ -1343,8 +1352,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memo/gone.md"),
-                digest: dig(3),
-                revision_token: "tok-gone".to_owned(),
+                digest: RemoteDigestFact::Known(dig(3)),
+                validator: RemoteValidator::Strong("tok-gone".to_owned()),
             }],
         )
         .expect("snap");
@@ -1580,6 +1589,7 @@ mod tests {
         let dir = root.join("memos");
         std::fs::create_dir_all(&dir).expect("memos");
         std::fs::write(dir.join(format!("{memo_id}.md")), body).expect("write memo");
+        lomo_workspace::load_or_mint_workspace_generation(root).expect("workspace generation");
         lomo_store::run_rebuild(root, 8).expect("index seed markdown");
         Store::open(root).expect("open indexed store")
     }
@@ -1837,8 +1847,8 @@ mod tests {
             SnapshotCompleteness::Complete,
             vec![RemotePathEntry {
                 path: path("memo/a.md"),
-                digest: remote_d,
-                revision_token: "tok-r".to_owned(),
+                digest: RemoteDigestFact::Known(remote_d),
+                validator: RemoteValidator::Strong("tok-r".to_owned()),
             }],
         )
         .expect("snap");
@@ -2389,5 +2399,291 @@ mod tests {
             durable.get("memos/pull-c.md").map(|e| e.digest.as_str()),
             Some(d_remote.as_str())
         );
+    }
+
+    #[test]
+    fn missing_conflict_session_lists_as_absent_not_storage_error() {
+        let temporary = tempdir().expect("temp");
+        let paths = SyncPaths::for_workspace(temporary.path());
+        assert!(!paths.conflicts.exists());
+
+        let page = list_sync_conflicts(&paths, 0, 10)
+            .expect("absent conflict session is a domain state, not storage error");
+        assert_eq!(page.session, ConflictSessionPresence::Absent);
+        assert!(
+            page.items.is_empty(),
+            "absent list must not invent conflict paths"
+        );
+        assert!(
+            page.session_id.is_empty(),
+            "absent page must not invent a session id"
+        );
+        assert_eq!(page.conflict_revision, 0);
+        assert_eq!(
+            read_conflict_session_state(&paths).expect("state"),
+            ConflictSessionState::Absent
+        );
+    }
+
+    #[test]
+    fn empty_present_conflict_session_is_not_absent() {
+        let temporary = tempdir().expect("temp");
+        let paths = SyncPaths::for_workspace(temporary.path());
+        let session = ConflictSession::open(fence(), "empty-present", Vec::new()).expect("open");
+        write_conflict_session(&paths, &session).expect("write");
+
+        let page = list_sync_conflicts(&paths, 0, 10).expect("present empty");
+        assert_eq!(page.session, ConflictSessionPresence::Present);
+        assert!(page.items.is_empty());
+        assert_eq!(page.session_id, "empty-present");
+        assert_eq!(page.conflict_revision, 1);
+        assert_ne!(page.session, ConflictSessionPresence::Absent);
+    }
+
+    #[test]
+    fn truncated_conflict_session_list_is_corrupt_not_absent() {
+        let temporary = tempdir().expect("temp");
+        let paths = SyncPaths::for_workspace(temporary.path());
+        paths.ensure_layout().expect("layout");
+        std::fs::write(&paths.conflicts, b"LSYN\x00truncated").expect("seed");
+
+        let err = list_sync_conflicts(&paths, 0, 10).expect_err("truncated is corrupt");
+        assert_eq!(error_category(&err), ErrorCategory::Corruption);
+        assert_ne!(err.code(), "conflict_session_missing");
+        assert_eq!(
+            std::fs::read(&paths.conflicts).expect("retain"),
+            b"LSYN\x00truncated"
+        );
+    }
+
+    #[test]
+    fn unreadable_conflict_session_list_is_not_absent() {
+        let temporary = tempdir().expect("temp");
+        let paths = SyncPaths::for_workspace(temporary.path());
+        paths.ensure_layout().expect("layout");
+        // A directory where the session file must live is unreadable as a record, not Absent.
+        std::fs::create_dir(&paths.conflicts).expect("dir in place of conflicts.rec");
+
+        let err = list_sync_conflicts(&paths, 0, 10).expect_err("unreadable is not absent");
+        assert_ne!(err.code(), "conflict_session_missing");
+        assert_eq!(error_category(&err), ErrorCategory::Storage);
+        assert!(paths.conflicts.is_dir());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn permission_denied_conflict_session_list_is_not_absent() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temporary = tempdir().expect("temp");
+        let paths = SyncPaths::for_workspace(temporary.path());
+        let session = ConflictSession::open(fence(), "perm-session", Vec::new()).expect("open");
+        write_conflict_session(&paths, &session).expect("write");
+        std::fs::set_permissions(&paths.conflicts, std::fs::Permissions::from_mode(0o000))
+            .expect("chmod");
+
+        let listed = list_sync_conflicts(&paths, 0, 10);
+        let restore = std::fs::Permissions::from_mode(0o644);
+        std::fs::set_permissions(&paths.conflicts, restore).expect("restore mode");
+
+        let err = listed.expect_err("permission denied is Failure, not Absent");
+        assert_eq!(error_category(&err), ErrorCategory::Permission);
+        assert_eq!(err.code(), "conflict_session_permission");
+    }
+
+    #[test]
+    fn run_sync_cycle_records_tombstone_first_for_observed_user_delete() {
+        // Baseline-tracked path, remote still present, local absent: the cycle must durably
+        // record the user-delete tombstone before EnsureAbsent can publish, so a crash between
+        // tombstone and remote delete is recoverable.
+        let temporary = tempdir().expect("temp");
+        let paths = SyncPaths::for_workspace(temporary.path());
+        let f = fence();
+        let mut baseline = BaselineHead::empty();
+        baseline.fence = Some(f.clone());
+        baseline.upsert(&path("memo/gone.md"), &dig(3), "tok-gone".to_owned());
+
+        let local = FakeLocalPort {
+            entries: Vec::new(),
+        };
+        let remote_snap = RemoteSnapshot::new(
+            SnapshotCompleteness::Complete,
+            vec![RemotePathEntry {
+                path: path("memo/gone.md"),
+                digest: RemoteDigestFact::Known(dig(3)),
+                validator: RemoteValidator::Strong("tok-gone".to_owned()),
+            }],
+        )
+        .expect("snap");
+        let remote = FakeRemotePort::new(
+            remote_snap,
+            PublishReceipt {
+                path_results: vec![(
+                    path("memo/gone.md"),
+                    PathPublishStatus::Applied {
+                        new_token: "deleted".to_owned(),
+                    },
+                )],
+            },
+            VerifiedRemoteState {
+                results: vec![VerifyStatus::AbsentVerified {
+                    path: path("memo/gone.md"),
+                }],
+            },
+        );
+        let session = SyncSession::new(f, SessionKind::Incremental, "cycle-del").expect("session");
+        let result = run_sync_cycle(
+            &session,
+            &local,
+            &remote,
+            baseline,
+            Some(&paths),
+            true,
+            None,
+        )
+        .expect("cycle");
+
+        assert!(
+            read_tombstones(&paths)
+                .expect("tombstones")
+                .contains_path("memo/gone.md"),
+            "user delete must record durable tombstone before remote delete"
+        );
+        assert_eq!(result.batch.ensure_absent_count(), 1);
+        assert!(
+            !result
+                .batch
+                .intents
+                .iter()
+                .any(|i| matches!(i, ProviderNeutralIntent::PullPresent { .. })),
+            "baseline-tracked local delete must not resurrect the remote file"
+        );
+        assert_eq!(remote.publish_call_count(), 1);
+        assert!(result.baseline_advanced);
+        assert!(result.baseline.get("memo/gone.md").is_none());
+    }
+
+    #[test]
+    fn run_sync_cycle_keeps_pull_when_delete_gates_reject() {
+        // Remote token churned since baseline: the delete gate cannot prove the remote side is
+        // the baseline bytes, so no tombstone is written and the planner keeps PullPresent.
+        let temporary = tempdir().expect("temp");
+        let paths = SyncPaths::for_workspace(temporary.path());
+        let f = fence();
+        let mut baseline = BaselineHead::empty();
+        baseline.fence = Some(f.clone());
+        baseline.upsert(&path("memo/gone.md"), &dig(3), "tok-old".to_owned());
+
+        let local = FakeLocalPort {
+            entries: Vec::new(),
+        };
+        let remote_snap = RemoteSnapshot::new(
+            SnapshotCompleteness::Complete,
+            vec![RemotePathEntry {
+                path: path("memo/gone.md"),
+                digest: RemoteDigestFact::Known(dig(3)),
+                validator: RemoteValidator::Strong("tok-new".to_owned()),
+            }],
+        )
+        .expect("snap");
+        let remote = FakeRemotePort::new(
+            remote_snap,
+            PublishReceipt {
+                path_results: Vec::new(),
+            },
+            VerifiedRemoteState {
+                results: Vec::new(),
+            },
+        );
+        let session = SyncSession::new(f, SessionKind::Incremental, "cycle-hold").expect("session");
+        let result = run_sync_cycle(
+            &session,
+            &local,
+            &remote,
+            baseline,
+            Some(&paths),
+            true,
+            None,
+        )
+        .expect("cycle");
+
+        assert!(
+            !read_tombstones(&paths)
+                .expect("tombstones")
+                .contains_path("memo/gone.md"),
+            "gate rejection must not write a tombstone"
+        );
+        assert_eq!(result.batch.ensure_absent_count(), 0);
+        assert!(
+            result
+                .batch
+                .intents
+                .iter()
+                .any(|i| matches!(i, ProviderNeutralIntent::PullPresent { .. })),
+            "unproven local absence falls back to pull: {:?}",
+            result.batch
+        );
+        assert_eq!(remote.publish_call_count(), 0);
+    }
+
+    #[test]
+    fn run_sync_cycle_streaming_records_tombstone_first_for_observed_user_delete() {
+        // Production FFI path runs the streaming cycle: the same tombstone-first wiring must
+        // apply when the remote listing arrives as pages.
+        let temporary = tempdir().expect("temp");
+        let paths = SyncPaths::for_workspace(temporary.path());
+        let f = fence();
+        let mut baseline = BaselineHead::empty();
+        baseline.fence = Some(f.clone());
+        baseline.upsert(&path("memo/gone.md"), &dig(3), "tok-gone".to_owned());
+
+        let local = FakeLocalPort {
+            entries: Vec::new(),
+        };
+        let remote_snap = RemoteSnapshot::new(
+            SnapshotCompleteness::Complete,
+            vec![RemotePathEntry {
+                path: path("memo/gone.md"),
+                digest: RemoteDigestFact::Known(dig(3)),
+                validator: RemoteValidator::Strong("tok-gone".to_owned()),
+            }],
+        )
+        .expect("snap");
+        let remote = FakeRemotePort::new(
+            remote_snap,
+            PublishReceipt {
+                path_results: vec![(
+                    path("memo/gone.md"),
+                    PathPublishStatus::Applied {
+                        new_token: "deleted".to_owned(),
+                    },
+                )],
+            },
+            VerifiedRemoteState {
+                results: vec![VerifyStatus::AbsentVerified {
+                    path: path("memo/gone.md"),
+                }],
+            },
+        );
+        let session = SyncSession::new(f, SessionKind::Incremental, "cycle-del").expect("session");
+        let result = run_sync_cycle_streaming(
+            &session,
+            &local,
+            &remote,
+            baseline,
+            Some(&paths),
+            true,
+            None,
+        )
+        .expect("streaming cycle");
+
+        assert!(
+            read_tombstones(&paths)
+                .expect("tombstones")
+                .contains_path("memo/gone.md"),
+            "streaming cycle must record durable tombstone before remote delete"
+        );
+        assert_eq!(result.first_page_batch.ensure_absent_count(), 1);
+        assert_eq!(remote.publish_call_count(), 1);
     }
 }

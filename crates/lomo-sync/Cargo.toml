@@ -36,6 +36,10 @@ name = "conflict_recovery_contract"
 path = "tests/conflict_recovery_contract.rs"
 
 [[test]]
+name = "conflict_suggestion_contract"
+path = "tests/conflict_suggestion_contract.rs"
+
+[[test]]
 name = "cycle_plan_inspect_contract"
 path = "tests/cycle_plan_inspect_contract.rs"
 
@@ -50,6 +54,10 @@ path = "tests/scale_streaming_contract.rs"
 [[test]]
 name = "takeover_matrix_contract"
 path = "tests/takeover_matrix_contract.rs"
+
+[[test]]
+name = "digest_validator_contract"
+path = "tests/digest_validator_contract.rs"
 
 # Credential-gated real provider lines. Every test is `#[ignore]`d, so `just check` / `just ci`
 # never run them. With credentials: cargo test -p lomo-sync --test provider_smoke -- --ignored
@@ -76,6 +84,7 @@ tempfile.workspace = true
 # Hermetic bare-repo Git composition contracts only (production graph uses lomo-git via native).
 git2.workspace = true
 lomo-git = { path = "../lomo-git" }
+lomo-platform-fs = { path = "../lomo-platform-fs" }
 
 [lints]
 workspace = true
