@@ -11,6 +11,7 @@
 mod commit;
 mod error;
 mod identity;
+mod lease;
 mod orphan;
 mod path;
 mod reference;
@@ -23,6 +24,10 @@ pub use error::{
 };
 pub use identity::{
     ContentDigest, DIGEST_STREAM_CHUNK_BYTES, MediaMime, read_magic_header, write_bytes_for_tests,
+};
+pub use lease::{
+    ArtifactId, STAGE_LEDGER_FILE, StageLease, StageLedger, StageOwnerKind, StageRecord,
+    StageRelease, stage_directory, stage_directory_of,
 };
 pub use orphan::{
     DEFAULT_RECOVERY_WINDOW_MS, MEDIA_DELETE_INTENT_DIR_NAME, MEDIA_TRASH_DIR_NAME,

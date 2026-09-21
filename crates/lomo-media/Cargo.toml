@@ -16,6 +16,10 @@ name = "stage_contract"
 path = "tests/stage_contract.rs"
 
 [[test]]
+name = "stage_lease_contract"
+path = "tests/stage_lease_contract.rs"
+
+[[test]]
 name = "reference_orphan_contract"
 path = "tests/reference_orphan_contract.rs"
 
