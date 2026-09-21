@@ -120,8 +120,7 @@ If Lomo is useful to you, you can support the project here: [Sponsor page](docs/
 <details>
 <summary>Tech stack</summary>
 
-- **Languages:** Kotlin + Rust (production native infrastructure through BoltFFI/JNI;
-  stage-0 UniFFI/JNA remains historical evidence only). Linux TUI is a host binary with no JNI.
+- **Languages:** Kotlin + Rust (Rust native core via JNI). Linux TUI is a host binary with no JNI.
 - **UI:** Jetpack Compose (Material 3) on Android; Ratatui terminal UI on Linux
 - **Architecture:** MVVM + Clean Architecture (Domain / Data / UI) on Android; TEA composition root on Linux
 - **DI:** Koin (Android)

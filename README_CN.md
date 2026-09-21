@@ -120,7 +120,7 @@ Lomo 的灵感来自于许多优秀的前辈，如 **Memos**、**Flomo**、**Moe
 <details>
 <summary>技术栈</summary>
 
-- **语言：** Kotlin + Rust（生产 native 基础设施为 BoltFFI/JNI；阶段 0 的 UniFFI/JNA 仅作历史证据）。Linux TUI 是无 JNI 的宿主二进制
+- **语言：** Kotlin + Rust（Rust 原生核心通过 JNI 接入）。Linux TUI 是无 JNI 的宿主二进制
 - **UI：** Android 为 Jetpack Compose（Material 3）；Linux 为 Ratatui 终端界面
 - **架构：** Android 为 MVVM + Clean Architecture（Domain / Data / UI）；Linux 为 TEA 组合根
 - **依赖注入：** Koin（Android）
