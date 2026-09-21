@@ -30,8 +30,8 @@ use crate::journal::{LanDurableOutgoingBatch, LanJournal, LanJournalPaths, LanOu
 use crate::limits::RUNTIME_CHUNK_PLAINTEXT_BYTES;
 use crate::pairing::{PairingTranscript, derive_pairing_code, verify_pairing_confirmation};
 use crate::session::{
-    ATTACHMENT_SLOT_BODY, ChunkBinding, LanSessionId, SessionControlKind, SessionKey,
-    SessionTranscript,
+    ATTACHMENT_SLOT_BODY, ChunkBinding, ControlBinding, LanDirection, LanSessionId,
+    SessionControlKind, SessionKey, SessionTranscript,
 };
 use crate::transport::{LanDeadlines, bind_listener, connect_peer, poll_peer};
 
@@ -119,6 +119,12 @@ impl LanPairingChallenge {
     pub const fn deadline_ms(&self) -> i64 {
         self.deadline_ms
     }
+
+    /// Remaining pairing lifetime for UI display. The protocol deadline is not chosen by Kotlin.
+    #[must_use]
+    pub const fn remaining_ttl_ms(&self, now_ms: i64) -> i64 {
+        crate::limits::remaining_ttl_ms(now_ms, self.deadline_ms)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -165,6 +171,12 @@ impl LanSessionChallenge {
     #[must_use]
     pub const fn deadline_ms(&self) -> i64 {
         self.deadline_ms
+    }
+
+    /// Remaining session lifetime for UI display. The protocol deadline is not chosen by Kotlin.
+    #[must_use]
+    pub const fn remaining_ttl_ms(&self, now_ms: i64) -> i64 {
+        crate::limits::remaining_ttl_ms(now_ms, self.deadline_ms)
     }
 }
 
@@ -378,6 +390,28 @@ impl LanOutgoingBatch {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SessionRole {
+    Opener,
+    Responder,
+}
+
+impl SessionRole {
+    const fn send_direction(self) -> LanDirection {
+        match self {
+            Self::Opener => LanDirection::Forward,
+            Self::Responder => LanDirection::Reverse,
+        }
+    }
+
+    const fn receive_direction(self) -> LanDirection {
+        match self {
+            Self::Opener => LanDirection::Reverse,
+            Self::Responder => LanDirection::Forward,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct PendingSession {
     challenge: LanSessionChallenge,
@@ -385,6 +419,7 @@ struct PendingSession {
     peer_public_key: crate::identity::DevicePublicKey,
     peer_address: SocketAddr,
     key: SessionKey,
+    role: SessionRole,
     local_confirmed: bool,
     peer_signature: Option<Vec<u8>>,
 }
@@ -394,6 +429,53 @@ struct ActiveSession {
     snapshot: LanSessionSnapshot,
     peer_address: SocketAddr,
     key: SessionKey,
+    role: SessionRole,
+    next_control_send: u32,
+    last_control_recv: Option<u32>,
+}
+
+impl ActiveSession {
+    fn allocate_control_sequence(&mut self) -> Result<u32, LomoError> {
+        let sequence = self.next_control_send;
+        self.next_control_send = sequence.checked_add(1).ok_or_else(|| {
+            resource_limit(
+                "lan_control_nonce_exhausted",
+                "control nonce space is exhausted; a new crypto session is required",
+            )
+        })?;
+        Ok(sequence)
+    }
+
+    fn accept_control_sequence(&mut self, sequence: u32) -> Result<(), LomoError> {
+        match self.last_control_recv {
+            None if sequence == 0 => {
+                self.last_control_recv = Some(0);
+                Ok(())
+            }
+            Some(last) if sequence == last => Ok(()),
+            Some(last) => {
+                let expected = last.checked_add(1).ok_or_else(|| {
+                    resource_limit(
+                        "lan_control_nonce_exhausted",
+                        "control nonce space is exhausted; a new crypto session is required",
+                    )
+                })?;
+                if sequence == expected {
+                    self.last_control_recv = Some(sequence);
+                    Ok(())
+                } else {
+                    Err(authentication(
+                        "lan_control_sequence_invalid",
+                        "control sequence is not the next value or a retransmission of the last",
+                    ))
+                }
+            }
+            None => Err(authentication(
+                "lan_control_sequence_invalid",
+                "the first control sequence on a direction must be zero",
+            )),
+        }
+    }
 }
 
 /// One concrete local address Android says is eligible for the LAN listener.
@@ -501,7 +583,7 @@ impl DiscoveredPeerEndpoint {
         if protocol_version != LAN_PROTOCOL_VERSION {
             return Err(validation(
                 "lan_discovery_protocol_unsupported",
-                "only LAN protocol v2 discovery entries are accepted",
+                "only the active LAN protocol version is accepted",
             ));
         }
         if port == 0 {
@@ -1118,11 +1200,54 @@ impl LanServiceManager {
                 "LAN listener must be started before accepting pairing frames",
             )
         })?;
-        let Some((mut stream, peer_address)) =
+        let Some((stream, peer_address)) =
             poll_peer(listener, LISTENER_POLL_TIMEOUT, pairing_deadlines()?)?
         else {
             return Ok(());
         };
+        self.handle_inbound(stream, peer_address, now_ms)
+    }
+
+    /// Clones the bound listener so an accept pump can wait without holding the runtime mutex.
+    ///
+    /// # Errors
+    ///
+    /// Network when the OS cannot duplicate the listening socket.
+    pub fn clone_listener(&self) -> Result<Option<TcpListener>, LomoError> {
+        let Some(listener) = self.listener.as_ref() else {
+            return Ok(None);
+        };
+        listener.try_clone().map(Some).map_err(|_error| {
+            network(
+                "lan_listener_clone_failed",
+                "LAN listener cannot be shared with the accept pump",
+                lomo_core::RetryDisposition::Transient,
+            )
+        })
+    }
+
+    /// Waits at most the listener poll timeout for one inbound connection on a cloned socket.
+    ///
+    /// # Errors
+    ///
+    /// Network when accept fails or deadlines cannot be applied.
+    pub fn accept_one(
+        listener: &TcpListener,
+    ) -> Result<Option<(crate::transport::FrameStream<TcpStream>, SocketAddr)>, LomoError> {
+        poll_peer(listener, LISTENER_POLL_TIMEOUT, pairing_deadlines()?)
+    }
+
+    /// Processes one already-accepted inbound control connection.
+    ///
+    /// # Errors
+    ///
+    /// Lifecycle, network, validation or authentication errors from the receive state.
+    pub fn handle_inbound(
+        &mut self,
+        mut stream: crate::transport::FrameStream<TcpStream>,
+        peer_address: SocketAddr,
+        now_ms: i64,
+    ) -> Result<(), LomoError> {
         let frame = stream.read_frame()?;
         match frame.kind() {
             FrameKind::PairHello => {
@@ -1290,6 +1415,7 @@ impl LanServiceManager {
                 peer_public_key: hello.public_key,
                 peer_address: SocketAddr::new(peer_address.ip(), hello.listen_port),
                 key,
+                role: SessionRole::Responder,
                 local_confirmed: false,
                 peer_signature: None,
             },
@@ -1327,23 +1453,24 @@ impl LanServiceManager {
         payload: &[u8],
         now_ms: i64,
     ) -> Result<(), LomoError> {
-        let control = decode_batch_control(payload)?;
-        let active = self.active_session(&control.session_id)?;
-        active.key.verify_control(
-            &control.session_id,
-            control.batch_id.as_str(),
+        let control = decode_batch_control(
+            payload,
+            FrameKind::BatchPrepare,
             SessionControlKind::Prepare,
-            &control.body,
-            &control.tag,
         )?;
-        let plan = decode_batch_plan(&control.body)?;
+        let body = self.open_batch_control(&control)?;
+        let plan = decode_batch_plan(&body)?;
         if plan.batch_id() != &control.batch_id {
             return Err(authentication(
                 "lan_batch_control_mismatch",
                 "authenticated control batch id does not match its plan",
             ));
         }
-        let peer_id = active.snapshot.peer_device_id.clone();
+        let peer_id = self
+            .active_session(&control.session_id)?
+            .snapshot
+            .peer_device_id
+            .clone();
         let peer = self.trusted_peer(&peer_id)?.clone();
         if let Some(existing) = self.journal.batch(&control.batch_id) {
             if existing.plan() == &plan && existing.sender_device_id() == &peer_id {
@@ -1371,38 +1498,28 @@ impl LanServiceManager {
                 peer.display_name().clone(),
             ))?;
         }
-        let body = self.encode_current_batch_status(&control.batch_id)?;
-        let tag = self
-            .active_session(&control.session_id)?
-            .key
-            .authenticate_control(
-                &control.session_id,
-                control.batch_id.as_str(),
-                SessionControlKind::Complete,
-                &body,
-            );
+        let status_body = self.encode_current_batch_status(&control.batch_id)?;
+        let response = self.seal_batch_control(
+            &control.session_id,
+            &control.batch_id,
+            FrameKind::BatchComplete,
+            SessionControlKind::Complete,
+            status_body,
+        )?;
         stream.write_frame(&LanFrame::new(
             FrameKind::BatchComplete,
-            encode_batch_control(&BatchControl {
-                session_id: control.session_id,
-                batch_id: control.batch_id,
-                body,
-                tag,
-            }),
+            encode_batch_control(&response),
         )?)
     }
 
     fn handle_batch_approve(&mut self, payload: &[u8]) -> Result<(), LomoError> {
-        let control = decode_batch_control(payload)?;
-        let active = self.active_session(&control.session_id)?;
-        active.key.verify_control(
-            &control.session_id,
-            control.batch_id.as_str(),
+        let control = decode_batch_control(
+            payload,
+            FrameKind::BatchApprove,
             SessionControlKind::Approve,
-            &control.body,
-            &control.tag,
         )?;
-        if !control.body.is_empty() {
+        let body = self.open_batch_control(&control)?;
+        if !body.is_empty() {
             return Err(batch_wire_invalid());
         }
         let outgoing = self
@@ -1424,16 +1541,10 @@ impl LanServiceManager {
     }
 
     fn handle_batch_reject(&mut self, payload: &[u8]) -> Result<(), LomoError> {
-        let control = decode_batch_control(payload)?;
-        let active = self.active_session(&control.session_id)?;
-        active.key.verify_control(
-            &control.session_id,
-            control.batch_id.as_str(),
-            SessionControlKind::Reject,
-            &control.body,
-            &control.tag,
-        )?;
-        if !control.body.is_empty() {
+        let control =
+            decode_batch_control(payload, FrameKind::BatchReject, SessionControlKind::Reject)?;
+        let body = self.open_batch_control(&control)?;
+        if !body.is_empty() {
             return Err(batch_wire_invalid());
         }
         let outgoing = self
@@ -1455,7 +1566,11 @@ impl LanServiceManager {
     }
 
     fn handle_batch_complete(&mut self, payload: &[u8]) -> Result<(), LomoError> {
-        let control = decode_batch_control(payload)?;
+        let control = decode_batch_control(
+            payload,
+            FrameKind::BatchComplete,
+            SessionControlKind::Complete,
+        )?;
         self.apply_authenticated_batch_status(&control)
     }
 
@@ -1544,17 +1659,12 @@ impl LanServiceManager {
         &mut self,
         control: &BatchControl,
     ) -> Result<(), LomoError> {
-        let peer_device_id = {
-            let active = self.active_session(&control.session_id)?;
-            active.key.verify_control(
-                &control.session_id,
-                control.batch_id.as_str(),
-                SessionControlKind::Complete,
-                &control.body,
-                &control.tag,
-            )?;
-            active.snapshot.peer_device_id.clone()
-        };
+        let body = self.open_batch_control(control)?;
+        let peer_device_id = self
+            .active_session(&control.session_id)?
+            .snapshot
+            .peer_device_id
+            .clone();
         let plan = self
             .journal
             .outgoing_batch(&control.batch_id)
@@ -1566,7 +1676,7 @@ impl LanServiceManager {
             })?
             .plan()
             .clone();
-        let status = decode_batch_status(&control.body)?;
+        let status = decode_batch_status(&body)?;
         let mut confirmed = BTreeSet::new();
         for range in &status.confirmed_ranges {
             let payload = planned_payload(&plan, range.item_index, range.attachment_slot)?;
@@ -1646,10 +1756,12 @@ impl LanServiceManager {
         let expected_length =
             expected_chunk_length(expected.size_bytes, transfer.receipt.chunk_index)?;
         let binding = transfer.receipt.binding()?;
-        let plaintext = self
-            .active_session(&transfer.receipt.session_id)?
-            .key
-            .open_chunk(&binding, transfer.sealed)?;
+        let plaintext = {
+            let active = self.active_session(&transfer.receipt.session_id)?;
+            active
+                .key
+                .open_chunk(active.role.receive_direction(), &binding, transfer.sealed)?
+        };
         if plaintext.len() != expected_length {
             return Err(validation(
                 "lan_chunk_length_mismatch",
@@ -1810,6 +1922,7 @@ impl LanServiceManager {
                 peer_public_key: accept.public_key,
                 peer_address: peer.address(),
                 key,
+                role: SessionRole::Opener,
                 local_confirmed: false,
                 peer_signature: None,
             },
@@ -1891,26 +2004,15 @@ impl LanServiceManager {
     ) -> Result<(), LomoError> {
         let body = encode_batch_plan(&plan);
         let batch_id = plan.batch_id().clone();
-        let (control, peer_device_id, peer_display_name) = {
+        let (peer_device_id, peer_display_name, address) = {
             let active = self.active_session(session_id)?;
             let peer = self.trusted_peer(&active.snapshot.peer_device_id)?;
             (
-                BatchControl {
-                    session_id: session_id.clone(),
-                    batch_id: batch_id.clone(),
-                    tag: active.key.authenticate_control(
-                        session_id,
-                        batch_id.as_str(),
-                        SessionControlKind::Prepare,
-                        &body,
-                    ),
-                    body,
-                },
                 active.snapshot.peer_device_id.clone(),
                 peer.display_name().clone(),
+                active.peer_address,
             )
         };
-        let address = self.active_session(session_id)?.peer_address;
         self.journal
             .store_outgoing_batch(LanDurableOutgoingBatch::new(
                 plan,
@@ -1918,6 +2020,13 @@ impl LanServiceManager {
                 peer_device_id,
                 peer_display_name,
             ))?;
+        let control = self.seal_batch_control(
+            session_id,
+            &batch_id,
+            FrameKind::BatchPrepare,
+            SessionControlKind::Prepare,
+            body,
+        )?;
         let mut stream = connect_peer(address, PAIRING_SOCKET_DEADLINE, pairing_deadlines()?)?;
         stream.write_frame(&LanFrame::new(
             FrameKind::BatchPrepare,
@@ -1930,7 +2039,11 @@ impl LanServiceManager {
                 "batch prepare expected an authenticated batch status response",
             ));
         }
-        let status = decode_batch_control(response.payload())?;
+        let status = decode_batch_control(
+            response.payload(),
+            FrameKind::BatchComplete,
+            SessionControlKind::Complete,
+        )?;
         self.apply_authenticated_batch_status(&status)
     }
 
@@ -1966,19 +2079,9 @@ impl LanServiceManager {
                 "approval time-to-live must be positive",
             ));
         }
-        let (peer_id, address, tag) = {
+        let (peer_id, address) = {
             let active = self.active_session(session_id)?;
-            let tag = active.key.authenticate_control(
-                session_id,
-                batch_id.as_str(),
-                SessionControlKind::Approve,
-                &[],
-            );
-            (
-                active.snapshot.peer_device_id.clone(),
-                active.peer_address,
-                tag,
-            )
+            (active.snapshot.peer_device_id.clone(), active.peer_address)
         };
         let batch = self.journal.batch(batch_id).ok_or_else(|| {
             validation(
@@ -1995,16 +2098,14 @@ impl LanServiceManager {
         let approval = LanApproval::granted(batch_id.clone(), now_ms, ttl_ms);
         approval.assert_valid_at(now_ms)?;
         self.journal.approve_batch(batch_id, approval, generation)?;
-        send_control_frame(
-            address,
+        let control = self.seal_batch_control(
+            session_id,
+            batch_id,
             FrameKind::BatchApprove,
-            &BatchControl {
-                session_id: session_id.clone(),
-                batch_id: batch_id.clone(),
-                body: Vec::new(),
-                tag,
-            },
-        )
+            SessionControlKind::Approve,
+            Vec::new(),
+        )?;
+        send_control_frame(address, FrameKind::BatchApprove, &control)
     }
 
     /// Persists a terminal rejection and authenticates it back to the sender.
@@ -2019,18 +2120,9 @@ impl LanServiceManager {
         batch_id: &LanBatchId,
         rejected_at_ms: i64,
     ) -> Result<(), LomoError> {
-        let (peer_id, address, tag) = {
+        let (peer_id, address) = {
             let active = self.active_session(session_id)?;
-            (
-                active.snapshot.peer_device_id.clone(),
-                active.peer_address,
-                active.key.authenticate_control(
-                    session_id,
-                    batch_id.as_str(),
-                    SessionControlKind::Reject,
-                    &[],
-                ),
-            )
+            (active.snapshot.peer_device_id.clone(), active.peer_address)
         };
         let batch = self.journal.batch(batch_id).ok_or_else(|| {
             validation(
@@ -2045,16 +2137,14 @@ impl LanServiceManager {
             ));
         }
         self.journal.reject_batch(batch_id, rejected_at_ms)?;
-        send_control_frame(
-            address,
+        let control = self.seal_batch_control(
+            session_id,
+            batch_id,
             FrameKind::BatchReject,
-            &BatchControl {
-                session_id: session_id.clone(),
-                batch_id: batch_id.clone(),
-                body: Vec::new(),
-                tag,
-            },
-        )
+            SessionControlKind::Reject,
+            Vec::new(),
+        )?;
+        send_control_frame(address, FrameKind::BatchReject, &control)
     }
 
     /// True only after an authenticated approval arrives for an outgoing batch.
@@ -2132,18 +2222,21 @@ impl LanServiceManager {
             attachment_slot,
             chunk_index,
         };
-        let active = self.active_session(session_id)?;
-        let transfer = ChunkTransfer {
-            sealed: active
-                .key
-                .seal_chunk(&receipt.binding()?, plaintext.to_vec())?,
-            receipt: receipt.clone(),
+        let (transfer, address) = {
+            let active = self.active_session(session_id)?;
+            (
+                ChunkTransfer {
+                    sealed: active.key.seal_chunk(
+                        active.role.send_direction(),
+                        &receipt.binding()?,
+                        plaintext.to_vec(),
+                    )?,
+                    receipt: receipt.clone(),
+                },
+                active.peer_address,
+            )
         };
-        let mut stream = connect_peer(
-            active.peer_address,
-            PAIRING_SOCKET_DEADLINE,
-            pairing_deadlines()?,
-        )?;
+        let mut stream = connect_peer(address, PAIRING_SOCKET_DEADLINE, pairing_deadlines()?)?;
         stream.write_frame(&LanFrame::new(
             FrameKind::Chunk,
             encode_chunk_transfer(&transfer),
@@ -2428,6 +2521,9 @@ impl LanServiceManager {
                 snapshot,
                 peer_address: pending.peer_address,
                 key: pending.key,
+                role: pending.role,
+                next_control_send: 0,
+                last_control_recv: None,
             },
         );
         Ok(())
@@ -2464,6 +2560,66 @@ impl LanServiceManager {
                 "batch control requires a mutually authenticated active session",
             )
         })
+    }
+
+    fn active_session_mut(
+        &mut self,
+        session_id: &LanSessionId,
+    ) -> Result<&mut ActiveSession, LomoError> {
+        self.active_sessions.get_mut(session_id).ok_or_else(|| {
+            authentication(
+                "lan_session_not_authenticated",
+                "batch control requires a mutually authenticated active session",
+            )
+        })
+    }
+
+    fn seal_batch_control(
+        &mut self,
+        session_id: &LanSessionId,
+        batch_id: &LanBatchId,
+        frame_kind: FrameKind,
+        control_kind: SessionControlKind,
+        body: Vec<u8>,
+    ) -> Result<BatchControl, LomoError> {
+        let active = self.active_session_mut(session_id)?;
+        let sequence = active.allocate_control_sequence()?;
+        let binding = ControlBinding::new(
+            session_id,
+            batch_id.as_str(),
+            frame_kind,
+            control_kind,
+            sequence,
+        )?;
+        let sealed = active
+            .key
+            .seal_control(active.role.send_direction(), &binding, body)?;
+        Ok(BatchControl {
+            session_id: session_id.clone(),
+            batch_id: batch_id.clone(),
+            frame_kind,
+            control_kind,
+            sequence,
+            sealed,
+        })
+    }
+
+    fn open_batch_control(&mut self, control: &BatchControl) -> Result<Vec<u8>, LomoError> {
+        let active = self.active_session_mut(&control.session_id)?;
+        let binding = ControlBinding::new(
+            &control.session_id,
+            control.batch_id.as_str(),
+            control.frame_kind,
+            control.control_kind,
+            control.sequence,
+        )?;
+        let body = active.key.open_control(
+            active.role.receive_direction(),
+            &binding,
+            control.sealed.clone(),
+        )?;
+        active.accept_control_sequence(control.sequence)?;
+        Ok(body)
     }
 
     fn listening_port(&self) -> Result<u16, LomoError> {
@@ -2571,8 +2727,10 @@ struct SessionConfirm {
 struct BatchControl {
     session_id: LanSessionId,
     batch_id: LanBatchId,
-    body: Vec<u8>,
-    tag: Vec<u8>,
+    frame_kind: FrameKind,
+    control_kind: SessionControlKind,
+    sequence: u32,
+    sealed: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2868,28 +3026,35 @@ fn encode_batch_control(value: &BatchControl) -> Vec<u8> {
     let mut bytes = Vec::new();
     push_wire_field(&mut bytes, value.session_id.as_str().as_bytes());
     push_wire_field(&mut bytes, value.batch_id.as_str().as_bytes());
-    push_wire_field(&mut bytes, &value.body);
-    push_wire_field(&mut bytes, &value.tag);
+    bytes.extend_from_slice(&value.sequence.to_be_bytes());
+    bytes.extend_from_slice(&value.sealed);
     bytes
 }
 
-fn decode_batch_control(bytes: &[u8]) -> Result<BatchControl, LomoError> {
+fn decode_batch_control(
+    bytes: &[u8],
+    frame_kind: FrameKind,
+    control_kind: SessionControlKind,
+) -> Result<BatchControl, LomoError> {
     let (session_id, cursor) = take_wire_field_with(bytes, 0, batch_wire_invalid)?;
     let (batch_id, cursor) = take_wire_field_with(bytes, cursor, batch_wire_invalid)?;
-    let (body, cursor) = take_wire_field_with(bytes, cursor, batch_wire_invalid)?;
-    let (tag, cursor) = take_wire_field_with(bytes, cursor, batch_wire_invalid)?;
-    assert_wire_end_with(bytes, cursor, batch_wire_invalid)?;
-    if tag.len() != 32 {
+    let sequence = take_wire_u32_with(bytes, cursor, batch_wire_invalid)?;
+    let sealed = bytes
+        .get(cursor.saturating_add(4)..)
+        .ok_or_else(batch_wire_invalid)?;
+    if sealed.len() < crate::limits::AEAD_TAG_BYTES {
         return Err(authentication(
-            "lan_control_authentication_invalid",
-            "session control authentication tag must be 32 bytes",
+            "lan_control_open_failed",
+            "session control ciphertext is shorter than the AEAD tag",
         ));
     }
     Ok(BatchControl {
         session_id: LanSessionId::parse(wire_utf8_with(session_id, batch_wire_invalid)?)?,
         batch_id: LanBatchId::parse(wire_utf8_with(batch_id, batch_wire_invalid)?)?,
-        body: body.to_vec(),
-        tag: tag.to_vec(),
+        frame_kind,
+        control_kind,
+        sequence,
+        sealed: sealed.to_vec(),
     })
 }
 

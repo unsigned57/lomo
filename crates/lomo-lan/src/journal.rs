@@ -12,6 +12,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
@@ -685,18 +686,19 @@ impl LanJournal {
             )
         })?;
         let temp = path.with_extension("chunk.tmp");
-        fs::write(&temp, plaintext).map_err(|error| {
-            storage(
-                "lan_chunk_stage_write_failed",
-                &format!("cannot write a staged LAN chunk: {error}"),
-            )
-        })?;
+        write_synced(
+            &temp,
+            plaintext,
+            "lan_chunk_stage_write_failed",
+            "cannot write a staged LAN chunk",
+        )?;
         fs::rename(&temp, &path).map_err(|error| {
             storage(
                 "lan_chunk_stage_commit_failed",
                 &format!("cannot commit a staged LAN chunk: {error}"),
             )
-        })
+        })?;
+        sync_parent_directory(&path)
     }
 
     /// Reassembles a payload only when every requested chunk is durably confirmed.
@@ -1344,19 +1346,57 @@ fn read_record(path: &Path) -> Result<Option<Vec<u8>>, LomoError> {
 }
 
 /// Writes a record temp-then-rename so a crash never leaves a half record.
+///
+/// The temp file is flushed before the rename and the parent directory is flushed after it, so a
+/// power loss leaves either the previous record or the complete new one — not a rename that the
+/// filesystem later forgets.
 fn write_record(path: &Path, body: &[u8]) -> Result<(), LomoError> {
     let encoded = encode_record(body)?;
     let temp = path.with_extension("rec.tmp");
-    fs::write(&temp, &encoded).map_err(|error| {
-        storage(
-            "lan_journal_write_failed",
-            &format!("cannot write the LAN journal temp record: {error}"),
-        )
-    })?;
+    write_synced(
+        &temp,
+        &encoded,
+        "lan_journal_write_failed",
+        "cannot write the LAN journal temp record",
+    )?;
     fs::rename(&temp, path).map_err(|error| {
         storage(
             "lan_journal_commit_failed",
             &format!("cannot commit the LAN journal record: {error}"),
+        )
+    })?;
+    sync_parent_directory(path)
+}
+
+/// Writes `bytes` and flushes them to stable storage before returning.
+fn write_synced(
+    path: &Path,
+    bytes: &[u8],
+    write_code: &str,
+    write_message: &str,
+) -> Result<(), LomoError> {
+    let mut file = fs::File::create(path)
+        .map_err(|error| storage(write_code, &format!("{write_message}: {error}")))?;
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|error| storage(write_code, &format!("{write_message}: {error}")))
+}
+
+/// Flushes the directory entry so a preceding rename survives a crash.
+fn sync_parent_directory(path: &Path) -> Result<(), LomoError> {
+    let Some(parent) = path.parent() else {
+        return Ok(());
+    };
+    let directory = fs::File::open(parent).map_err(|error| {
+        storage(
+            "lan_journal_sync_failed",
+            &format!("cannot open the LAN journal directory: {error}"),
+        )
+    })?;
+    directory.sync_all().map_err(|error| {
+        storage(
+            "lan_journal_sync_failed",
+            &format!("cannot sync the LAN journal directory: {error}"),
         )
     })
 }

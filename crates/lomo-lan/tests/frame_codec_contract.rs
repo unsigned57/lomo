@@ -9,7 +9,8 @@
 //! - Given a declared length above the type ceiling, when decoded, then it fails closed **without**
 //!   allocating the declared length.
 //! - Given an unknown frame type, when decoded, then it fails closed.
-//! - Given a protocol version other than v2, when decoded, then it fails closed (no v1 decoder).
+//! - Given a protocol version other than the active version, when decoded, then it fails closed
+//!   (no v1 or HMAC-only v2 decoder).
 //! - Given a wrong magic, when decoded, then it fails closed.
 //! - Given a truncated header or truncated payload, when decoded, then it reports incomplete rather
 //!   than inventing a frame.
@@ -130,11 +131,12 @@ mod tests {
     }
 
     #[test]
-    fn non_v2_protocol_version_is_rejected_without_a_legacy_decoder() {
-        for version in [0_u16, 1, LAN_PROTOCOL_VERSION + 1] {
+    fn non_active_protocol_version_is_rejected_without_a_legacy_decoder() {
+        for version in [0_u16, 1, 2, LAN_PROTOCOL_VERSION + 1] {
             let bytes = header(FrameKind::PairHello.code(), version, 4);
-            let error = decode_frame(&bytes)
-                .expect_err("only LAN protocol v2 decodes; there is no v1 compatibility path");
+            let error = decode_frame(&bytes).expect_err(
+                "only the active LAN protocol decodes; there is no v1/v2 compatibility path",
+            );
             assert_eq!(error.code(), "lan_frame_unsupported_version");
         }
     }

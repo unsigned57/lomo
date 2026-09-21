@@ -55,3 +55,20 @@ pub const MAX_SNAPSHOT_ENTRIES: usize = 64;
 
 /// Maximum UTF-8 bytes for a peer display name.
 pub const MAX_DISPLAY_NAME_BYTES: usize = 128;
+
+/// Pairing challenge lifetime. Kotlin displays remaining time from the deadline; it does not choose
+/// this value.
+pub const PAIRING_TTL_MS: i64 = 2 * 60 * 1_000;
+
+/// Mutually authenticated session challenge lifetime.
+pub const SESSION_TTL_MS: i64 = 60 * 1_000;
+
+/// Batch approval lifetime used for recovery without re-prompting.
+pub const APPROVAL_TTL_MS: i64 = 15 * 60 * 1_000;
+
+/// Remaining protocol time-to-live for display. Never negative.
+#[must_use]
+pub const fn remaining_ttl_ms(now_ms: i64, deadline_ms: i64) -> i64 {
+    let remaining = deadline_ms.saturating_sub(now_ms);
+    if remaining < 0 { 0 } else { remaining }
+}

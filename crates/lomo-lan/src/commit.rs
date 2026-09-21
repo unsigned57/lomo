@@ -1,8 +1,9 @@
-//! Per-item commit of received LAN memos through the `lomo-store` single writer.
+//! Authorize one received LAN item for the host write path.
 //!
-//! `lomo-lan` never writes user files. A received item becomes a `LocalSyncMutationBatch` and is
-//! committed by `lomo-store` on the same expected-revision path as an ordinary edit, so LAN receive
-//! cannot become a second write authority.
+//! `lomo-lan` never writes user files. Authorization yields an [`AuthorizedReceivedCreate`];
+//! `lomo-native` commits it through `lomo-application::WorkspaceSession::create_memo` (the sole
+//! durable document writer) and records the durable item outcome back into the LAN journal.
+//! LAN receive cannot become a second write authority.
 //!
 //! Three fences hold on every commit:
 //!

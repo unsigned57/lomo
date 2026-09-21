@@ -19,8 +19,8 @@ use lomo_core::LomoError;
 /// Frame magic identifying the Lomo LAN wire.
 pub const LAN_FRAME_MAGIC: [u8; 4] = *b"LMLN";
 
-/// Only supported protocol version. v1 (Kotlin HTTP) has no decoder.
-pub const LAN_PROTOCOL_VERSION: u16 = 2;
+/// Only supported protocol version. Previous HMAC-only control (v2) has no decoder.
+pub const LAN_PROTOCOL_VERSION: u16 = 3;
 
 /// Fixed frame header length in bytes.
 pub const LAN_FRAME_HEADER_BYTES: usize = 12;

@@ -206,6 +206,16 @@ mod tests {
         let challenge = phone_runtime
             .begin_pairing(&tablet_endpoint, 1_000, 50)
             .expect("pairing starts");
+        assert_eq!(
+            challenge.remaining_ttl_ms(1_000),
+            50,
+            "Kotlin may only display remaining time from the protocol deadline"
+        );
+        assert_eq!(
+            challenge.remaining_ttl_ms(1_051),
+            0,
+            "remaining time is zero after the protocol deadline"
+        );
         let tablet_runtime = responder.join().expect("responder returns");
 
         let error = phone_runtime

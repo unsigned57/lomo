@@ -500,7 +500,11 @@ mod tests {
                 .expect("the index is inside the chunk list")
                 .clone();
             let sealed = sender_key
-                .seal_chunk(&binding(session_id, *index), plaintext)
+                .seal_chunk(
+                    lomo_lan::LanDirection::Forward,
+                    &binding(session_id, *index),
+                    plaintext,
+                )
                 .expect("chunk seals");
             let mut payload = index.to_be_bytes().to_vec();
             payload.extend_from_slice(&sealed);
@@ -514,7 +518,11 @@ mod tests {
             .into_iter()
             .map(|(chunk_index, sealed, session)| {
                 let opened = receiver_key
-                    .open_chunk(&binding(&session, chunk_index), sealed)
+                    .open_chunk(
+                        lomo_lan::LanDirection::Forward,
+                        &binding(&session, chunk_index),
+                        sealed,
+                    )
                     .expect("the receiver opens the chunk under the same binding");
                 (chunk_index, opened)
             })

@@ -2,15 +2,15 @@
 //!
 //! Sole owner of LAN device trust and transfer: peer identity, pairing transcript and short
 //! authentication code, revocation, the versioned TCP control/chunk wire, session key derivation,
-//! bounded approval previews, resumable chunked transfer, and per-item idempotent commit of
-//! received memos through the `lomo-core` single writer.
+//! bounded approval previews, resumable chunked transfer, and per-item authorization of
+//! received memos for the host `WorkspaceSession` writer.
 //!
 //! Deliberately does **not** depend on `lomo-sync`: LAN peer trust belongs to the device
 //! installation, never to a workspace baseline, tombstone or remote conflict session.
 //!
 //! Kotlin keeps NSD, Android network topology/permission, multicast lock, Keystore private-key
 //! operations and Compose. This crate never opens a `content://` URI, decodes media, or writes user
-//! files itself — received items commit through `lomo-store` expected-revision ports.
+//! files itself — received items commit through `lomo-application` session writes at the native edge.
 
 #![deny(unsafe_code)]
 
@@ -48,11 +48,12 @@ pub use identity::{
 };
 pub use journal::{LAN_RECORD_MAGIC, LanJournal, LanJournalPaths, decode_record, encode_record};
 pub use limits::{
-    AEAD_TAG_BYTES, CHUNK_PLAINTEXT_BYTES, LAN_DURABLE_SCHEMA, MAX_ATTACHMENT_BYTES,
-    MAX_BATCH_ITEMS, MAX_BATCH_TOTAL_BYTES, MAX_CONTROL_PAYLOAD_BYTES, MAX_DISPLAY_NAME_BYTES,
-    MAX_INFLIGHT_CHUNKS, MAX_LAN_RECORD_BYTES, MAX_PREVIEW_TITLE_CHARS,
+    AEAD_TAG_BYTES, APPROVAL_TTL_MS, CHUNK_PLAINTEXT_BYTES, LAN_DURABLE_SCHEMA,
+    MAX_ATTACHMENT_BYTES, MAX_BATCH_ITEMS, MAX_BATCH_TOTAL_BYTES, MAX_CONTROL_PAYLOAD_BYTES,
+    MAX_DISPLAY_NAME_BYTES, MAX_INFLIGHT_CHUNKS, MAX_LAN_RECORD_BYTES, MAX_PREVIEW_TITLE_CHARS,
     MAX_SEALED_CHUNK_PAYLOAD_BYTES, MAX_SNAPSHOT_ENTRIES, MAX_TRUSTED_PEERS, PAIRING_CODE_DIGITS,
-    RUNTIME_CHUNK_PLAINTEXT_BYTES, RUNTIME_CHUNK_PLAINTEXT_BYTES_U32,
+    PAIRING_TTL_MS, RUNTIME_CHUNK_PLAINTEXT_BYTES, RUNTIME_CHUNK_PLAINTEXT_BYTES_U32,
+    SESSION_TTL_MS, remaining_ttl_ms,
 };
 
 pub use pairing::{
@@ -66,7 +67,8 @@ pub use runtime::{
     LanServicePhase, LanServiceSnapshot, LanSessionChallenge, LanSessionPhase, LanSessionSnapshot,
 };
 pub use session::{
-    ATTACHMENT_SLOT_BODY, ChunkBinding, LanSessionId, ReplayLedger, SessionKey, SessionTranscript,
+    ATTACHMENT_SLOT_BODY, ChunkBinding, ControlBinding, LanDirection, LanSessionId, ReplayLedger,
+    SessionControlKind, SessionKey, SessionTranscript,
 };
 
 pub use transport::{FrameStream, LanDeadlines, accept_peer, bind_listener, connect_peer};

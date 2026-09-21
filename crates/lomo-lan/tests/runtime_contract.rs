@@ -10,6 +10,8 @@
 //!   permission boundary and does not bind.
 //! - Given a validated loopback candidate, when the service starts and stops, then Rust owns the
 //!   bound port and releases it on stop.
+//! - Given the listener is idle, when accept waits on a cloned socket, then it yields without
+//!   inventing a peer so a pump can wait outside the runtime mutex.
 //! - Given a stale network or discovery snapshot, when it is submitted, then it is rejected rather
 //!   than replacing newer platform facts.
 //! - Given discovery entries with a foreign protocol or an unspecified address, when submitted,
@@ -136,6 +138,39 @@ mod tests {
         let stopped = manager.stop();
         assert_eq!(stopped.phase(), LanServicePhase::Stopped);
         TcpListener::bind(address).expect("bounded poll permits synchronous listener release");
+    }
+
+    #[test]
+    fn cloned_listener_can_idle_accept_without_holding_the_runtime() {
+        let root = tempfile::tempdir().expect("app-private root exists");
+        let mut manager = LanServiceManager::open(root.path()).expect("manager opens");
+        manager
+            .update_network(
+                LanNetworkSnapshot::new(
+                    1,
+                    true,
+                    vec![
+                        LanBindCandidate::parse("127.0.0.1", 0).expect("loopback candidate parses"),
+                    ],
+                )
+                .expect("network snapshot builds"),
+            )
+            .expect("network snapshot publishes");
+        manager.start().expect("listener starts");
+        let cloned = manager
+            .clone_listener()
+            .expect("listener clones")
+            .expect("listening socket exists");
+
+        let poll_started = Instant::now();
+        let accepted = LanServiceManager::accept_one(&cloned).expect("idle accept is normal");
+        assert!(accepted.is_none(), "idle accept must not invent a peer");
+        assert!(
+            poll_started.elapsed() < Duration::from_secs(1),
+            "cloned idle accept must yield without the runtime mutex"
+        );
+
+        let _stopped = manager.stop();
     }
 
     #[test]
