@@ -81,7 +81,9 @@ impl WorkspaceIo<'_> {
         };
         let bytes = read_artifact_content(&self.config.exchange_dir, &artifact)?;
         let evidence = source_metadata.evidence().clone();
-        if SourceFingerprint::of_bytes(&bytes).as_str() != evidence.digest().as_str()
+        if evidence
+            .verified_digest()
+            .is_none_or(|digest| SourceFingerprint::of_bytes(&bytes).as_str() != digest.as_str())
             || artifact.length() != evidence.length()
         {
             return Err(corruption(
@@ -134,7 +136,7 @@ impl WorkspaceIo<'_> {
                 "expected a verified write receipt",
             ));
         };
-        if metadata.evidence().digest() != artifact.digest()
+        if metadata.evidence().verified_digest() != Some(artifact.digest())
             || metadata.evidence().length() != artifact.length()
         {
             return Err(corruption(

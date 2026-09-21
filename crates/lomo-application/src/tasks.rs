@@ -46,7 +46,7 @@ impl WorkspaceSession {
         let mut tasks = Vec::new();
         for summary in collect_summaries(self, &query)? {
             let snapshot = self
-                .with_store(|store| store.get_projected_memo(&summary.memo_id))?
+                .with_reader(|store| store.get_projected_memo(&summary.memo_id))?
                 .ok_or_else(|| validation("memo_not_found", "task memo disappeared"))?;
             tasks.extend(parse_tasks(
                 &summary.memo_id,

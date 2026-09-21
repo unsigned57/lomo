@@ -127,7 +127,7 @@ fn fulltext(session: &WorkspaceSession, request: &SearchRequest) -> Result<Searc
         filters: request.filters.clone(),
         sort: lomo_store::MemoSort::default(),
     };
-    session.with_store(|store| {
+    session.with_reader(|store| {
         let page = store.query_memos(&query, request.cursor.as_ref(), request.page_size)?;
         let total = store.query_count(&query)?;
         let items = page
@@ -207,7 +207,7 @@ fn scored_hits(
     let needle = text.trim();
     for summary in summaries {
         let snapshot = session
-            .with_store(|store| store.get_projected_memo(&summary.memo_id))?
+            .with_reader(|store| store.get_projected_memo(&summary.memo_id))?
             .ok_or_else(|| validation("memo_not_found", "search candidate disappeared"))?;
         verify_version(&summary, &snapshot.summary)?;
         if let Some((score, excerpt)) =

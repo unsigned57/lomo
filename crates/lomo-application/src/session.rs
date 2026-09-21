@@ -1,12 +1,15 @@
 //! Shared application lifecycle and commands. Physical writes use one frozen transaction path.
 
-use std::sync::{Arc, Mutex, atomic::AtomicU64};
+use std::sync::{Arc, Mutex, RwLock, atomic::AtomicU64};
 
-use lomo_core::{LomoError, OperationId, PageSize, PlatformActionExecutor, RelativeWorkspacePath};
+use lomo_core::{
+    DocumentMetadata, LomoError, OperationId, PageSize, PlatformActionExecutor,
+    RelativeWorkspacePath,
+};
 use lomo_store::{
     DocumentPublication, MemoPage, MemoQuery, MemoQueryBoundary, MemoQueryStart, MemoSnapshot,
-    PageCursor, RebuildResult, SafProjectionMutation, SafProjectionMutationKind, SidebarProjection,
-    Store,
+    PageCursor, ProjectionClock, ReaderPoolOptions, RebuildResult, SafProjectionMutation,
+    SafProjectionMutationKind, SidebarProjection, Store, StoreReader, StoreReaderPool,
 };
 use lomo_workspace::{
     DocumentPatchCommand, HistorySnapshotV1, MemoId, MemoIdentityChange, TrashRecordCreate,
@@ -26,7 +29,7 @@ use crate::{
     transaction::{PlannedFile, TransactionInput, payload_digest},
     types::{
         CreateMemoRequest, CreateMemoResult, DeleteMemoRequest, DeleteMemoResult, PinMemoRequest,
-        PinMemoResult, SessionMemoView, UpdateMemoRequest, UpdateMemoResult,
+        PinMemoResult, PinPolicy, SessionMemoView, UpdateMemoRequest, UpdateMemoResult,
     },
     workspace_io::{WorkspaceIo, epoch_millis},
 };
@@ -37,6 +40,9 @@ pub struct WorkspaceSession {
     pub(crate) intent_journal: IntentJournal,
     device_id: String,
     store: Mutex<Option<Store>>,
+    readers: StoreReaderPool,
+    read_gate: RwLock<()>,
+    mount: Mutex<Option<RebuildResult>>,
     pub(crate) draft_store: DraftStore,
     pub(crate) search_epoch: AtomicU64,
 }
@@ -75,17 +81,20 @@ impl WorkspaceSession {
         let store = Store::open_projection(&config.cache_dir)?;
         let session = Self {
             intent_journal: IntentJournal::new(&config.state_dir)?,
+            readers: StoreReaderPool::new(config.cache_dir.clone(), ReaderPoolOptions::default()),
+            read_gate: RwLock::new(()),
             draft_store: DraftStore::new(&config.state_dir)?,
             config,
             executor,
             device_id,
             store: Mutex::new(Some(store)),
+            mount: Mutex::new(None),
             search_epoch: AtomicU64::new(0),
         };
         let pending = session.recover_files_for_mount()?;
         let floor = session.intent_journal.clock_floor()?;
         session.with_store_mut(|store| store.restore_clock_floor(floor))?;
-        session.rebuild_locked()?;
+        session.rebuild_locked(!pending.is_empty())?;
         session.acknowledge_mounted_operations(&pending)?;
         Ok(session)
     }
@@ -93,6 +102,31 @@ impl WorkspaceSession {
     #[must_use]
     pub fn device_id(&self) -> &str {
         &self.device_id
+    }
+
+    /// Result of the most recent mount or explicit projection rebuild.
+    ///
+    /// # Errors
+    /// Storage when the session has not completed a mount.
+    pub fn last_mount_result(&self) -> Result<RebuildResult, LomoError> {
+        self.mount
+            .lock()
+            .map_err(|error| storage("store_lock_poisoned", error.to_string()))?
+            .clone()
+            .ok_or_else(|| storage("mount_result_missing", "session has not completed a mount"))
+    }
+
+    /// Closes the current operation epoch and retires its committed receipts.
+    ///
+    /// The retirement witness is durable before any receipt disappears, so a retry that names a
+    /// retired operation fails with `operation_expired` instead of re-executing it. Returns
+    /// `false` while pending operations still block retirement; the caller may retry later.
+    ///
+    /// # Errors
+    /// Storage or corruption failures while publishing the witness or deleting receipts.
+    pub fn seal(&self) -> Result<bool, LomoError> {
+        let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
+        self.intent_journal.seal()
     }
 
     /// Appends a new independently identified memo to its dated Markdown document.
@@ -104,6 +138,7 @@ impl WorkspaceSession {
         reason = "create freezes markdown, attachments, history, and optional pin in one transaction"
     )]
     pub fn create_memo(&self, request: CreateMemoRequest) -> Result<CreateMemoResult, LomoError> {
+        request.validate()?;
         require_new_memo_content(&request.content)?;
         let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
         let digest = payload_digest(&request)?;
@@ -221,6 +256,7 @@ impl WorkspaceSession {
     /// # Errors
     /// Rejects stale source versions and preserves the frozen transaction on I/O failure.
     pub fn update_memo(&self, request: UpdateMemoRequest) -> Result<UpdateMemoResult, LomoError> {
+        request.validate()?;
         let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
         let digest = payload_digest(&request)?;
         if let Some(receipt) = self.replay(&request.operation_id, &digest)? {
@@ -309,6 +345,7 @@ impl WorkspaceSession {
     /// Missing activity source (`memo_source_missing`), stale identity, invalid trash data,
     /// and platform/projection errors.
     pub fn delete_memo(&self, request: DeleteMemoRequest) -> Result<DeleteMemoResult, LomoError> {
+        request.validate()?;
         let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
         let digest = payload_digest(&request)?;
         if let Some(receipt) = self.replay(&request.operation_id, &digest)? {
@@ -403,47 +440,42 @@ impl WorkspaceSession {
     /// # Errors
     /// Rejects operation reuse and invalid source identities or pin timestamps.
     pub fn pin_memo(&self, request: PinMemoRequest) -> Result<PinMemoResult, LomoError> {
+        request.validate()?;
         let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
         let digest = payload_digest(&request)?;
-        if let Some(receipt) = self.replay(&request.operation_id, &digest)? {
+        let (operation_id, memo_id, pin) = request.into_parts();
+        if let Some(receipt) = self.replay(&operation_id, &digest)? {
             return Ok(PinMemoResult {
                 commit_result: receipt,
             });
         }
         self.recover_pending()?;
-        let current = self.current_memo(&request.memo_id)?;
+        let current = self.current_memo(&memo_id)?;
         let path = RelativeWorkspacePath::parse(&current.summary.source_path)?;
         let loaded = LoadedDocument::load_existing(&self.io(), path.clone())?;
-        loaded.memo(&request.memo_id)?;
+        loaded.memo(&memo_id)?;
         let now = epoch_millis()?;
-        let pinned_at = if request.pinned {
-            Some(request.pinned_at_ms.unwrap_or(now))
-        } else {
-            None
+        let pinned_at = match pin {
+            PinPolicy::Unpinned => None,
+            PinPolicy::Pinned { at_ms } => Some(at_ms.unwrap_or(now)),
         };
-        if pinned_at.is_some_and(|timestamp| timestamp <= 0) {
-            return Err(validation(
-                "invalid_pin_timestamp",
-                "pin timestamp must be positive",
-            ));
-        }
         let files = state_files(
             &self.io(),
-            &request.memo_id,
-            &request.operation_id,
+            &memo_id,
+            &operation_id,
             StateChange::Pin(pinned_at),
             now,
         )?;
         let mutation = pin_mutation(
-            request.operation_id.as_str().to_owned(),
-            &request.memo_id,
-            request.pinned,
+            operation_id.as_str().to_owned(),
+            &memo_id,
+            pin.is_pinned(),
             current.summary.content_revision,
             loaded.fingerprint(),
         );
         let commit_result = self.commit_transaction(TransactionInput {
-            operation_id: request.operation_id,
-            memo_id: request.memo_id,
+            operation_id,
+            memo_id,
             path,
             payload_digest: digest,
             files,
@@ -460,7 +492,7 @@ impl WorkspaceSession {
     /// # Errors
     /// Propagates projection access failures.
     pub fn get_memo(&self, id: &MemoId) -> Result<Option<SessionMemoView>, LomoError> {
-        let snapshot = self.with_store(|store| store.get_projected_memo(id.as_str()))?;
+        let snapshot = self.with_reader(|store| store.get_projected_memo(id.as_str()))?;
         Ok(snapshot
             .filter(|snapshot| !snapshot.summary.is_trashed)
             .map(|snapshot| SessionMemoView {
@@ -475,12 +507,20 @@ impl WorkspaceSession {
             }))
     }
 
+    /// Live projection publication clock for the mounted session store.
+    ///
+    /// # Errors
+    /// Propagates projection access failures.
+    pub fn projection_clock(&self) -> Result<ProjectionClock, LomoError> {
+        self.with_store(|store| Ok(store.projection_clock()))
+    }
+
     /// Queries a bounded projection page.
     ///
     /// # Errors
     /// Propagates query validation and storage failures.
     pub fn list_memos(&self, query: &MemoQuery) -> Result<MemoPage, LomoError> {
-        self.with_store(|store| store.query_memos(query, None, PageSize::new(256)?))
+        self.with_reader(|store| store.query_memos(query, None, PageSize::new(256)?))
     }
 
     /// Queries one page from the session projection, including an optional sort boundary.
@@ -495,7 +535,9 @@ impl WorkspaceSession {
         page_size: PageSize,
     ) -> Result<MemoPage, LomoError> {
         crate::search::validate_filters(&query.filters)?;
-        self.with_store(|store| store.query_memos_with_boundary(query, boundary, cursor, page_size))
+        self.with_reader(|store| {
+            store.query_memos_with_boundary(query, boundary, cursor, page_size)
+        })
     }
 
     /// Queries one page from an explicit start in the current query order.
@@ -510,7 +552,7 @@ impl WorkspaceSession {
         page_size: PageSize,
     ) -> Result<MemoPage, LomoError> {
         crate::search::validate_filters(&query.filters)?;
-        self.with_store(|store| store.query_memos_starting_at(query, boundary, start, page_size))
+        self.with_reader(|store| store.query_memos_starting_at(query, boundary, start, page_size))
     }
 
     /// Counts rows accepted by the same predicate as [`Self::query_memos_page`].
@@ -519,7 +561,7 @@ impl WorkspaceSession {
     /// Propagates query validation and storage failures.
     pub fn query_count(&self, query: &MemoQuery) -> Result<u64, LomoError> {
         crate::search::validate_filters(&query.filters)?;
-        self.with_store(|store| store.query_count(query))
+        self.with_reader(|store| store.query_count(query))
     }
 
     /// Reads the sidebar aggregate from the session projection.
@@ -527,7 +569,7 @@ impl WorkspaceSession {
     /// # Errors
     /// Propagates projection storage failures.
     pub fn sidebar_projection(&self) -> Result<SidebarProjection, LomoError> {
-        self.with_store(Store::sidebar_projection)
+        self.with_reader(StoreReader::sidebar_projection)
     }
 
     /// Reads one projected snapshot, including trashed rows.
@@ -535,7 +577,26 @@ impl WorkspaceSession {
     /// # Errors
     /// Propagates projection storage failures.
     pub fn projected_memo(&self, memo_id: &str) -> Result<Option<MemoSnapshot>, LomoError> {
-        self.with_store(|store| store.get_projected_memo(memo_id))
+        self.with_reader(|store| store.get_projected_memo(memo_id))
+    }
+
+    /// Live projection word/character rows for every active memo.
+    ///
+    /// # Errors
+    /// Propagates projection storage failures.
+    pub fn memo_statistics_rows(&self) -> Result<Vec<lomo_store::MemoStatisticsRow>, LomoError> {
+        self.with_reader(StoreReader::memo_statistics_rows)
+    }
+
+    /// Commits facts from a completed workspace document write into the session projection.
+    ///
+    /// # Errors
+    /// Propagates projection CAS and storage failures.
+    pub fn commit_workspace_document_facts(
+        &self,
+        mutation: &SafProjectionMutation,
+    ) -> Result<lomo_store::SafProjectionCommitResult, LomoError> {
+        self.with_store_mut(|store| store.commit_workspace_document_facts(mutation))
     }
 
     /// Canonical source-document fingerprint from the session projection.
@@ -546,7 +607,19 @@ impl WorkspaceSession {
         &self,
         source_path: &str,
     ) -> Result<Option<String>, LomoError> {
-        self.with_store(|store| store.source_document_fingerprint(source_path))
+        self.with_reader(|store| store.source_document_fingerprint(source_path))
+    }
+
+    /// Active memo ids projected from one source document path.
+    ///
+    /// # Errors
+    ///
+    /// Propagates path validation and projection storage failures.
+    pub fn active_memo_ids_for_source_path(
+        &self,
+        source_path: &str,
+    ) -> Result<Vec<String>, LomoError> {
+        self.with_reader(|store| store.active_memo_ids_for_source_path(source_path))
     }
 
     /// Reconstructs the cache from portable physical facts under transaction exclusion.
@@ -556,10 +629,45 @@ impl WorkspaceSession {
     pub fn rebuild_projection(&self) -> Result<RebuildResult, LomoError> {
         let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
         self.recover_pending()?;
-        self.rebuild_locked()
+        self.rebuild_locked(false)
     }
 
-    pub(crate) fn rebuild_locked(&self) -> Result<RebuildResult, LomoError> {
+    pub(crate) fn rebuild_locked(&self, force_scan: bool) -> Result<RebuildResult, LomoError> {
+        let evidence = crate::rebuild::list_workspace_listing(&self.config, &self.executor)?;
+        let listing = evidence.admitted_listing()?;
+        if !force_scan && let Some(digest) = evidence.content_listing_digest() {
+            let matched = self.with_store(|store| {
+                Ok(store.workspace_listing_digest()?.as_deref() == Some(digest.as_str()))
+            })?;
+            if matched {
+                let result = self.with_store(Store::reconciled_live_result)?;
+                return self.record_mount(result);
+            }
+        }
+        let inventory = crate::rebuild::scan_projection_inventory_from_listing(
+            &self.config,
+            &self.executor,
+            listing,
+        )?;
+        let reconciled = {
+            let guard = self
+                .store
+                .lock()
+                .map_err(|error| storage("store_lock_poisoned", error.to_string()))?;
+            match guard.as_ref() {
+                Some(store) => inventory.try_reconcile(store)?,
+                None => None,
+            }
+        };
+        if let Some(result) = reconciled {
+            self.persist_scanned_listing_digest(listing)?;
+            return self.record_mount(result);
+        }
+        let _read_exclusion = self
+            .read_gate
+            .write()
+            .map_err(|error| storage("projection_gate_poisoned", error.to_string()))?;
+        self.readers.clear_idle()?;
         {
             let mut guard = self
                 .store
@@ -567,7 +675,7 @@ impl WorkspaceSession {
                 .map_err(|error| storage("store_lock_poisoned", error.to_string()))?;
             *guard = None;
         }
-        let result = crate::rebuild::rebuild_projection(&self.config, &self.executor);
+        let result = crate::rebuild::materialize_scanned_projection(&self.config, &inventory);
         let reopened = Store::open_projection(&self.config.cache_dir).map_err(|error| {
             storage(
                 "projection_reopen_failed",
@@ -580,11 +688,37 @@ impl WorkspaceSession {
             .map_err(|error| storage("store_lock_poisoned", error.to_string()))?;
         *guard = Some(reopened);
         drop(guard);
-        result
+        let result = result?;
+        self.persist_scanned_listing_digest(listing)?;
+        self.record_mount(result)
+    }
+
+    /// Persists the digest of the exact listing this projection was built and reconciled from.
+    ///
+    /// Re-listing here would certify the projection against a later directory state it never read,
+    /// so a concurrent external change could be skipped permanently. An unknown content digest is
+    /// not a verified projection and is left unset.
+    fn persist_scanned_listing_digest(
+        &self,
+        listing: &[DocumentMetadata],
+    ) -> Result<(), LomoError> {
+        let Some(digest) = crate::rebuild::content_listing_digest(listing) else {
+            return Ok(());
+        };
+        self.with_store_mut(|store| store.set_workspace_listing_digest(&digest))
+    }
+
+    fn record_mount(&self, result: RebuildResult) -> Result<RebuildResult, LomoError> {
+        *self
+            .mount
+            .lock()
+            .map_err(|error| storage("store_lock_poisoned", error.to_string()))? =
+            Some(result.clone());
+        Ok(result)
     }
 
     pub(crate) fn current_memo(&self, id: &MemoId) -> Result<MemoSnapshot, LomoError> {
-        self.with_store(|store| store.get_projected_memo(id.as_str()))?
+        self.with_reader(|store| store.get_projected_memo(id.as_str()))?
             .filter(|memo| !memo.summary.is_trashed)
             .ok_or_else(|| validation("memo_not_found", "memo has no active projection"))
     }
@@ -615,6 +749,18 @@ impl WorkspaceSession {
             config: &self.config,
             executor: &self.executor,
         }
+    }
+
+    pub(crate) fn with_reader<R>(
+        &self,
+        read: impl FnOnce(&StoreReader) -> Result<R, LomoError>,
+    ) -> Result<R, LomoError> {
+        let _admission = self
+            .read_gate
+            .try_read()
+            .map_err(|error| storage("projection_read_unavailable", error.to_string()))?;
+        let lease = self.readers.checkout()?;
+        read(lease.reader()?)
     }
 
     pub(crate) fn with_store<R>(

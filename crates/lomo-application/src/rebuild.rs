@@ -1,11 +1,14 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use lomo_core::{
-    ActionId, DocumentKind, LomoError, PageSize, PlatformAction, PlatformActionBatch,
-    PlatformActionExecutor, PlatformActionOutput, RelativeWorkspacePath, WorkspaceTarget,
+    ActionId, DocumentKind, DocumentMetadata, LomoError, PageSize, PlatformAction,
+    PlatformActionBatch, PlatformActionExecutor, PlatformActionOutput, RelativeWorkspacePath,
+    WorkspaceTarget,
 };
 use lomo_store::{
-    RebuildResult, SafProjectionRebuild, ScannedMemoProjection, ScannedTrashProjection,
+    RebuildResult, SafProjectionRebuild, ScannedHistoryProjection, ScannedMemoProjection,
+    ScannedPinProjection, ScannedTrashProjection, Store, aggregate_memo_digest,
 };
 use lomo_workspace::{
     MemoIdentityMap, ReminderReference, SourceBytes, WorkspaceRelativePath, decode_trash_record,
@@ -20,6 +23,129 @@ use crate::{
     workspace_io::{WorkspaceIo, deadline},
 };
 
+/// Workspace facts already scanned for a projection rebuild or fingerprint reconcile.
+pub(crate) struct ProjectionInventory {
+    active_memos: Vec<ScannedMemoProjection>,
+    trash_memos: Vec<ScannedTrashProjection>,
+    history_revisions: Vec<ScannedHistoryProjection>,
+    pins: Vec<ScannedPinProjection>,
+}
+
+impl ProjectionInventory {
+    fn fingerprint_pairs(&self) -> Result<Vec<(String, String)>, LomoError> {
+        let mut pairs = Vec::with_capacity(
+            self.active_memos
+                .len()
+                .saturating_add(self.trash_memos.len()),
+        );
+        let mut seen = BTreeSet::new();
+        for memo in &self.active_memos {
+            if !seen.insert(memo.memo_id.as_str()) {
+                return Err(corruption(
+                    "rebuild_compare_failed",
+                    "a memo identity appears twice in the workspace scan",
+                ));
+            }
+            pairs.push((memo.memo_id.clone(), memo.file_fingerprint.clone()));
+        }
+        for trash in &self.trash_memos {
+            if !seen.insert(trash.memo.memo_id.as_str()) {
+                return Err(corruption(
+                    "rebuild_compare_failed",
+                    "a memo identity appears in both a workspace file and a durable trash record",
+                ));
+            }
+            pairs.push((
+                trash.memo.memo_id.clone(),
+                trash.memo.file_fingerprint.clone(),
+            ));
+        }
+        Ok(pairs)
+    }
+
+    fn attachment_count(&self) -> Result<u64, LomoError> {
+        self.active_memos
+            .iter()
+            .map(|memo| memo.attachment_paths.len())
+            .chain(
+                self.trash_memos
+                    .iter()
+                    .map(|trash| trash.memo.attachment_paths.len()),
+            )
+            .try_fold(0_u64, |total, count| {
+                let count = u64::try_from(count).map_err(|_error| {
+                    validation("attachment_count_overflow", "attachment count exceeds u64")
+                })?;
+                total.checked_add(count).ok_or_else(|| {
+                    validation("attachment_count_overflow", "attachment count exceeds u64")
+                })
+            })
+    }
+
+    /// Returns a non-rewriting rebuild result when the live projection already matches this scan.
+    pub(crate) fn try_reconcile(&self, store: &Store) -> Result<Option<RebuildResult>, LomoError> {
+        let mut pairs = self.fingerprint_pairs()?;
+        store.reconcile_scanned_projection(
+            &mut pairs,
+            self.attachment_count()?,
+            &self.pins,
+            &self.history_revisions,
+        )
+    }
+}
+
+/// One workspace enumeration used to admit a projection reconcile or skip.
+///
+/// Incomplete pages never become `Complete` with an empty listing. `ContentDigest::Unknown`
+/// means the platform did not hash bytes. A verified SHA-256 of an empty file is a real digest.
+#[derive(Clone, Debug)]
+pub(crate) struct ScanEvidence {
+    enumeration: ScanEnumeration,
+    listing: Vec<DocumentMetadata>,
+}
+
+#[derive(Clone, Debug)]
+enum ScanEnumeration {
+    Complete,
+    Incomplete(LomoError),
+}
+
+impl ScanEvidence {
+    const fn complete(listing: Vec<DocumentMetadata>) -> Self {
+        Self {
+            enumeration: ScanEnumeration::Complete,
+            listing,
+        }
+    }
+
+    const fn incomplete(error: LomoError, listing: Vec<DocumentMetadata>) -> Self {
+        Self {
+            enumeration: ScanEnumeration::Incomplete(error),
+            listing,
+        }
+    }
+
+    /// Listing admitted for reconcile, materialize, or digest persist.
+    ///
+    /// # Errors
+    /// Incomplete enumeration cannot certify an empty or partial directory.
+    pub(crate) fn admitted_listing(&self) -> Result<&[DocumentMetadata], LomoError> {
+        match &self.enumeration {
+            ScanEnumeration::Complete => Ok(&self.listing),
+            ScanEnumeration::Incomplete(error) => Err(error.clone()),
+        }
+    }
+
+    /// Content digest of a complete, hashed listing, or `None` when content is unknown.
+    #[must_use]
+    pub(crate) fn content_listing_digest(&self) -> Option<String> {
+        match &self.enumeration {
+            ScanEnumeration::Incomplete(_) => None,
+            ScanEnumeration::Complete => content_listing_digest(&self.listing),
+        }
+    }
+}
+
 /// Rebuilds the entire SQLite query projection from Markdown and `.lomo` physical facts.
 ///
 /// # Errors
@@ -28,7 +154,54 @@ pub fn rebuild_projection(
     config: &WorkspaceSessionConfig,
     executor: &Arc<dyn PlatformActionExecutor>,
 ) -> Result<RebuildResult, LomoError> {
-    let all_files = list_recursive(config, executor)?;
+    materialize_scanned_projection(config, &scan_projection_inventory(config, executor)?)
+}
+
+/// Lists workspace files with platform evidence. Content digests are present on Direct listings.
+///
+/// # Errors
+/// Propagates listing I/O and protocol failures that are not an incomplete page.
+pub(crate) fn list_workspace_listing(
+    config: &WorkspaceSessionConfig,
+    executor: &Arc<dyn PlatformActionExecutor>,
+) -> Result<ScanEvidence, LomoError> {
+    list_recursive(config, executor)
+}
+
+/// Content digest of every listed file, or `None` when listing is not content-authoritative.
+#[must_use]
+pub(crate) fn content_listing_digest(listing: &[DocumentMetadata]) -> Option<String> {
+    let mut pairs = Vec::new();
+    for item in listing {
+        if item.kind() != DocumentKind::File {
+            continue;
+        }
+        let WorkspaceTarget::Relative(path) = item.target() else {
+            continue;
+        };
+        let digest = item.evidence().verified_digest()?;
+        pairs.push((path.as_str().to_owned(), digest.as_str().to_owned()));
+    }
+    pairs.sort();
+    Some(aggregate_memo_digest(&pairs))
+}
+
+/// Scans workspace Markdown and `.lomo` facts without replacing SQLite.
+pub(crate) fn scan_projection_inventory(
+    config: &WorkspaceSessionConfig,
+    executor: &Arc<dyn PlatformActionExecutor>,
+) -> Result<ProjectionInventory, LomoError> {
+    let evidence = list_recursive(config, executor)?;
+    let listing = evidence.admitted_listing()?;
+    scan_projection_inventory_from_listing(config, executor, listing)
+}
+
+pub(crate) fn scan_projection_inventory_from_listing(
+    config: &WorkspaceSessionConfig,
+    executor: &Arc<dyn PlatformActionExecutor>,
+    listing: &[DocumentMetadata],
+) -> Result<ProjectionInventory, LomoError> {
+    let all_files = listing_file_paths(listing);
 
     let mut markdown_files = Vec::new();
     let mut history_files = Vec::new();
@@ -55,18 +228,30 @@ pub fn rebuild_projection(
     let history_revisions =
         crate::rebuild_records::history(&WorkspaceIo { config, executor }, &history_files)?;
     let pins = crate::rebuild_records::pins(&WorkspaceIo { config, executor }, &state_files)?;
+    Ok(ProjectionInventory {
+        active_memos,
+        trash_memos,
+        history_revisions,
+        pins,
+    })
+}
 
+/// Replaces the live projection from an already-scanned inventory.
+pub(crate) fn materialize_scanned_projection(
+    config: &WorkspaceSessionConfig,
+    inventory: &ProjectionInventory,
+) -> Result<RebuildResult, LomoError> {
     let mut rebuild = SafProjectionRebuild::begin(&config.cache_dir)?;
-    for chunk in active_memos.chunks(256) {
+    for chunk in inventory.active_memos.chunks(256) {
         rebuild.append_page(chunk)?;
     }
-    for chunk in trash_memos.chunks(256) {
+    for chunk in inventory.trash_memos.chunks(256) {
         rebuild.append_trash_page(chunk)?;
     }
-    for chunk in history_revisions.chunks(256) {
+    for chunk in inventory.history_revisions.chunks(256) {
         rebuild.append_history_page(chunk)?;
     }
-    for chunk in pins.chunks(256) {
+    for chunk in inventory.pins.chunks(256) {
         rebuild.append_pin_page(chunk)?;
     }
 
@@ -157,7 +342,8 @@ fn ensure_initial_history(
         },
     )?;
     for file in prepared.files {
-        file.apply(io)?;
+        let current = io.read(file.path())?;
+        file.apply(io, current.as_ref())?;
         inventory.push(file.path().clone());
     }
     Ok(())
@@ -240,11 +426,26 @@ fn scan_trash_files(
     Ok(trash_memos)
 }
 
+fn listing_file_paths(listing: &[DocumentMetadata]) -> Vec<RelativeWorkspacePath> {
+    listing
+        .iter()
+        .filter_map(|item| {
+            if item.kind() != DocumentKind::File {
+                return None;
+            }
+            match item.target() {
+                WorkspaceTarget::Relative(path) => Some(path.clone()),
+                WorkspaceTarget::Root => None,
+            }
+        })
+        .collect()
+}
+
 fn list_recursive(
     config: &WorkspaceSessionConfig,
     executor: &Arc<dyn PlatformActionExecutor>,
-) -> Result<Vec<RelativeWorkspacePath>, LomoError> {
-    let mut file_paths = Vec::new();
+) -> Result<ScanEvidence, LomoError> {
+    let mut files = Vec::new();
     let mut dirs_to_visit = vec![WorkspaceTarget::Root];
 
     while let Some(target) = dirs_to_visit.pop() {
@@ -284,7 +485,9 @@ fn list_recursive(
             let output = match first_res.outcome() {
                 lomo_core::ActionOutcome::Applied(out)
                 | lomo_core::ActionOutcome::AlreadySatisfied(out) => out,
-                lomo_core::ActionOutcome::Failed(err) => return Err(err.clone()),
+                lomo_core::ActionOutcome::Failed(err) => {
+                    return Ok(ScanEvidence::incomplete(err.clone(), files));
+                }
             };
 
             let page = match output {
@@ -306,9 +509,7 @@ fn list_recursive(
                 }
                 match item.kind() {
                     DocumentKind::File => {
-                        if let WorkspaceTarget::Relative(path) = item.target() {
-                            file_paths.push(path.clone());
-                        }
+                        files.push(item.clone());
                     }
                     DocumentKind::Directory => {
                         dirs_to_visit.push(item.target().clone());
@@ -323,7 +524,7 @@ fn list_recursive(
         }
     }
 
-    Ok(file_paths)
+    Ok(ScanEvidence::complete(files))
 }
 
 /// Reads a workspace file via platform action and returns its byte contents.

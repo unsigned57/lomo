@@ -6,96 +6,98 @@ use lomo_workspace::{MemoId, SourceFingerprint};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    error::{conflict, corruption, validation},
-    intent::{IntentStatus, OperationIntentRecord},
+    error::{conflict, corruption, expired, validation},
+    intent::{JournalEntry, OperationIntentRecord},
     session::WorkspaceSession,
     workspace_io::{FileSnapshot, WorkspaceIo, epoch_millis},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PlannedFile {
-    path: RelativeWorkspacePath,
-    before: Option<Vec<u8>>,
-    after: Vec<u8>,
-    #[serde(default)]
-    delete: bool,
+#[serde(tag = "action", deny_unknown_fields)]
+pub enum PlannedFile {
+    Write {
+        path: RelativeWorkspacePath,
+        before: Option<Vec<u8>>,
+        after: Vec<u8>,
+    },
+    Delete {
+        path: RelativeWorkspacePath,
+        before: Vec<u8>,
+    },
 }
 
 impl PlannedFile {
     pub fn new(path: RelativeWorkspacePath, before: Option<&FileSnapshot>, after: Vec<u8>) -> Self {
-        Self {
+        Self::Write {
             path,
             before: before.map(|snapshot| snapshot.bytes.clone()),
             after,
-            delete: false,
         }
     }
 
     pub fn delete(path: RelativeWorkspacePath, before: &FileSnapshot) -> Self {
-        Self {
+        Self::Delete {
             path,
-            before: Some(before.bytes.clone()),
-            after: Vec::new(),
-            delete: true,
+            before: before.bytes.clone(),
         }
     }
 
     #[must_use]
     pub const fn path(&self) -> &RelativeWorkspacePath {
-        &self.path
+        match self {
+            Self::Write { path, .. } | Self::Delete { path, .. } => path,
+        }
     }
 
-    #[must_use]
-    pub const fn is_delete(&self) -> bool {
-        self.delete
+    pub fn before(&self) -> Option<&[u8]> {
+        match self {
+            Self::Write { before, .. } => before.as_deref(),
+            Self::Delete { before, .. } => Some(before),
+        }
     }
 
-    #[must_use]
-    pub const fn before_bytes(&self) -> Option<&Vec<u8>> {
-        self.before.as_ref()
+    pub fn after(&self) -> Option<&[u8]> {
+        match self {
+            Self::Write { after, .. } => Some(after),
+            Self::Delete { .. } => None,
+        }
     }
 
-    #[must_use]
-    pub const fn after_bytes(&self) -> &Vec<u8> {
-        &self.after
-    }
-
-    pub fn apply(&self, io: &WorkspaceIo<'_>) -> Result<(), LomoError> {
-        let current = io.read(&self.path)?;
-        if self.delete {
-            let Some(snapshot) = current else {
-                return if self.before.is_none() {
-                    Ok(())
-                } else {
-                    Err(conflict(
-                        "stale_transaction_baseline",
-                        "file changed since the frozen write plan",
-                    ))
-                };
-            };
-            if Some(&snapshot.bytes) != self.before.as_ref() {
-                return Err(conflict(
-                    "stale_transaction_baseline",
-                    "file changed since the frozen write plan",
-                ));
-            }
-            io.delete(&self.path, &snapshot)?;
+    fn check_current(&self, current: Option<&FileSnapshot>, issued: bool) -> Result<(), LomoError> {
+        let bytes = current.map(|snapshot| snapshot.bytes.as_slice());
+        if bytes == self.before() {
             return Ok(());
         }
-        if current
-            .as_ref()
-            .is_some_and(|snapshot| snapshot.bytes == self.after)
-        {
-            return Ok(());
-        }
-        if current.as_ref().map(|snapshot| &snapshot.bytes) != self.before.as_ref() {
-            return Err(conflict(
+        match self {
+            Self::Write { after, .. } if bytes == Some(after.as_slice()) => Ok(()),
+            Self::Delete { .. } if bytes.is_none() && issued => Ok(()),
+            Self::Write { .. } | Self::Delete { .. } => Err(conflict(
                 "stale_transaction_baseline",
-                "file changed since the frozen write plan",
-            ));
+                "disk differs from the frozen baseline and witnessed result",
+            )),
         }
-        io.write(&self.path, current.as_ref(), &self.after)?;
+    }
+
+    pub fn apply(
+        &self,
+        io: &WorkspaceIo<'_>,
+        current: Option<&FileSnapshot>,
+    ) -> Result<(), LomoError> {
+        self.check_current(current, false)?;
+        match self {
+            Self::Write { path, after, .. } => {
+                io.write(path, current, after)?;
+            }
+            Self::Delete { path, .. } => {
+                let current = current.ok_or_else(|| {
+                    conflict(
+                        "stale_transaction_baseline",
+                        "a new deletion requires its existing source",
+                    )
+                })?;
+                io.delete(path, current)?;
+            }
+        }
         Ok(())
     }
 }
@@ -121,16 +123,33 @@ impl WorkspaceSession {
         operation_id: &OperationId,
         digest: &str,
     ) -> Result<Option<SafProjectionCommitResult>, LomoError> {
-        let Some(record) = self.intent_journal.lookup(operation_id)? else {
-            return Ok(None);
-        };
-        if record.payload_digest != digest {
-            return Err(conflict(
-                "operation_payload_mismatch",
-                "operation ID already owns another payload",
-            ));
+        match self.intent_journal.lookup(operation_id)? {
+            None => Ok(None),
+            Some(JournalEntry::Committed(record)) => {
+                if record.payload_digest != digest {
+                    return Err(conflict(
+                        "operation_payload_mismatch",
+                        "operation ID already owns another payload",
+                    ));
+                }
+                let mut receipt = record.receipt;
+                receipt.idempotent_replay = true;
+                Ok(Some(receipt))
+            }
+            Some(JournalEntry::Pending(record)) => {
+                if record.payload_digest != digest {
+                    return Err(conflict(
+                        "operation_payload_mismatch",
+                        "operation ID already owns another payload",
+                    ));
+                }
+                self.finish_transaction(&record).map(Some)
+            }
+            Some(JournalEntry::Retired) => Err(expired(
+                "operation_expired",
+                "operation was retired by a closed epoch and is not re-executed",
+            )),
         }
-        self.finish_transaction(&record).map(Some)
     }
 
     pub(crate) fn commit_transaction(
@@ -142,12 +161,11 @@ impl WorkspaceSession {
             .max(self.intent_journal.clock_floor()?);
         self.with_store_mut(|store| store.restore_clock_floor(clock_before))?;
         let record = OperationIntentRecord {
-            schema: 1,
             operation_id: input.operation_id,
             memo_id: input.memo_id,
             path: input.path,
             payload_digest: input.payload_digest,
-            status: IntentStatus::Pending,
+            started_files: 0,
             created_at_ms: epoch_millis()?,
             clock_before,
             files: input.files,
@@ -162,29 +180,38 @@ impl WorkspaceSession {
             config: &self.config,
             executor: &self.executor,
         })?;
-        for record in self.intent_journal.pending()? {
+        for id in self.intent_journal.pending_ids()? {
+            let Some(record) = self.intent_journal.pending_record(&id)? else {
+                continue;
+            };
             self.finish_transaction(&record)?;
         }
         Ok(())
     }
 
-    pub(crate) fn recover_files_for_mount(&self) -> Result<Vec<OperationIntentRecord>, LomoError> {
+    pub(crate) fn recover_files_for_mount(&self) -> Result<Vec<OperationId>, LomoError> {
         crate::record_plan::validate_workspace_layout(&WorkspaceIo {
             config: &self.config,
             executor: &self.executor,
         })?;
-        let records = self.intent_journal.pending()?;
-        for record in &records {
-            self.apply_transaction_files(record)?;
+        let ids = self.intent_journal.pending_ids()?;
+        for id in &ids {
+            let Some(record) = self.intent_journal.pending_record(id)? else {
+                continue;
+            };
+            self.apply_transaction_files(&record)?;
         }
-        Ok(records)
+        Ok(ids)
     }
 
     pub(crate) fn acknowledge_mounted_operations(
         &self,
-        records: &[OperationIntentRecord],
+        records: &[OperationId],
     ) -> Result<(), LomoError> {
-        for record in records {
+        for id in records {
+            let Some(record) = self.intent_journal.pending_record(id)? else {
+                continue;
+            };
             let mut clock = record.clock_before;
             let mut receipt = None;
             for publication in &record.mutations {
@@ -211,34 +238,18 @@ impl WorkspaceSession {
         let snapshots = record
             .files
             .iter()
-            .map(|file| io.read(&file.path))
+            .map(|file| io.read(file.path()))
             .collect::<Result<Vec<_>, _>>()?;
-        for (file, snapshot) in record.files.iter().zip(&snapshots) {
-            let current = snapshot.as_ref().map(|snapshot| &snapshot.bytes);
-            if file.is_delete() {
-                if current != file.before_bytes() {
-                    return Err(conflict(
-                        "stale_transaction_baseline",
-                        "disk differs from the frozen transaction baseline and result",
-                    ));
-                }
-                continue;
-            }
-            if current != Some(file.after_bytes()) && current != file.before_bytes() {
-                return Err(conflict(
-                    "stale_transaction_baseline",
-                    "disk differs from the frozen transaction baseline and result",
-                ));
-            }
+        for (index, (file, snapshot)) in record.files.iter().zip(&snapshots).enumerate() {
+            file.check_current(snapshot.as_ref(), index < record.started_files)?;
         }
-        for (file, snapshot) in record.files.iter().zip(&snapshots) {
-            if snapshot
-                .as_ref()
-                .is_some_and(|snapshot| !file.is_delete() && snapshot.bytes == *file.after_bytes())
-            {
+        for (index, (file, snapshot)) in record.files.iter().zip(&snapshots).enumerate() {
+            if snapshot.as_ref().map(|snapshot| snapshot.bytes.as_slice()) == file.after() {
                 continue;
             }
-            file.apply(&io)?;
+            self.intent_journal
+                .mark_started(&record.operation_id, index + 1)?;
+            file.apply(&io, snapshot.as_ref())?;
         }
         Ok(())
     }
@@ -247,11 +258,6 @@ impl WorkspaceSession {
         &self,
         record: &OperationIntentRecord,
     ) -> Result<SafProjectionCommitResult, LomoError> {
-        if let IntentStatus::Committed(receipt) = &record.status {
-            let mut replay = receipt.clone();
-            replay.idempotent_replay = true;
-            return Ok(replay);
-        }
         self.apply_transaction_files(record)?;
         let (first, rest) = record.mutations.split_first().ok_or_else(|| {
             corruption(

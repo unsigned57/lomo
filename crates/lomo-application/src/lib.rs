@@ -8,7 +8,8 @@ mod document_plan;
 pub mod draft;
 pub mod error;
 pub mod exchange_io;
-pub mod intent;
+mod intent;
+mod intent_payload;
 pub mod lifecycle;
 pub mod lock;
 pub mod media_index;
@@ -19,6 +20,7 @@ pub mod rebuild;
 mod rebuild_records;
 mod record_plan;
 pub mod reminder_cmd;
+pub mod resource;
 pub mod review;
 pub mod search;
 pub mod search_excerpt;
@@ -50,5 +52,5 @@ pub use statistics::{
 pub use tasks::{TaskItem, ToggleTaskRequest};
 pub use types::{
     CreateMemoRequest, CreateMemoResult, DeleteMemoRequest, DeleteMemoResult, PinMemoRequest,
-    PinMemoResult, SessionMemoView, UpdateMemoRequest, UpdateMemoResult,
+    PinMemoResult, PinPolicy, SessionMemoView, UpdateMemoRequest, UpdateMemoResult,
 };

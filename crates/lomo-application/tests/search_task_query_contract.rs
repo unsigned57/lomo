@@ -48,6 +48,8 @@ mod tests {
         let config = WorkspaceSessionConfig {
             capability,
             root_id: WorkspaceRootId::Notes,
+            workspace_generation: lomo_workspace::WorkspaceGenerationId::mint()
+                .expect("workspace generation"),
             time_zone: "UTC".to_owned(),
             date_format: lomo_application::calendar::DateFormat::default(),
             state_dir: state.path().to_path_buf(),

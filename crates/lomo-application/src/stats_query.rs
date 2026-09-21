@@ -19,7 +19,7 @@ impl WorkspaceSession {
         let mut facts = Vec::new();
         for summary in collect_summaries(self, &default_query())? {
             let body = self
-                .with_store(|store| store.get_projected_memo(&summary.memo_id))?
+                .with_reader(|store| store.get_projected_memo(&summary.memo_id))?
                 .ok_or_else(|| validation("memo_not_found", "statistics memo disappeared"))?
                 .body;
             let word_count = u64::try_from(count_words(&body).max(0))

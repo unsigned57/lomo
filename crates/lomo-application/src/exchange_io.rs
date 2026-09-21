@@ -1,141 +1,92 @@
-use std::{
-    fs::{OpenOptions, create_dir_all, read, remove_file, rename},
-    io::Write,
-    path::Path,
-};
+use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt, path::Path};
 
 use lomo_core::{ExchangeArtifact, ExchangeToken, LomoError, Sha256Digest};
 use sha2::{Digest, Sha256};
 
 use crate::{
     csprng::generate_hex_token,
-    error::{corruption, storage, validation},
+    error::{corruption, resource_limit, storage},
+    private_io::{remove_durable, write_atomic},
+    resource::{MAX_FILE_BYTES, read_bounded},
 };
 
-/// Stages bytes into the exchange directory with fsync and returns an `ExchangeArtifact`.
+/// Stages a bounded file into exchange with durable atomic publication.
 ///
 /// # Errors
-/// Returns `Storage` or `Validation` errors if staging or hashing fails.
+/// Rejects oversized data and surfaces all write/fsync failures.
 pub fn stage_content(exchange_dir: &Path, content: &[u8]) -> Result<ExchangeArtifact, LomoError> {
-    create_dir_all(exchange_dir).map_err(|err| {
-        storage(
-            "exchange_dir_unavailable",
-            format!("failed to create exchange directory: {err}"),
-        )
-    })?;
-
-    let nonce = generate_hex_token(16)?;
-    let token_str = format!("ex_{nonce}");
-    let token = ExchangeToken::parse(&token_str)?;
-
-    let target_path = exchange_dir.join(&token_str);
-    let temp_path = exchange_dir.join(format!(".tmp.{token_str}"));
-
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temp_path)
-        .map_err(|err| {
-            storage(
-                "exchange_temp_open_failed",
-                format!("failed to open temp exchange file: {err}"),
-            )
-        })?;
-
-    file.write_all(content).map_err(|err| {
-        drop(remove_file(&temp_path));
-        storage(
-            "exchange_temp_write_failed",
-            format!("failed to write temp exchange file: {err}"),
-        )
-    })?;
-
-    file.sync_all().map_err(|err| {
-        drop(remove_file(&temp_path));
-        storage(
-            "exchange_temp_fsync_failed",
-            format!("failed to fsync temp exchange file: {err}"),
-        )
-    })?;
-
-    drop(file);
-
-    rename(&temp_path, &target_path).map_err(|err| {
-        drop(remove_file(&temp_path));
-        storage(
-            "exchange_temp_rename_failed",
-            format!("failed to rename temp exchange file: {err}"),
-        )
-    })?;
-
-    let digest_bytes = Sha256::digest(content);
-    let digest_hex = format!("{digest_bytes:x}");
-    let digest = Sha256Digest::parse(&digest_hex)?;
     let length = u64::try_from(content.len())
-        .map_err(|_overflow| validation("exchange_content_overflow", "content size exceeds u64"))?;
-
-    ExchangeArtifact::new(token.as_str(), length, digest)
+        .map_err(|error| resource_limit("exchange_content_overflow", error.to_string()))?;
+    if length > MAX_FILE_BYTES {
+        return Err(resource_limit(
+            "exchange_content_too_large",
+            "exchange content exceeds the per-file budget",
+        ));
+    }
+    let token = ExchangeToken::parse(&format!("ex_{}", generate_hex_token(16)?))?;
+    write_atomic(&exchange_dir.join(token.as_str()), content)?;
+    ExchangeArtifact::new(
+        token.as_str(),
+        length,
+        Sha256Digest::parse(&format!("{:x}", Sha256::digest(content)))?,
+    )
 }
 
-/// Reads artifact bytes from exchange, verifying expected length and SHA-256 digest,
-/// and reclaims the artifact file from exchange.
+/// Reads from one descriptor after bounding its size; verifies evidence before reclamation.
 ///
 /// # Errors
-/// Returns `Storage` or `Corruption` errors if reading or verification fails.
+/// Invalid/oversized artifacts remain available as evidence. Cleanup errors are observable.
 pub fn read_artifact_content(
     exchange_dir: &Path,
     artifact: &ExchangeArtifact,
 ) -> Result<Vec<u8>, LomoError> {
-    let path = exchange_dir.join(artifact.token().as_str());
-    if !path.exists() {
-        return Err(storage(
-            "exchange_artifact_not_found",
-            format!("exchange artifact '{}' not found", path.display()),
+    if artifact.length() > MAX_FILE_BYTES {
+        return Err(resource_limit(
+            "exchange_content_too_large",
+            "artifact declaration exceeds the per-file budget",
         ));
     }
-
-    let bytes = read(&path).map_err(|err| {
-        storage(
-            "exchange_artifact_read_failed",
-            format!(
-                "failed to read exchange artifact '{}': {err}",
-                path.display()
-            ),
+    let path = exchange_dir.join(artifact.token().as_str());
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(
+            i32::try_from(rustix::fs::OFlags::NOFOLLOW.bits())
+                .map_err(|error| storage("file_flags_invalid", error.to_string()))?,
         )
-    })?;
-
-    let len_u64 = u64::try_from(bytes.len())
-        .map_err(|_overflow| validation("exchange_content_overflow", "content size exceeds u64"))?;
-
-    if len_u64 != artifact.length() {
-        drop(remove_file(&path));
+        .open(&path)
+        .map_err(|error| storage("exchange_artifact_read_failed", error.to_string()))?;
+    let length = file
+        .metadata()
+        .map_err(|error| storage("exchange_artifact_stat_failed", error.to_string()))?
+        .len();
+    if length > MAX_FILE_BYTES {
+        return Err(resource_limit(
+            "exchange_content_too_large",
+            "artifact file exceeds the per-file budget",
+        ));
+    }
+    if length != artifact.length() {
         return Err(corruption(
             "exchange_artifact_length_mismatch",
-            format!(
-                "exchange artifact length mismatch: expected {}, observed {}",
-                artifact.length(),
-                len_u64
-            ),
+            "artifact metadata differs from its declared length",
         ));
     }
-
-    let digest_bytes = Sha256::digest(&bytes);
-    let digest_hex = format!("{digest_bytes:x}");
-
-    if digest_hex != artifact.digest().as_str() {
-        drop(remove_file(&path));
+    let bytes = read_bounded(file, artifact.length())?;
+    if u64::try_from(bytes.len())
+        .map_err(|error| resource_limit("exchange_content_overflow", error.to_string()))?
+        != artifact.length()
+    {
+        return Err(corruption(
+            "exchange_artifact_length_mismatch",
+            "artifact length changed while reading",
+        ));
+    }
+    if format!("{:x}", Sha256::digest(&bytes)) != artifact.digest().as_str() {
         return Err(corruption(
             "exchange_artifact_digest_mismatch",
-            format!(
-                "exchange artifact digest mismatch: expected {}, observed {}",
-                artifact.digest().as_str(),
-                digest_hex
-            ),
+            "artifact bytes fail their SHA-256 checksum",
         ));
     }
-
-    // Clean up temporary exchange artifact
-    drop(remove_file(&path));
-
+    remove_durable(&path)?;
     Ok(bytes)
 }

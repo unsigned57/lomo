@@ -22,7 +22,7 @@ mod tests {
     use std::{fs, path::Path, sync::Arc};
 
     use lomo_application::{
-        CreateMemoRequest, PinMemoRequest, ToggleTaskRequest, WorkspaceSession,
+        CreateMemoRequest, PinMemoRequest, PinPolicy, ToggleTaskRequest, WorkspaceSession,
         WorkspaceSessionConfig,
     };
     use lomo_core::{CapabilityToken, OperationId, RelativeWorkspacePath};
@@ -54,6 +54,8 @@ mod tests {
         let config = WorkspaceSessionConfig {
             capability,
             root_id: WorkspaceRootId::Notes,
+            workspace_generation: lomo_workspace::WorkspaceGenerationId::mint()
+                .expect("workspace generation"),
             time_zone: "UTC".to_owned(),
             date_format: lomo_application::calendar::DateFormat::default(),
             state_dir: state.path().to_path_buf(),
@@ -121,12 +123,16 @@ mod tests {
         );
         ctx_a
             .session
-            .pin_memo(PinMemoRequest {
-                operation_id: op("pin"),
-                memo_id: memo_id.clone(),
-                pinned: true,
-                pinned_at_ms: Some(1_757_548_800_000),
-            })
+            .pin_memo(
+                PinMemoRequest::new(
+                    op("pin"),
+                    memo_id.clone(),
+                    PinPolicy::Pinned {
+                        at_ms: Some(1_757_548_800_000),
+                    },
+                )
+                .expect("valid pin command"),
+            )
             .expect("pin");
 
         let ctx_b = open_on(copy_workspace(&ctx_a.workspace_path));

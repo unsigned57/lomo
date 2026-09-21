@@ -10,7 +10,25 @@
 //! - Given a populated workspace with Markdown, identity, `history_v2`, and pins in .lomo,
 //!   When the SQLite cache is cleared and opened in another device private directory,
 //!   Then 100% of IDs, history, and pins are reconstructed from Markdown + .lomo,
+//!   a later rebuild on the unchanged workspace reconciles without rewriting or
+//!   advancing high-water, an external Markdown file forces a rewrite,
 //!   and device identity is not inherited.
+//!
+//! - Given a session whose live projection already matches the workspace,
+//!   When the same private cache is opened again,
+//!   Then mount reports `rewritten = false` and does not read Markdown bodies.
+//!
+//! - Given a listing that reports the empty-content digest without hashing bytes,
+//!   When Markdown changes and the same weak listing is used again,
+//!   Then rebuild cannot skip: it rereads Markdown instead of certifying the old projection.
+//!
+//! - Given a complete POSIX listing that hashed a real empty file (SHA-256 of zero bytes),
+//!   When the workspace is remounted without other changes,
+//!   Then rebuild skips Markdown body reads: a verified empty file is not "digest unknown".
+//!
+//! - Given a live projection and a later incomplete directory enumeration,
+//!   When rebuild runs,
+//!   Then it fails with `metadata_enumeration_incomplete` and keeps the prior memos.
 //!
 //! - Given a baseline read followed by external edits to the Markdown file,
 //!   When a write command with the baseline fingerprint is executed,
@@ -29,22 +47,27 @@
 //!   and event sequence advances monotonically.
 //!
 //! TDD proof: RED initially because `WorkspaceSession` implementation is pending.
+//! Empty-file remount RED 2026-09-17: `content_listing_digest` treated the SHA-256 of zero bytes as
+//! unknown, so a hashed empty file forced Markdown rereads; GREEN uses `ContentDigest::Unknown` vs
+//! `Verified`.
 
 use std::{
     fs,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
 };
 
 use lomo_application::{
-    CreateMemoRequest, DeleteMemoRequest, PinMemoRequest, UpdateMemoRequest, WorkspaceSession,
-    WorkspaceSessionConfig,
+    CreateMemoRequest, DeleteMemoRequest, PinMemoRequest, PinPolicy, UpdateMemoRequest,
+    WorkspaceSession, WorkspaceSessionConfig,
 };
 use lomo_core::{
-    CapabilityToken, OperationId, PlatformActionBatch, PlatformActionExecutor, PlatformBatchResult,
-    RelativeWorkspacePath,
+    ActionEvidence, ActionOutcome, ActionResult, CapabilityToken, DocumentKind, DocumentMetadata,
+    ErrorCategory, LomoError, MetadataPage, OperationId, PlatformAction, PlatformActionBatch,
+    PlatformActionExecutor, PlatformActionOutput, PlatformBatchResult, RelativeWorkspacePath,
+    RetryDisposition,
 };
 use lomo_platform_fs::PosixPlatformActionExecutor;
 use lomo_store::MemoQuery;
@@ -93,6 +116,8 @@ mod tests {
         let config = WorkspaceSessionConfig {
             capability,
             root_id: WorkspaceRootId::Notes,
+            workspace_generation: lomo_workspace::WorkspaceGenerationId::mint()
+                .expect("workspace generation"),
             time_zone: "UTC".to_owned(),
             date_format: lomo_application::calendar::DateFormat::default(),
             state_dir: state_dir.path().to_path_buf(),
@@ -301,12 +326,16 @@ mod tests {
         // Explicitly pin res1 to ensure state record is written
         let _pin_res = ctx
             .session
-            .pin_memo(PinMemoRequest {
-                operation_id: OperationId::parse("op-cold-pin").expect("valid op"),
-                memo_id: res1.memo_id.clone(),
-                pinned: true,
-                pinned_at_ms: Some(1_700_000_100_000),
-            })
+            .pin_memo(
+                PinMemoRequest::new(
+                    OperationId::parse("op-cold-pin").expect("valid op"),
+                    res1.memo_id.clone(),
+                    PinPolicy::Pinned {
+                        at_ms: Some(1_700_000_100_000),
+                    },
+                )
+                .expect("valid pin command"),
+            )
             .expect("pin memo");
 
         let orig_device_id = ctx.session.device_id().to_string();
@@ -328,6 +357,8 @@ mod tests {
         let new_config = WorkspaceSessionConfig {
             capability: ctx.config.capability.clone(),
             root_id: WorkspaceRootId::Notes,
+            workspace_generation: lomo_workspace::WorkspaceGenerationId::mint()
+                .expect("workspace generation"),
             time_zone: "UTC".to_owned(),
             date_format: lomo_application::calendar::DateFormat::default(),
             state_dir: new_state_dir.path().to_path_buf(),
@@ -341,9 +372,28 @@ mod tests {
         // Device identity must NOT be inherited from workspace!
         assert_ne!(session2.device_id(), orig_device_id);
 
-        // Rebuild projection from physical facts
+        // Open already rebuilt from physical facts. A later refresh must reconcile.
         let rebuild_res = session2.rebuild_projection().expect("rebuild projection");
+        assert!(!rebuild_res.rewritten);
         assert_eq!(rebuild_res.memos_indexed, 2);
+        let high_water = rebuild_res.high_water_revision;
+        let reconciled = session2
+            .rebuild_projection()
+            .expect("unchanged workspace must reconcile");
+        assert!(!reconciled.rewritten);
+        assert_eq!(reconciled.high_water_revision, high_water);
+        assert_eq!(reconciled.memos_indexed, 2);
+
+        fs::write(
+            ctx.workspace_path.join("2026_09_10.md"),
+            "- 08:00:00\nexternal added memo\n",
+        )
+        .expect("external memo");
+        let rewritten = session2
+            .rebuild_projection()
+            .expect("external markdown must rewrite");
+        assert!(rewritten.rewritten);
+        assert_eq!(rewritten.memos_indexed, 3);
 
         // Assert that res1 is pinned and has identical memo_id
         let memo1 = session2
@@ -417,7 +467,7 @@ mod tests {
             })
             .expect_err("must reject stale baseline");
 
-        assert_eq!(update_err.category(), lomo_core::ErrorCategory::Conflict);
+        assert_eq!(update_err.category(), ErrorCategory::Conflict);
 
         // Disk content must NOT be overwritten!
         let disk_now = fs::read_to_string(&file_path).expect("read disk");
@@ -440,21 +490,18 @@ mod tests {
     }
 
     impl PlatformActionExecutor for FaultInjectingExecutor {
-        fn execute(
-            &self,
-            batch: &PlatformActionBatch,
-        ) -> Result<PlatformBatchResult, lomo_core::LomoError> {
+        fn execute(&self, batch: &PlatformActionBatch) -> Result<PlatformBatchResult, LomoError> {
             if let Some(target) = &self.fail_on_write_path_substring {
                 for action in batch.actions() {
-                    if let lomo_core::PlatformAction::WriteFromExchange { path, .. } = action {
+                    if let PlatformAction::WriteFromExchange { path, .. } = action {
                         if !path.as_str().contains(target) {
                             continue;
                         }
                         self.failed.store(true, Ordering::SeqCst);
-                        return Err(lomo_core::LomoError::from_platform_boundary(
-                            lomo_core::ErrorCategory::Storage,
+                        return Err(LomoError::from_platform_boundary(
+                            ErrorCategory::Storage,
                             "injected_executor_failure",
-                            lomo_core::RetryDisposition::Never,
+                            RetryDisposition::Never,
                             None,
                             None,
                             &format!("injected failure on writing {}", path.as_str()),
@@ -492,6 +539,8 @@ mod tests {
         let config = WorkspaceSessionConfig {
             capability,
             root_id: WorkspaceRootId::Notes,
+            workspace_generation: lomo_workspace::WorkspaceGenerationId::mint()
+                .expect("workspace generation"),
             time_zone: "UTC".to_owned(),
             date_format: lomo_application::calendar::DateFormat::default(),
             state_dir: state_dir.path().to_path_buf(),
@@ -519,8 +568,10 @@ mod tests {
             .expect_err("should fail due to injected failure");
 
         assert_eq!(err.code(), "injected_executor_failure");
+        drop(session);
 
-        // Now remove the fault injection and retry with the SAME operation_id and SAME payload
+        // Now remove the fault injection and retry with the SAME operation_id and SAME payload.
+        // Recovery is a new process: the previous session must release the private projection.
         let session_recovered =
             WorkspaceSession::open(config, real_executor).expect("open recovered session");
 
@@ -557,7 +608,7 @@ mod tests {
             })
             .expect_err("must reject replay with different payload");
 
-        assert_eq!(replay_err.category(), lomo_core::ErrorCategory::Conflict);
+        assert_eq!(replay_err.category(), ErrorCategory::Conflict);
     }
 
     #[test]
@@ -642,5 +693,419 @@ mod tests {
             memo_b_after.file_fingerprint, update_a.file_fingerprint,
             "Sibling memo B fingerprint must be incrementally refreshed in SQLite!"
         );
+    }
+
+    struct MarkdownReadCounter {
+        inner: Arc<PosixPlatformActionExecutor>,
+        markdown_reads: Mutex<Vec<String>>,
+    }
+
+    impl PlatformActionExecutor for MarkdownReadCounter {
+        fn execute(&self, batch: &PlatformActionBatch) -> Result<PlatformBatchResult, LomoError> {
+            for action in batch.actions() {
+                if let PlatformAction::ReadToExchange { path, .. } = action
+                    && std::path::Path::new(path.as_str())
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+                {
+                    self.markdown_reads
+                        .lock()
+                        .expect("markdown read counter")
+                        .push(path.as_str().to_owned());
+                }
+            }
+            self.inner.execute(batch)
+        }
+    }
+
+    #[test]
+    fn remounting_an_unchanged_workspace_skips_markdown_body_reads() {
+        let workspace_dir = tempdir().expect("workspace dir");
+        let state_dir = tempdir().expect("state dir");
+        let cache_dir = tempdir().expect("cache dir");
+        let runtime_dir = tempdir().expect("runtime dir");
+        let exchange_dir = tempdir().expect("exchange dir");
+        let capability = CapabilityToken::parse("test-notes-root").expect("capability token");
+        let first_executor = Arc::new(
+            PosixPlatformActionExecutor::new(exchange_dir.path()).expect("first executor"),
+        );
+        first_executor
+            .bind_root(capability.clone(), workspace_dir.path())
+            .expect("bind first root");
+        let config = WorkspaceSessionConfig {
+            capability: capability.clone(),
+            root_id: WorkspaceRootId::Notes,
+            workspace_generation: lomo_workspace::WorkspaceGenerationId::mint()
+                .expect("workspace generation"),
+            time_zone: "UTC".to_owned(),
+            date_format: lomo_application::calendar::DateFormat::default(),
+            state_dir: state_dir.path().to_path_buf(),
+            cache_dir: cache_dir.path().to_path_buf(),
+            runtime_dir: runtime_dir.path().to_path_buf(),
+            exchange_dir: exchange_dir.path().to_path_buf(),
+        };
+        let session = WorkspaceSession::open(config.clone(), first_executor).expect("open first");
+        session
+            .create_memo(CreateMemoRequest {
+                operation_id: OperationId::parse("op-remount-create").expect("valid op"),
+                relative_path: Some(RelativeWorkspacePath::parse("2026_09_12.md").expect("path")),
+                time_token: Some("12:00:00".to_string()),
+                content: "durable memo".to_string(),
+                expected_document_fingerprint: None,
+                pinned: false,
+                pending_promotes: Vec::new(),
+                chronology_epoch_ms: None,
+            })
+            .expect("create");
+        let seeded = session.rebuild_projection().expect("seed listing digest");
+        assert!(!seeded.rewritten);
+        drop(session);
+
+        let remount_executor = Arc::new(
+            PosixPlatformActionExecutor::new(exchange_dir.path()).expect("remount executor"),
+        );
+        remount_executor
+            .bind_root(capability, workspace_dir.path())
+            .expect("bind remount root");
+        let counter = Arc::new(MarkdownReadCounter {
+            inner: remount_executor,
+            markdown_reads: Mutex::new(Vec::new()),
+        });
+        let remounted = WorkspaceSession::open(config, counter.clone()).expect("remount");
+        let mount = remounted.last_mount_result().expect("mount result");
+        assert!(!mount.rewritten);
+        assert_eq!(mount.memos_indexed, 1);
+        let markdown_reads = counter
+            .markdown_reads
+            .lock()
+            .expect("markdown read counter")
+            .clone();
+        assert!(
+            markdown_reads.is_empty(),
+            "unchanged remount must not reread markdown: {markdown_reads:?}"
+        );
+    }
+
+    #[test]
+    fn remounting_with_a_hashed_empty_file_skips_markdown_body_reads() {
+        let workspace_dir = tempdir().expect("workspace dir");
+        let state_dir = tempdir().expect("state dir");
+        let cache_dir = tempdir().expect("cache dir");
+        let runtime_dir = tempdir().expect("runtime dir");
+        let exchange_dir = tempdir().expect("exchange dir");
+        let capability = CapabilityToken::parse("test-notes-root").expect("capability token");
+        let first_executor = Arc::new(
+            PosixPlatformActionExecutor::new(exchange_dir.path()).expect("first executor"),
+        );
+        first_executor
+            .bind_root(capability.clone(), workspace_dir.path())
+            .expect("bind first root");
+        let config = WorkspaceSessionConfig {
+            capability: capability.clone(),
+            root_id: WorkspaceRootId::Notes,
+            workspace_generation: lomo_workspace::WorkspaceGenerationId::mint()
+                .expect("workspace generation"),
+            time_zone: "UTC".to_owned(),
+            date_format: lomo_application::calendar::DateFormat::default(),
+            state_dir: state_dir.path().to_path_buf(),
+            cache_dir: cache_dir.path().to_path_buf(),
+            runtime_dir: runtime_dir.path().to_path_buf(),
+            exchange_dir: exchange_dir.path().to_path_buf(),
+        };
+        fs::write(workspace_dir.path().join("empty.dat"), []).expect("write empty file");
+        let session = WorkspaceSession::open(config.clone(), first_executor).expect("open first");
+        session
+            .create_memo(CreateMemoRequest {
+                operation_id: OperationId::parse("op-empty-file-create").expect("valid op"),
+                relative_path: Some(RelativeWorkspacePath::parse("2026_09_12.md").expect("path")),
+                time_token: Some("12:00:00".to_string()),
+                content: "durable memo".to_string(),
+                expected_document_fingerprint: None,
+                pinned: false,
+                pending_promotes: Vec::new(),
+                chronology_epoch_ms: None,
+            })
+            .expect("create");
+        let seeded = session.rebuild_projection().expect("seed listing digest");
+        assert!(!seeded.rewritten);
+        drop(session);
+
+        let remount_executor = Arc::new(
+            PosixPlatformActionExecutor::new(exchange_dir.path()).expect("remount executor"),
+        );
+        remount_executor
+            .bind_root(capability, workspace_dir.path())
+            .expect("bind remount root");
+        let counter = Arc::new(MarkdownReadCounter {
+            inner: remount_executor,
+            markdown_reads: Mutex::new(Vec::new()),
+        });
+        let remounted = WorkspaceSession::open(config, counter.clone()).expect("remount");
+        let mount = remounted.last_mount_result().expect("mount result");
+        assert!(!mount.rewritten);
+        assert_eq!(mount.memos_indexed, 1);
+        let markdown_reads = counter
+            .markdown_reads
+            .lock()
+            .expect("markdown read counter")
+            .clone();
+        assert!(
+            markdown_reads.is_empty(),
+            "verified empty file must not make remount reread markdown: {markdown_reads:?}"
+        );
+    }
+
+    struct MetadataOnlyListing {
+        inner: Arc<PosixPlatformActionExecutor>,
+        markdown_reads: Mutex<Vec<String>>,
+    }
+
+    impl PlatformActionExecutor for MetadataOnlyListing {
+        fn execute(&self, batch: &PlatformActionBatch) -> Result<PlatformBatchResult, LomoError> {
+            for action in batch.actions() {
+                if let PlatformAction::ReadToExchange { path, .. } = action
+                    && std::path::Path::new(path.as_str())
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+                {
+                    self.markdown_reads
+                        .lock()
+                        .expect("markdown read counter")
+                        .push(path.as_str().to_owned());
+                }
+            }
+            let result = self.inner.execute(batch)?;
+            let action_results = result
+                .action_results()
+                .iter()
+                .map(|action_result| {
+                    let outcome = match action_result.outcome() {
+                        ActionOutcome::Applied(output) => {
+                            ActionOutcome::Applied(redact_listed_content_digests(output)?)
+                        }
+                        ActionOutcome::AlreadySatisfied(output) => {
+                            ActionOutcome::AlreadySatisfied(redact_listed_content_digests(output)?)
+                        }
+                        ActionOutcome::Failed(error) => ActionOutcome::Failed(error.clone()),
+                    };
+                    Ok(ActionResult::new(
+                        action_result.action_id().clone(),
+                        outcome,
+                    ))
+                })
+                .collect::<Result<Vec<_>, LomoError>>()?;
+            Ok(PlatformBatchResult::new(
+                result.schema_version(),
+                result.job_id().clone(),
+                result.batch_id().clone(),
+                result.attempt(),
+                action_results,
+            ))
+        }
+    }
+
+    fn redact_listed_content_digests(
+        output: &PlatformActionOutput,
+    ) -> Result<PlatformActionOutput, LomoError> {
+        let PlatformActionOutput::Listed { page } = output else {
+            return Ok(output.clone());
+        };
+        let items = page
+            .items()
+            .iter()
+            .map(|item| {
+                if item.kind() != DocumentKind::File {
+                    return Ok(item.clone());
+                }
+                DocumentMetadata::new_with_handle(
+                    item.target().clone(),
+                    item.document_handle().clone(),
+                    item.kind(),
+                    item.mime_type(),
+                    ActionEvidence::unknown(
+                        item.evidence().length(),
+                        item.evidence().fingerprint(),
+                    )?,
+                )
+            })
+            .collect::<Result<Vec<_>, LomoError>>()?;
+        Ok(PlatformActionOutput::Listed {
+            page: MetadataPage::new(items, page.next_cursor().map(CapabilityToken::as_str))?,
+        })
+    }
+
+    struct IncompleteListing {
+        inner: Arc<PosixPlatformActionExecutor>,
+        fail_lists: AtomicBool,
+    }
+
+    impl PlatformActionExecutor for IncompleteListing {
+        fn execute(&self, batch: &PlatformActionBatch) -> Result<PlatformBatchResult, LomoError> {
+            if self.fail_lists.load(Ordering::SeqCst)
+                && batch
+                    .actions()
+                    .iter()
+                    .any(|action| matches!(action, PlatformAction::ListChildren { .. }))
+            {
+                let action = batch.actions().first().expect("list batch has an action");
+                let failure = LomoError::from_platform_boundary(
+                    ErrorCategory::Storage,
+                    "metadata_enumeration_incomplete",
+                    RetryDisposition::AfterUserAction,
+                    None,
+                    None,
+                    "the platform document provider could not enumerate the target",
+                )?;
+                return Ok(PlatformBatchResult::new(
+                    batch.schema_version(),
+                    batch.job_id().clone(),
+                    batch.batch_id().clone(),
+                    batch.attempt(),
+                    vec![ActionResult::new(
+                        action.id().clone(),
+                        ActionOutcome::Failed(failure),
+                    )],
+                ));
+            }
+            self.inner.execute(batch)
+        }
+    }
+
+    #[test]
+    fn metadata_only_listing_cannot_skip_rebuild_after_content_changes() {
+        let workspace_dir = tempdir().expect("workspace dir");
+        let state_dir = tempdir().expect("state dir");
+        let cache_dir = tempdir().expect("cache dir");
+        let runtime_dir = tempdir().expect("runtime dir");
+        let exchange_dir = tempdir().expect("exchange dir");
+        let capability = CapabilityToken::parse("test-notes-root").expect("capability token");
+        let posix = Arc::new(
+            PosixPlatformActionExecutor::new(exchange_dir.path()).expect("posix executor"),
+        );
+        posix
+            .bind_root(capability.clone(), workspace_dir.path())
+            .expect("bind root");
+        let executor = Arc::new(MetadataOnlyListing {
+            inner: posix,
+            markdown_reads: Mutex::new(Vec::new()),
+        });
+        let config = WorkspaceSessionConfig {
+            capability,
+            root_id: WorkspaceRootId::Notes,
+            workspace_generation: lomo_workspace::WorkspaceGenerationId::mint()
+                .expect("workspace generation"),
+            time_zone: "UTC".to_owned(),
+            date_format: lomo_application::calendar::DateFormat::default(),
+            state_dir: state_dir.path().to_path_buf(),
+            cache_dir: cache_dir.path().to_path_buf(),
+            runtime_dir: runtime_dir.path().to_path_buf(),
+            exchange_dir: exchange_dir.path().to_path_buf(),
+        };
+        let session = WorkspaceSession::open(config.clone(), executor.clone()).expect("open");
+        session
+            .create_memo(CreateMemoRequest {
+                operation_id: OperationId::parse("op-weak-listing-create").expect("valid op"),
+                relative_path: Some(RelativeWorkspacePath::parse("2026_09_12.md").expect("path")),
+                time_token: Some("12:00:00".to_string()),
+                content: "durable memo".to_string(),
+                expected_document_fingerprint: None,
+                pinned: false,
+                pending_promotes: Vec::new(),
+                chronology_epoch_ms: None,
+            })
+            .expect("create");
+        session
+            .rebuild_projection()
+            .expect("seed weak listing digest");
+        let markdown_path = workspace_dir.path().join("2026_09_12.md");
+        let original = fs::read_to_string(&markdown_path).expect("read markdown");
+        assert!(
+            original.contains("durable memo"),
+            "created memo must be present before the content swap: {original:?}"
+        );
+        fs::write(
+            &markdown_path,
+            original.replace("durable memo", "changed body"),
+        )
+        .expect("replace markdown body");
+        executor
+            .markdown_reads
+            .lock()
+            .expect("markdown read counter")
+            .clear();
+        let rebuilt = session.rebuild_projection();
+        assert!(
+            rebuilt
+                .as_ref()
+                .is_err_and(|error| error.code() != "metadata_enumeration_incomplete")
+                || rebuilt.as_ref().is_ok_and(|result| result.rewritten),
+            "weak metadata-only listing must not certify an unchanged projection: {rebuilt:?}"
+        );
+        let markdown_reads = executor
+            .markdown_reads
+            .lock()
+            .expect("markdown read counter")
+            .clone();
+        assert!(
+            markdown_reads
+                .iter()
+                .any(|path| path.ends_with("2026_09_12.md")),
+            "content change under a weak listing must reread markdown: {markdown_reads:?}"
+        );
+    }
+
+    #[test]
+    fn incomplete_listing_does_not_empty_the_live_projection() {
+        let workspace_dir = tempdir().expect("workspace dir");
+        let state_dir = tempdir().expect("state dir");
+        let cache_dir = tempdir().expect("cache dir");
+        let runtime_dir = tempdir().expect("runtime dir");
+        let exchange_dir = tempdir().expect("exchange dir");
+        let capability = CapabilityToken::parse("test-notes-root").expect("capability token");
+        let posix = Arc::new(
+            PosixPlatformActionExecutor::new(exchange_dir.path()).expect("posix executor"),
+        );
+        posix
+            .bind_root(capability.clone(), workspace_dir.path())
+            .expect("bind root");
+        let executor = Arc::new(IncompleteListing {
+            inner: posix,
+            fail_lists: AtomicBool::new(false),
+        });
+        let config = WorkspaceSessionConfig {
+            capability,
+            root_id: WorkspaceRootId::Notes,
+            workspace_generation: lomo_workspace::WorkspaceGenerationId::mint()
+                .expect("workspace generation"),
+            time_zone: "UTC".to_owned(),
+            date_format: lomo_application::calendar::DateFormat::default(),
+            state_dir: state_dir.path().to_path_buf(),
+            cache_dir: cache_dir.path().to_path_buf(),
+            runtime_dir: runtime_dir.path().to_path_buf(),
+            exchange_dir: exchange_dir.path().to_path_buf(),
+        };
+        let session = WorkspaceSession::open(config, executor.clone()).expect("open");
+        let created = session
+            .create_memo(CreateMemoRequest {
+                operation_id: OperationId::parse("op-incomplete-listing-create").expect("valid op"),
+                relative_path: Some(RelativeWorkspacePath::parse("2026_09_12.md").expect("path")),
+                time_token: Some("12:00:00".to_string()),
+                content: "keep this memo".to_string(),
+                expected_document_fingerprint: None,
+                pinned: false,
+                pending_promotes: Vec::new(),
+                chronology_epoch_ms: None,
+            })
+            .expect("create");
+        executor.fail_lists.store(true, Ordering::SeqCst);
+        let error = session
+            .rebuild_projection()
+            .expect_err("incomplete enumeration cannot rebuild");
+        assert_eq!(error.code(), "metadata_enumeration_incomplete");
+        let viewed = session
+            .get_memo(&created.memo_id)
+            .expect("query after incomplete listing")
+            .expect("prior memo remains");
+        assert_eq!(viewed.body, "keep this memo");
     }
 }

@@ -14,7 +14,7 @@ pub fn collect_summaries(
     let mut items = Vec::new();
     loop {
         let page =
-            session.with_store(|store| store.query_memos(query, cursor.as_ref(), page_size))?;
+            session.with_reader(|store| store.query_memos(query, cursor.as_ref(), page_size))?;
         items.extend(page.items);
         match page.next_cursor {
             Some(next) => cursor = Some(next),

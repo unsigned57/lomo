@@ -2,11 +2,12 @@
 //! Capability: history listing, trash restore, attachment protection, archive export/import,
 //! and fail-closed soft delete when the activity Markdown source has been removed externally.
 //! Scenarios: wikilink attachments survive soft delete via history/trash refs; restore rebinds
-//! the original `MemoId`; archive export is self-contained; a corrupt archive fails closed;
-//! deleting a projected memo whose `.md` was unlinked outside Lomo returns `memo_source_missing`
-//! and does not invent a trash record.
-//! Observable outcomes: protected paths, restored bodies, zip entries, unchanged live files,
-//! error code `memo_source_missing`, and no `.lomo/trash/v1` record for the rejected delete.
+//! the original `MemoId` and returns a full store commit (`core_revision` + scopes); archive
+//! export is self-contained; a corrupt archive fails closed; deleting a projected memo whose `.md`
+//! was unlinked outside Lomo returns `memo_source_missing` and does not invent a trash record.
+//! Observable outcomes: protected paths, restored bodies, restore commit clocks, zip entries,
+//! unchanged live files, error code `memo_source_missing`, and no `.lomo/trash/v1` record for the
+//! rejected delete.
 //! TDD proof: session lifecycle/media/archive APIs did not exist; missing-source delete used to
 //! parse an empty document and fail later at identity resolution.
 //! Excludes: Android SAF archive UI.
@@ -64,6 +65,8 @@ mod tests {
             WorkspaceSessionConfig {
                 capability,
                 root_id: WorkspaceRootId::Notes,
+                workspace_generation: lomo_workspace::WorkspaceGenerationId::mint()
+                    .expect("workspace generation"),
                 time_zone: "UTC".to_owned(),
                 date_format: lomo_application::calendar::DateFormat::default(),
                 state_dir: state.path().to_path_buf(),
@@ -121,12 +124,21 @@ mod tests {
                 .expect("protected")
         );
         assert!(ctx.workspace_path.join("image.png").exists());
-        ctx.session
+        let restored_commit = ctx
+            .session
             .restore_memo(&RestoreMemoRequest {
                 operation_id: OperationId::parse("undel").expect("op"),
                 memo_id: created.memo_id.clone(),
             })
             .expect("restore");
+        assert!(
+            restored_commit.commit_result.core_revision > created.commit_result.core_revision,
+            "restore must publish a later store clock than create"
+        );
+        assert!(
+            !restored_commit.commit_result.scopes.is_empty(),
+            "restore commit must carry rust-owned scopes"
+        );
         let restored = ctx
             .session
             .get_memo(&created.memo_id)

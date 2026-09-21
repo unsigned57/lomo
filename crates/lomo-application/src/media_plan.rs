@@ -35,6 +35,18 @@ pub fn plan_attachment_files(
 
 pub fn discard_private_staging(plans: &[PromotePlan]) {
     for plan in plans {
+        // The stage ledger is the durable owner of the bytes. Only an artifact with no remaining
+        // holder may be discarded here; a shared artifact still leased by another draft is kept.
+        let Ok(stage_dir) = lomo_media::stage_directory_of(&plan.staged.staging_path) else {
+            continue;
+        };
+        let Ok(ledger) = lomo_media::StageLedger::load(&stage_dir) else {
+            // Fail closed: never delete bytes when the owner ledger cannot be read.
+            continue;
+        };
+        if ledger.holds_leases(&lomo_media::ArtifactId::of_digest(&plan.staged.digest)) {
+            continue;
+        }
         if plan.staged.staging_path.is_file() {
             // behavior-contract: silent-result-ok: dest bytes are already frozen in the
             // transaction; leftover private stage files are orphans, not workspace authority.
@@ -45,12 +57,19 @@ pub fn discard_private_staging(plans: &[PromotePlan]) {
 
 fn planned_attachment(plan: &PromotePlan) -> Result<PlannedFile, LomoError> {
     let path = RelativeWorkspacePath::parse(plan.final_relative_path.as_str())?;
-    let bytes = std::fs::read(&plan.staged.staging_path).map_err(|error| {
+    if plan.staged.size > crate::resource::MAX_FILE_BYTES {
+        return Err(crate::error::resource_limit(
+            "promote_staged_too_large",
+            "staged attachment exceeds the per-file budget",
+        ));
+    }
+    let file = std::fs::File::open(&plan.staged.staging_path).map_err(|error| {
         storage(
             "promote_staged_missing",
             format!("staged media file is missing; body must not reference it: {error}"),
         )
     })?;
+    let bytes = crate::resource::read_bounded(file, plan.staged.size)?;
     let digest = ContentDigest::of_slice(&bytes);
     let size = u64::try_from(bytes.len()).map_err(|_error| {
         validation(

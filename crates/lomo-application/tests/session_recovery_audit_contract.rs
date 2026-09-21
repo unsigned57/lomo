@@ -6,6 +6,19 @@
 //! Observable outcomes: actual source bytes, stable memo IDs, query bodies and .lomo records.
 //! TDD proof: the initial implementation duplicates a partially written create, rewrites completed
 //! creates, binds external reorders by position, and defaults to notes.md.
+//! Journal budget scenarios: Given completed operations, When a new command commits, Then no
+//! completed payload/receipt is read and journal metadata stays below 32 KiB for a 48 KiB memo.
+//! Given a real delete followed by executor failure, When the same restore retries, Then its
+//! durable operation witness completes the restore without duplicating Markdown.
+//! Journal TDD proof: the added `committed_journal/new_commit/restore_after` tests fail against the
+//! history scan and delete Boolean implementation; GREEN uses the same filtered contract command.
+//! Epoch retirement scenarios: Given a committed operation, When the session closes its epoch,
+//! Then a durable witness replaces the deleted receipt and a later retry of the same operation ID
+//! fails with `operation_expired` instead of re-executing. Given two closed epochs, When a retry
+//! names an operation from either, Then both still expire. Given a reopened epoch, When a new
+//! operation ID arrives, Then it is admitted normally.
+//! Epoch TDD proof: without the retirement witness the retry falls through to the new-command path
+//! and fails with `identity_operation_mismatch`; GREEN returns `operation_expired`.
 //! Excludes: UI, network providers, terminal rendering and Android lifecycle.
 
 #[cfg(test)]
@@ -20,8 +33,8 @@ mod tests {
     };
 
     use lomo_application::{
-        CreateMemoRequest, PinMemoRequest, UpdateMemoRequest, WorkspaceSession,
-        WorkspaceSessionConfig,
+        CreateMemoRequest, DeleteMemoRequest, PinMemoRequest, PinPolicy, RestoreMemoRequest,
+        UpdateMemoRequest, WorkspaceSession, WorkspaceSessionConfig,
     };
     use lomo_core::{
         ActionOutcome, ActionResult, CapabilityToken, ErrorCategory, LomoError, OperationId,
@@ -60,6 +73,7 @@ mod tests {
             let config = WorkspaceSessionConfig {
                 capability: capability.clone(),
                 root_id: WorkspaceRootId::Notes,
+                workspace_generation: lomo_workspace::WorkspaceGenerationId::mint().value(),
                 time_zone: "UTC".to_owned(),
                 date_format: lomo_application::calendar::DateFormat::default(),
                 state_dir: temp.path().join("state"),
@@ -115,6 +129,147 @@ mod tests {
             first.commit_result.event_sequence
         );
         assert_eq!(fs::read(fixture.path()).value(), original);
+    }
+
+    #[test]
+    fn command_json_cannot_construct_invalid_body_time_or_edit_baseline() {
+        let create = Fixture::request("typed-create", "valid body");
+        let valid = serde_json::to_value(&create).value();
+        let round_trip: CreateMemoRequest = serde_json::from_value(valid.clone()).value();
+        assert_eq!(round_trip, create);
+        for (key, invalid) in [
+            (
+                "content",
+                serde_json::json!("x".repeat(lomo_workspace::MAX_EDITABLE_MEMO_UTF8_CHARS + 1)),
+            ),
+            ("time_token", serde_json::json!("99:99")),
+            (
+                "expected_document_fingerprint",
+                serde_json::json!("not-a-fingerprint"),
+            ),
+        ] {
+            let mut value = valid.clone();
+            value
+                .as_object_mut()
+                .unwrap_or_else(|| panic!("request JSON object"))
+                .insert(key.to_owned(), invalid);
+            if let Ok(request) = serde_json::from_value::<CreateMemoRequest>(value) {
+                panic!("invalid {key} decoded as {request:?}");
+            }
+        }
+    }
+
+    fn journal_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut directories = vec![root.to_owned()];
+        let mut files = Vec::new();
+        while let Some(directory) = directories.pop() {
+            for entry in fs::read_dir(directory).value() {
+                let path = entry.value().path();
+                if path.is_dir() {
+                    directories.push(path);
+                } else {
+                    files.push(path);
+                }
+            }
+        }
+        files
+    }
+
+    #[test]
+    fn committed_journal_metadata_is_independent_of_historical_body_bytes() {
+        let fixture = Fixture::new();
+        let session = fixture.open();
+        session
+            .create_memo(Fixture::request("large", &"x".repeat(48 * 1024)))
+            .value();
+        let bytes: u64 = journal_files(&fixture.config.state_dir.join("intents"))
+            .iter()
+            .map(|path| fs::metadata(path).value().len())
+            .sum();
+        assert!(
+            bytes < 32 * 1024,
+            "committed metadata retained {bytes} bytes of file payload"
+        );
+    }
+
+    #[test]
+    fn new_commit_does_not_read_an_unrelated_completed_receipt() {
+        let fixture = Fixture::new();
+        let session = fixture.open();
+        session
+            .create_memo(Fixture::request("old", "first"))
+            .value();
+        let receipt = journal_files(&fixture.config.state_dir.join("intents"))
+            .into_iter()
+            .find(|path| path.file_name().is_some_and(|name| name == "old.rec"))
+            .unwrap_or_else(|| panic!("completed receipt missing"));
+        fs::write(&receipt, b"corrupt historical evidence").value();
+        let created = session
+            .create_memo(Fixture::request("new", "second"))
+            .value();
+        assert!(created.commit_result.core_revision > 0);
+        assert_eq!(fs::read(receipt).value(), b"corrupt historical evidence");
+    }
+
+    struct FailAfterDelete {
+        executor: Arc<PosixPlatformActionExecutor>,
+        failed: AtomicBool,
+    }
+
+    impl PlatformActionExecutor for FailAfterDelete {
+        fn execute(&self, batch: &PlatformActionBatch) -> Result<PlatformBatchResult, LomoError> {
+            let result = self.executor.execute(batch)?;
+            if batch
+                .actions()
+                .iter()
+                .any(|action| matches!(action, PlatformAction::Delete { .. }))
+                && !self.failed.swap(true, Ordering::SeqCst)
+            {
+                return Err(lomo_application::error::storage(
+                    "injected_after_delete",
+                    "the delete reached disk before the host disconnected",
+                ));
+            }
+            Ok(result)
+        }
+    }
+
+    #[test]
+    fn restore_after_a_real_delete_failure_replays_without_duplicate_content() {
+        let fixture = Fixture::new();
+        let executor = Arc::new(FailAfterDelete {
+            executor: Arc::clone(&fixture.executor),
+            failed: AtomicBool::new(false),
+        });
+        let session = WorkspaceSession::open(fixture.config.clone(), executor).value();
+        let created = session
+            .create_memo(Fixture::request("create", "restored exactly once"))
+            .value();
+        session
+            .delete_memo(DeleteMemoRequest {
+                operation_id: OperationId::parse("delete").value(),
+                memo_id: created.memo_id.clone(),
+                expected_document_fingerprint: created.commit_result.file_fingerprint,
+                trashed_at_ms: None,
+            })
+            .value();
+        let request = RestoreMemoRequest {
+            operation_id: OperationId::parse("restore").value(),
+            memo_id: created.memo_id.clone(),
+        };
+        let Err(error) = session.restore_memo(&request) else {
+            panic!("injected delete failure must be visible");
+        };
+        assert_eq!(error.code(), "injected_after_delete");
+        session.restore_memo(&request).value();
+        assert_eq!(
+            fs::read_to_string(fixture.path())
+                .value()
+                .matches("restored exactly once")
+                .count(),
+            1
+        );
+        assert!(session.get_memo(&created.memo_id).value().is_some());
     }
 
     struct FailIdentityWrite {
@@ -584,12 +739,14 @@ mod tests {
         let second_device = WorkspaceSession::open(second_config, executor).value();
         second_device.rebuild_projection().value();
         second_device
-            .pin_memo(PinMemoRequest {
-                operation_id: OperationId::parse("unpin").value(),
-                memo_id: created.memo_id.clone(),
-                pinned: false,
-                pinned_at_ms: None,
-            })
+            .pin_memo(
+                PinMemoRequest::new(
+                    OperationId::parse("unpin").value(),
+                    created.memo_id.clone(),
+                    PinPolicy::Unpinned,
+                )
+                .value(),
+            )
             .value();
         first_device.rebuild_projection().value();
         assert_eq!(
@@ -658,5 +815,90 @@ mod tests {
             Some(&serde_json::json!("editor draft"))
         );
         assert_eq!(fs::read(fixture.path()).value(), current);
+    }
+
+    #[test]
+    fn sealing_a_session_retires_the_receipt_and_expires_a_retry() {
+        let fixture = Fixture::new();
+        let session = fixture.open();
+        let request = Fixture::request("sealed-op", "only memo");
+        session.create_memo(request.clone()).value();
+        let committed = fixture
+            .config
+            .state_dir
+            .join("intents/committed/sealed-op.rec");
+        assert!(
+            committed.exists(),
+            "a committed receipt must exist before seal"
+        );
+        let before = fs::read(fixture.path()).value();
+        assert!(session.seal().value());
+        assert!(
+            !committed.exists(),
+            "the retirement witness replaces the deleted receipt"
+        );
+        assert!(
+            fixture
+                .config
+                .state_dir
+                .join("intents/lifecycle.rec")
+                .exists(),
+            "the durable epoch witness must outlive the receipt"
+        );
+        drop(session);
+
+        let reopened = fixture.open();
+        assert!(reopened.seal().value());
+        let Err(error) = reopened.create_memo(request) else {
+            panic!("a retired operation must not be re-executed");
+        };
+        assert_eq!(error.code(), "operation_expired");
+        assert_eq!(
+            fs::read(fixture.path()).value(),
+            before,
+            "an expired retry must not rewrite the workspace"
+        );
+    }
+
+    #[test]
+    fn a_reopened_epoch_accepts_new_operations_after_retirement() {
+        let fixture = Fixture::new();
+        let session = fixture.open();
+        session
+            .create_memo(Fixture::request("epoch-one", "first memo"))
+            .value();
+        assert!(session.seal().value());
+        drop(session);
+
+        let reopened = fixture.open();
+        let created = reopened
+            .create_memo(Fixture::request("epoch-two", "second memo"))
+            .value();
+        assert!(created.commit_result.core_revision > 0);
+        let body = fs::read_to_string(fixture.path()).value();
+        assert!(body.contains("first memo"));
+        assert!(body.contains("second memo"));
+    }
+
+    #[test]
+    fn retirement_witnesses_are_retained_across_the_retry_window() {
+        let fixture = Fixture::new();
+        let session = fixture.open();
+        let first = Fixture::request("epoch-one-op", "first memo");
+        session.create_memo(first.clone()).value();
+        assert!(session.seal().value());
+        session
+            .create_memo(Fixture::request("epoch-two-op", "second memo"))
+            .value();
+        assert!(session.seal().value());
+        drop(session);
+
+        let reopened = fixture.open();
+        for request in [first, Fixture::request("epoch-two-op", "second memo")] {
+            let Err(error) = reopened.create_memo(request) else {
+                panic!("a witnessed retirement must still expire after a later epoch");
+            };
+            assert_eq!(error.code(), "operation_expired");
+        }
     }
 }

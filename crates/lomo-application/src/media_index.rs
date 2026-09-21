@@ -31,7 +31,7 @@ impl WorkspaceSession {
         };
         for summary in collect_summaries(self, &query)? {
             let snapshot = self
-                .with_store(|store| store.get_projected_memo(&summary.memo_id))?
+                .with_reader(|store| store.get_projected_memo(&summary.memo_id))?
                 .ok_or_else(|| validation("memo_not_found", "attachment owner disappeared"))?;
             let source = if summary.is_trashed {
                 ReferenceSource::TrashMemo
@@ -82,7 +82,7 @@ fn append_history(
     out: &mut Vec<AttachmentObservation>,
     memo_id: &str,
 ) -> Result<(), LomoError> {
-    let page = session.with_store(|store| store.list_memo_history(memo_id, None, 20))?;
+    let page = session.with_reader(|store| store.list_memo_history(memo_id, None, 20))?;
     for revision in page.items {
         push_from_body(
             session,

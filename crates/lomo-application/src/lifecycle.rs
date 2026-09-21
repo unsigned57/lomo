@@ -2,8 +2,8 @@
 
 use lomo_core::{LomoError, OperationId, RelativeWorkspacePath};
 use lomo_store::{
-    DocumentPublication, MemoHistoryPage, MemoSnapshot, SafProjectionMutation,
-    SafProjectionMutationKind, ScannedMemoProjection,
+    DocumentPublication, MemoHistoryPage, MemoSnapshot, SafProjectionCommitResult,
+    SafProjectionMutation, SafProjectionMutationKind, ScannedMemoProjection,
 };
 use lomo_workspace::{
     DocumentPatchCommand, MemoId, MemoIdentityChange, decode_trash_record,
@@ -30,8 +30,7 @@ pub struct RestoreMemoRequest {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RestoreMemoResult {
-    pub file_fingerprint: String,
-    pub event_sequence: u64,
+    pub commit_result: SafProjectionCommitResult,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -58,7 +57,7 @@ impl WorkspaceSession {
         cursor: Option<&str>,
         limit: usize,
     ) -> Result<MemoHistoryPage, LomoError> {
-        self.with_store(|store| store.list_memo_history(memo_id.as_str(), cursor, limit))
+        self.with_reader(|store| store.list_memo_history(memo_id.as_str(), cursor, limit))
     }
 
     /// Restores a soft-deleted memo with its original durable ID.
@@ -73,8 +72,7 @@ impl WorkspaceSession {
         let digest = payload_digest(&request)?;
         if let Some(receipt) = self.replay(&request.operation_id, &digest)? {
             return Ok(RestoreMemoResult {
-                file_fingerprint: receipt.file_fingerprint.clone(),
-                event_sequence: receipt.event_sequence,
+                commit_result: receipt,
             });
         }
         self.recover_pending()?;
@@ -117,8 +115,7 @@ impl WorkspaceSession {
         let digest = payload_digest(&request)?;
         if let Some(receipt) = self.replay(&request.operation_id, &digest)? {
             return Ok(RestoreMemoResult {
-                file_fingerprint: receipt.file_fingerprint.clone(),
-                event_sequence: receipt.event_sequence,
+                commit_result: receipt,
             });
         }
         self.recover_pending()?;
@@ -188,8 +185,7 @@ impl WorkspaceSession {
             }],
         })?;
         Ok(RestoreMemoResult {
-            file_fingerprint: receipt.file_fingerprint,
-            event_sequence: receipt.event_sequence,
+            commit_result: receipt,
         })
     }
 
@@ -226,13 +222,12 @@ impl WorkspaceSession {
             }],
         })?;
         Ok(RestoreMemoResult {
-            file_fingerprint: receipt.file_fingerprint,
-            event_sequence: receipt.event_sequence,
+            commit_result: receipt,
         })
     }
 
     fn trashed_snapshot(&self, id: &MemoId) -> Result<MemoSnapshot, LomoError> {
-        self.with_store(|store| store.get_projected_memo(id.as_str()))?
+        self.with_reader(|store| store.get_projected_memo(id.as_str()))?
             .filter(|memo| memo.summary.is_trashed)
             .ok_or_else(|| validation("memo_not_trashed", "memo is not in the trash projection"))
     }

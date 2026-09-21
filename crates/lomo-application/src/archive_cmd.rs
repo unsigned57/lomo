@@ -49,7 +49,7 @@ impl WorkspaceSession {
             workspace_root,
             &previous_generation_root(staging_root)?,
         )?;
-        self.rebuild_locked()
+        self.rebuild_locked(false)
     }
 }
 

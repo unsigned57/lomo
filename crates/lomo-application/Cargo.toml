@@ -34,6 +34,10 @@ path = "tests/calendar_contract.rs"
 name = "session_transaction_contract"
 path = "tests/session_transaction_contract.rs"
 
+[[test]]
+name = "session_command_validation_contract"
+path = "tests/session_command_validation_contract.rs"
+
 
 [[test]]
 name = "session_recovery_audit_contract"
@@ -62,3 +66,7 @@ path = "tests/reminder_plan_contract.rs"
 [[test]]
 name = "workspace_interchange_contract"
 path = "tests/workspace_interchange_contract.rs"
+
+[[test]]
+name = "exchange_budget_contract"
+path = "tests/exchange_budget_contract.rs"

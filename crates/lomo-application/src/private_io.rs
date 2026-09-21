@@ -16,11 +16,43 @@ use crate::{
 };
 
 pub fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, LomoError> {
-    match fs::read(path) {
-        Ok(bytes) => Ok(Some(bytes)),
+    match OpenOptions::new()
+        .read(true)
+        .custom_flags(
+            i32::try_from(rustix::fs::OFlags::NOFOLLOW.bits())
+                .map_err(|error| storage("file_flags_invalid", error.to_string()))?,
+        )
+        .open(path)
+    {
+        Ok(file) => crate::resource::read_bounded(file, crate::resource::MAX_FILE_BYTES).map(Some),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(storage("private_read_failed", error.to_string())),
     }
+}
+
+pub fn remove_durable(path: &Path) -> Result<(), LomoError> {
+    remove_file_synced(path, false)
+}
+
+/// Removes a durable record when it exists; an already-absent record is a completed retirement.
+pub fn remove_if_present(path: &Path) -> Result<(), LomoError> {
+    remove_file_synced(path, true)
+}
+
+fn remove_file_synced(path: &Path, allow_missing: bool) -> Result<(), LomoError> {
+    match fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if allow_missing && error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(());
+        }
+        Err(error) => return Err(storage("private_remove_failed", error.to_string())),
+    }
+    let parent = path
+        .parent()
+        .ok_or_else(|| validation("private_path_invalid", "missing parent"))?;
+    File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| storage("private_directory_sync_failed", error.to_string()))
 }
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), LomoError> {
