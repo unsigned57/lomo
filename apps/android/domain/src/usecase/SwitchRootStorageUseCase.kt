@@ -2,6 +2,8 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.WorkspaceRootTransition
+import com.lomo.domain.model.WorkspaceRootTransitionPhase
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.WorkspaceCandidateValidator
@@ -47,14 +49,14 @@ open class SwitchRootStorageUseCase(
             return
         }
         workspaceMutationLease.withExclusiveTransition {
-            val pending = directorySettingsRepository.pendingRootTransition()
-            if (pending != null) {
-                directorySettingsRepository.rollbackRootTransition(pending.id)
-            }
-            val transition = directorySettingsRepository.prepareRootTransition(location)
+            val transition = resolveSwitchTransition(location)
             try {
+                // Activation is re-asserted even for an ACTIVATED resume: a restart can leave the
+                // engine on the previously committed root while the journal claims activation.
                 engineReadinessRepository.activateWorkspace(location)
-                directorySettingsRepository.markRootTransitionActivated(transition.id)
+                if (transition.phase == WorkspaceRootTransitionPhase.PREPARED) {
+                    directorySettingsRepository.markRootTransitionActivated(transition.id)
+                }
                 directorySettingsRepository.commitRootTransition(transition.id)
             } catch (originalFailure: CancellationException) {
                 throw originalFailure
@@ -66,6 +68,23 @@ open class SwitchRootStorageUseCase(
                 )
             }
         }
+    }
+
+    /**
+     * Picks the durable transition for this switch. A pending transition aimed at the same
+     * candidate is the original operation: it resumes instead of being recreated, so an
+     * interrupted switch commits under its own operation id. A pending transition aimed
+     * elsewhere is a stale operation and is rolled back before a fresh prepare.
+     */
+    private suspend fun resolveSwitchTransition(location: StorageLocation): WorkspaceRootTransition {
+        val pending = directorySettingsRepository.pendingRootTransition() ?: run {
+            return directorySettingsRepository.prepareRootTransition(location)
+        }
+        if (pending.candidate == location) {
+            return pending
+        }
+        directorySettingsRepository.rollbackRootTransition(pending.id)
+        return directorySettingsRepository.prepareRootTransition(location)
     }
 
     open suspend fun rebuildCurrentWorkspace() {

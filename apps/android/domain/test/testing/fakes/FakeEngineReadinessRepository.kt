@@ -45,6 +45,8 @@ class FakeEngineReadinessRepository(
         _projectionFreshness.asStateFlow()
     var resnapshotCount: Int = 0
         private set
+    var engineStartRequests: Int = 0
+        private set
     var activateCount: Int = 0
     var clearCount: Int = 0
     var lastActivated: StorageLocation? = null
@@ -71,6 +73,11 @@ class FakeEngineReadinessRepository(
 
     override fun resnapshot() {
         resnapshotCount += 1
+    }
+
+    override suspend fun requestEngineStart(): EngineReadiness {
+        engineStartRequests += 1
+        return readiness.value
     }
 
     override suspend fun createRecoveryDiagnosticReport(): RecoveryDiagnosticReport {

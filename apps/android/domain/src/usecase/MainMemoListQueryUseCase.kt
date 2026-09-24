@@ -26,6 +26,11 @@ class MainMemoListQueryUseCase(
     suspend fun rankInDefaultMainList(id: String): Int? =
         mainListQueryRepository.rankInDefaultMainList(id)
 
+    suspend fun rankInMainListQuery(
+        spec: MemoQuerySpec,
+        id: String,
+    ): Int? = mainListQueryRepository.rankInMainListQuery(spec, id)
+
     fun reanchorMainListToIdentity(id: String) {
         mainListQueryRepository.reanchorMainListToIdentity(id)
     }

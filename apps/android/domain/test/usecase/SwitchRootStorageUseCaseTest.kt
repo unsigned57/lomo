@@ -252,6 +252,51 @@ class SwitchRootStorageUseCaseTest : DomainFunSpec() {
             }
         }
 
+        test("updateRootLocation resumes a pending transition aimed at the same candidate") {
+            runTest {
+                // An interrupted earlier attempt left a PREPARED transition for the same target;
+                // retrying is the same operation and must not mint a second transition journal.
+                val candidate = StorageLocation("/tmp/candidate")
+                val interrupted = directorySettingsRepository.prepareRootTransition(candidate)
+                eventLog.clear()
+
+                useCase.updateRootLocation(candidate)
+
+                engineReadinessRepository.activateCount shouldBe 1
+                engineReadinessRepository.lastActivated shouldBe candidate
+                directorySettingsRepository.pendingRootTransition() shouldBe null
+                directorySettingsRepository.currentRootLocation() shouldBe candidate
+                eventLog shouldBe
+                    listOf(
+                        "workspace.validateCandidate",
+                        "directory.markRootTransitionActivated",
+                        "directory.commitRootTransition",
+                    )
+            }
+        }
+
+        test("updateRootLocation commits an already-activated transition aimed at the same candidate") {
+            runTest {
+                // A crash after activation left an ACTIVATED transition: resume re-asserts engine
+                // activation and commits under the original operation id.
+                val candidate = StorageLocation("/tmp/candidate")
+                val interrupted = directorySettingsRepository.prepareRootTransition(candidate)
+                directorySettingsRepository.markRootTransitionActivated(interrupted.id)
+                eventLog.clear()
+
+                useCase.updateRootLocation(candidate)
+
+                engineReadinessRepository.activateCount shouldBe 1
+                directorySettingsRepository.pendingRootTransition() shouldBe null
+                directorySettingsRepository.currentRootLocation() shouldBe candidate
+                eventLog shouldBe
+                    listOf(
+                        "workspace.validateCandidate",
+                        "directory.commitRootTransition",
+                    )
+            }
+        }
+
         test("updateRootLocation clears stale pending transition before starting a new transition") {
             runTest {
                 // Simulate a leftover transition in datastore from a prior crash

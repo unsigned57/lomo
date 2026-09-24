@@ -8,7 +8,8 @@ interface RecordingSession {
 
     val durationMillis: StateFlow<Long>
 
-    val amplitude: StateFlow<Int>
+    /** Latest device amplitude sample; null while not recording or when the device read fails. */
+    val amplitude: StateFlow<Int?>
 
     val errorMessage: StateFlow<String?>
 

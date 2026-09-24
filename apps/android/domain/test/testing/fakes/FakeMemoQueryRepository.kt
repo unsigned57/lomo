@@ -20,7 +20,10 @@ class FakeMemoQueryRepository(
 
     override suspend fun getMemoCount(): Int = store.activeMemoCount()
 
-    override fun observeListProjection(): Flow<Unit> = store.observeMemoCount().map { }
+    override fun observeListProjection(): Flow<com.lomo.domain.model.MemoProjectionPublication> =
+        store.observeMemoCount().map { count ->
+            com.lomo.domain.model.MemoProjectionPublication(coreRevision = count.toLong())
+        }
 
     override suspend fun getDailyReviewCandidateBoundary(): DailyReviewCandidateBoundary? =
         store.captureDailyReviewCandidateBoundary()
@@ -40,6 +43,11 @@ class FakeMemoQueryRepository(
         store.mainListPagingSourceFor(spec)
 
     override suspend fun rankInDefaultMainList(id: String): Int? = store.rankInDefaultMainList(id)
+
+    override suspend fun rankInMainListQuery(
+        spec: MemoQuerySpec,
+        id: String,
+    ): Int? = store.rankInMainListQuery(spec, id)
 
     override fun reanchorMainListToIdentity(id: String) {
         store.reanchorMainListToIdentity(id)

@@ -167,6 +167,11 @@ class FakeMemoStore(
     internal suspend fun rankInDefaultMainList(id: String): Int? =
         memos.value.indexOfFirst { memo -> memo.id == id }.takeIf { value -> value >= 0 }
 
+    internal suspend fun rankInMainListQuery(
+        spec: MemoQuerySpec,
+        id: String,
+    ): Int? = memos.value.matching(spec).indexOfFirst { memo -> memo.id == id }.takeIf { it >= 0 }
+
     internal fun reanchorMainListToIdentity(id: String) {
         lastReanchoredMainListIdentity = id
     }

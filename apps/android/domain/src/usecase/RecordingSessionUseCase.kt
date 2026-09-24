@@ -17,7 +17,7 @@ class RecordingSessionUseCase(
 
     val durationMillis: StateFlow<Long> = recordingSession.durationMillis
 
-    val amplitude: StateFlow<Int> = recordingSession.amplitude
+    val amplitude: StateFlow<Int?> = recordingSession.amplitude
 
     val errorMessage: StateFlow<String?> = recordingSession.errorMessage
 

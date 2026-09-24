@@ -53,6 +53,18 @@ interface EngineReadinessRepository {
     fun resnapshot()
 
     /**
+     * Explicitly requests that this process open the native engine, then resolves with the first
+     * settled [EngineReadiness] (anything other than [EngineReadiness.Opening]).
+     *
+     * Constructing or injecting the session never opens native: engine acquisition only follows an
+     * explicit request from a consumer that actually needs the workspace — an Activity, a
+     * background worker, or a durable workspace mutation. Repeated requests are idempotent, so the
+     * engine opens at most once per process. A projection-only process duty never opens native and
+     * returns the current (still [EngineReadiness.Opening]) value immediately.
+     */
+    suspend fun requestEngineStart(): EngineReadiness
+
+    /**
      * Builds a bounded, secret-free report from typed recovery facts only.
      *
      * Raw native diagnostics and workspace paths are intentionally excluded.

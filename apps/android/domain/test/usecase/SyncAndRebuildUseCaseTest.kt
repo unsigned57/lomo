@@ -28,6 +28,7 @@ import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.model.UnifiedSyncResult
+import com.lomo.domain.model.WebDavSyncErrorCode
 import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.testing.DomainFunSpec
@@ -141,7 +142,8 @@ class SyncAndRebuildUseCaseTest : DomainFunSpec() {
         test("force sync webdav result error still refreshes and throws mapped failure") {
             runTest {
                 syncPolicyRepository.setRemoteSyncBackend(SyncBackendType.WEBDAV)
-                webDavSyncRepository.nextSyncResult = WebDavSyncResult.Error("sync failed")
+                webDavSyncRepository.nextSyncResult =
+                    WebDavSyncResult.Error(code = WebDavSyncErrorCode.UNKNOWN, message = "sync failed")
 
                 val exception = shouldThrow<Exception> {
                     useCase(forceSync = true)
@@ -156,7 +158,12 @@ class SyncAndRebuildUseCaseTest : DomainFunSpec() {
             runTest {
                 syncPolicyRepository.setRemoteSyncBackend(SyncBackendType.WEBDAV)
                 val cancellation = CancellationException("cancelled")
-                webDavSyncRepository.nextSyncResult = WebDavSyncResult.Error("cancelled", cancellation)
+                webDavSyncRepository.nextSyncResult =
+                    WebDavSyncResult.Error(
+                        code = WebDavSyncErrorCode.UNKNOWN,
+                        message = "cancelled",
+                        exception = cancellation,
+                    )
 
                 val exception = shouldThrow<CancellationException> {
                     useCase(forceSync = true)
