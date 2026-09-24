@@ -3,14 +3,14 @@
 //! Maps foreign DTOs onto `lomo-application::WorkspaceSession`. Physical I/O is injected through
 //! [`PlatformBatchHost`]; this module does not choose document paths or execute POSIX I/O.
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use boltffi::{data, export};
 use lomo_application::{
-    CreateMemoRequest, DeleteMemoRequest, FireReminderRequest, PermanentDeleteRequest,
-    PinMemoRequest, PinPolicy, RestoreMemoRequest, RestoreRevisionRequest, SearchMode,
-    SearchOutcome, SearchRequest, ToggleTaskRequest, UpdateMemoRequest, WorkspaceSession,
-    WorkspaceSessionConfig,
+    CreateMemoRequest, DeleteMemoRequest, PermanentDeleteRequest, PinMemoRequest, PinPolicy,
+    RestoreMemoRequest, RestoreRevisionRequest, SearchMode, SearchOutcome, SearchRequest,
+    ToggleTaskRequest, UpdateMemoRequest, WorkspaceSession, WorkspaceSessionConfig,
     calendar::{CivilDate, DateFormat},
     statistics::StatisticsSnapshot,
 };
@@ -18,19 +18,19 @@ use lomo_core::{
     self as core, CapabilityToken, LomoError, OperationId, PageSize, PlatformActionExecutor,
     RelativeWorkspacePath,
 };
-use lomo_store::{SafProjectionCommitResult, list_history_attachment_refs};
+use lomo_store::SafProjectionCommitResult;
 use lomo_workspace::{MemoId, WorkspaceRootId};
 
 use crate::{
     ActionOutcome, ActionResult, DocumentKind, DocumentMetadata, EngineError, ExpectedFingerprint,
     LomoEngine, MetadataPage, PlatformAction, PlatformActionBatch, PlatformActionOutput,
-    PlatformBatchHost, PlatformBatchResult, StoreHistoryAttachmentRef, StoreMemoCommand,
-    StoreMemoCommit, StoreMemoHistoryPage, StoreMemoHistoryRevision, StoreMemoPage, StoreMemoQuery,
-    StoreMemoSnapshot, StoreMemoStatisticsRow, StorePageCursor, StorePlannedAlarm,
-    StoreRebuildResult, StoreReminderPlan, StoreSafMemoProjection, StoreSidebarDateCount,
-    StoreSidebarProjection, StoreSidebarTagCount, VerifiedAbsence, artifact_from_ffi,
-    artifact_to_ffi, batch_to_ffi, evidence_from_ffi, evidence_to_ffi, failure_from_core,
-    failure_to_core,
+    PlatformBatchHost, PlatformBatchResult, StoreMemoBatchCommit, StoreMemoBatchDelete,
+    StoreMemoCommand, StoreMemoCommit, StoreMemoDeletedMemo, StoreMemoHistoryPage,
+    StoreMemoHistoryRevision, StoreMemoPage, StoreMemoQuery, StoreMemoSnapshot, StorePageCursor,
+    StorePlannedAlarm, StoreRebuildResult, StoreReminderPlan, StoreSafMemoProjection,
+    StoreSidebarDateCount, StoreSidebarProjection, StoreSidebarTagCount, VerifiedAbsence,
+    artifact_from_ffi, artifact_to_ffi, batch_to_ffi, evidence_from_ffi, evidence_to_ffi,
+    failure_from_core, failure_to_core,
     media_ffi::{MediaPromotePlanDto, pending_promotes_from_ffi},
     result_from_ffi,
     store_ffi::{
@@ -281,6 +281,54 @@ pub struct SessionStatistics {
     pub tag_counts: Vec<SessionTagCount>,
 }
 
+/// Why one media candidate survived the sweep.
+#[data]
+#[derive(Clone, Debug, Default)]
+pub struct SessionMediaProtectionDto {
+    pub relative_path: String,
+    /// `current` | `trash` | `history` | `draft` | `pending_operation` | `stage_lease`
+    pub source: String,
+    pub owner_key: String,
+}
+
+/// One candidate or trash entry the sweep refused to touch.
+#[data]
+#[derive(Clone, Debug, Default)]
+pub struct SessionMediaFailureDto {
+    pub relative_path: String,
+    pub code: String,
+    pub message: String,
+}
+
+/// Observable result of the session-owned two-phase media orphan sweep.
+#[data]
+#[derive(Clone, Debug, Default)]
+pub struct SessionMediaSweepReportDto {
+    /// Committed `media/` files examined this run.
+    pub candidates: u64,
+    /// Candidates kept because a protection source still references them.
+    pub protections: Vec<SessionMediaProtectionDto>,
+    /// Unreferenced candidates moved into `.lomo-media-trash`.
+    pub moved_to_trash: Vec<crate::media_ffi::MediaTrashEntryDto>,
+    /// Digests of expired trash entries permanently deleted after journaling a delete intent.
+    pub permanently_deleted_digests: Vec<String>,
+    /// Candidates still referenced (kept live).
+    pub kept_live: u64,
+    /// Per-candidate failures the sweep surfaced instead of hiding.
+    pub failures: Vec<SessionMediaFailureDto>,
+}
+
+const fn reference_source_to_wire(source: lomo_media::ReferenceSource) -> &'static str {
+    match source {
+        lomo_media::ReferenceSource::CurrentMemo => "current",
+        lomo_media::ReferenceSource::TrashMemo => "trash",
+        lomo_media::ReferenceSource::HistoryVersion => "history",
+        lomo_media::ReferenceSource::Draft => "draft",
+        lomo_media::ReferenceSource::PendingOperation => "pending_operation",
+        lomo_media::ReferenceSource::StageLease => "stage_lease",
+    }
+}
+
 #[export]
 impl LomoEngine {
     /// Opens the shared application session with a foreign platform-action host.
@@ -292,6 +340,7 @@ impl LomoEngine {
         &self,
         host: Box<dyn PlatformBatchHost>,
         time_zone: String,
+        media_stage_root: String,
     ) -> Result<String, EngineError> {
         let workspace = self.workspace.as_ref().ok_or_else(|| {
             session_err(
@@ -312,6 +361,11 @@ impl LomoEngine {
         let identity = workspace.identity().as_str();
         let workspace_generation = match workspace {
             core::WorkspaceDescriptor::Direct { canonical_root, .. } => {
+                // Direct workspaces may still carry the v1 history/state record trees; the head
+                // switch is idempotent and crash-safe, so open always lands on V2 before the
+                // session scans durable facts.
+                lomo_workspace::migrate_history_state_v1_to_v2(canonical_root)
+                    .map_err(EngineError::from)?;
                 lomo_workspace::load_or_mint_workspace_generation(canonical_root)
                     .map_err(EngineError::from)?
             }
@@ -337,6 +391,7 @@ impl LomoEngine {
             cache_dir: base.join("cache"),
             runtime_dir: base.join("runtime"),
             exchange_dir: self.core.exchange_root().to_path_buf(),
+            media_stage_root: PathBuf::from(media_stage_root),
         };
         let executor: Arc<dyn PlatformActionExecutor> = Arc::new(HostedExecutor { host });
         let session = WorkspaceSession::open(config, executor).map_err(EngineError::from)?;
@@ -416,6 +471,68 @@ impl LomoEngine {
             .map(|result| commit_to_ffi(&memo_id, result.commit_result))
     }
 
+    /// Runs the session-owned two-phase media orphan sweep.
+    ///
+    /// The session enumerates `media/` candidates outside the mutation lock, then recomputes the
+    /// protection set and re-verifies every candidate inside the transaction lock before moving
+    /// unreferenced objects to media-trash and purging expired entries. The report carries
+    /// candidates, protections, moves, deletions, and per-candidate failures; it never hides a
+    /// reference-collection failure as an empty keep-set.
+    ///
+    /// # Errors
+    ///
+    /// Session, lock, projection, or platform listing failures abort before any mutation.
+    pub fn session_media_orphan_sweep(
+        &self,
+        now_ms: Option<u64>,
+        recovery_window_ms: u64,
+    ) -> Result<SessionMediaSweepReportDto, EngineError> {
+        let now = now_ms.unwrap_or_else(lomo_media::wall_clock_ms);
+        with_session(self, |session| {
+            session.media_orphan_sweep(now, recovery_window_ms)
+        })
+        .map(|report| {
+            let kept_live = u64::try_from(report.protections.len()).unwrap_or(u64::MAX);
+            SessionMediaSweepReportDto {
+                candidates: report.candidates,
+                protections: report
+                    .protections
+                    .into_iter()
+                    .map(|item| SessionMediaProtectionDto {
+                        relative_path: item.relative_path,
+                        source: reference_source_to_wire(item.source).to_owned(),
+                        owner_key: item.owner_key,
+                    })
+                    .collect(),
+                moved_to_trash: report
+                    .moved_to_trash
+                    .into_iter()
+                    .map(|entry| crate::media_ffi::MediaTrashEntryDto {
+                        digest: entry.digest.as_str().to_owned(),
+                        trash_path: entry.trash_path.to_string_lossy().into_owned(),
+                        trashed_at_ms: entry.trashed_at_ms,
+                        expires_at_ms: entry.expires_at_ms,
+                    })
+                    .collect(),
+                permanently_deleted_digests: report
+                    .permanently_deleted
+                    .into_iter()
+                    .map(|intent| intent.digest.as_str().to_owned())
+                    .collect(),
+                kept_live,
+                failures: report
+                    .failures
+                    .into_iter()
+                    .map(|failure| SessionMediaFailureDto {
+                        relative_path: failure.relative_path,
+                        code: failure.code,
+                        message: failure.message,
+                    })
+                    .collect(),
+            }
+        })
+    }
+
     /// Pins or unpins one memo through the shared write transaction.
     ///
     /// # Errors
@@ -443,34 +560,6 @@ impl LomoEngine {
         .map_err(EngineError::from)?;
         with_session(self, |session| session.pin_memo(inner))
             .map(|result| commit_to_ffi(&memo_id, result.commit_result))
-    }
-
-    /// Reads one active memo from the session projection.
-    ///
-    /// # Errors
-    ///
-    /// Session or projection failures.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires owned String wire types"
-    )]
-    pub fn session_get_memo(
-        &self,
-        memo_id: String,
-    ) -> Result<Option<SessionMemoView>, EngineError> {
-        let parsed = MemoId::parse(&memo_id).map_err(EngineError::from)?;
-        with_session(self, |session| session.get_memo(&parsed)).map(|view| {
-            view.map(|view| SessionMemoView {
-                memo_id: view.memo_id,
-                source_path: view.source_path,
-                file_fingerprint: view.file_fingerprint,
-                body: view.body,
-                is_pinned: view.is_pinned,
-                is_trashed: view.is_trashed,
-                created_at_ms: view.created_at_ms,
-                updated_at_ms: view.updated_at_ms,
-            })
-        })
     }
 
     /// Runs dual-mode retrieval through the application session.
@@ -543,56 +632,6 @@ impl LomoEngine {
         };
         with_session(self, |session| session.toggle_task(inner))
             .map(|result| commit_to_ffi(&memo_id, result.commit_result))
-    }
-
-    /// Lists timezone-sliced daily review candidates.
-    ///
-    /// # Errors
-    ///
-    /// Session, calendar, or projection failures.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires owned timezone and date wire types"
-    )]
-    pub fn session_review_candidates(
-        &self,
-        zone: String,
-        date: SessionCivilDate,
-    ) -> Result<Vec<SessionReviewCandidate>, EngineError> {
-        let civil = civil_date_from_ffi(date)?;
-        with_session(self, |session| session.review_candidates(&zone, civil)).map(|items| {
-            items
-                .into_iter()
-                .map(|item| SessionReviewCandidate {
-                    memo_id: item.memo_id,
-                    created_at_ms: item.created_at_ms,
-                    body_preview: item.body_preview,
-                    source_path: item.source_path,
-                })
-                .collect()
-        })
-    }
-
-    /// Records a local review completion for one memo.
-    ///
-    /// # Errors
-    ///
-    /// Session, identity, or private-state I/O failures.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires owned timezone, date, and identity wire types"
-    )]
-    pub fn session_complete_review(
-        &self,
-        zone: String,
-        date: SessionCivilDate,
-        memo_id: String,
-    ) -> Result<(), EngineError> {
-        let civil = civil_date_from_ffi(date)?;
-        let parsed = MemoId::parse(&memo_id).map_err(EngineError::from)?;
-        with_session(self, |session| {
-            session.complete_review(&zone, civil, &parsed)
-        })
     }
 
     /// Aggregates heatmap statistics from the session projection.
@@ -711,6 +750,62 @@ impl LomoEngine {
             .map(|result| commit_to_ffi(&memo_id, result.commit_result))
     }
 
+    /// Permanently deletes a bounded trash batch through the shared write transaction.
+    ///
+    /// The session splits targets into durable child batches; each committed child owns one
+    /// projection transaction and one replayable receipt.
+    ///
+    /// # Errors
+    ///
+    /// Session, trash membership, stale baseline, resource-budget, or platform I/O failures.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned request wire types"
+    )]
+    pub fn session_permanently_delete_many(
+        &self,
+        request: StoreMemoBatchDelete,
+    ) -> Result<StoreMemoBatchCommit, EngineError> {
+        let operation_id = request.operation_id.clone();
+        let inner = lomo_application::PermanentDeleteManyRequest {
+            operation_id: OperationId::parse(&request.operation_id).map_err(EngineError::from)?,
+            targets: request
+                .targets
+                .iter()
+                .map(|target| {
+                    Ok(lomo_application::PermanentDeleteManyTarget {
+                        memo_id: MemoId::parse(&target.memo_id).map_err(EngineError::from)?,
+                        source_path: target.source_path.clone(),
+                        expected_revision: target.expected_revision,
+                        expected_fingerprint: target.expected_fingerprint.clone(),
+                    })
+                })
+                .collect::<Result<Vec<_>, EngineError>>()?,
+        };
+        with_session(self, |session| session.permanently_delete_many(&inner)).map(|result| {
+            StoreMemoBatchCommit {
+                operation_id,
+                deleted: result
+                    .batches
+                    .iter()
+                    .flat_map(|batch| {
+                        batch
+                            .deleted_memos
+                            .iter()
+                            .map(|deleted| StoreMemoDeletedMemo {
+                                memo_id: deleted.memo_id.clone(),
+                                reminder_ids: deleted.reminder_ids.clone(),
+                            })
+                    })
+                    .collect(),
+                core_revision: result.commit_result.core_revision,
+                event_sequence: result.commit_result.event_sequence,
+                scopes: scopes_to_ffi(result.commit_result.scopes),
+                idempotent_replay: result.idempotent_replay,
+            }
+        })
+    }
+
     /// Plans reminder alarms from projected Markdown tokens.
     ///
     /// # Errors
@@ -739,25 +834,6 @@ impl LomoEngine {
         })
     }
 
-    /// Advances one reminder token through the shared write transaction.
-    ///
-    /// # Errors
-    ///
-    /// Session, token, conflict, or platform I/O failures.
-    pub fn session_record_reminder_fired(
-        &self,
-        request: SessionFireReminderRequest,
-    ) -> Result<StoreMemoCommit, EngineError> {
-        let memo_id = request.memo_id.clone();
-        let inner = FireReminderRequest {
-            operation_id: OperationId::parse(&request.operation_id).map_err(EngineError::from)?,
-            memo_id: MemoId::parse(&request.memo_id).map_err(EngineError::from)?,
-            opaque_id: request.opaque_id,
-        };
-        with_session(self, |session| session.record_reminder_fired(inner))
-            .map(|result| commit_to_ffi(&memo_id, result.commit_result))
-    }
-
     /// Writes a durable app-private snooze binding for one reminder definition. The caller passes
     /// a validated duration; the deadline instant is computed by the owner.
     ///
@@ -776,28 +852,6 @@ impl LomoEngine {
         with_session(self, |session| {
             session.snooze_reminder(&opaque_id, snooze_duration_ms)
         })
-    }
-
-    /// Clears the durable snooze binding for one reminder definition.
-    ///
-    /// # Errors
-    ///
-    /// Session, snooze storage, or recovery-pending failures.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires owned String for foreign callers"
-    )]
-    pub fn session_clear_reminder_snooze(&self, opaque_id: String) -> Result<(), EngineError> {
-        with_session(self, |session| session.clear_reminder_snooze(&opaque_id))
-    }
-
-    /// True when durable snooze state is quarantined and scheduling is paused.
-    ///
-    /// # Errors
-    ///
-    /// Session or snooze storage failures.
-    pub fn session_reminder_snooze_recovery_pending(&self) -> Result<bool, EngineError> {
-        with_session(self, WorkspaceSession::reminder_snooze_recovery_pending)
     }
 
     /// Explicitly recovers corrupt durable snooze state (quarantine + fresh store).
@@ -929,6 +983,24 @@ fn action_from_ffi(value: PlatformAction) -> Result<core::PlatformAction, Engine
                 crate::WriteMode::Create => core::WriteMode::Create,
                 crate::WriteMode::Replace => core::WriteMode::Replace,
             },
+            expected_target: expected_from_ffi(expected_target)?,
+        },
+        PlatformAction::ArtifactWrite {
+            action_id,
+            capability_token,
+            source,
+            path,
+            expected_target,
+        } => core::PlatformAction::ArtifactWrite {
+            action_id: core::ActionId::parse(&action_id).map_err(EngineError::from)?,
+            capability: CapabilityToken::parse(&capability_token).map_err(EngineError::from)?,
+            source: core::StagedArtifactSource::new(
+                &source.path,
+                source.length,
+                core::Sha256Digest::parse(&source.digest).map_err(EngineError::from)?,
+            )
+            .map_err(EngineError::from)?,
+            path: RelativeWorkspacePath::parse(&path).map_err(EngineError::from)?,
             expected_target: expected_from_ffi(expected_target)?,
         },
         PlatformAction::Move {
@@ -1080,40 +1152,6 @@ pub fn session_is_open(engine: &LomoEngine) -> Result<bool, EngineError> {
     Ok(guard.is_some())
 }
 
-pub fn session_owns_document_writes() -> EngineError {
-    session_err(
-        "session_owns_document_writes",
-        "document writes belong to the workspace session",
-    )
-}
-
-pub fn session_list_history_attachment_refs(
-    engine: &LomoEngine,
-) -> Result<Vec<StoreHistoryAttachmentRef>, EngineError> {
-    match &engine.workspace {
-        Some(core::WorkspaceDescriptor::Direct { canonical_root, .. }) => {
-            let root = canonical_root.clone();
-            with_session(engine, |_session| list_history_attachment_refs(&root)).map(|refs| {
-                refs.into_iter()
-                    .map(|item| StoreHistoryAttachmentRef {
-                        memo_id: item.memo_id,
-                        revision: item.revision,
-                        relative_path: item.relative_path,
-                        owner_key: item.owner_key,
-                    })
-                    .collect()
-            })
-        }
-        Some(core::WorkspaceDescriptor::Saf { .. }) => {
-            with_session(engine, |_session| Ok(Vec::new()))
-        }
-        None => Err(session_err(
-            "workspace_session_unavailable",
-            "history attachment listing requires an open workspace session",
-        )),
-    }
-}
-
 #[expect(
     clippy::needless_pass_by_value,
     reason = "BoltFFI query DTO is converted once into the store query"
@@ -1188,15 +1226,6 @@ pub fn session_projected_memo(
     })
 }
 
-pub fn session_source_document_fingerprint(
-    engine: &LomoEngine,
-    source_path: &str,
-) -> Result<Option<String>, EngineError> {
-    with_session(engine, |session| {
-        session.source_document_fingerprint(source_path)
-    })
-}
-
 pub fn session_rebuild_projection(engine: &LomoEngine) -> Result<StoreRebuildResult, EngineError> {
     with_session(engine, WorkspaceSession::rebuild_projection).map(|result| StoreRebuildResult {
         memos_indexed: result.memos_indexed,
@@ -1210,17 +1239,35 @@ pub fn session_rebuild_projection(engine: &LomoEngine) -> Result<StoreRebuildRes
     })
 }
 
-pub fn session_memo_statistics_rows(
+/// Imports an archive over the live workspace through the session-owned generation switch:
+/// stage, activate, migrate legacy record trees, then rebuild the private projection.
+///
+/// # Errors
+///
+/// Session, archive, migration, or rebuild failures; the previous generation is restored on
+/// activate failure.
+pub fn session_import_archive(
     engine: &LomoEngine,
-) -> Result<Vec<StoreMemoStatisticsRow>, EngineError> {
-    with_session(engine, WorkspaceSession::memo_statistics_rows).map(|rows| {
-        rows.into_iter()
-            .map(|row| StoreMemoStatisticsRow {
-                created_at_ms: row.created_at_ms,
-                word_count: row.word_count,
-                char_count: row.char_count,
-            })
-            .collect()
+    workspace_root: &str,
+    archive_path: &str,
+    staging_root: &str,
+) -> Result<StoreRebuildResult, EngineError> {
+    with_session(engine, |session| {
+        session.import_archive(
+            Path::new(workspace_root),
+            Path::new(archive_path),
+            Path::new(staging_root),
+        )
+    })
+    .map(|result| StoreRebuildResult {
+        memos_indexed: result.memos_indexed,
+        file_count: result.file_count,
+        attachment_count: result.attachment_count,
+        workspace_digest: result.workspace_digest,
+        store_digest: result.store_digest,
+        corrupt_lomo_isolated: result.corrupt_lomo_isolated,
+        high_water_revision: result.high_water_revision,
+        rewritten: result.rewritten,
     })
 }
 

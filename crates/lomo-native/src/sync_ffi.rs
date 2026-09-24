@@ -19,12 +19,13 @@ use lomo_core::{
 };
 use lomo_sync::{
     self as sync, ConflictPage, ConflictPathRecord, ConflictPathStatus, ConflictResolution,
-    ConflictSession, ConflictSessionPresence, ConflictSessionState, ResolvedLocalPullMutation,
-    SyncBackendConfig, SyncBackendKind, SyncCyclePlanSummary, SyncPaths,
+    ConflictSession, ConflictSessionPresence, ConflictSessionState, RemoteSyncPort,
+    ResolvedLocalPullMutation, SyncBackendConfig, SyncBackendKind, SyncCyclePlanSummary, SyncPaths,
     advance_baseline_after_local_pull, collect_resolved_local_pull_mutations,
-    inspect_sync_cycle_plan, list_sync_conflicts, read_baseline, read_conflict_artifact,
-    read_conflict_session_state, reset_sync_control_tree, resolve_sync_conflicts,
-    run_composed_sync_cycle, run_composed_sync_cycle_with_remote_port,
+    connect_sync_remote_port, list_sync_conflicts, read_baseline, read_conflict_artifact,
+    read_conflict_session_state, read_cycle_state, request_sync_cycle_cancel,
+    reset_sync_control_tree, resolve_sync_conflicts, run_composed_sync_cycle,
+    run_composed_sync_cycle_with_remote_port,
 };
 use lomo_workspace::MemoId;
 
@@ -188,6 +189,39 @@ pub struct SyncSecretLeaseDto {
     pub lease_id: String,
 }
 
+/// Non-secret backend configuration wire (explicit per-backend fields; no borrowed meanings).
+///
+/// `backend_kind` selects which fields are meaningful: `webdav` uses `endpoint_url` + `identity`
+/// (username); `s3` uses `endpoint_url` + `identity` (access key id) + `s3_*`; `git` uses
+/// `endpoint_url` (remote URL) + `identity` (HTTPS username) + `git_*`; `hermetic_fake` uses only
+/// `remote_dataset_id`. Fields outside the selected kind must be empty — mixed shapes are
+/// rejected at the boundary rather than silently borrowed. Secrets never appear here; the secret
+/// travels via `secret_lease_id` only.
+#[data]
+#[derive(Clone, Debug, Default)]
+pub struct SyncBackendConfigDto {
+    /// `hermetic_fake` | `webdav` | `s3` | `git`.
+    pub backend_kind: String,
+    /// `WebDAV` base URL / S3 endpoint / Git remote URL.
+    pub endpoint_url: String,
+    /// `WebDAV` username / S3 access key id / Git HTTPS username (non-secret identity).
+    pub identity: String,
+    /// S3 bucket (empty for other kinds).
+    pub s3_bucket: String,
+    /// S3 key prefix (empty when unused).
+    pub s3_prefix: String,
+    /// S3 region (empty for other kinds).
+    pub s3_region: String,
+    /// Git branch short name (e.g. `main`).
+    pub git_branch: String,
+    /// Git commit author name.
+    pub git_author_name: String,
+    /// Git commit author email.
+    pub git_author_email: String,
+    /// Opaque remote dataset id for the durable identity fence.
+    pub remote_dataset_id: String,
+}
+
 /// WorkManager-facing retry disposition (maps Rust `RetryDisposition`; no fixed three-retry).
 #[data]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -226,6 +260,78 @@ pub struct SyncCyclePlanSummaryDto {
     pub conflict_revision: Option<u64>,
     /// `never` | `after_user_action` | `transient` (Rust-owned name; no fixed three-retry).
     pub retry_disposition: String,
+    /// Intent pages published + verified this cycle (0 for plan-only).
+    pub pages_applied: u32,
+    /// True when this cycle advanced the durable baseline.
+    pub baseline_advanced: bool,
+    /// Local projection entries the cycle observed.
+    pub local_entry_count: u32,
+    /// Remote listing entries the cycle observed across all pages.
+    pub remote_listed_count: u32,
+    /// Baseline entries after this cycle's advancement.
+    pub baseline_entry_count: u32,
+}
+
+/// Durable cycle record wire (`cycle_state.rec`) — sole authority for sync status.
+///
+/// `has_record` is false when no cycle has ever run for the workspace (`phase` = `idle`).
+/// `state_stamp` is the monotonic freshness marker: hosts must drop late writes with an older
+/// stamp instead of overwriting newer state.
+#[data]
+#[derive(Clone, Debug, Default)]
+pub struct SyncCycleStatusDto {
+    pub has_record: bool,
+    pub cycle_seq: u64,
+    pub cycle_id: String,
+    /// Identity fence the cycle ran under (`generation|dataset|remote-identity`).
+    pub fence_key: String,
+    /// `hermetic_fake` | `webdav` | `s3` | `git` (empty when no record).
+    pub backend_kind: String,
+    pub session_id: String,
+    pub apply_remote: bool,
+    /// `idle` | `running` | `completed` | `failed` | `cancelled`.
+    pub phase: String,
+    /// `planning` | `applying` | `finished` | `failed` | `cancelled` | `interrupted`.
+    pub stage: String,
+    pub ensure_present_count: u32,
+    pub ensure_absent_count: u32,
+    pub pull_present_count: u32,
+    pub open_conflict_count: u32,
+    pub hold_count: u32,
+    pub local_entry_count: u32,
+    pub remote_listed_count: u32,
+    pub baseline_entry_count: u32,
+    /// Intent pages published before terminal; on `cancelled` this is the cancellation point.
+    pub pages_applied: u32,
+    pub baseline_advanced: bool,
+    /// `never` | `after_user_action` | `transient` (empty while running).
+    pub retry_disposition: String,
+    pub failure_code: Option<String>,
+    pub failure_message: Option<String>,
+    pub cancel_requested: bool,
+    pub started_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub finished_at_ms: Option<i64>,
+    /// Sticky: last apply cycle that completed without a transient/failure outcome.
+    pub last_successful_at_ms: Option<i64>,
+    /// Monotonic freshness marker (epoch for late-result rejection).
+    pub state_stamp: u64,
+}
+
+/// Real backend probe result (`testConnection`): capabilities + listing facts from an actual
+/// adapter construction + listing round-trip — never an enqueue acceptance.
+#[data]
+#[derive(Clone, Debug, Default)]
+pub struct SyncBackendProbeDto {
+    /// `hermetic_fake` | `webdav` | `s3` | `git`.
+    pub backend_kind: String,
+    /// Remote entries observed by the probe listing across all pages.
+    pub listed_entry_count: u32,
+    /// Whole-batch snapshot revision presence (Git branch tip; `None` for per-path providers).
+    pub snapshot_revision_present: bool,
+    pub conditional_write: bool,
+    pub conditional_delete: bool,
+    pub probed_at_ms: i64,
 }
 
 const fn status_to_dto(status: ConflictPathStatus) -> SyncConflictPathStatusDto {
@@ -578,58 +684,6 @@ pub fn sync_revoke_secret_lease(lease_id: String) -> Result<(), EngineError> {
     Ok(())
 }
 
-/// Maps a core retry disposition name to WorkManager-facing DTO (dark; no fixed three-retry).
-///
-/// # Errors
-///
-/// Validation when the name is unknown.
-#[export]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "BoltFFI free-function boundary requires owned String wire types"
-)]
-pub fn sync_retry_disposition_from_name(name: String) -> Result<SyncRetryHintDto, EngineError> {
-    let disposition = match name.as_str() {
-        "never" => SyncRetryDispositionDto::Never,
-        "after_user_action" => SyncRetryDispositionDto::AfterUserAction,
-        "transient" => SyncRetryDispositionDto::Transient,
-        _ => {
-            return Err(EngineError::from(boundary_err(
-                "sync_ffi_retry_disposition_invalid",
-                "retry disposition must be never|after_user_action|transient",
-            )));
-        }
-    };
-    Ok(SyncRetryHintDto {
-        disposition,
-        // Host scheduler owns concrete delay policy; dark slice only maps disposition.
-        retry_after_millis: None,
-    })
-}
-
-/// Inspects one dark host plan/readiness cycle from durable `.lomo/sync/v1` (conversion only).
-///
-/// Maps `lomo-sync::inspect_sync_cycle_plan` into a coarse DTO. Does **not** re-implement the
-/// planner; does not publish/apply remote work; does not journal secrets.
-///
-/// # Errors
-///
-/// Validation when the workspace root is empty/oversize or durable session is missing; storage /
-/// corruption for unreadable durable state; owner planner boundary errors.
-#[export]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "BoltFFI free-function boundary requires owned String wire types"
-)]
-pub fn sync_inspect_cycle_plan(
-    workspace_root: String,
-) -> Result<SyncCyclePlanSummaryDto, EngineError> {
-    let workspace = require_workspace_root(&workspace_root)?;
-    let paths = SyncPaths::for_workspace(workspace);
-    let summary = inspect_sync_cycle_plan(&paths).map_err(EngineError::from)?;
-    Ok(cycle_summary_to_dto(summary))
-}
-
 fn cycle_summary_to_dto(summary: SyncCyclePlanSummary) -> SyncCyclePlanSummaryDto {
     let session_kind = match summary.session_kind {
         sync::SessionKind::FirstTakeover => "first_takeover",
@@ -649,6 +703,56 @@ fn cycle_summary_to_dto(summary: SyncCyclePlanSummary) -> SyncCyclePlanSummaryDt
         open_conflict_paths: summary.open_conflict_paths,
         conflict_revision: summary.conflict_revision,
         retry_disposition: summary.retry_disposition.to_owned(),
+        pages_applied: summary.pages_applied,
+        baseline_advanced: summary.baseline_advanced,
+        local_entry_count: summary.local_entry_count,
+        remote_listed_count: summary.remote_listed_count,
+        baseline_entry_count: summary.baseline_entry_count,
+    }
+}
+
+fn cycle_record_to_dto(record: Option<sync::SyncCycleRecord>) -> SyncCycleStatusDto {
+    let Some(record) = record else {
+        return SyncCycleStatusDto {
+            phase: "idle".to_owned(),
+            ..SyncCycleStatusDto::default()
+        };
+    };
+    let phase = match record.phase {
+        sync::SyncCyclePhase::Running => "running",
+        sync::SyncCyclePhase::Completed => "completed",
+        sync::SyncCyclePhase::Failed => "failed",
+        sync::SyncCyclePhase::Cancelled => "cancelled",
+    };
+    SyncCycleStatusDto {
+        has_record: true,
+        cycle_seq: record.cycle_seq,
+        cycle_id: record.cycle_id,
+        fence_key: record.fence_key,
+        backend_kind: record.backend_kind,
+        session_id: record.session_id,
+        apply_remote: record.apply_remote,
+        phase: phase.to_owned(),
+        stage: record.stage,
+        ensure_present_count: record.ensure_present_count,
+        ensure_absent_count: record.ensure_absent_count,
+        pull_present_count: record.pull_present_count,
+        open_conflict_count: record.open_conflict_count,
+        hold_count: record.hold_count,
+        local_entry_count: record.local_entry_count,
+        remote_listed_count: record.remote_listed_count,
+        baseline_entry_count: record.baseline_entry_count,
+        pages_applied: record.pages_applied,
+        baseline_advanced: record.baseline_advanced,
+        retry_disposition: record.retry_disposition,
+        failure_code: record.failure_code,
+        failure_message: record.failure_message,
+        cancel_requested: record.cancel_requested,
+        started_at_ms: record.started_at_ms,
+        updated_at_ms: record.updated_at_ms,
+        finished_at_ms: record.finished_at_ms,
+        last_successful_at_ms: record.last_successful_at_ms,
+        state_stamp: record.state_stamp,
     }
 }
 
@@ -665,6 +769,91 @@ fn parse_backend_kind(kind: &str) -> Result<SyncBackendKind, EngineError> {
     }
 }
 
+/// Rejects a wire field that carries a value while belonging to another backend kind.
+fn reject_stray_backend_field(field: &str, value: &str) -> Result<(), EngineError> {
+    if value.trim().is_empty() {
+        Ok(())
+    } else {
+        Err(EngineError::from(boundary_err(
+            "sync_ffi_config_field_mismatch",
+            &format!("field {field} does not belong to the selected backend_kind"),
+        )))
+    }
+}
+
+/// Converts the wire DTO into the typed [`SyncBackendConfig`] variant.
+///
+/// Per-kind required fields must be non-empty and fields belonging to other kinds must be
+/// empty — a mixed shape is a wire contract violation, not a silent default. `identity` is the
+/// non-secret username / access key id; the secret always travels via `secret_lease_id`.
+fn backend_config_from_dto(dto: &SyncBackendConfigDto) -> Result<SyncBackendConfig, EngineError> {
+    let kind = parse_backend_kind(&dto.backend_kind)?;
+    let dataset_id = dto.remote_dataset_id.trim().to_owned();
+
+    match kind {
+        SyncBackendKind::HermeticFake => {
+            reject_stray_backend_field("endpoint_url", &dto.endpoint_url)?;
+            reject_stray_backend_field("identity", &dto.identity)?;
+            reject_stray_backend_field("s3_bucket", &dto.s3_bucket)?;
+            reject_stray_backend_field("s3_prefix", &dto.s3_prefix)?;
+            reject_stray_backend_field("s3_region", &dto.s3_region)?;
+            reject_stray_backend_field("git_branch", &dto.git_branch)?;
+            reject_stray_backend_field("git_author_name", &dto.git_author_name)?;
+            reject_stray_backend_field("git_author_email", &dto.git_author_email)?;
+            Ok(SyncBackendConfig::HermeticFake {
+                remote_dataset_id: dataset_id,
+            })
+        }
+        SyncBackendKind::WebDav => {
+            reject_stray_backend_field("s3_bucket", &dto.s3_bucket)?;
+            reject_stray_backend_field("s3_prefix", &dto.s3_prefix)?;
+            reject_stray_backend_field("s3_region", &dto.s3_region)?;
+            reject_stray_backend_field("git_branch", &dto.git_branch)?;
+            reject_stray_backend_field("git_author_name", &dto.git_author_name)?;
+            reject_stray_backend_field("git_author_email", &dto.git_author_email)?;
+            Ok(SyncBackendConfig::WebDav {
+                endpoint_url: dto.endpoint_url.trim().to_owned(),
+                username: dto.identity.trim().to_owned(),
+                remote_dataset_id: dataset_id,
+            })
+        }
+        SyncBackendKind::S3 => {
+            reject_stray_backend_field("git_branch", &dto.git_branch)?;
+            reject_stray_backend_field("git_author_name", &dto.git_author_name)?;
+            reject_stray_backend_field("git_author_email", &dto.git_author_email)?;
+            Ok(SyncBackendConfig::S3 {
+                endpoint_url: dto.endpoint_url.trim().to_owned(),
+                access_key_id: dto.identity.trim().to_owned(),
+                bucket: dto.s3_bucket.trim().to_owned(),
+                prefix: dto.s3_prefix.trim().to_owned(),
+                region: dto.s3_region.trim().to_owned(),
+                remote_dataset_id: dataset_id,
+            })
+        }
+        SyncBackendKind::Git => {
+            reject_stray_backend_field("s3_bucket", &dto.s3_bucket)?;
+            reject_stray_backend_field("s3_prefix", &dto.s3_prefix)?;
+            reject_stray_backend_field("s3_region", &dto.s3_region)?;
+            if dto.git_branch.trim().is_empty() {
+                return Err(EngineError::from(boundary_err(
+                    "git_config_incomplete",
+                    "git_branch is required for the git backend",
+                )));
+            }
+            lomo_git::validate_git_remote_url(dto.endpoint_url.trim())
+                .map_err(EngineError::from)?;
+            Ok(SyncBackendConfig::Git {
+                remote_url: dto.endpoint_url.trim().to_owned(),
+                username: dto.identity.trim().to_owned(),
+                branch: dto.git_branch.trim().to_owned(),
+                author_name: dto.git_author_name.trim().to_owned(),
+                author_email: dto.git_author_email.trim().to_owned(),
+                remote_dataset_id: dataset_id,
+            })
+        }
+    }
+}
+
 /// Runs one **production-shaped** owner cycle via `lomo-sync` composition.
 ///
 /// Conversion only: resolves an optional process-local secret lease (material never journals),
@@ -674,8 +863,7 @@ fn parse_backend_kind(kind: &str) -> Result<SyncBackendKind, EngineError> {
 /// Git: constructs `lomo-git` at this edge (app-private bare mirror under `.lomo/sync/v1/git-mirror`)
 /// and calls [`run_composed_sync_cycle_with_remote_port`] so `lomo-sync` stays free of `git2`.
 ///
-/// Does **not** re-implement planner rules. Empty-port inspect remains available as
-/// [`sync_inspect_cycle_plan`] for readiness.
+/// Does **not** re-implement planner rules.
 ///
 /// Session-less apply refuses pending `KeepRemote` / Merged local pulls
 /// (`sync_local_pull_requires_workspace_session`). Production apply cycles that may pull local
@@ -689,30 +877,17 @@ fn parse_backend_kind(kind: &str) -> Result<SyncBackendKind, EngineError> {
 #[export]
 #[expect(
     clippy::needless_pass_by_value,
-    clippy::too_many_arguments,
-    reason = "BoltFFI free-function boundary requires owned String wire types"
+    reason = "BoltFFI free-function boundary requires owned wire types"
 )]
 pub fn sync_run_cycle(
     workspace_root: String,
-    backend_kind: String,
-    endpoint_url: String,
-    username_or_access_key: String,
-    bucket: String,
-    prefix: String,
-    region: String,
-    remote_dataset_id: String,
+    config: SyncBackendConfigDto,
     secret_lease_id: String,
     apply_remote: bool,
 ) -> Result<SyncCyclePlanSummaryDto, EngineError> {
     execute_composed_sync_cycle(
         &workspace_root,
-        &backend_kind,
-        endpoint_url,
-        username_or_access_key,
-        bucket,
-        prefix,
-        region,
-        remote_dataset_id,
+        &config,
         &secret_lease_id,
         apply_remote,
         None,
@@ -730,19 +905,12 @@ impl LomoEngine {
     /// same composed-cycle failures as [`sync_run_cycle`].
     #[expect(
         clippy::needless_pass_by_value,
-        clippy::too_many_arguments,
-        reason = "BoltFFI instance boundary requires owned String wire types"
+        reason = "BoltFFI instance boundary requires owned wire types"
     )]
     pub fn sync_run_cycle(
         &self,
         workspace_root: String,
-        backend_kind: String,
-        endpoint_url: String,
-        username_or_access_key: String,
-        bucket: String,
-        prefix: String,
-        region: String,
-        remote_dataset_id: String,
+        config: SyncBackendConfigDto,
         secret_lease_id: String,
         apply_remote: bool,
     ) -> Result<SyncCyclePlanSummaryDto, EngineError> {
@@ -750,13 +918,7 @@ impl LomoEngine {
         let session = crate::session_ffi::session_arc(self)?;
         execute_composed_sync_cycle(
             &workspace_root,
-            &backend_kind,
-            endpoint_url,
-            username_or_access_key,
-            bucket,
-            prefix,
-            region,
-            remote_dataset_id,
+            &config,
             &secret_lease_id,
             apply_remote,
             Some(session.as_ref()),
@@ -801,22 +963,141 @@ pub fn sync_reset_control_tree(workspace_root: String) -> Result<(), EngineError
     reset_sync_control_tree(&paths).map_err(EngineError::from)
 }
 
+/// Reads the durable cycle record — the sole authority for host sync status.
+///
+/// Read-only: no cycle lock, no state writes. `has_record=false`/`phase=idle` when the workspace
+/// has never run a cycle. A stale `Running` record is repaired by the next `begin_sync_cycle`,
+/// not by this read (process death repair is a writer-side concern).
+///
+/// # Errors
+///
+/// Validation errors for a blank/unresolvable workspace root and structured corruption errors
+/// when `cycle_state.rec` fails its checksum/schema gate (never a silent clean-slate).
+#[export]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI free-function boundary requires owned String wire types"
+)]
+pub fn sync_cycle_status(workspace_root: String) -> Result<SyncCycleStatusDto, EngineError> {
+    let workspace = require_workspace_root(&workspace_root)?;
+    let paths = SyncPaths::for_workspace(workspace);
+    let record = read_cycle_state(&paths).map_err(EngineError::from)?;
+    Ok(cycle_record_to_dto(record))
+}
+
+/// Persists a cancellation request bound to the running cycle's identity fence.
+///
+/// Rejects when no matching cycle is running or when the requester holds a stale cycle
+/// identity — the returned record (on success) is the post-write authoritative state.
+///
+/// # Errors
+///
+/// `sync_cycle_not_running` / `sync_cycle_fence_mismatch` style validation errors plus storage
+/// errors for the durable write; validation errors for a blank workspace root.
+#[export]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI free-function boundary requires owned String wire types"
+)]
+pub fn sync_request_cancel(workspace_root: String) -> Result<SyncCycleStatusDto, EngineError> {
+    let workspace = require_workspace_root(&workspace_root)?;
+    let paths = SyncPaths::for_workspace(workspace);
+    let record = request_sync_cycle_cancel(&paths).map_err(EngineError::from)?;
+    Ok(cycle_record_to_dto(Some(record)))
+}
+
+/// Probes the configured backend with the same adapter construction a real cycle uses.
+///
+/// Constructs the remote port (Git via `lomo-git`, others via `lomo-sync` composition), probes
+/// capabilities and streams the remote listing — a real round-trip, never an enqueue
+/// acceptance. Takes the workspace cycle lock so a probe cannot interleave with a running
+/// cycle's remote mutations (Git mirror writes are not concurrent-safe).
+///
+/// # Errors
+///
+/// Validation errors for blank roots / malformed config / stale secret leases, `Busy` when the
+/// cycle lock is held, and the adapter's probe/transport errors (structured, no fabrication).
+#[export]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI free-function boundary requires owned String wire types"
+)]
+pub fn sync_probe_backend(
+    workspace_root: String,
+    config: SyncBackendConfigDto,
+    secret_lease_id: String,
+) -> Result<SyncBackendProbeDto, EngineError> {
+    let workspace = require_workspace_root(&workspace_root)?;
+    let config = backend_config_from_dto(&config)?;
+    let secret_owned = resolve_secret_material(&secret_lease_id)?;
+    let secret_ref = secret_owned.as_deref();
+    let _cycle_lock = acquire_workspace_cycle_lock(workspace)?;
+    let paths = SyncPaths::for_workspace(workspace);
+
+    let remote: Box<dyn RemoteSyncPort> = if matches!(config, SyncBackendConfig::Git { .. }) {
+        Box::new(connect_git_port(workspace, &config, secret_ref)?)
+    } else {
+        connect_sync_remote_port(workspace, &paths, &config, secret_ref)
+            .map_err(EngineError::from)?
+    };
+    let capabilities = remote.remote_capabilities().map_err(EngineError::from)?;
+    let listing = remote.list_remote_pages().map_err(EngineError::from)?;
+    let listed_entry_count = listing.pages.iter().map(Vec::len).sum::<usize>();
+    let snapshot_revision_present = listing.snapshot_revision.is_some();
+
+    let probed_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
+        });
+    Ok(SyncBackendProbeDto {
+        backend_kind: config.kind().wire_name().to_owned(),
+        listed_entry_count: u32::try_from(listed_entry_count).unwrap_or(u32::MAX),
+        snapshot_revision_present,
+        conditional_write: capabilities.conditional_write,
+        conditional_delete: capabilities.conditional_delete,
+        probed_at_ms,
+    })
+}
+
 /// Composes store local + `lomo-git` remote and runs the owner cycle.
 ///
-/// Wire field reuse (Git):
-/// - `endpoint_url` = remote URL
-/// - `username_or_access_key` = HTTPS username (default `git` when token present)
-/// - `bucket` = branch short name (default `main`)
-/// - `prefix` = author name (default `Lomo`)
-/// - `region` = author email (default `git@lomo.local`)
-/// - secret lease = token (may be empty for local bare remotes)
+/// Git wire fields are explicit: `endpoint_url` = remote URL (userinfo rejected by `lomo-git`),
+/// `identity` = HTTPS username (default `git` when a token lease is present), `git_branch`,
+/// `git_author_name`, `git_author_email`; the secret lease carries the token (may be empty for
+/// local bare remotes).
 fn run_composed_git_cycle(
     workspace_root: &Path,
     config: &SyncBackendConfig,
     secret_material: Option<&[u8]>,
     apply_remote: bool,
 ) -> Result<SyncCyclePlanSummary, LomoError> {
-    if config.endpoint_url.trim().is_empty() {
+    let remote = connect_git_port(workspace_root, config, secret_material)?;
+    run_composed_sync_cycle_with_remote_port(workspace_root, config, &remote, apply_remote)
+}
+
+/// Builds the `lomo-git` remote port for a Git backend (composition + probe share one
+/// construction path so `testConnection` exercises the same adapter as a real cycle).
+fn connect_git_port(
+    workspace_root: &Path,
+    config: &SyncBackendConfig,
+    secret_material: Option<&[u8]>,
+) -> Result<lomo_git::GitAdapter<lomo_git::WorkspaceFileGitObjectSource>, LomoError> {
+    let SyncBackendConfig::Git {
+        remote_url,
+        username,
+        branch,
+        author_name,
+        author_email,
+        ..
+    } = config
+    else {
+        return Err(boundary_err(
+            "git_config_incomplete",
+            "git composition requires the Git backend config variant",
+        ));
+    };
+    if remote_url.trim().is_empty() {
         return Err(boundary_err(
             "git_config_incomplete",
             "git endpoint_url (remote) is required",
@@ -833,7 +1114,7 @@ fn run_composed_git_cycle(
             })?
             .to_owned(),
     };
-    let username = if config.username_or_access_key.trim().is_empty() {
+    let username = if username.trim().is_empty() {
         if token.is_empty() {
             String::new()
         } else {
@@ -841,22 +1122,7 @@ fn run_composed_git_cycle(
             "git".to_owned()
         }
     } else {
-        config.username_or_access_key.trim().to_owned()
-    };
-    let branch = if config.bucket.trim().is_empty() {
-        "main"
-    } else {
-        config.bucket.trim()
-    };
-    let author_name = if config.prefix.trim().is_empty() {
-        "Lomo"
-    } else {
-        config.prefix.trim()
-    };
-    let author_email = if config.region.trim().is_empty() {
-        "git@lomo.local"
-    } else {
-        config.region.trim()
+        username.trim().to_owned()
     };
 
     let paths = SyncPaths::for_workspace(workspace_root);
@@ -869,61 +1135,43 @@ fn run_composed_git_cycle(
     })?;
 
     let objects = lomo_git::WorkspaceFileGitObjectSource::new(workspace_root.to_path_buf());
-    let remote = lomo_git::connect_workspace_git(
-        config.endpoint_url.trim(),
-        branch,
+    lomo_git::connect_workspace_git(
+        remote_url.trim(),
+        branch.trim(),
         mirror_dir,
         &username,
         &token,
         objects,
-        author_name,
-        author_email,
+        author_name.trim(),
+        author_email.trim(),
         Duration::from_secs(30),
-    )?;
-    run_composed_sync_cycle_with_remote_port(workspace_root, config, &remote, apply_remote)
+    )
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "composed cycle shares the BoltFFI wire arity; session is the only extra composition input"
-)]
+/// Resolves a process-local secret lease into owned material (empty lease id → `None`).
+fn resolve_secret_material(secret_lease_id: &str) -> Result<Option<Vec<u8>>, EngineError> {
+    let trimmed = secret_lease_id.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let id = SecretLeaseId::parse(trimmed).map_err(EngineError::from)?;
+    let material = process_secret_vault()
+        .resolve(&id)
+        .map_err(EngineError::from)?;
+    Ok(Some(material.as_bytes().to_vec()))
+}
+
 fn execute_composed_sync_cycle(
     workspace_root: &str,
-    backend_kind: &str,
-    endpoint_url: String,
-    username_or_access_key: String,
-    bucket: String,
-    prefix: String,
-    region: String,
-    remote_dataset_id: String,
+    config_dto: &SyncBackendConfigDto,
     secret_lease_id: &str,
     apply_remote: bool,
     session: Option<&WorkspaceSession>,
 ) -> Result<SyncCyclePlanSummaryDto, EngineError> {
     let workspace = require_workspace_root(workspace_root)?;
-    let kind = parse_backend_kind(backend_kind)?;
-    let config = SyncBackendConfig {
-        kind,
-        endpoint_url,
-        username_or_access_key,
-        bucket,
-        prefix,
-        region,
-        remote_dataset_id,
-    };
+    let config = backend_config_from_dto(config_dto)?;
 
-    let secret_owned: Option<Vec<u8>> = {
-        let trimmed = secret_lease_id.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            let id = SecretLeaseId::parse(trimmed).map_err(EngineError::from)?;
-            let material = process_secret_vault()
-                .resolve(&id)
-                .map_err(EngineError::from)?;
-            Some(material.as_bytes().to_vec())
-        }
-    };
+    let secret_owned = resolve_secret_material(secret_lease_id)?;
     let secret_ref = secret_owned.as_deref();
     let _cycle_lock = acquire_workspace_cycle_lock(workspace)?;
 
@@ -931,7 +1179,7 @@ fn execute_composed_sync_cycle(
         refuse_sessionless_local_pulls(workspace)?;
     }
 
-    let summary = if matches!(kind, SyncBackendKind::Git) {
+    let summary = if matches!(config, SyncBackendConfig::Git { .. }) {
         run_composed_git_cycle(workspace, &config, secret_ref, apply_remote)
             .map_err(EngineError::from)?
     } else {
