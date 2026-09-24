@@ -2,7 +2,9 @@ package com.lomo.app.feature.settings
 
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.CalendarHeatmapThresholds
+import com.lomo.domain.model.CustomFontImportResult
 import com.lomo.domain.model.CustomFontInfo
+import com.lomo.domain.model.CustomFontSource
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.StorageArea
@@ -17,18 +19,26 @@ import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+
+/** Result of deleting a stored font through the settings coordinator. */
+enum class CustomFontDeletion {
+    /** The font was removed; the selection was untouched. */
+    REMOVED,
+
+    /** The deleted font was selected; the preference was reset to the system default. */
+    SELECTION_RESET,
+}
 
 class SettingsAppConfigCoordinator(
     appConfigRepository: AppConfigRepository,
     switchRootStorageUseCase: SwitchRootStorageUseCase,
     scope: CoroutineScope,
     customFontStore: CustomFontStore,
-    memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository =
-        NoOpMemoSnapshotPreferencesRepository,
-    syncInboxRepository: SyncInboxRepository? = null,
+    memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository,
+    syncInboxRepository: SyncInboxRepository,
 ) {
     val rootDirectory: StateFlow<DirectoryDisplayState> =
         appConfigRepository
@@ -267,7 +277,7 @@ class SettingsAppConfigCoordinator(
                     location = StorageLocation(path),
                 ),
             )
-            syncInboxRepository?.ensureDirectoryStructure()
+            syncInboxRepository.ensureDirectoryStructure()
         }
 
     val updateSyncInboxUri: suspend (String) -> Unit =
@@ -278,7 +288,7 @@ class SettingsAppConfigCoordinator(
                     location = StorageLocation(uriString),
                 ),
             )
-            syncInboxRepository?.ensureDirectoryStructure()
+            syncInboxRepository.ensureDirectoryStructure()
         }
 
     val updateDateFormat: suspend (String) -> Unit =
@@ -299,11 +309,27 @@ class SettingsAppConfigCoordinator(
     val updateFontPreference: suspend (FontPreference) -> Unit =
         { preference -> appConfigRepository.setFontPreference(preference) }
 
-    val importCustomFont: suspend (contents: ByteArray, originalFileName: String) -> CustomFontInfo? =
-        { contents, originalFileName -> customFontStore.importFont(contents, originalFileName) }
+    val importCustomFont: suspend (source: CustomFontSource, originalFileName: String) -> CustomFontImportResult =
+        { source, originalFileName -> customFontStore.importFont(source, originalFileName) }
 
-    val deleteCustomFont: suspend (id: String) -> Unit =
-        { id -> customFontStore.deleteFont(id) }
+    /**
+     * Deletes a stored font and keeps the selection fact consistent: when the deleted font was
+     * the selected one, the preference is reset to the system default in the same action and
+     * [CustomFontDeletion.SELECTION_RESET] reports the side effect to the caller.
+     */
+    val deleteCustomFont: suspend (id: String) -> CustomFontDeletion =
+        { id ->
+            val selected =
+                (appConfigRepository.getFontPreference().first() as? FontPreference.UserImported)
+                    ?.id == id
+            customFontStore.deleteFont(id)
+            if (selected) {
+                appConfigRepository.setFontPreference(FontPreference.SystemDefault)
+                CustomFontDeletion.SELECTION_RESET
+            } else {
+                CustomFontDeletion.REMOVED
+            }
+        }
 
     val updateTypographyFontSizeScale: suspend (Float) -> Unit =
         { scale -> appConfigRepository.setFontSizeScale(scale) }
@@ -375,20 +401,6 @@ class SettingsAppConfigCoordinator(
 
     val updateMemoSnapshotMaxAgeDays: suspend (Int) -> Unit =
         { days -> memoSnapshotPreferencesRepository.setMemoSnapshotMaxAgeDays(days) }
-}
-
-private object NoOpMemoSnapshotPreferencesRepository : MemoSnapshotPreferencesRepository {
-    override fun isMemoSnapshotsEnabled() = flowOf(PreferenceDefaults.MEMO_SNAPSHOTS_ENABLED)
-
-    override suspend fun setMemoSnapshotsEnabled(enabled: Boolean) = Unit
-
-    override fun getMemoSnapshotMaxCount() = flowOf(PreferenceDefaults.MEMO_SNAPSHOT_MAX_COUNT)
-
-    override suspend fun setMemoSnapshotMaxCount(count: Int) = Unit
-
-    override fun getMemoSnapshotMaxAgeDays() = flowOf(PreferenceDefaults.MEMO_SNAPSHOT_MAX_AGE_DAYS)
-
-    override suspend fun setMemoSnapshotMaxAgeDays(days: Int) = Unit
 }
 
 private fun Flow<String?>.asDirectoryDisplayState(scope: CoroutineScope): StateFlow<DirectoryDisplayState> =

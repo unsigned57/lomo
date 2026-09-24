@@ -39,7 +39,23 @@ import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncState
-import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
+import com.lomo.app.testing.fakes.FakeMemoSnapshotPreferencesRepository
+import com.lomo.app.testing.fakes.FakeSyncInboxRepository
+import android.content.Context
+import com.lomo.app.feature.update.AppUpdateChecker
+import com.lomo.app.feature.update.AppUpdateDownloadManager
+import com.lomo.app.testing.fakes.FakeAppRuntimeInfoRepository
+import com.lomo.app.testing.fakes.FakeAppUpdateDownloadRepository
+import com.lomo.domain.model.AppUpdateFetchException
+import com.lomo.domain.model.AppUpdateFetchFailure
+import com.lomo.domain.model.LatestAppRelease
+import com.lomo.domain.repository.AppUpdateRepository
+import com.lomo.domain.usecase.CancelAppUpdateDownloadUseCase
+import com.lomo.domain.usecase.CheckAppUpdateUseCase
+import com.lomo.domain.usecase.CheckStartupAppUpdateUseCase
+import com.lomo.domain.usecase.DownloadAndInstallAppUpdateUseCase
+import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
+import com.lomo.domain.usecase.GetLatestAppReleaseUseCase
 import com.lomo.domain.repository.MigrationArchiveRepository
 import com.lomo.domain.repository.WorkspaceStateResolver
 import com.lomo.domain.usecase.ExportAllNotesArchiveUseCase
@@ -85,27 +101,9 @@ class SettingsViewModelTest : AppFunSpec() {
     private val credentialRepository = FakeCredentialRepository()
     private val migrationRepository = NoOpMigrationArchiveRepository()
     private val migrationWorkspaceStateResolver = NoOpWorkspaceStateResolver()
-
-    private class FakeMemoSnapshotPreferencesRepository : MemoSnapshotPreferencesRepository {
-        val snapshotsEnabled = MutableStateFlow(PreferenceDefaults.MEMO_SNAPSHOTS_ENABLED)
-        val maxCount = MutableStateFlow(PreferenceDefaults.MEMO_SNAPSHOT_MAX_COUNT)
-        val maxAgeDays = MutableStateFlow(PreferenceDefaults.MEMO_SNAPSHOT_MAX_AGE_DAYS)
-
-        override fun isMemoSnapshotsEnabled(): Flow<Boolean> = snapshotsEnabled.asStateFlow()
-        override suspend fun setMemoSnapshotsEnabled(enabled: Boolean) {
-            snapshotsEnabled.value = enabled
-        }
-
-        override fun getMemoSnapshotMaxCount(): Flow<Int> = maxCount.asStateFlow()
-        override suspend fun setMemoSnapshotMaxCount(count: Int) {
-            maxCount.value = count
-        }
-
-        override fun getMemoSnapshotMaxAgeDays(): Flow<Int> = maxAgeDays.asStateFlow()
-        override suspend fun setMemoSnapshotMaxAgeDays(days: Int) {
-            maxAgeDays.value = days
-        }
-    }
+    private val appUpdateRepository = FakeAppUpdateRepository()
+    private val appRuntimeInfoRepository = FakeAppRuntimeInfoRepository()
+    private val appUpdateDownloadRepository = FakeAppUpdateDownloadRepository()
 
     // Helper functions to avoid excessive mock stubbing detekt counts
     private fun <T> mockEvery(block: MockKMatcherScope.() -> T): MockKStubScope<T, T> = every(stubBlock = block)
@@ -121,12 +119,13 @@ class SettingsViewModelTest : AppFunSpec() {
             shareServiceManager.lanShareDeviceNameValue = "Local"
             shareServiceManager.transferState.value = com.lomo.domain.model.ShareTransferState.Idle
             shareServiceManager.pendingPairing.value = null
-            shareServiceManager.incomingBatch.value = null
+            shareServiceManager.incomingBatches.value = emptyList()
             shareServiceManager.discoveredDevices.value = emptyList()
             credentialRepository.reset()
 
             mockEvery { gitSyncSettingsUseCase.observeGitSyncEnabled() } returns flowOf(false)
             mockEvery { gitSyncSettingsUseCase.observeRemoteUrl() } returns flowOf("")
+            mockEvery { gitSyncSettingsUseCase.observeBranch() } returns flowOf("main")
             mockEvery { gitSyncSettingsUseCase.observeAuthorName() } returns flowOf("Lomo")
             mockEvery { gitSyncSettingsUseCase.observeAuthorEmail() } returns flowOf("lomo@example.com")
             mockEvery { gitSyncSettingsUseCase.observeAutoSyncEnabled() } returns flowOf(false)
@@ -236,15 +235,6 @@ class SettingsViewModelTest : AppFunSpec() {
             }
         }
 
-        test("git conflict dialog classification uses structured error code") {
-            runTest {
-                val viewModel = createViewModel()
-
-                viewModel.gitFeature.shouldShowGitConflictDialog(GitSyncErrorCode.CONFLICT) shouldBe true
-                viewModel.gitFeature.shouldShowGitConflictDialog(GitSyncErrorCode.UNKNOWN) shouldBe false
-            }
-        }
-
         test("snapshot section exposes memo-only controls") {
             runTest {
                 val viewModel = createViewModel()
@@ -331,7 +321,9 @@ class SettingsViewModelTest : AppFunSpec() {
                         switchRootStorageUseCase = switchRootStorageUseCase,
                         memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
                         customFontStore = FakeCustomFontStore(),
+                        customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(FakeCustomFontStore()),
                         engineReadinessRepository = FakeEngineReadinessRepository(),
+                        syncInboxRepository = FakeSyncInboxRepository(),
                     ),
                 ),
             exportAllNotesArchiveUseCase = ExportAllNotesArchiveUseCase(migrationRepository),
@@ -342,6 +334,20 @@ class SettingsViewModelTest : AppFunSpec() {
                 ),
             exportEncryptedSettingsUseCase = ExportEncryptedSettingsUseCase(migrationRepository),
             importEncryptedSettingsUseCase = ImportEncryptedSettingsUseCase(migrationRepository),
+            appUpdateChecker =
+                AppUpdateChecker(
+                    checkAppUpdateUseCase = CheckAppUpdateUseCase(appUpdateRepository, appRuntimeInfoRepository),
+                    checkStartupAppUpdateUseCase =
+                        CheckStartupAppUpdateUseCase(appConfigRepository, appUpdateRepository, appRuntimeInfoRepository),
+                    getLatestAppReleaseUseCase = GetLatestAppReleaseUseCase(appUpdateRepository),
+                ),
+            getCurrentAppVersionUseCase = GetCurrentAppVersionUseCase(appRuntimeInfoRepository),
+            appUpdateDownloadManager =
+                AppUpdateDownloadManager(
+                    context = mockk<Context>(),
+                    downloadAndInstallAppUpdateUseCase = DownloadAndInstallAppUpdateUseCase(appUpdateDownloadRepository),
+                    cancelAppUpdateDownloadUseCase = CancelAppUpdateDownloadUseCase(appUpdateDownloadRepository),
+                ),
         )
 }
 
@@ -363,4 +369,10 @@ private class NoOpMigrationArchiveRepository : MigrationArchiveRepository {
 
 private class NoOpWorkspaceStateResolver : WorkspaceStateResolver {
     override suspend fun rebuildFromCurrentWorkspace() = Unit
+}
+
+private class FakeAppUpdateRepository(var latestRelease: LatestAppRelease? = null) : AppUpdateRepository {
+    override suspend fun fetchLatestRelease(): LatestAppRelease =
+        latestRelease
+            ?: throw AppUpdateFetchException(AppUpdateFetchFailure.Network("no release staged"))
 }

@@ -149,7 +149,6 @@ class SettingsFeatureViewModelsTest : AppFunSpec() {
             ((actionCoordinator.resetGitRepositoryInvoked)) shouldBe true
             (gitSupport.resetConnectionTestStateInvocations) shouldBe (1)
             ((viewModel.isValidGitRemoteUrl("https://example.com/repo.git"))) shouldBe true
-            ((viewModel.shouldShowGitConflictDialog(GitSyncErrorCode.UNKNOWN))) shouldBe false
         }
 
         test("webdav feature viewmodel exposes wired coordinator delegates") {
@@ -255,11 +254,10 @@ private class FakeSettingsActionCoordinator :
     override val testProviderConnection: (SyncBackendType) -> Unit = { provider -> testProviderArg = provider }
 
     override val updateGitRemoteUrl: (String) -> Unit = { gitRemoteUrlArg = it }
+    override val updateGitBranch: (String) -> Unit = {}
     override val updateGitPat: (String) -> Unit = {}
     override val updateGitAuthorName: (String) -> Unit = {}
     override val updateGitAuthorEmail: (String) -> Unit = {}
-    override val resolveGitConflictUsingRemote: () -> Unit = {}
-    override val resolveGitConflictUsingLocal: () -> Unit = {}
     override val resetGitRepository: () -> Unit = { resetGitRepositoryInvoked = true }
 
     override val updateWebDavProvider: (WebDavProvider) -> Unit = { webDavProviderArg = it }
@@ -292,9 +290,7 @@ private class FakeGitSupport : SettingsGitFeatureSupport {
     var resetConnectionTestStateInvocations = 0
 
     override val isValidGitRemoteUrl: (String) -> Boolean = { url -> url.startsWith("https://") }
-    override val shouldShowGitConflictDialog: (GitSyncErrorCode) -> Boolean = { code ->
-        code == GitSyncErrorCode.CONFLICT
-    }
+    override val isValidGitBranch: (String) -> Boolean = { branch -> branch.isNotBlank() }
     override val resetConnectionTestState: () -> Unit = {
         resetConnectionTestStateInvocations += 1
     }

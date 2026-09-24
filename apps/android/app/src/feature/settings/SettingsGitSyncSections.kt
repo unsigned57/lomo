@@ -2,6 +2,7 @@ package com.lomo.app.feature.settings
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccountTree
 import androidx.compose.material.icons.outlined.DeleteForever
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Link
@@ -31,6 +32,7 @@ fun GitSyncSettingsSection(
                 GitSyncConnectionPreferences(
                     state = state,
                     onOpenRemoteUrlDialog = dialogs.openRemoteUrl,
+                    onOpenBranchDialog = dialogs.openBranch,
                     onOpenPatDialog = dialogs.openPat,
                 )
                 GitSyncAuthorPreferences(
@@ -50,6 +52,7 @@ fun GitSyncSettingsSection(
 private fun GitSyncConnectionPreferences(
     state: GitSectionState,
     onOpenRemoteUrlDialog: () -> Unit,
+    onOpenBranchDialog: () -> Unit,
     onOpenPatDialog: () -> Unit,
 ) {
     val providerSettings = state.providerSettings
@@ -59,6 +62,13 @@ private fun GitSyncConnectionPreferences(
         subtitle = state.remoteUrl.ifBlank { stringResource(R.string.settings_not_set) },
         icon = Icons.Outlined.Link,
         onClick = onOpenRemoteUrlDialog,
+    )
+    SettingsDivider()
+    PreferenceItem(
+        title = stringResource(R.string.settings_git_branch),
+        subtitle = state.branch.ifBlank { stringResource(R.string.settings_not_set) },
+        icon = Icons.Outlined.AccountTree,
+        onClick = onOpenBranchDialog,
     )
     SettingsDivider()
     PreferenceItem(

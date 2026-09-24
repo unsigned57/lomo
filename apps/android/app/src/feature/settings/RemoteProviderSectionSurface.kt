@@ -221,5 +221,6 @@ private fun SyncBackendType.sectionPresentation(): RemoteProviderSectionPresenta
 
         SyncBackendType.INBOX,
         SyncBackendType.NONE,
+        SyncBackendType.UNKNOWN,
         -> error("Provider $this does not own a remote settings section")
     }

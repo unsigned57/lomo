@@ -3,6 +3,7 @@ package com.lomo.app.feature.update
 import android.content.Context
 import com.lomo.app.R
 import com.lomo.app.util.runSuspendCatching
+import com.lomo.domain.model.AppUpdateCheckOutcome
 import com.lomo.domain.model.AppUpdateInfo
 import com.lomo.domain.model.AppUpdateInstallState
 import com.lomo.domain.usecase.CancelAppUpdateDownloadUseCase
@@ -26,7 +27,7 @@ private const val DEBUG_UPDATE_TERMINAL_DELAY_MS = 220L
 
 class UpdateStartupOrchestrator
     internal constructor(
-        private val startupUpdateCheck: suspend () -> AppUpdateInfo?,
+        private val startupUpdateCheck: suspend () -> AppUpdateCheckOutcome,
     ) {
         constructor(appUpdateChecker: AppUpdateChecker) : this(
             startupUpdateCheck = appUpdateChecker::checkForStartupUpdate,
@@ -47,10 +48,18 @@ class UpdateStartupOrchestrator
                     try {
                         val updateResult = runSuspendCatching { startupUpdateCheck() }
                         if (updateResult.isSuccess) {
-                            startupCheckConsumed = true
-                            updateResult.getOrNull()?.let { info ->
-                                _dialogState.value = info.toDialogState()
+                            val outcome = updateResult.getOrThrow()
+                            // A check that ran to completion consumes the once-per-startup slot;
+                            // a Failed check did not complete, so a later trigger may retry.
+                            if (outcome !is AppUpdateCheckOutcome.Failed) {
+                                startupCheckConsumed = true
                             }
+                            // Startup checks stay silent: only an Available outcome presents a
+                            // dialog; UpToDate/Failed never surface UI.
+                            (outcome as? AppUpdateCheckOutcome.Available)
+                                ?.let { available ->
+                                    _dialogState.value = available.update.toDialogState()
+                                }
                         }
                     } finally {
                         if (activeStartupCheckJob === coroutineContext[Job]) {
@@ -145,6 +154,8 @@ class AppUpdateDownloadSession(
         _progressDialogState.value = null
     }
 
+    // behavior-contract: constant-status-ok: debug simulation emits a scripted progress
+    // sequence (19/52/87); the values are the fixture, not a measurement.
     private suspend fun runDebugSimulation(
         update: AppUpdateDialogState,
         scenario: DebugAppUpdateScenario,

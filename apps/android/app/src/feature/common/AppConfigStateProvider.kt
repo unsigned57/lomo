@@ -2,9 +2,12 @@ package com.lomo.app.feature.common
 
 
 import com.lomo.app.feature.preferences.AppPreferencesState
+import com.lomo.app.feature.preferences.CustomFontHost
 import com.lomo.app.feature.preferences.observeAppPreferences
+import com.lomo.domain.model.PreferencesCorruptionNotice
 import com.lomo.domain.repository.AppPreferencesSnapshotRepository
 import com.lomo.domain.repository.CustomFontStore
+import com.lomo.domain.repository.PreferencesHealthRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -14,6 +17,8 @@ class AppConfigStateProvider(
     private val appConfigUiCoordinator: AppConfigUiCoordinator,
     appPreferencesSnapshotRepository: AppPreferencesSnapshotRepository,
     private val customFontStore: CustomFontStore,
+    private val customFontHost: CustomFontHost,
+    private val preferencesHealthRepository: PreferencesHealthRepository,
     private val appScope: CoroutineScope,
 ) {
         val rootDirectory: StateFlow<String?> =
@@ -33,8 +38,13 @@ class AppConfigStateProvider(
 
         val appPreferences: StateFlow<AppPreferencesState> =
             appPreferencesSnapshotRepository
-                .observeAppPreferences(customFontStore)
+                .observeAppPreferences(customFontStore, customFontHost)
                 .stateIn(appScope, appWhileSubscribed(), AppPreferencesState.defaults())
+
+        val preferencesCorruptionNotice: StateFlow<PreferencesCorruptionNotice?> =
+            preferencesHealthRepository.corruptionNotice
+
+        fun acknowledgeCorruptionNotice() = preferencesHealthRepository.acknowledgeCorruptionNotice()
 
         val appLockEnabled: StateFlow<Boolean?> =
             appConfigUiCoordinator

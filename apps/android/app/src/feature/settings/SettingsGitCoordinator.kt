@@ -35,6 +35,11 @@ class SettingsGitCoordinator(
             .map { it.orEmpty() }
             .settingsStateIn(scope, "")
 
+    val gitBranch: StateFlow<String> =
+        gitSyncSettingsUseCase
+            .observeBranch()
+            .settingsStateIn(scope, PreferenceDefaults.GIT_BRANCH)
+
     val gitPatStatus: StateFlow<StoredCredentialStatus> =
         credentialCoordinator
             .statusState(CredentialProvider.GIT, CredentialField.GIT_TOKEN)
@@ -100,8 +105,15 @@ class SettingsGitCoordinator(
     override val isValidGitRemoteUrl: (String) -> Boolean =
         { url -> gitSyncSettingsUseCase.isValidRemoteUrl(url) }
 
-    override val shouldShowGitConflictDialog: (GitSyncErrorCode) -> Boolean =
-        { code -> code == GitSyncErrorCode.CONFLICT }
+    override val isValidGitBranch: (String) -> Boolean =
+        { branch -> gitSyncSettingsUseCase.isValidBranch(branch) }
+
+    val updateGitBranch: suspend (String) -> SettingsOperationError? =
+        { branch ->
+            runWithError("Failed to update Git branch") {
+                gitSyncSettingsUseCase.updateBranch(branch)
+            }
+        }
 
     val updateGitPat: suspend (String) -> SettingsOperationError? =
         { token ->
@@ -147,16 +159,6 @@ class SettingsGitCoordinator(
 
     private val triggerGitSyncNowInternal: suspend () -> SettingsOperationError? =
         { runWithError("Failed to run Git sync") { gitSyncSettingsUseCase.triggerSyncNow() } }
-
-    val resolveGitConflictUsingRemote: suspend () -> SettingsOperationError? =
-        {
-            gitSyncSettingsUseCase.resolveConflictUsingRemote().toOperationErrorOrNull()
-        }
-
-    val resolveGitConflictUsingLocal: suspend () -> SettingsOperationError? =
-        {
-            gitSyncSettingsUseCase.resolveConflictUsingLocal().toOperationErrorOrNull()
-        }
 
     val resetGitRepository: suspend () -> SettingsOperationError? =
         {
@@ -234,6 +236,12 @@ class SettingsGitCoordinator(
     private suspend fun testGitConnectionState(): RemoteProviderConnectionTestState =
         when (val result = gitSyncSettingsUseCase.testConnection()) {
             is GitSyncResult.Success -> RemoteProviderConnectionTestState.Success(result.message)
+            is GitSyncResult.Accepted ->
+                RemoteProviderConnectionTestState.Error(
+                    provider = SyncBackendType.GIT,
+                    providerCode = GitSyncErrorCode.UNKNOWN.name,
+                    detail = result.message,
+                )
             is GitSyncResult.Error ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.GIT,
@@ -318,7 +326,9 @@ private fun GitSyncResult.toOperationErrorOrNull(): SettingsOperationError.GitSy
                 code = GitSyncErrorCode.CONFLICT,
                 detail = message,
             )
-        is GitSyncResult.Success -> null
+        is GitSyncResult.Success,
+        is GitSyncResult.Accepted,
+        -> null
     }
 
 private fun Throwable.toGitOperationErrorOrNull(): SettingsOperationError.GitSync? =

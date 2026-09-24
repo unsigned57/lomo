@@ -51,7 +51,10 @@ class AppPreferencesShareCardOptionsTest : AppFunSpec() {
             runTest {
                 appConfigRepository.setShareCardSignatureText("Unsigned57")
 
-                val state = appConfigRepository.observeAppPreferences(FakeCustomFontStore()).first()
+                val state = appConfigRepository.observeAppPreferences(
+                    FakeCustomFontStore(),
+                    com.lomo.app.testing.fakes.testCustomFontHost(FakeCustomFontStore()),
+                ).first()
 
                 state.shareCardSignatureText shouldBe "Unsigned57"
             }

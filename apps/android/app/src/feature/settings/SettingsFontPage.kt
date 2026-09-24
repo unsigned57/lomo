@@ -41,6 +41,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,18 +52,19 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.io.File
 import java.util.Locale
-import androidx.compose.ui.text.font.Font
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.runtime.remember
 import com.lomo.app.R
+import com.lomo.domain.model.CustomFontImportResult
 import com.lomo.domain.model.CustomFontInfo
+import com.lomo.domain.model.CustomFontNameState
+import com.lomo.domain.model.CustomFontRejection
+import com.lomo.domain.model.CustomFontSource
 import com.lomo.domain.model.FontPreference
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
-
-private const val MAX_FONT_FILE_BYTES = 200L * 1024L * 1024L // 200 MiB hard guard
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,38 +85,7 @@ internal fun FontSettingsPage(
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            LargeTopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Outlined.FontDownload,
-                            contentDescription = null,
-                            modifier = Modifier.size(28.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(modifier = Modifier.width(AppSpacing.Medium))
-                        Text(stringResource(R.string.settings_font))
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        haptic.medium()
-                        onBack()
-                    }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.back),
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
-                scrollBehavior = scrollBehavior,
-            )
-        },
+        topBar = { FontTopAppBar(onBack = { haptic.medium(); onBack() }, scrollBehavior = scrollBehavior) },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -153,21 +124,62 @@ internal fun FontSettingsPage(
                     CustomFontRow(
                         info = info,
                         selected = selected,
+                        previewFontFamily = displayFeature.previewFontFamily,
                         onSelect = {
                             haptic.medium()
                             displayFeature.updateFontPreference(FontPreference.UserImported(info.id))
                         },
                         onDelete = {
-                            if (selected) {
-                                displayFeature.updateFontPreference(FontPreference.SystemDefault)
+                            displayFeature.deleteCustomFont(info.id) { deletion ->
+                                if (deletion == CustomFontDeletion.SELECTION_RESET) {
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.settings_font_selected_deleted),
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
                             }
-                            displayFeature.deleteCustomFont(info.id)
                         },
                     )
                 }
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FontTopAppBar(
+    onBack: () -> Unit,
+    scrollBehavior: TopAppBarScrollBehavior,
+) {
+    LargeTopAppBar(
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Outlined.FontDownload,
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.width(AppSpacing.Medium))
+                Text(stringResource(R.string.settings_font))
+            }
+        },
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.back),
+                )
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        scrollBehavior = scrollBehavior,
+    )
 }
 
 @Composable
@@ -340,17 +352,14 @@ private fun ImportFontButton(onClick: () -> Unit) {
 private fun CustomFontRow(
     info: CustomFontInfo,
     selected: Boolean,
+    previewFontFamily: suspend (String) -> FontFamily,
     onSelect: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val fontFile = remember(info.id) { File(File(context.filesDir, "custom_fonts"), info.id) }
-    val customFontFamily = remember(fontFile) {
-        if (fontFile.exists()) {
-            runCatching { FontFamily(Font(file = fontFile)) }.getOrDefault(FontFamily.SansSerif)
-        } else {
-            FontFamily.SansSerif
-        }
+    // Preview resolves through the same CustomFontHost as the app theme — off the composition
+    // path and keyed by content identity — so preview and theme never disagree on a version.
+    val customFontFamily by produceState<FontFamily>(FontFamily.SansSerif, info.id) {
+        value = previewFontFamily(info.id)
     }
 
     Card(
@@ -400,6 +409,13 @@ private fun CustomFontRow(
                     },
                     fontFamily = customFontFamily,
                 )
+                if (info.nameState == CustomFontNameState.LEGACY_IMPORT) {
+                    Text(
+                        text = stringResource(R.string.settings_font_legacy_name_state),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
                 Text(
                     text = formatBytes(info.sizeBytes),
                     style = MaterialTheme.typography.bodySmall,
@@ -450,7 +466,7 @@ private fun handleFontImport(
 ) {
     val resolver = context.contentResolver
     val originalName = resolveDisplayName(resolver, uri) ?: "imported.ttf"
-    
+
     val extension = originalName.substringAfterLast('.', "").lowercase(Locale.ROOT)
     if (extension != "ttf" && extension != "otf") {
         Toast.makeText(
@@ -461,43 +477,26 @@ private fun handleFontImport(
         return
     }
 
-    // behavior-contract: silent-result-ok: unreadable URI → no-op; SAF revocation is a user state
-    val contents = runCatching {
-        resolver.openInputStream(uri)?.use { input ->
-            // behavior-contract: full-load-ok: bounded font file
-            input.readBytes()
-        }
-    }.getOrNull()
-    if (contents == null) {
-        Toast.makeText(
-            context,
-            context.getString(R.string.settings_font_import_failed),
-            Toast.LENGTH_SHORT
-        ).show()
-        return
-    }
-    if (contents.size > MAX_FONT_FILE_BYTES) {
-        Toast.makeText(
-            context,
-            context.getString(R.string.settings_font_import_too_large),
-            Toast.LENGTH_SHORT
-        ).show()
-        return
-    }
-    displayFeature.importCustomFont(contents, originalName) { info ->
-        if (info != null) {
-            Toast.makeText(
-                context,
-                context.getString(R.string.settings_font_import_success),
-                Toast.LENGTH_SHORT
-            ).show()
-        } else {
-            Toast.makeText(
-                context,
-                context.getString(R.string.settings_font_import_failed),
-                Toast.LENGTH_SHORT
-            ).show()
-        }
+    // The byte budget and font validation live in the store; the URI is passed as a stream
+    // source so the file is never materialized into memory or onto disk before validation.
+    val source = CustomFontSource { resolver.openInputStream(uri) }
+    displayFeature.importCustomFont(source, originalName) { result ->
+        val message =
+            when (result) {
+                is CustomFontImportResult.Imported -> R.string.settings_font_import_success
+                is CustomFontImportResult.Rejected ->
+                    when (result.reason) {
+                        CustomFontRejection.UNSUPPORTED_TYPE ->
+                            R.string.settings_font_import_invalid_type
+                        CustomFontRejection.OVERSIZED ->
+                            R.string.settings_font_import_too_large
+                        CustomFontRejection.INVALID_FONT ->
+                            R.string.settings_font_import_invalid_font
+                        CustomFontRejection.UNREADABLE ->
+                            R.string.settings_font_import_failed
+                    }
+            }
+        Toast.makeText(context, context.getString(message), Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -506,8 +505,8 @@ private fun resolveDisplayName(resolver: ContentResolver, uri: Uri): String? {
         if (cursor.moveToFirst()) {
             val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
             if (index >= 0) {
-                val rawName = cursor.getString(index) ?: return null
-                return runCatching { java.net.URLDecoder.decode(rawName, "UTF-8") }.getOrDefault(rawName)
+                // The store owns decoding and sanitization; the UI passes the provider name raw.
+                return cursor.getString(index)
             }
         }
     }

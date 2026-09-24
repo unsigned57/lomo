@@ -44,6 +44,7 @@ private fun connectionErrorMessage(state: RemoteProviderConnectionTestState.Erro
             )
         SyncBackendType.INBOX,
         SyncBackendType.NONE,
+        SyncBackendType.UNKNOWN,
         -> state.detail ?: stringResource(R.string.error_unknown)
     }
 
@@ -54,6 +55,7 @@ private fun SyncBackendType.connectionTestingResId(): Int =
         SyncBackendType.S3 -> R.string.settings_s3_test_connection_testing
         SyncBackendType.INBOX,
         SyncBackendType.NONE,
+        SyncBackendType.UNKNOWN,
         -> R.string.settings_s3_test_connection_testing
     }
 
@@ -64,6 +66,7 @@ private fun SyncBackendType.connectionSuccessResId(): Int =
         SyncBackendType.S3 -> R.string.settings_s3_test_connection_success
         SyncBackendType.INBOX,
         SyncBackendType.NONE,
+        SyncBackendType.UNKNOWN,
         -> R.string.settings_s3_test_connection_success
     }
 
@@ -74,5 +77,6 @@ private fun SyncBackendType.connectionFailedResId(): Int =
         SyncBackendType.S3 -> R.string.settings_s3_test_connection_failed
         SyncBackendType.INBOX,
         SyncBackendType.NONE,
+        SyncBackendType.UNKNOWN,
         -> R.string.settings_s3_test_connection_failed
     }

@@ -25,8 +25,9 @@ data class SettingsCoordinatorDependencies(
     val switchRootStorageUseCase: SwitchRootStorageUseCase,
     val memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository,
     val customFontStore: CustomFontStore,
+    val customFontHost: com.lomo.app.feature.preferences.CustomFontHost,
     val engineReadinessRepository: EngineReadinessRepository,
-    val syncInboxRepository: SyncInboxRepository? = null,
+    val syncInboxRepository: SyncInboxRepository,
 )
 
 class SettingsCoordinatorFactory(
@@ -41,6 +42,7 @@ class SettingsCoordinatorFactory(
     private val switchRootStorageUseCase = dependencies.switchRootStorageUseCase
     private val memoSnapshotPreferencesRepository = dependencies.memoSnapshotPreferencesRepository
     private val customFontStore = dependencies.customFontStore
+    private val customFontHost = dependencies.customFontHost
     private val engineReadinessRepository = dependencies.engineReadinessRepository
     private val syncInboxRepository = dependencies.syncInboxRepository
         private val settingsCredentialCoordinator =
@@ -54,6 +56,16 @@ class SettingsCoordinatorFactory(
                 customFontStore = customFontStore,
                 memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
                 syncInboxRepository = syncInboxRepository,
+            )
+
+        fun createDisplayFeature(
+            scope: CoroutineScope,
+            appConfigCoordinator: SettingsAppConfigCoordinator,
+        ): SettingsDisplayFeatureViewModel =
+            SettingsDisplayFeatureViewModel(
+                scope = scope,
+                appConfigCoordinator = appConfigCoordinator,
+                customFontHost = customFontHost,
             )
 
         fun createLanShareCoordinator(scope: CoroutineScope): SettingsLanShareCoordinator =

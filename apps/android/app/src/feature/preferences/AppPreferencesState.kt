@@ -1,5 +1,6 @@
 package com.lomo.app.feature.preferences
 
+import androidx.compose.ui.text.font.FontFamily
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.domain.model.AppPreferenceSnapshot
@@ -25,6 +26,18 @@ import kotlinx.coroutines.flow.stateIn
 /**
  * Aggregated UI preferences consumed by multiple screens.
  */
+/** Whether the persisted custom-font selection currently resolves to usable font bytes. */
+enum class CustomFontStatus {
+    /** The user picked the system font. */
+    NONE_SELECTED,
+
+    /** The selected custom font resolves and is loaded. */
+    READY,
+
+    /** A custom font is selected but its file is missing or unusable — explicit problem state. */
+    MISSING,
+}
+
 data class AppPreferencesState(
     val dateFormat: String,
     val timeFormat: String,
@@ -33,6 +46,8 @@ data class AppPreferencesState(
     val colorSource: ColorSource,
     val fontPreference: FontPreference,
     val customFontPath: String?,
+    val customFontFamily: FontFamily,
+    val customFontStatus: CustomFontStatus,
     val hapticFeedbackEnabled: Boolean,
     val showInputHints: Boolean,
     val doubleTapEditEnabled: Boolean,
@@ -54,7 +69,9 @@ data class AppPreferencesState(
 ) {
     companion object {
         fun defaults(): AppPreferencesState =
-            AppPreferenceSnapshot.defaults().toAppPreferencesState(FontResolution(FontPreference.default(), null))
+            AppPreferenceSnapshot
+                .defaults()
+                .toAppPreferencesState(FontResolution(FontPreference.default(), null, null))
     }
 
     fun memoActionOrderFor(scope: String): ImmutableList<String> =
@@ -67,28 +84,27 @@ data class AppPreferencesState(
 
 fun AppPreferencesSnapshotRepository.observeAppPreferences(
     customFontStore: CustomFontStore,
+    customFontHost: CustomFontHost,
 ): Flow<AppPreferencesState> =
     observeAppPreferenceSnapshot().map { snapshot ->
-        snapshot.toAppPreferencesState(snapshot.resolveFontPreference(customFontStore))
+        snapshot.toAppPreferencesState(snapshot.resolveFontPreference(customFontStore, customFontHost))
     }
 
 private suspend fun AppPreferenceSnapshot.resolveFontPreference(
     customFontStore: CustomFontStore,
+    customFontHost: CustomFontHost,
 ): FontResolution {
     val preference = fontPreference
-    val resolved =
-        when (preference) {
-            is FontPreference.SystemDefault -> null
-            is FontPreference.UserImported -> customFontStore.resolveFontPath(preference.id)
-        }
-    return if (preference is FontPreference.UserImported && resolved == null) {
-        // behavior-contract: silent-result-ok: missing user font file -> caller falls back to
-        // the system default; clearing the persisted id is the responsibility of the font
-        // settings page, not this read path.
-        FontResolution(FontPreference.SystemDefault, null)
-    } else {
-        FontResolution(preference, resolved)
+    if (preference !is FontPreference.UserImported) {
+        return FontResolution(preference, null, null)
     }
+    val resolved = customFontStore.resolveFontPath(preference.id)
+    if (resolved == null) {
+        // The persisted selection stays the fact; the missing file is an explicit status, not a
+        // silently rewritten preference. The theme still falls back to the system family.
+        return FontResolution(preference, null, FontFamily.SansSerif)
+    }
+    return FontResolution(preference, resolved, customFontHost.familyFor(preference.id))
 }
 
 private fun AppPreferenceSnapshot.toAppPreferencesState(fontResolution: FontResolution): AppPreferencesState =
@@ -100,6 +116,13 @@ private fun AppPreferenceSnapshot.toAppPreferencesState(fontResolution: FontReso
         colorSource = colorSource,
         fontPreference = fontResolution.preference,
         customFontPath = fontResolution.resolvedPath,
+        customFontFamily = fontResolution.family ?: FontFamily.SansSerif,
+        customFontStatus =
+            when {
+                fontResolution.preference !is FontPreference.UserImported -> CustomFontStatus.NONE_SELECTED
+                fontResolution.resolvedPath == null -> CustomFontStatus.MISSING
+                else -> CustomFontStatus.READY
+            },
         hapticFeedbackEnabled = hapticFeedbackEnabled,
         showInputHints = showInputHints,
         doubleTapEditEnabled = doubleTapEditEnabled,
@@ -126,13 +149,16 @@ private fun AppPreferenceSnapshot.toAppPreferencesState(fontResolution: FontReso
 private data class FontResolution(
     val preference: FontPreference,
     val resolvedPath: String?,
+    /** `null` for system selection or an unresolvable file; the caller reads [CustomFontStatus]. */
+    val family: FontFamily?,
 )
 
 fun AppPreferencesSnapshotRepository.appPreferencesState(
     scope: CoroutineScope,
     customFontStore: CustomFontStore,
+    customFontHost: CustomFontHost,
 ): StateFlow<AppPreferencesState> =
-    observeAppPreferences(customFontStore)
+    observeAppPreferences(customFontStore, customFontHost)
         .stateIn(scope, appWhileSubscribed(), AppPreferencesState.defaults())
 
 fun MemoStatisticsRepository.activeDayCountState(scope: CoroutineScope): StateFlow<Int> =

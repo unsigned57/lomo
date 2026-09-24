@@ -47,12 +47,6 @@ internal fun ProviderSettingsDialogs(
                 features = features,
                 dialogState = dialogState,
             )
-        is SettingsDialogRoute.RemoteProviderGitConflict ->
-            GitConflictResolutionDialog(
-                route = route,
-                gitFeature = features.git,
-                dialogState = dialogState,
-            )
         null -> Unit
     }
 }
@@ -182,46 +176,6 @@ private fun ProviderConfirmationDialog(
     }
 }
 
-@Composable
-private fun GitConflictResolutionDialog(
-    route: SettingsDialogRoute.RemoteProviderGitConflict,
-    gitFeature: SettingsGitFeatureViewModel,
-    dialogState: SettingsDialogState,
-) {
-    AlertDialog(
-        onDismissRequest = dialogState::dismissProviderDialog,
-        title = { Text(stringResource(R.string.settings_git_conflict_dialog_title)) },
-        text = {
-            Text(
-                stringResource(
-                    R.string.settings_git_conflict_dialog_message,
-                    SettingsErrorPresenter.gitSyncErrorMessage(route.error.code, route.error.detail),
-                ),
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    gitFeature.resolveGitConflictUsingLocal()
-                    dialogState.dismissProviderDialog()
-                },
-            ) {
-                Text(stringResource(R.string.settings_git_conflict_keep_local))
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = {
-                    gitFeature.resolveGitConflictUsingRemote()
-                    dialogState.dismissProviderDialog()
-                },
-            ) {
-                Text(stringResource(R.string.settings_git_conflict_use_remote))
-            }
-        },
-    )
-}
-
 private data class ProviderTextValidation(
     val confirmEnabled: Boolean,
     val showError: Boolean = false,
@@ -242,6 +196,19 @@ private fun providerTextValidation(
                 errorResId =
                     if (value.isNotBlank() && !valid) {
                         R.string.settings_git_remote_url_error_https_required
+                    } else {
+                        null
+                    },
+            )
+        }
+        RemoteProviderTextField.GitBranch -> {
+            val valid = features.git.isValidGitBranch(value)
+            ProviderTextValidation(
+                confirmEnabled = valid,
+                showError = value.isNotBlank() && !valid,
+                errorResId =
+                    if (value.isNotBlank() && !valid) {
+                        R.string.settings_git_branch_error
                     } else {
                         null
                     },
@@ -279,6 +246,7 @@ private fun submitProviderText(
 ) {
     when (route.field) {
         RemoteProviderTextField.GitRemoteUrl -> features.git.updateGitRemoteUrl(value)
+        RemoteProviderTextField.GitBranch -> features.git.updateGitBranch(value)
         RemoteProviderTextField.GitPat -> features.git.updateGitPat(value)
         RemoteProviderTextField.GitAuthorName -> features.git.updateGitAuthorName(value)
         RemoteProviderTextField.GitAuthorEmail -> features.git.updateGitAuthorEmail(value)
@@ -302,6 +270,7 @@ private fun submitProviderText(
 private fun RemoteProviderTextField.titleResId(): Int =
     when (this) {
         RemoteProviderTextField.GitRemoteUrl -> R.string.settings_git_remote_url
+        RemoteProviderTextField.GitBranch -> R.string.settings_git_branch
         RemoteProviderTextField.GitPat -> R.string.settings_git_pat_dialog_title
         RemoteProviderTextField.GitAuthorName -> R.string.settings_git_author_name
         RemoteProviderTextField.GitAuthorEmail -> R.string.settings_git_author_email
@@ -324,6 +293,7 @@ private fun RemoteProviderTextField.titleResId(): Int =
 private fun RemoteProviderTextField.labelResId(): Int =
     when (this) {
         RemoteProviderTextField.GitRemoteUrl -> R.string.settings_git_remote_url_hint
+        RemoteProviderTextField.GitBranch -> R.string.settings_git_branch_hint
         RemoteProviderTextField.GitPat -> R.string.settings_git_pat_hint
         RemoteProviderTextField.GitAuthorName -> R.string.settings_git_author_name_hint
         RemoteProviderTextField.GitAuthorEmail -> R.string.settings_git_author_email_hint

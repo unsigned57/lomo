@@ -215,6 +215,12 @@ class SettingsWebDavCoordinator(
     private suspend fun testWebDavConnectionState(): RemoteProviderConnectionTestState =
         when (val result = webDavSyncSettingsUseCase.testConnection()) {
             is WebDavSyncResult.Success -> RemoteProviderConnectionTestState.Success(result.message)
+            is WebDavSyncResult.Accepted ->
+                RemoteProviderConnectionTestState.Error(
+                    provider = SyncBackendType.WEBDAV,
+                    providerCode = WebDavSyncErrorCode.UNKNOWN.name,
+                    detail = result.message,
+                )
             is WebDavSyncResult.Error ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.WEBDAV,

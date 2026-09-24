@@ -3,9 +3,15 @@ package com.lomo.app.feature.settings
 import com.lomo.app.feature.update.AppUpdateChecker
 import com.lomo.app.feature.update.AppUpdateDownloadManager
 import com.lomo.app.feature.update.AppUpdateDialogState
+import com.lomo.app.feature.update.toDialogState
+import com.lomo.domain.model.AppUpdateCheckOutcome
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.ColorSource
+import androidx.compose.ui.text.font.FontFamily
+import com.lomo.app.feature.preferences.CustomFontHost
+import com.lomo.domain.model.CustomFontImportResult
 import com.lomo.domain.model.CustomFontInfo
+import com.lomo.domain.model.CustomFontSource
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.FontPreference
 import com.lomo.domain.model.GitSyncErrorCode
@@ -48,16 +54,15 @@ interface SettingsRemoteProviderFeatureActions {
 interface SettingsGitSpecificFeatureActions {
     val updateGitRemoteUrl: (String) -> Unit
     val updateGitPat: (String) -> Unit
+    val updateGitBranch: (String) -> Unit
     val updateGitAuthorName: (String) -> Unit
     val updateGitAuthorEmail: (String) -> Unit
-    val resolveGitConflictUsingRemote: () -> Unit
-    val resolveGitConflictUsingLocal: () -> Unit
     val resetGitRepository: () -> Unit
 }
 
 interface SettingsGitFeatureSupport {
     val isValidGitRemoteUrl: (String) -> Boolean
-    val shouldShowGitConflictDialog: (GitSyncErrorCode) -> Boolean
+    val isValidGitBranch: (String) -> Boolean
     val resetConnectionTestState: () -> Unit
 }
 
@@ -220,6 +225,7 @@ private fun CoroutineScope.launchStorageUpdate(
 class SettingsDisplayFeatureViewModel(
     private val scope: CoroutineScope,
     private val appConfigCoordinator: SettingsAppConfigCoordinator,
+    customFontHost: CustomFontHost,
 ) {
     fun updateDateFormat(format: String) {
         scope.launch { appConfigCoordinator.updateDateFormat(format) }
@@ -246,18 +252,24 @@ class SettingsDisplayFeatureViewModel(
     }
 
     fun importCustomFont(
-        contents: ByteArray,
+        source: CustomFontSource,
         originalFileName: String,
-        onResult: (CustomFontInfo?) -> Unit = {},
+        onResult: (CustomFontImportResult) -> Unit = {},
     ) {
         scope.launch {
-            val result = appConfigCoordinator.importCustomFont(contents, originalFileName)
+            val result = appConfigCoordinator.importCustomFont(source, originalFileName)
             onResult(result)
         }
     }
 
-    fun deleteCustomFont(id: String) {
-        scope.launch { appConfigCoordinator.deleteCustomFont(id) }
+    /** Preview family for one stored font — resolved off-composition through the shared host. */
+    val previewFontFamily: suspend (String) -> FontFamily = customFontHost::familyFor
+
+    fun deleteCustomFont(
+        id: String,
+        onResult: (CustomFontDeletion) -> Unit = {},
+    ) {
+        scope.launch { onResult(appConfigCoordinator.deleteCustomFont(id)) }
     }
 
     fun updateTypographyFontSizeScale(scale: Float) {
@@ -359,9 +371,9 @@ class SettingsInteractionFeatureViewModel(
 class SettingsSystemFeatureViewModel(
     private val scope: CoroutineScope,
     private val appConfigCoordinator: SettingsAppConfigCoordinator,
-    private val appUpdateChecker: AppUpdateChecker? = null,
-    private val getCurrentAppVersionUseCase: GetCurrentAppVersionUseCase? = null,
-    private val appUpdateDownloadManager: AppUpdateDownloadManager? = null,
+    private val appUpdateChecker: AppUpdateChecker,
+    private val getCurrentAppVersionUseCase: GetCurrentAppVersionUseCase,
+    private val appUpdateDownloadManager: AppUpdateDownloadManager,
 ) {
     private val _currentVersion = MutableStateFlow("")
     val currentVersion: StateFlow<String> = _currentVersion.asStateFlow()
@@ -374,7 +386,7 @@ class SettingsSystemFeatureViewModel(
 
     init {
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            _currentVersion.value = getCurrentAppVersionUseCase?.invoke().orEmpty()
+            _currentVersion.value = getCurrentAppVersionUseCase.invoke()
         }
     }
 
@@ -389,26 +401,17 @@ class SettingsSystemFeatureViewModel(
         _manualUpdateState.value = SettingsManualUpdateState.Checking
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             _manualUpdateState.value =
-                runSuspendCatching { appUpdateChecker?.checkForManualUpdate() }
+                runSuspendCatching { appUpdateChecker.checkForManualUpdate() }
                     .fold(
-                        onSuccess = { info ->
-                            when {
-                                info == null -> SettingsManualUpdateState.UpToDate
-                                else ->
+                        onSuccess = { outcome ->
+                            when (outcome) {
+                                is AppUpdateCheckOutcome.Available ->
                                     SettingsManualUpdateState.UpdateAvailable(
-                                        dialogState =
-                                            AppUpdateDialogState(
-                                                url = info.url,
-                                                version = info.version,
-                                                releaseNotes = info.releaseNotes,
-                                                apkDownloadUrl = info.apkDownloadUrl,
-                                                apkFileName = info.apkFileName,
-                                                apkSizeBytes = info.apkSizeBytes,
-                                                expectedPackageName = info.expectedPackageName,
-                                                expectedVersionName = info.expectedVersionName,
-                                                expectedVersionCode = info.expectedVersionCode,
-                                            ),
+                                        dialogState = outcome.update.toDialogState(),
                                     )
+                                AppUpdateCheckOutcome.UpToDate -> SettingsManualUpdateState.UpToDate
+                                is AppUpdateCheckOutcome.Failed ->
+                                    SettingsManualUpdateState.Error(outcome.failure.diagnostic)
                             }
                         },
                         onFailure = { throwable ->
@@ -419,7 +422,7 @@ class SettingsSystemFeatureViewModel(
     }
 
     fun startInAppUpdate(dialogState: AppUpdateDialogState) {
-        appUpdateDownloadManager?.startInAppUpdate(dialogState)
+        appUpdateDownloadManager.startInAppUpdate(dialogState)
     }
 
     fun openDebugLatestReleasePreview() {
@@ -428,24 +431,17 @@ class SettingsSystemFeatureViewModel(
         }
         debugPreviewJob =
             scope.launch(start = CoroutineStart.UNDISPATCHED) {
-                runSuspendCatching { appUpdateChecker?.getLatestReleaseForDebugPreview() }
+                runSuspendCatching { appUpdateChecker.getLatestReleaseForDebugPreview() }
                     .fold(
-                        onSuccess = { info ->
-                            when {
-                                info == null -> _manualUpdateState.value = SettingsManualUpdateState.UpToDate
-                                else ->
-                                    _debugPreviewDialogState.value =
-                                        AppUpdateDialogState(
-                                            url = info.url,
-                                            version = info.version,
-                                            releaseNotes = info.releaseNotes,
-                                            apkDownloadUrl = info.apkDownloadUrl,
-                                            apkFileName = info.apkFileName,
-                                            apkSizeBytes = info.apkSizeBytes,
-                                            expectedPackageName = info.expectedPackageName,
-                                            expectedVersionName = info.expectedVersionName,
-                                            expectedVersionCode = info.expectedVersionCode,
-                                        )
+                        onSuccess = { outcome ->
+                            when (outcome) {
+                                is AppUpdateCheckOutcome.Available ->
+                                    _debugPreviewDialogState.value = outcome.update.toDialogState()
+                                AppUpdateCheckOutcome.UpToDate ->
+                                    _manualUpdateState.value = SettingsManualUpdateState.UpToDate
+                                is AppUpdateCheckOutcome.Failed ->
+                                    _manualUpdateState.value =
+                                        SettingsManualUpdateState.Error(outcome.failure.diagnostic)
                             }
                         },
                         onFailure = { throwable ->
@@ -507,12 +503,11 @@ class SettingsGitFeatureViewModel(
         )
     val updateGitRemoteUrl = gitActions.updateGitRemoteUrl
     val isValidGitRemoteUrl = gitCoordinator.isValidGitRemoteUrl
-    val shouldShowGitConflictDialog = gitCoordinator.shouldShowGitConflictDialog
+    val isValidGitBranch = gitCoordinator.isValidGitBranch
     val updateGitPat = gitActions.updateGitPat
+    val updateGitBranch = gitActions.updateGitBranch
     val updateGitAuthorName = gitActions.updateGitAuthorName
     val updateGitAuthorEmail = gitActions.updateGitAuthorEmail
-    val resolveGitConflictUsingRemote = gitActions.resolveGitConflictUsingRemote
-    val resolveGitConflictUsingLocal = gitActions.resolveGitConflictUsingLocal
     val resetGitRepository = gitActions.resetGitRepository
 }
 

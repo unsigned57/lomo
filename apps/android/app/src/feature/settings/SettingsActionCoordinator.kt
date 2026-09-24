@@ -89,17 +89,14 @@ class SettingsActionCoordinator(
     override val updateGitPat: (String) -> Unit =
         { token -> launchWithOperationResult { gitCoordinator.updateGitPat(token) } }
 
+    override val updateGitBranch: (String) -> Unit =
+        { branch -> launchWithOperationResult { gitCoordinator.updateGitBranch(branch) } }
+
     override val updateGitAuthorName: (String) -> Unit =
         { name -> launchWithOperationResult { gitCoordinator.updateGitAuthorName(name) } }
 
     override val updateGitAuthorEmail: (String) -> Unit =
         { email -> launchWithOperationResult { gitCoordinator.updateGitAuthorEmail(email) } }
-
-    override val resolveGitConflictUsingRemote: () -> Unit =
-        { launchWithOperationResult { gitCoordinator.resolveGitConflictUsingRemote() } }
-
-    override val resolveGitConflictUsingLocal: () -> Unit =
-        { launchWithOperationResult { gitCoordinator.resolveGitConflictUsingLocal() } }
 
     override val resetGitRepository: () -> Unit =
         { launchWithOperationResult { gitCoordinator.resetGitRepository() } }
@@ -201,6 +198,7 @@ class SettingsActionCoordinator(
             SyncBackendType.S3 -> s3Coordinator.providerSettingsActions
             SyncBackendType.INBOX,
             SyncBackendType.NONE,
+            SyncBackendType.UNKNOWN,
             -> unsupportedRemoteProvider(provider)
         }
 

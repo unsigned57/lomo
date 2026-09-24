@@ -23,6 +23,7 @@ class SettingsStateProvider(
 ) {
     private data class GitExtensionState(
         val remoteUrl: String,
+        val branch: String,
         val authorName: String,
         val authorEmail: String,
     )
@@ -278,16 +279,18 @@ class SettingsStateProvider(
     private val gitExtensionState: StateFlow<GitExtensionState> =
         combine(
             gitCoordinator.gitRemoteUrl,
+            gitCoordinator.gitBranch,
             gitCoordinator.gitAuthorName,
             gitCoordinator.gitAuthorEmail,
-        ) { remoteUrl, authorName, authorEmail ->
-            GitExtensionState(remoteUrl, authorName, authorEmail)
+        ) { remoteUrl, branch, authorName, authorEmail ->
+            GitExtensionState(remoteUrl, branch, authorName, authorEmail)
         }.stateIn(
             scope = scope,
             started = settingsWhileSubscribed(),
             initialValue =
                 GitExtensionState(
                     remoteUrl = gitCoordinator.gitRemoteUrl.value,
+                    branch = gitCoordinator.gitBranch.value,
                     authorName = gitCoordinator.gitAuthorName.value,
                     authorEmail = gitCoordinator.gitAuthorEmail.value,
                 ),
@@ -302,6 +305,7 @@ class SettingsStateProvider(
             GitSectionState(
                 providerSettings = providerSettings,
                 remoteUrl = extension.remoteUrl,
+                branch = extension.branch,
                 authorName = extension.authorName,
                 authorEmail = extension.authorEmail,
                 resetInProgress = resetInProgress,
@@ -313,6 +317,7 @@ class SettingsStateProvider(
                 GitSectionState(
                     providerSettings = gitCoordinator.providerSettingsModel.value,
                     remoteUrl = gitExtensionState.value.remoteUrl,
+                    branch = gitExtensionState.value.branch,
                     authorName = gitExtensionState.value.authorName,
                     authorEmail = gitExtensionState.value.authorEmail,
                     resetInProgress = gitCoordinator.resetInProgress.value,

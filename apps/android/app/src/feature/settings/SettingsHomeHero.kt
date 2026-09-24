@@ -216,5 +216,6 @@ private fun providerLabel(provider: SyncBackendType): String =
         SyncBackendType.WEBDAV -> "WebDAV"
         SyncBackendType.S3 -> "S3"
         SyncBackendType.INBOX -> "Inbox"
-        SyncBackendType.NONE -> ""
+        SyncBackendType.NONE,
+        SyncBackendType.UNKNOWN -> ""
     }

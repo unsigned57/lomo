@@ -74,6 +74,7 @@ data class SnapshotSectionState(
 data class GitSectionState(
     val providerSettings: RemoteProviderSettingsModel,
     val remoteUrl: String,
+    val branch: String,
     val authorName: String,
     val authorEmail: String,
     val resetInProgress: Boolean,

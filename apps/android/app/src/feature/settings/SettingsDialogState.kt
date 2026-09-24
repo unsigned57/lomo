@@ -36,14 +36,11 @@ sealed interface SettingsDialogRoute {
     ) : SettingsDialogRoute {
         val provider: SyncBackendType = action.provider
     }
-
-    data class RemoteProviderGitConflict(
-        val error: SettingsOperationError.GitSync,
-    ) : SettingsDialogRoute
 }
 
 enum class RemoteProviderTextField {
     GitRemoteUrl,
+    GitBranch,
     GitPat,
     GitAuthorName,
     GitAuthorEmail,
@@ -114,9 +111,6 @@ class SettingsDialogState {
     var showDeviceNameDialog by mutableStateOf(false)
     var deviceNameInput by mutableStateOf("")
 
-    var showGitResetConfirmDialog by mutableStateOf(false)
-    var showGitConflictResolutionDialog by mutableStateOf(false)
-    var gitConflictError by mutableStateOf<SettingsOperationError.GitSync?>(null)
 
     fun openProviderTextDialog(
         field: RemoteProviderTextField,
@@ -133,11 +127,6 @@ class SettingsDialogState {
 
     fun openProviderConfirmationDialog(action: RemoteProviderConfirmationAction) {
         activeProviderDialogRoute = SettingsDialogRoute.RemoteProviderConfirmation(action)
-        providerTextFormState = FormState(value = "")
-    }
-
-    fun openProviderGitConflictDialog(error: SettingsOperationError.GitSync) {
-        activeProviderDialogRoute = SettingsDialogRoute.RemoteProviderGitConflict(error)
         providerTextFormState = FormState(value = "")
     }
 
@@ -174,6 +163,7 @@ private val RemoteProviderTextField.provider: SyncBackendType
     get() =
         when (this) {
             RemoteProviderTextField.GitRemoteUrl,
+            RemoteProviderTextField.GitBranch,
             RemoteProviderTextField.GitPat,
             RemoteProviderTextField.GitAuthorName,
             RemoteProviderTextField.GitAuthorEmail,
@@ -207,6 +197,7 @@ private val RemoteProviderTextField.secret: Boolean
             RemoteProviderTextField.S3EncryptionPassword2,
             -> true
             RemoteProviderTextField.GitRemoteUrl,
+            RemoteProviderTextField.GitBranch,
             RemoteProviderTextField.GitAuthorName,
             RemoteProviderTextField.GitAuthorEmail,
             RemoteProviderTextField.WebDavBaseUrl,

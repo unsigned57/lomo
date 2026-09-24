@@ -160,8 +160,6 @@ fun SettingsScreen(
     )
     HandleSettingsOperationError(
         operationError = uiState.operationError,
-        gitFeature = features.git,
-        dialogState = dialogState,
         snackbarHostState = snackbarHostState,
         messages = resources.messages,
         onClearOperationError = viewModel::clearOperationError,

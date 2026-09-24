@@ -21,6 +21,8 @@ import com.lomo.app.testing.fakes.FakeWorkspaceMutationLease
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeCustomFontStore
+import com.lomo.app.testing.fakes.FakeMemoSnapshotPreferencesRepository
+import com.lomo.app.testing.fakes.FakeSyncInboxRepository
 import com.lomo.domain.repository.WorkspaceStateResolver
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import io.kotest.matchers.shouldBe
@@ -53,7 +55,14 @@ class SettingsAppConfigCoordinatorShareCardTest : AppFunSpec() {
             runTest {
                 appConfigRepository.setShareCardSignatureText("Unsigned57")
 
-                val coordinator = SettingsAppConfigCoordinator(appConfigRepository, switchRootStorageUseCase, backgroundScope, FakeCustomFontStore())
+                val coordinator = SettingsAppConfigCoordinator(
+                    appConfigRepository,
+                    switchRootStorageUseCase,
+                    backgroundScope,
+                    FakeCustomFontStore(),
+                    memoSnapshotPreferencesRepository = FakeMemoSnapshotPreferencesRepository(),
+                    syncInboxRepository = FakeSyncInboxRepository(),
+                )
 
                 coordinator.shareCardSignatureText.first { it == "Unsigned57" } shouldBe "Unsigned57"
             }
@@ -61,7 +70,14 @@ class SettingsAppConfigCoordinatorShareCardTest : AppFunSpec() {
 
         test("share card settings forward signature text updates") {
             runTest {
-                val coordinator = SettingsAppConfigCoordinator(appConfigRepository, switchRootStorageUseCase, backgroundScope, FakeCustomFontStore())
+                val coordinator = SettingsAppConfigCoordinator(
+                    appConfigRepository,
+                    switchRootStorageUseCase,
+                    backgroundScope,
+                    FakeCustomFontStore(),
+                    memoSnapshotPreferencesRepository = FakeMemoSnapshotPreferencesRepository(),
+                    syncInboxRepository = FakeSyncInboxRepository(),
+                )
 
                 coordinator.updateShareCardSignatureText("Unsigned57")
 

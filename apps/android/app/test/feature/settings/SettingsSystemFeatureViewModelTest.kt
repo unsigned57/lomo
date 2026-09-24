@@ -3,21 +3,31 @@ import com.lomo.app.testing.fakes.FakeWorkspaceMutationLease
 
 import com.lomo.app.feature.update.AppUpdateChecker
 import com.lomo.app.feature.update.AppUpdateDialogState
+import com.lomo.app.feature.update.AppUpdateDownloadManager
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeCustomFontStore
+import com.lomo.app.testing.fakes.FakeMemoSnapshotPreferencesRepository
+import android.content.Context
+import com.lomo.app.testing.fakes.FakeSyncInboxRepository
+import com.lomo.app.testing.fakes.FakeAppUpdateDownloadRepository
 import com.lomo.domain.model.AppUpdateAssetCandidate
 import com.lomo.domain.model.AppUpdateAssetVerification
+import com.lomo.domain.model.AppUpdateFetchException
+import com.lomo.domain.model.AppUpdateFetchFailure
 import com.lomo.domain.model.LatestAppRelease
 import com.lomo.domain.repository.AppRuntimeInfoRepository
 import com.lomo.domain.repository.AppUpdateRepository
 import com.lomo.domain.repository.WorkspaceStateResolver
+import com.lomo.domain.usecase.CancelAppUpdateDownloadUseCase
 import com.lomo.domain.usecase.CheckAppUpdateUseCase
 import com.lomo.domain.usecase.CheckStartupAppUpdateUseCase
+import com.lomo.domain.usecase.DownloadAndInstallAppUpdateUseCase
 import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
 import com.lomo.domain.usecase.GetLatestAppReleaseUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import io.kotest.matchers.shouldBe
+import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -71,7 +81,7 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
             runTest {
                 val fixture = systemFeatureFixture(
                     currentVersion = "0.9.1",
-                    appUpdateRepository = FakeAppUpdateRepository(null)
+                    appUpdateRepository = FakeAppUpdateRepository(staleRelease())
                 )
 
                 val feature = SettingsSystemFeatureViewModel(
@@ -79,6 +89,7 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
                     appConfigCoordinator = fixture.appConfigCoordinator,
                     appUpdateChecker = fixture.appUpdateChecker,
                     getCurrentAppVersionUseCase = fixture.getCurrentAppVersionUseCase,
+                    appUpdateDownloadManager = fixture.appUpdateDownloadManager,
                 )
 
                 advanceUntilIdle()
@@ -124,6 +135,7 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
                     appConfigCoordinator = fixture.appConfigCoordinator,
                     appUpdateChecker = fixture.appUpdateChecker,
                     getCurrentAppVersionUseCase = fixture.getCurrentAppVersionUseCase,
+                    appUpdateDownloadManager = fixture.appUpdateDownloadManager,
                 )
 
                 feature.checkForUpdatesManually()
@@ -159,7 +171,7 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
                 val fixture = systemFeatureFixture(
                     currentVersion = "0.9.1",
                     checkUpdatesOnStartupEnabled = true,
-                    appUpdateRepository = FakeAppUpdateRepository(null)
+                    appUpdateRepository = FakeAppUpdateRepository(staleRelease())
                 )
 
                 val feature = SettingsSystemFeatureViewModel(
@@ -167,6 +179,7 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
                     appConfigCoordinator = fixture.appConfigCoordinator,
                     appUpdateChecker = fixture.appUpdateChecker,
                     getCurrentAppVersionUseCase = fixture.getCurrentAppVersionUseCase,
+                    appUpdateDownloadManager = fixture.appUpdateDownloadManager,
                 )
 
                 feature.checkForUpdatesManually()
@@ -179,8 +192,8 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
         test("manual update check exposes error state when checker throws") {
             runTest {
                 val fakeAppUpdateRepository = object : AppUpdateRepository {
-                    override suspend fun fetchLatestRelease(): LatestAppRelease? {
-                        throw IllegalStateException("network down")
+                    override suspend fun fetchLatestRelease(): LatestAppRelease {
+                        throw AppUpdateFetchException(AppUpdateFetchFailure.Network("network down"))
                     }
                 }
                 val fixture = systemFeatureFixture(
@@ -194,6 +207,7 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
                     appConfigCoordinator = fixture.appConfigCoordinator,
                     appUpdateChecker = fixture.appUpdateChecker,
                     getCurrentAppVersionUseCase = fixture.getCurrentAppVersionUseCase,
+                    appUpdateDownloadManager = fixture.appUpdateDownloadManager,
                 )
 
                 feature.checkForUpdatesManually()
@@ -230,6 +244,7 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
                     appConfigCoordinator = fixture.appConfigCoordinator,
                     appUpdateChecker = fixture.appUpdateChecker,
                     getCurrentAppVersionUseCase = fixture.getCurrentAppVersionUseCase,
+                    appUpdateDownloadManager = fixture.appUpdateDownloadManager,
                 )
 
                 feature.openDebugLatestReleasePreview()
@@ -253,11 +268,20 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
         val appConfigCoordinator: SettingsAppConfigCoordinator,
         val appUpdateChecker: AppUpdateChecker,
         val getCurrentAppVersionUseCase: GetCurrentAppVersionUseCase,
+        val appUpdateDownloadManager: AppUpdateDownloadManager,
     )
 
-    private class FakeAppUpdateRepository(var latestRelease: LatestAppRelease?) : AppUpdateRepository {
-        override suspend fun fetchLatestRelease(): LatestAppRelease? = latestRelease
+    private class FakeAppUpdateRepository(val latestRelease: LatestAppRelease) : AppUpdateRepository {
+        override suspend fun fetchLatestRelease(): LatestAppRelease = latestRelease
     }
+
+    private fun staleRelease(): LatestAppRelease =
+        LatestAppRelease(
+            tagName = "v0.9.0",
+            htmlUrl = "https://example.com/releases/0.9.0",
+            body = "older",
+            assetCandidates = emptyList(),
+        )
 
     private class FakeAppRuntimeInfoRepository(
         val currentVersion: String,
@@ -286,6 +310,8 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
                 switchRootStorageUseCase = switchRootStorageUseCase,
                 scope = backgroundScope,
                 customFontStore = FakeCustomFontStore(),
+                memoSnapshotPreferencesRepository = FakeMemoSnapshotPreferencesRepository(),
+                syncInboxRepository = FakeSyncInboxRepository(),
             ),
             appUpdateChecker = AppUpdateChecker(
                 checkAppUpdateUseCase = CheckAppUpdateUseCase(
@@ -304,6 +330,14 @@ class SettingsSystemFeatureViewModelTest : AppFunSpec() {
             getCurrentAppVersionUseCase = GetCurrentAppVersionUseCase(
                 appRuntimeInfoRepository = appRuntimeInfoRepository,
             ),
+            appUpdateDownloadManager =
+                AppUpdateDownloadManager(
+                    context = mockk<Context>(),
+                    downloadAndInstallAppUpdateUseCase =
+                        DownloadAndInstallAppUpdateUseCase(FakeAppUpdateDownloadRepository()),
+                    cancelAppUpdateDownloadUseCase =
+                        CancelAppUpdateDownloadUseCase(FakeAppUpdateDownloadRepository()),
+                ),
         )
     }
 

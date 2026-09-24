@@ -4,6 +4,7 @@ import android.content.Context
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppUpdateDownloadRepository
+import com.lomo.domain.model.AppUpdateCheckOutcome
 import com.lomo.domain.model.AppUpdateInfo
 import com.lomo.domain.model.AppUpdateInstallState
 import com.lomo.domain.usecase.CancelAppUpdateDownloadUseCase
@@ -75,7 +76,7 @@ class UpdateStartupOrchestrationContractTest : AppFunSpec() {
                     UpdateStartupOrchestrator(
                         startupUpdateCheck = {
                             startupCheckCallCount++
-                            sampleUpdateInfo(version = "2.0.0")
+                            AppUpdateCheckOutcome.Available(sampleUpdateInfo(version = "2.0.0"))
                         },
                     )
 
@@ -167,7 +168,7 @@ class UpdateStartupOrchestrationContractTest : AppFunSpec() {
 
         test("given no startup update candidate when check finishes then no dialog is exposed") {
             runTest(dispatcher.scheduler) {
-                val orchestrator = UpdateStartupOrchestrator(startupUpdateCheck = { null })
+                val orchestrator = UpdateStartupOrchestrator(startupUpdateCheck = { AppUpdateCheckOutcome.UpToDate })
 
                 orchestrator.triggerStartupCheck(this)
                 advanceUntilIdle()
@@ -183,7 +184,7 @@ class UpdateStartupOrchestrationContractTest : AppFunSpec() {
                     UpdateStartupOrchestrator(
                         startupUpdateCheck = {
                             startupCheckCallCount++
-                            sampleUpdateInfo(version = "2.8.0")
+                            AppUpdateCheckOutcome.Available(sampleUpdateInfo(version = "2.8.0"))
                         },
                     )
                 val viewModel =
@@ -209,7 +210,7 @@ class UpdateStartupOrchestrationContractTest : AppFunSpec() {
                             if (startupCheckCallCount == 1) {
                                 throw CancellationException("startup scope cancelled")
                             }
-                            sampleUpdateInfo(version = "2.3.0")
+                            AppUpdateCheckOutcome.Available(sampleUpdateInfo(version = "2.3.0"))
                         },
                     )
 
@@ -234,7 +235,7 @@ class UpdateStartupOrchestrationContractTest : AppFunSpec() {
                             if (startupCheckCallCount == 1) {
                                 throw IOException("release endpoint unavailable")
                             }
-                            sampleUpdateInfo(version = "2.4.0")
+                            AppUpdateCheckOutcome.Available(sampleUpdateInfo(version = "2.4.0"))
                         },
                     )
 

@@ -14,7 +14,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.UnifiedSyncState
 import kotlinx.coroutines.launch
 
 @Composable
@@ -200,8 +199,6 @@ private fun persistedTreeMatches(
 @Composable
 internal fun HandleSettingsOperationError(
     operationError: SettingsOperationError?,
-    gitFeature: SettingsGitFeatureViewModel,
-    dialogState: SettingsDialogState,
     snackbarHostState: SnackbarHostState,
     messages: SettingsMessages,
     onClearOperationError: () -> Unit,
@@ -216,41 +213,8 @@ internal fun HandleSettingsOperationError(
             null -> null
         }
     LaunchedEffect(operationError) {
-        val error = operationError ?: return@LaunchedEffect
-        if (error is SettingsOperationError.GitSync && gitFeature.shouldShowGitConflictDialog(error.code)) {
-            dialogState.openProviderGitConflictDialog(error)
-        } else {
-            snackbarHostState.showSnackbar(localizedMessage ?: messages.unknownErrorMessage)
-        }
+        operationError ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(localizedMessage ?: messages.unknownErrorMessage)
         onClearOperationError()
-    }
-}
-
-@Composable
-internal fun HandleGitProviderErrorState(
-    syncState: UnifiedSyncState,
-    gitFeature: SettingsGitFeatureViewModel,
-    dialogState: SettingsDialogState,
-) {
-    LaunchedEffect(syncState) {
-        val errorState = syncState as? UnifiedSyncState.Error
-        if (errorState == null || errorState.error.provider != SyncBackendType.GIT) {
-            return@LaunchedEffect
-        }
-        val gitErrorCode =
-            enumValueOf<com.lomo.domain.model.GitSyncErrorCode>(
-                errorState.error.providerCode ?: com.lomo.domain.model.GitSyncErrorCode.UNKNOWN.name,
-            )
-        if (
-            gitFeature.shouldShowGitConflictDialog(gitErrorCode) &&
-            dialogState.activeProviderDialogRoute !is SettingsDialogRoute.RemoteProviderGitConflict
-        ) {
-            dialogState.openProviderGitConflictDialog(
-                SettingsOperationError.GitSync(
-                    code = gitErrorCode,
-                    detail = errorState.error.message,
-                ),
-            )
-        }
     }
 }

@@ -1,5 +1,6 @@
 package com.lomo.app.feature.update
 
+import com.lomo.domain.model.AppUpdateCheckOutcome
 import com.lomo.domain.model.AppUpdateInfo
 import com.lomo.domain.usecase.CheckAppUpdateUseCase
 import com.lomo.domain.usecase.CheckStartupAppUpdateUseCase
@@ -11,17 +12,25 @@ class AppUpdateChecker(
     private val checkStartupAppUpdateUseCase: CheckStartupAppUpdateUseCase,
     private val getLatestAppReleaseUseCase: GetLatestAppReleaseUseCase,
 ) {
-        suspend fun checkForStartupUpdate(): AppUpdateInfo? =
-            checkStartupAppUpdateUseCase()?.normalizeForDisplay()
+        suspend fun checkForStartupUpdate(): AppUpdateCheckOutcome =
+            checkStartupAppUpdateUseCase().normalizeForDisplay()
 
-        suspend fun checkForManualUpdate(): AppUpdateInfo? =
-            checkAppUpdateUseCase()?.normalizeForDisplay()
+        suspend fun checkForManualUpdate(): AppUpdateCheckOutcome =
+            checkAppUpdateUseCase().normalizeForDisplay()
 
-        suspend fun getLatestReleaseForDebugPreview(): AppUpdateInfo? =
-            getLatestAppReleaseUseCase()?.normalizeForDisplay()
+        suspend fun getLatestReleaseForDebugPreview(): AppUpdateCheckOutcome =
+            getLatestAppReleaseUseCase().normalizeForDisplay()
 
-        private fun AppUpdateInfo.normalizeForDisplay(): AppUpdateInfo =
-            copy(releaseNotes = normalizeReleaseNotesForDisplay(releaseNotes))
+        private fun AppUpdateCheckOutcome.normalizeForDisplay(): AppUpdateCheckOutcome =
+            when (this) {
+                is AppUpdateCheckOutcome.Available ->
+                    AppUpdateCheckOutcome.Available(
+                        update.copy(releaseNotes = normalizeReleaseNotesForDisplay(update.releaseNotes)),
+                    )
+                AppUpdateCheckOutcome.UpToDate,
+                is AppUpdateCheckOutcome.Failed,
+                -> this
+            }
 
         private fun normalizeReleaseNotesForDisplay(raw: String): String =
             raw

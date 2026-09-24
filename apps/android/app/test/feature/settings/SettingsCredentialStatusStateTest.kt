@@ -92,6 +92,8 @@ private class FakeGitCredentialStatusRepository(
 
     override fun getRemoteUrl(): Flow<String?> = flowOf(null)
 
+    override fun getBranch(): Flow<String> = flowOf("main")
+
     override fun getAutoSyncEnabled(): Flow<Boolean> = flowOf(false)
 
     override fun getAutoSyncInterval(): Flow<String> = flowOf("30m")
@@ -101,6 +103,8 @@ private class FakeGitCredentialStatusRepository(
     override fun getSyncOnRefreshEnabled(): Flow<Boolean> = flowOf(false)
 
     override suspend fun setRemoteUrl(url: String) = Unit
+
+    override suspend fun setBranch(branch: String) = Unit
 
     override suspend fun setToken(token: String) = Unit
 
@@ -130,15 +134,6 @@ private class FakeGitCredentialStatusRepository(
     override suspend fun testConnection(): GitSyncResult = GitSyncResult.Success("")
 
     override suspend fun resetRepository(): GitSyncResult = GitSyncResult.Success("")
-
-    override suspend fun resetLocalBranchToRemote(): GitSyncResult = GitSyncResult.Success("")
-
-    override suspend fun forcePushLocalToRemote(): GitSyncResult = GitSyncResult.Success("")
-
-    override suspend fun resolveConflicts(
-        resolution: SyncConflictResolution,
-        conflictSet: SyncConflictSet,
-    ): GitSyncResult = GitSyncResult.Success("")
 
     override fun syncState(): Flow<UnifiedSyncState> = flowOf(UnifiedSyncState.Idle)
 }

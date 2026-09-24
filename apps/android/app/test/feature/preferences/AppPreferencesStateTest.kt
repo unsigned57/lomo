@@ -31,6 +31,12 @@ import kotlinx.coroutines.test.runTest
  *
  * Excludes:
  * - Compose rendering and repository implementation details.
+ * Test Change Justification:
+ * - Reason category: production API signature changed.
+ * - Old behavior/assertion being replaced: observeAppPreferences took only the font store.
+ * - Why old assertion is no longer correct: the unified CustomFontHost is now the loading surface, so the provider consumes it.
+ * - Coverage preserved by: the same preference observation assertions through the new parameter.
+ * - Why this is not fitting the test to the implementation: it reflects the unified font-loading contract.
  */
 class AppPreferencesStateTest : AppFunSpec() {
     private val appConfigRepository = FakeAppConfigRepository()
@@ -65,7 +71,10 @@ class AppPreferencesStateTest : AppFunSpec() {
                 )
                 appConfigRepository.updateInputToolbarToolOrder(listOf("backfill", "camera"))
 
-                val state = appConfigRepository.observeAppPreferences(FakeCustomFontStore()).first()
+                val state = appConfigRepository.observeAppPreferences(
+                    FakeCustomFontStore(),
+                    com.lomo.app.testing.fakes.testCustomFontHost(FakeCustomFontStore()),
+                ).first()
 
                 state.dateFormat shouldBe "yyyy-MM-dd"
                 state.timeFormat shouldBe "HH:mm"

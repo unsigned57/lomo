@@ -21,6 +21,7 @@ import com.lomo.app.testing.fakes.FakeWorkspaceMutationLease
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeCustomFontStore
+import com.lomo.app.testing.fakes.FakeMemoSnapshotPreferencesRepository
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.SyncConflictResolution
@@ -87,6 +88,7 @@ class SettingsAppConfigCoordinatorSyncInboxStructureTest : AppFunSpec() {
                     switchRootStorageUseCase = switchRootStorageUseCase,
                     scope = backgroundScope,
                     customFontStore = FakeCustomFontStore(),
+                    memoSnapshotPreferencesRepository = FakeMemoSnapshotPreferencesRepository(),
                     syncInboxRepository = syncInboxRepository,
                 )
 

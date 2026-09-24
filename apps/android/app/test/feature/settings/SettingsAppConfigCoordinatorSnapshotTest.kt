@@ -21,14 +21,11 @@ import com.lomo.app.testing.fakes.FakeWorkspaceMutationLease
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
 import com.lomo.app.testing.fakes.FakeCustomFontStore
-import com.lomo.domain.model.PreferenceDefaults
-import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
+import com.lomo.app.testing.fakes.FakeMemoSnapshotPreferencesRepository
+import com.lomo.app.testing.fakes.FakeSyncInboxRepository
 import com.lomo.domain.repository.WorkspaceStateResolver
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 
@@ -54,27 +51,6 @@ class SettingsAppConfigCoordinatorSnapshotTest : AppFunSpec() {
         override suspend fun rebuildFromCurrentWorkspace() {}
     }
 
-    private class FakeMemoSnapshotPreferencesRepository : MemoSnapshotPreferencesRepository {
-        val snapshotsEnabled = MutableStateFlow(false)
-        val maxCount = MutableStateFlow(PreferenceDefaults.MEMO_SNAPSHOT_MAX_COUNT)
-        val maxAgeDays = MutableStateFlow(PreferenceDefaults.MEMO_SNAPSHOT_MAX_AGE_DAYS)
-
-        override fun isMemoSnapshotsEnabled(): Flow<Boolean> = snapshotsEnabled.asStateFlow()
-        override suspend fun setMemoSnapshotsEnabled(enabled: Boolean) {
-            snapshotsEnabled.value = enabled
-        }
-
-        override fun getMemoSnapshotMaxCount(): Flow<Int> = maxCount.asStateFlow()
-        override suspend fun setMemoSnapshotMaxCount(count: Int) {
-            maxCount.value = count
-        }
-
-        override fun getMemoSnapshotMaxAgeDays(): Flow<Int> = maxAgeDays.asStateFlow()
-        override suspend fun setMemoSnapshotMaxAgeDays(days: Int) {
-            maxAgeDays.value = days
-        }
-    }
-
     init {
         test("memo snapshot flows expose repository values") {
             runTest {
@@ -88,6 +64,7 @@ class SettingsAppConfigCoordinatorSnapshotTest : AppFunSpec() {
                     scope = backgroundScope,
                     customFontStore = FakeCustomFontStore(),
                     memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
+                    syncInboxRepository = FakeSyncInboxRepository(),
                 )
 
                 coordinator.memoSnapshotsEnabled.first { it == false } shouldBe false
@@ -105,6 +82,7 @@ class SettingsAppConfigCoordinatorSnapshotTest : AppFunSpec() {
                     scope = backgroundScope,
                     customFontStore = FakeCustomFontStore(),
                     memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
+                    syncInboxRepository = FakeSyncInboxRepository(),
                 )
 
                 coordinator.updateMemoSnapshotsEnabled(false)

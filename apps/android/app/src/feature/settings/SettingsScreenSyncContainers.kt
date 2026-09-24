@@ -44,6 +44,10 @@ internal fun GitSyncSettingsSectionContainer(
                     dialogState.providerTextDialogAction(RemoteProviderTextField.GitRemoteUrl) {
                         state.remoteUrl
                     },
+                openBranch =
+                    dialogState.providerTextDialogAction(RemoteProviderTextField.GitBranch) {
+                        state.branch
+                    },
                 openPat = dialogState.providerTextDialogAction(RemoteProviderTextField.GitPat),
                 openAuthorName =
                     dialogState.providerTextDialogAction(RemoteProviderTextField.GitAuthorName) {

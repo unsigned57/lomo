@@ -69,6 +69,7 @@ private fun SyncBackendType.presentError(error: UnifiedSyncError): String =
             )
         SyncBackendType.INBOX,
         SyncBackendType.NONE,
+        SyncBackendType.UNKNOWN,
         -> error.message
     }
 
@@ -81,6 +82,7 @@ private fun UnifiedSyncPhase.subtitleResId(provider: SyncBackendType): Int =
                 SyncBackendType.S3 -> R.string.settings_s3_sync_status_initializing
                 SyncBackendType.INBOX,
                 SyncBackendType.NONE,
+                SyncBackendType.UNKNOWN,
                 -> R.string.settings_s3_sync_status_initializing
             }
         UnifiedSyncPhase.CONNECTING ->
@@ -125,6 +127,7 @@ private fun SyncBackendType.syncedSubtitleResId(): Int =
         SyncBackendType.S3 -> R.string.settings_s3_sync_now_subtitle
         SyncBackendType.INBOX,
         SyncBackendType.NONE,
+        SyncBackendType.UNKNOWN,
         -> R.string.settings_s3_sync_now_subtitle
     }
 
@@ -135,6 +138,7 @@ private fun SyncBackendType.neverSubtitleResId(): Int =
         SyncBackendType.S3 -> R.string.settings_s3_sync_never
         SyncBackendType.INBOX,
         SyncBackendType.NONE,
+        SyncBackendType.UNKNOWN,
         -> R.string.settings_s3_sync_never
     }
 
@@ -145,6 +149,7 @@ private fun SyncBackendType.errorSubtitleResId(): Int =
         SyncBackendType.S3 -> R.string.settings_s3_sync_status_error
         SyncBackendType.INBOX,
         SyncBackendType.NONE,
+        SyncBackendType.UNKNOWN,
         -> R.string.settings_s3_sync_status_error
     }
 
@@ -155,6 +160,7 @@ private fun SyncBackendType.notConfiguredSubtitleResId(): Int =
         SyncBackendType.S3 -> R.string.settings_s3_sync_status_not_configured
         SyncBackendType.INBOX,
         SyncBackendType.NONE,
+        SyncBackendType.UNKNOWN,
         -> R.string.settings_s3_sync_status_not_configured
     }
 
@@ -165,5 +171,6 @@ private fun SyncBackendType.conflictSubtitleResId(): Int =
         SyncBackendType.WEBDAV -> R.string.settings_webdav_sync_status_error
         SyncBackendType.INBOX,
         SyncBackendType.NONE,
+        SyncBackendType.UNKNOWN,
         -> R.string.settings_s3_sync_status_conflict
     }

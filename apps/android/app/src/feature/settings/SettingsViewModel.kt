@@ -22,9 +22,9 @@ class SettingsViewModel(
     importAllNotesArchiveUseCase: ImportAllNotesArchiveUseCase,
     exportEncryptedSettingsUseCase: ExportEncryptedSettingsUseCase,
     importEncryptedSettingsUseCase: ImportEncryptedSettingsUseCase,
-    appUpdateChecker: AppUpdateChecker? = null,
-    getCurrentAppVersionUseCase: GetCurrentAppVersionUseCase? = null,
-    appUpdateDownloadManager: AppUpdateDownloadManager? = null,
+    appUpdateChecker: AppUpdateChecker,
+    getCurrentAppVersionUseCase: GetCurrentAppVersionUseCase,
+    appUpdateDownloadManager: AppUpdateDownloadManager,
 ) : ViewModel() {
         private val appConfigCoordinator =
             coordinatorFactory.createAppConfigCoordinator(viewModelScope)
@@ -86,7 +86,7 @@ class SettingsViewModel(
                 },
             )
         val displayFeature =
-            SettingsDisplayFeatureViewModel(
+            coordinatorFactory.createDisplayFeature(
                 scope = viewModelScope,
                 appConfigCoordinator = appConfigCoordinator,
             )

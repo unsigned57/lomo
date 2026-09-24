@@ -438,6 +438,12 @@ class SettingsS3Coordinator(
     private suspend fun testS3ConnectionState(): RemoteProviderConnectionTestState =
         when (val result = s3SyncSettingsUseCase.testConnection()) {
             is S3SyncResult.Success -> RemoteProviderConnectionTestState.Success(result.message)
+            is S3SyncResult.Accepted ->
+                RemoteProviderConnectionTestState.Error(
+                    provider = SyncBackendType.S3,
+                    providerCode = S3SyncErrorCode.UNKNOWN.name,
+                    detail = result.message,
+                )
             is S3SyncResult.Error ->
                 RemoteProviderConnectionTestState.Error(
                     provider = SyncBackendType.S3,
