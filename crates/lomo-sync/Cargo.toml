@@ -59,6 +59,10 @@ path = "tests/takeover_matrix_contract.rs"
 name = "digest_validator_contract"
 path = "tests/digest_validator_contract.rs"
 
+[[test]]
+name = "cycle_state_contract"
+path = "tests/cycle_state_contract.rs"
+
 # Credential-gated real provider lines. Every test is `#[ignore]`d, so `just check` / `just ci`
 # never run them. With credentials: cargo test -p lomo-sync --test provider_smoke -- --ignored
 [[test]]

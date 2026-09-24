@@ -14,6 +14,7 @@
 
 mod conflict;
 mod conflict_suggest;
+mod cycle_state;
 mod durable;
 mod error;
 mod limits;
@@ -41,6 +42,12 @@ pub use conflict::{
 pub use conflict_suggest::{
     ConflictSuggestion, ConflictSuggestionChoice, suggest_conflict_resolution,
 };
+pub use cycle_state::{
+    CYCLE_CANCELLED_CODE, CYCLE_INTERRUPTED_CODE, SyncCancelRequest, SyncCyclePhase,
+    SyncCycleRecord, begin_sync_cycle, complete_sync_cycle, fail_sync_cycle,
+    mark_sync_cycle_cancelled, note_sync_cycle_applying, read_cancel_request, read_cycle_state,
+    request_sync_cycle_cancel, sync_cycle_cancel_requested, write_cycle_state,
+};
 pub use durable::{
     BaselineEntry, BaselineHead, SYNC_RECORD_MAGIC, SessionKind, SyncIdentityFence, SyncPaths,
     SyncSession, TombstoneEntry, TombstoneSet, decode_sync_record, encode_sync_record,
@@ -63,9 +70,10 @@ pub use limits::{
 };
 pub use machine::{
     StreamingPlanOutcome, StreamingSyncCycleResult, SyncBackendConfig, SyncBackendKind,
-    SyncCyclePlanSummary, SyncCycleResult, apply_with_verify, first_takeover_preflight,
-    inspect_sync_cycle_plan, inspect_sync_cycle_plan_with_ports, migration_preflight, plan_intents,
-    plan_intents_streaming, plan_intents_streaming_with_atomicity, plan_intents_with_atomicity,
+    SyncCyclePlanSummary, SyncCycleResult, apply_with_verify, connect_sync_remote_port,
+    first_takeover_preflight, inspect_sync_cycle_plan, inspect_sync_cycle_plan_with_ports,
+    migration_preflight, plan_intents, plan_intents_streaming,
+    plan_intents_streaming_with_atomicity, plan_intents_with_atomicity,
     reject_if_migration_class_emitted_delete, run_composed_sync_cycle,
     run_composed_sync_cycle_with_remote_port, run_sync_cycle, run_sync_cycle_streaming,
 };

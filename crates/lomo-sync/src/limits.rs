@@ -51,6 +51,12 @@ pub const S3_MULTIPART_PART_BYTES: usize = 8 * 1_048_576;
 /// Maximum concurrent multipart parts tracked for one object in host slice.
 pub const MAX_S3_MULTIPART_PARTS: usize = 10_000;
 
+/// Durable multipart session time-to-live (7 days).
+///
+/// A durable record older than this is expired: resume aborts the remote upload and
+/// clears the record instead of reusing a stale `upload_id`.
+pub const S3_MULTIPART_SESSION_TTL_MILLIS: u64 = 7 * 24 * 60 * 60 * 1_000;
+
 /// Host scale contract path count (10k-class hermetic streaming).
 ///
 /// Full 100k-path matrix remains OPEN for later residual; this constant locks the

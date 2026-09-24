@@ -91,6 +91,16 @@ impl SyncIdentityFence {
         }
         Ok(())
     }
+
+    /// Canonical fence key string (`generation|dataset|remote-identity`) for subsystems that
+    /// bind durable records to the sync identity fence (e.g. S3 durable multipart sessions).
+    #[must_use]
+    pub fn stable_key(&self) -> String {
+        format!(
+            "{}|{}|{}",
+            self.workspace_generation, self.remote_dataset_id, self.remote_identity_digest
+        )
+    }
 }
 
 /// Durable sync session head (pageable; no secrets).
@@ -129,6 +139,25 @@ impl SyncSession {
             session_id,
             session_revision: 1,
         })
+    }
+
+    /// Starts the first-takeover session for `dataset`, deriving its durable session id.
+    ///
+    /// The `cycle-{dataset}` wire shape is owned here so no call site can mint a divergent
+    /// session identity for the same takeover.
+    ///
+    /// # Errors
+    ///
+    /// Validation when the derived id is malformed (never for a parsed dataset id).
+    pub fn for_first_takeover(
+        fence: SyncIdentityFence,
+        dataset: &RemoteDatasetId,
+    ) -> Result<Self, LomoError> {
+        Self::new(
+            fence,
+            SessionKind::FirstTakeover,
+            format!("cycle-{}", dataset.as_str()),
+        )
     }
 }
 
@@ -264,6 +293,10 @@ pub struct SyncPaths {
     pub conflict_artifacts: PathBuf,
     /// Cross-host exclusive cycle lockfile (`cycle.lock`).
     pub cycle_lock: PathBuf,
+    /// Durable cycle record (`cycle_state.rec`) — sole authority for sync status.
+    pub cycle_state: PathBuf,
+    /// Durable cancel request bound to a running cycle id (`cancel_request.rec`).
+    pub cycle_cancel: PathBuf,
 }
 
 impl SyncPaths {
@@ -280,6 +313,8 @@ impl SyncPaths {
             conflicts: root.join("conflicts.rec"),
             conflict_artifacts: root.join("artifacts"),
             cycle_lock: root.join("cycle.lock"),
+            cycle_state: root.join("cycle_state.rec"),
+            cycle_cancel: root.join("cancel_request.rec"),
             root,
         }
     }
@@ -481,18 +516,19 @@ pub fn write_sync_record_atomic(
 ///
 /// Storage when missing; corruption when bytes fail decode.
 pub fn read_sync_record(path: &Path) -> Result<(u32, String), LomoError> {
-    let bytes = fs::read(path).map_err(|err| {
-        storage(
-            "sync_record_open_failed",
-            &format!("cannot open {}: {err}", path.display()),
-        )
-    })?;
-    if bytes.len() > MAX_DURABLE_RECORD_BYTES + 64 {
-        return Err(corrupt_state(
-            "sync_record_too_large",
-            "sync durable file exceeds hard size limit",
-        ));
-    }
+    let bytes =
+        lomo_core::read_bounded(path, (MAX_DURABLE_RECORD_BYTES + 64) as u64).map_err(|error| {
+            match error {
+                lomo_core::BoundedReadError::ExceedsLimit { .. } => corrupt_state(
+                    "sync_record_too_large",
+                    "sync durable file exceeds hard size limit",
+                ),
+                lomo_core::BoundedReadError::Io(err) => storage(
+                    "sync_record_open_failed",
+                    &format!("cannot open {}: {err}", path.display()),
+                ),
+            }
+        })?;
     decode_sync_record(&bytes)
 }
 

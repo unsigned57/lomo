@@ -518,6 +518,48 @@ mod tests {
         assert_eq!(summary.open_conflict_count, 0);
     }
 
+    /// Given an apply cycle whose remote reports no conditional-write capability, when
+    /// the plan emits `EnsurePresent`, then publish fails closed with
+    /// `remote_capability_unsupported` — capability facts participate in the cycle;
+    /// conditional writes never rely on server leniency.
+    #[test]
+    fn with_ports_apply_refuses_mutation_when_capability_unsupported() {
+        let temporary = tempdir().expect("temp");
+        let workspace = temporary.path().join("ws");
+        std::fs::create_dir_all(&workspace).expect("ws");
+        let paths = SyncPaths::for_workspace(&workspace);
+        let session =
+            SyncSession::new(fence(), SessionKind::Incremental, "cycle-caps-1").expect("session");
+        write_session(&paths, &session).expect("write session");
+
+        let local = FakeLocalPort {
+            entries: vec![LocalPathEntry {
+                path: path("memo/a.md"),
+                digest: dig(7),
+            }],
+        };
+        let remote = FakeRemotePort::new(
+            RemoteSnapshot::new(SnapshotCompleteness::Complete, Vec::new()).expect("snap"),
+            PublishReceipt {
+                path_results: Vec::new(),
+            },
+            VerifiedRemoteState {
+                results: Vec::new(),
+            },
+        )
+        .with_capabilities(lomo_sync::RemoteCapabilities::default());
+
+        // Plan-only inspect does not mutate: no capability gate fires.
+        let summary = inspect_sync_cycle_plan_with_ports(&paths, &local, &remote, false, None)
+            .expect("plan-only inspect");
+        assert_eq!(summary.ensure_present_count, 1);
+
+        let err = inspect_sync_cycle_plan_with_ports(&paths, &local, &remote, true, None)
+            .expect_err("capability refusal");
+        assert_eq!(err.code(), "remote_capability_unsupported");
+        assert_eq!(remote.publish_call_count(), 0);
+    }
+
     #[test]
     fn with_ports_apply_verify_failure_is_transient() {
         let temporary = tempdir().expect("temp");
@@ -594,13 +636,9 @@ mod tests {
         lomo_workspace::load_or_mint_workspace_generation(&workspace)
             .expect("workspace generation");
         let _store = Store::open(&workspace).expect("open");
-        let config = SyncBackendConfig {
-            kind: lomo_sync::SyncBackendKind::WebDav,
+        let config = SyncBackendConfig::WebDav {
             endpoint_url: "https://dav.example/remote.php/dav".into(),
-            username_or_access_key: "alice".into(),
-            bucket: String::new(),
-            prefix: String::new(),
-            region: String::new(),
+            username: "alice".into(),
             remote_dataset_id: "ds-webdav".into(),
         };
         let err =
@@ -614,13 +652,12 @@ mod tests {
         let workspace = temporary.path().join("ws");
         std::fs::create_dir_all(&workspace).expect("ws");
         let _store = Store::open(&workspace).expect("open");
-        let config = SyncBackendConfig {
-            kind: lomo_sync::SyncBackendKind::Git,
-            endpoint_url: "https://example.com/repo.git".into(),
-            username_or_access_key: String::new(),
-            bucket: "main".into(),
-            prefix: String::new(),
-            region: String::new(),
+        let config = SyncBackendConfig::Git {
+            remote_url: "https://example.com/repo.git".into(),
+            username: String::new(),
+            branch: "main".into(),
+            author_name: String::new(),
+            author_email: String::new(),
             remote_dataset_id: "ds-git".into(),
         };
         let err = run_composed_sync_cycle(&workspace, &config, None, false)
@@ -668,13 +705,12 @@ mod tests {
         })
         .expect("git adapter");
 
-        let config = SyncBackendConfig {
-            kind: lomo_sync::SyncBackendKind::Git,
-            endpoint_url: bare.to_string_lossy().into_owned(),
-            username_or_access_key: String::new(),
-            bucket: "main".into(),
-            prefix: "Lomo".into(),
-            region: "git@lomo.local".into(),
+        let config = SyncBackendConfig::Git {
+            remote_url: bare.to_string_lossy().into_owned(),
+            username: String::new(),
+            branch: "main".into(),
+            author_name: "Lomo".into(),
+            author_email: "git@lomo.local".into(),
             remote_dataset_id: "ds-git-port".into(),
         };
         let summary = run_composed_sync_cycle_with_remote_port(&workspace, &config, &remote, false)
@@ -726,13 +762,12 @@ mod tests {
         )
         .expect("git adapter");
 
-        let config = SyncBackendConfig {
-            kind: lomo_sync::SyncBackendKind::Git,
-            endpoint_url: bare.to_string_lossy().into_owned(),
-            username_or_access_key: String::new(),
-            bucket: "main".into(),
-            prefix: "Lomo".into(),
-            region: "git@lomo.local".into(),
+        let config = SyncBackendConfig::Git {
+            remote_url: bare.to_string_lossy().into_owned(),
+            username: String::new(),
+            branch: "main".into(),
+            author_name: "Lomo".into(),
+            author_email: "git@lomo.local".into(),
             remote_dataset_id: "ds-git-apply".into(),
         };
         let summary = run_composed_sync_cycle_with_remote_port(&workspace, &config, &remote, true)

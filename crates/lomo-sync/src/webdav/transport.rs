@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{network, resource_limit, storage, validation};
 use crate::limits::{MAX_WEBDAV_MULTISTATUS_BYTES, MAX_WEBDAV_OBJECT_BYTES};
+use crate::ports::RemoteCapabilities;
 use crate::webdav::endpoint::{WebDavCredentials, WebDavEndpoint};
 use crate::webdav::status_map::map_http_status;
 use lomo_core::{LomoError, RetryDisposition};
@@ -27,20 +28,6 @@ const PROPFIND_BODY: &str = concat!(
     r#"</d:prop>"#,
     r#"</d:propfind>"#
 );
-
-/// Capability facts discovered during preflight (never secrets).
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "RemoteCapabilities is a flat capability bitset from OPTIONS/PROPFIND; flags are independent"
-)]
-pub struct RemoteCapabilities {
-    pub conditional_write: bool,
-    pub conditional_delete: bool,
-    pub supports_move: bool,
-    pub supports_copy: bool,
-    pub supports_etag: bool,
-}
 
 /// Blocking `WebDAV` HTTP client bound to one endpoint + credentials.
 pub struct WebDavTransport {

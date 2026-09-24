@@ -245,8 +245,11 @@ impl RemoteSnapshot {
 }
 
 /// Direction-neutral intent compiled from local/remote/baseline facts.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+///
+/// In-memory pipeline value only — durable intent facts live in
+/// [`crate::conflict::ConflictPathRecord`] and the
+/// baseline/tombstone heads. No wire or durable serde surface exists for this type.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProviderNeutralIntent {
     /// Ensure remote has this path with this digest (upload / create).
     EnsurePresent {
@@ -288,6 +291,44 @@ pub enum ProviderNeutralIntent {
 pub enum HoldReason {
     /// Provider listed no strong validator (`ETag`/version/blob OID) for this path.
     ConditionalUpdateUnsupported,
+}
+
+/// Capability gate for a prepared batch: conditional remote mutations require the
+/// probed/declared capability facts. `EnsurePresent` needs `conditional_write`;
+/// `EnsureAbsent` needs `conditional_delete`. Other intents (pull, conflict, hold,
+/// report) never mutate the remote and pass unconditionally.
+///
+/// # Errors
+///
+/// Validation `remote_capability_unsupported` naming the first unmet requirement —
+/// the batch is refused before any conditional write relies on server leniency.
+pub fn require_remote_capabilities(
+    intents: &[ProviderNeutralIntent],
+    caps: crate::ports::RemoteCapabilities,
+) -> Result<(), LomoError> {
+    for intent in intents {
+        let unmet = match intent {
+            ProviderNeutralIntent::EnsurePresent { .. } if !caps.conditional_write => {
+                Some("conditional_write")
+            }
+            ProviderNeutralIntent::EnsureAbsent { .. } if !caps.conditional_delete => {
+                Some("conditional_delete")
+            }
+            ProviderNeutralIntent::EnsurePresent { .. }
+            | ProviderNeutralIntent::EnsureAbsent { .. }
+            | ProviderNeutralIntent::PullPresent { .. }
+            | ProviderNeutralIntent::OpenConflict { .. }
+            | ProviderNeutralIntent::ReportUnrecognized { .. }
+            | ProviderNeutralIntent::Hold { .. } => None,
+        };
+        if let Some(capability) = unmet {
+            return Err(validation(
+                "remote_capability_unsupported",
+                &format!("remote does not honour {capability}; refusing conditional mutation"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Atomicity of a prepared remote batch.
@@ -340,13 +381,14 @@ impl RemotePublishContract {
 }
 
 /// Stage 3: compiled batch ready for adapter execution.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+///
+/// In-memory pipeline value only — never serialized to wire or durable state.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PreparedRemoteBatch {
     pub atomicity: BatchAtomicity,
     pub intents: Vec<ProviderNeutralIntent>,
     /// Snapshot-level CAS token for [`BatchAtomicity::WholeBatchRef`] (Git branch tip).
     /// Per-path batches always store `None`; path `ETag`s stay on each intent.
-    #[serde(default)]
     pub expected_snapshot_token: Option<String>,
 }
 

@@ -33,6 +33,40 @@ pub struct LocalSnapshot {
     pub workspace_generation: Option<String>,
 }
 
+/// Capability facts a remote can honour for conditional mutations (never secrets).
+///
+/// Probed adapters (`WebDAV` `OPTIONS`/`PROPFIND`) report discovered facts; protocol-static
+/// adapters (S3, Git) report the wire contract they exercise. The cycle refuses conditional
+/// writes/deletes the remote cannot honour — server leniency is never a substitute.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "RemoteCapabilities is a flat capability bitset from OPTIONS/PROPFIND; flags are independent"
+)]
+pub struct RemoteCapabilities {
+    /// Remote honours conditional write preconditions (`If-None-Match`/`If-Match`/ref CAS).
+    pub conditional_write: bool,
+    /// Remote honours conditional delete preconditions.
+    pub conditional_delete: bool,
+    /// Remote supports a server-side move (`MOVE`/`CopyObject`/rename).
+    pub supports_move: bool,
+    /// Remote supports a server-side copy.
+    pub supports_copy: bool,
+    /// Remote surfaces strong `ETag` validators usable as conditional anchors.
+    pub supports_etag: bool,
+}
+
+impl RemoteCapabilities {
+    /// Fully-capable reference remote (all conditional + ancillary features).
+    pub const FULL: Self = Self {
+        conditional_write: true,
+        conditional_delete: true,
+        supports_move: true,
+        supports_copy: true,
+        supports_etag: true,
+    };
+}
+
 /// Read-only local port used by the planner.
 pub trait LocalSyncPort {
     /// Loads a path/digest local snapshot.
@@ -76,6 +110,18 @@ pub trait RemoteSyncPort {
     fn batch_atomicity(&self) -> BatchAtomicity {
         BatchAtomicity::PerPath
     }
+
+    /// Capability facts this remote honours for conditional mutations.
+    ///
+    /// The cycle consults these before any remote mutation (`publish_and_verify`): a batch that
+    /// requires `conditional_write`/`conditional_delete` the remote lacks fails closed with
+    /// `remote_capability_unsupported`. `Err` fails the cycle closed (auth / redirect /
+    /// transport). Probed adapters memoize per instance so each cycle probes once.
+    ///
+    /// # Errors
+    ///
+    /// Probe / transport errors; adapters with protocol-static capabilities return `Ok`.
+    fn remote_capabilities(&self) -> Result<RemoteCapabilities, LomoError>;
 
     /// Executes a prepared batch (conditional writes only).
     ///
@@ -383,6 +429,8 @@ pub struct FakeRemotePort {
     pub require_body_for_ensure_present: bool,
     /// Optional multi-page listing for host residual streaming cycle (pages already ≤512 each).
     pub listing_pages: Option<RemoteListingStream>,
+    /// Capability facts reported by `remote_capabilities` (default: fully-capable reference).
+    pub capabilities: RemoteCapabilities,
     pub publish_calls: Mutex<u32>,
     pub verify_calls: Mutex<u32>,
     pub list_pages_calls: Mutex<u32>,
@@ -407,6 +455,7 @@ impl FakeRemotePort {
             objects: MapRemoteObjectSource::empty(),
             require_body_for_ensure_present: false,
             listing_pages: None,
+            capabilities: RemoteCapabilities::FULL,
             publish_calls: Mutex::new(0),
             verify_calls: Mutex::new(0),
             list_pages_calls: Mutex::new(0),
@@ -435,6 +484,14 @@ impl FakeRemotePort {
     #[must_use]
     pub fn with_listing_pages(mut self, stream: RemoteListingStream) -> Self {
         self.listing_pages = Some(stream);
+        self
+    }
+
+    /// Pins capability facts (default [`RemoteCapabilities::FULL`]; use `Default` for a
+    /// remote that honours no conditional operation).
+    #[must_use]
+    pub const fn with_capabilities(mut self, capabilities: RemoteCapabilities) -> Self {
+        self.capabilities = capabilities;
         self
     }
 
@@ -504,6 +561,10 @@ impl RemoteSyncPort for FakeRemotePort {
         ))
     }
 
+    fn remote_capabilities(&self) -> Result<RemoteCapabilities, LomoError> {
+        Ok(self.capabilities)
+    }
+
     fn publish(&self, batch: &PreparedRemoteBatch) -> Result<PublishReceipt, LomoError> {
         let must_bind_body =
             self.require_body_for_ensure_present || !self.objects.objects.is_empty();
@@ -511,6 +572,8 @@ impl RemoteSyncPort for FakeRemotePort {
             let mut accepted = Vec::new();
             for intent in &batch.intents {
                 if let ProviderNeutralIntent::EnsurePresent { path, digest, .. } = intent {
+                    // behavior-contract: loop-io-ok: FakeObjectSource is an in-memory map probe,
+                    // not boundary I/O; one lookup per distinct EnsurePresent is inherent.
                     let body = self.objects.load_bytes(path, digest)?;
                     accepted.push(FakePublishedBody {
                         path: path.as_str().to_owned(),

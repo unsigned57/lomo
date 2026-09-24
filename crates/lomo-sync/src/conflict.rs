@@ -82,6 +82,15 @@ pub struct ConflictSession {
     pub paths: Vec<ConflictPathRecord>,
 }
 
+/// Derives the durable conflict-session id bound to one sync session (`{session_id}-conflict`).
+///
+/// The sync session owns the conflict session's identity: every caller must derive through this
+/// single constructor instead of re-assembling the wire shape at a call site.
+#[must_use]
+pub fn conflict_session_id(session_id: &str) -> String {
+    format!("{session_id}-conflict")
+}
+
 impl ConflictSession {
     /// Opens a new conflict session with revision 1.
     ///
@@ -358,18 +367,19 @@ pub fn read_conflict_artifact(paths: &SyncPaths, artifact_ref: &str) -> Result<V
         ));
     }
     let full = paths.conflict_artifacts.join(artifact_ref);
-    let bytes = fs::read(&full).map_err(|err| {
-        storage(
-            "conflict_artifact_open_failed",
-            &format!("cannot open conflict artifact: {err}"),
-        )
-    })?;
-    if bytes.len() > MAX_CONFLICT_ARTIFACT_BYTES {
-        return Err(resource_limit(
-            "conflict_artifact_too_large",
-            "conflict artifact exceeds the 1 MiB host limit",
-        ));
-    }
+    let bytes =
+        lomo_core::read_bounded(&full, MAX_CONFLICT_ARTIFACT_BYTES as u64).map_err(|error| {
+            match error {
+                lomo_core::BoundedReadError::ExceedsLimit { .. } => resource_limit(
+                    "conflict_artifact_too_large",
+                    "conflict artifact exceeds the 1 MiB host limit",
+                ),
+                lomo_core::BoundedReadError::Io(error) => storage(
+                    "conflict_artifact_open_failed",
+                    &format!("cannot open conflict artifact: {error}"),
+                ),
+            }
+        })?;
     Ok(bytes)
 }
 
@@ -409,33 +419,36 @@ pub fn write_conflict_session(
 ///
 /// Corruption when payload fails decode; permission / storage when the file is unreadable.
 pub fn read_conflict_session_state(paths: &SyncPaths) -> Result<ConflictSessionState, LomoError> {
-    let bytes = match fs::read(&paths.conflicts) {
-        Ok(bytes) => bytes,
-        Err(err) if err.kind() == ErrorKind::NotFound => {
-            return Ok(ConflictSessionState::Absent);
-        }
-        Err(err) if err.kind() == ErrorKind::PermissionDenied => {
-            return Err(permission(
-                "conflict_session_permission",
-                &format!(
-                    "cannot read conflict session {}: {err}",
-                    paths.conflicts.display()
-                ),
-            ));
-        }
-        Err(err) => {
-            return Err(storage(
-                "sync_record_open_failed",
-                &format!("cannot open {}: {err}", paths.conflicts.display()),
-            ));
-        }
-    };
-    if bytes.len() > MAX_DURABLE_RECORD_BYTES + 64 {
-        return Err(corrupt_state(
-            "sync_record_too_large",
-            "sync durable file exceeds hard size limit",
-        ));
-    }
+    let bytes =
+        match lomo_core::read_bounded(&paths.conflicts, (MAX_DURABLE_RECORD_BYTES + 64) as u64) {
+            Ok(bytes) => bytes,
+            Err(lomo_core::BoundedReadError::ExceedsLimit { .. }) => {
+                return Err(corrupt_state(
+                    "sync_record_too_large",
+                    "sync durable file exceeds hard size limit",
+                ));
+            }
+            Err(lomo_core::BoundedReadError::Io(err)) if err.kind() == ErrorKind::NotFound => {
+                return Ok(ConflictSessionState::Absent);
+            }
+            Err(lomo_core::BoundedReadError::Io(err))
+                if err.kind() == ErrorKind::PermissionDenied =>
+            {
+                return Err(permission(
+                    "conflict_session_permission",
+                    &format!(
+                        "cannot read conflict session {}: {err}",
+                        paths.conflicts.display()
+                    ),
+                ));
+            }
+            Err(lomo_core::BoundedReadError::Io(err)) => {
+                return Err(storage(
+                    "sync_record_open_failed",
+                    &format!("cannot open {}: {err}", paths.conflicts.display()),
+                ));
+            }
+        };
     let (_schema, body) = decode_sync_record(&bytes)?;
     let session: ConflictSession = serde_json::from_str(&body).map_err(|err| {
         corrupt_state(
@@ -828,6 +841,8 @@ fn load_open_intent_bodies(
             continue;
         };
         let local = load_workspace_conflict_candidate(workspace_root, path, local_digest)?;
+        // behavior-contract: loop-io-ok: RemoteSyncPort::load_object is the per-conflict body
+        // contract (never a listing GET); conflict paths are bounded by MAX_CONFLICT_PAGE_ITEMS.
         let remote_bytes = remote.load_object(path, remote_digest)?;
         if local.is_none() && remote_bytes.is_none() {
             return Err(validation(
@@ -846,14 +861,8 @@ fn load_workspace_conflict_candidate(
     expected: &ContentDigest,
 ) -> Result<Option<Vec<u8>>, LomoError> {
     let absolute = workspace_root.join(path.as_str());
-    match fs::read(&absolute) {
+    match lomo_core::read_bounded(&absolute, MAX_CONFLICT_ARTIFACT_BYTES as u64) {
         Ok(bytes) => {
-            if bytes.len() > MAX_CONFLICT_ARTIFACT_BYTES {
-                return Err(resource_limit(
-                    "conflict_artifact_too_large",
-                    "conflict candidate body exceeds 1 MiB",
-                ));
-            }
             let actual = format!("{:x}", Sha256::digest(&bytes));
             if actual != expected.as_str() {
                 return Err(validation(
@@ -863,8 +872,12 @@ fn load_workspace_conflict_candidate(
             }
             Ok(Some(bytes))
         }
-        Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
-        Err(err) => Err(storage(
+        Err(lomo_core::BoundedReadError::ExceedsLimit { .. }) => Err(resource_limit(
+            "conflict_artifact_too_large",
+            "conflict candidate body exceeds 1 MiB",
+        )),
+        Err(lomo_core::BoundedReadError::Io(err)) if err.kind() == ErrorKind::NotFound => Ok(None),
+        Err(lomo_core::BoundedReadError::Io(err)) => Err(storage(
             "conflict_local_body_read_failed",
             &format!(
                 "failed to read local conflict candidate {}: {err}",
@@ -1191,6 +1204,8 @@ pub fn apply_resolved_conflicts_remote(
                 let digest = ContentDigest::parse(digest_hex)?;
                 let path = SyncPath::parse(&record.path)?;
                 // Structural re-check: ObjectSource load must succeed for this intent.
+                // behavior-contract: loop-io-ok: publish_bodies is the already-materialized
+                // ConflictBodySource map — an in-memory probe, not boundary I/O.
                 publish_bodies.load_bytes(&path, &digest)?;
                 intents.push(ProviderNeutralIntent::EnsurePresent {
                     path,

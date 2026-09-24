@@ -78,11 +78,11 @@ mod tests {
         MAX_S3_SNAPSHOT_ENTRIES, MapS3ObjectSource, PathPublishStatus, PreparedRemoteBatch,
         ProviderNeutralIntent, RcloneCryptConfig, RcloneFilenameEncoding, RcloneFilenameEncryption,
         RcloneKeyMaterial, RemoteDigestFact, RemoteSyncPort, S3AddressingStyle, S3Credentials,
-        S3Endpoint, S3ObjectSource, SessionKind, SnapshotCompleteness, SyncIdentityFence, SyncPath,
-        SyncSession, TombstoneSet, VerifyExpectation, aws_published_sigv4_example_matches,
-        connect_map_s3_source, decrypt_filename_path, decrypt_payload, encrypt_filename_path,
-        encrypt_payload, error_category, map_s3_http_status, plan_intents,
-        run_sync_cycle_streaming,
+        S3Endpoint, S3ObjectSource, S3WorkspaceFileObjectSource, SessionKind, SnapshotCompleteness,
+        SyncIdentityFence, SyncPath, SyncSession, TombstoneSet, VerifyExpectation,
+        aws_published_sigv4_example_matches, connect_map_s3_source, connect_workspace_s3,
+        decrypt_filename_path, decrypt_payload, encrypt_filename_path, encrypt_payload,
+        error_category, map_s3_http_status, plan_intents, run_sync_cycle_streaming,
     };
     use lomo_workspace::{RemoteDatasetId, RemoteIdentityDigest, WorkspaceGenerationId};
     use sha2::{Digest, Sha256};
@@ -1959,7 +1959,7 @@ mod tests {
         })
         .expect("first adapter")
         .with_multipart_threshold(8)
-        .with_durable_multipart_root(workspace.path());
+        .with_durable_multipart_root(workspace.path(), "gen-a|ds|identity");
 
         server.set_faults(FaultConfig {
             list_page_size: 1000,
@@ -2032,7 +2032,7 @@ mod tests {
         })
         .expect("second adapter")
         .with_multipart_threshold(8)
-        .with_durable_multipart_root(workspace.path());
+        .with_durable_multipart_root(workspace.path(), "gen-a|ds|identity");
 
         let revived = second_adapter.multipart_sessions_snapshot();
         assert_eq!(
@@ -2149,7 +2149,7 @@ mod tests {
         })
         .expect("adapter")
         .with_multipart_threshold(8)
-        .with_durable_multipart_root(workspace.path());
+        .with_durable_multipart_root(workspace.path(), "gen-a|ds|identity");
 
         let batch = PreparedRemoteBatch::new(
             BatchAtomicity::PerPath,
@@ -2176,6 +2176,403 @@ mod tests {
         assert!(
             !server.has("lomo/memo/corrupt.bin"),
             "corrupt session must not complete publish"
+        );
+    }
+
+    /// Given the production `connect_workspace_s3` path, when a multipart publish is
+    /// interrupted mid-upload, then a durable session record exists under
+    /// `<workspace>/.lomo/sync/v1/multipart/` — the production constructor wires the
+    /// fence-bound durable root, not only test paths.
+    #[test]
+    fn connect_workspace_s3_persists_multipart_sessions_durably() {
+        let server = FaultServer::start();
+        let body = b"0123456789abcdef0123456789abcdef";
+        let workspace = tempdir().expect("workspace");
+        let temp = tempdir().expect("temp");
+        let memo_dir = workspace.path().join("memo");
+        fs::create_dir_all(&memo_dir).expect("memo dir");
+        fs::write(memo_dir.join("prod.bin"), body).expect("workspace object");
+
+        let objects = S3WorkspaceFileObjectSource::new(workspace.path().to_path_buf());
+        let adapter = connect_workspace_s3(
+            &server.base_url(),
+            "bucket",
+            "lomo/",
+            "us-east-1",
+            "test-access",
+            "test-secret",
+            temp.path(),
+            objects,
+            "gen-a|ds|identity",
+            Duration::from_secs(5),
+        )
+        .expect("production adapter")
+        .with_multipart_threshold(8);
+
+        server.set_faults(FaultConfig {
+            list_page_size: 1000,
+            fail_after_n_successful_parts: Some(1),
+            ..FaultConfig::default()
+        });
+        let batch = PreparedRemoteBatch::new(
+            BatchAtomicity::PerPath,
+            vec![ProviderNeutralIntent::EnsurePresent {
+                path: path("memo/prod.bin"),
+                digest: digest_of(body),
+                expected_remote_token: None,
+            }],
+        )
+        .expect("batch");
+        let receipt = adapter.publish(&batch).expect("publish returns receipt");
+        assert!(
+            matches!(receipt.path_results[0].1, PathPublishStatus::Failed { .. }),
+            "mid-upload fault must fail closed: {:?}",
+            receipt.path_results[0].1
+        );
+        let multipart_dir = workspace
+            .path()
+            .join(".lomo")
+            .join("sync")
+            .join("v1")
+            .join("multipart");
+        let rec_count = fs::read_dir(&multipart_dir)
+            .expect("production path must create durable multipart dir")
+            .map(|entry| entry.expect("multipart dir entry"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "rec"))
+            .count();
+        assert_eq!(
+            rec_count, 1,
+            "production constructor must persist the multipart session durably"
+        );
+    }
+
+    /// Given a durable multipart session recorded under fence `gen-a`, when a fresh
+    /// adapter under fence `gen-b` resumes the same path/digest, then the stale upload
+    /// is aborted, the record cleared, and a new upload created — an old fence never
+    /// continues the upload.
+    #[test]
+    fn multipart_stale_fence_aborts_and_restarts() {
+        let server = FaultServer::start();
+        let body = b"0123456789abcdef0123456789abcdef";
+        let mut objects = MapS3ObjectSource::default();
+        objects
+            .objects
+            .insert("memo/fence.bin".to_owned(), body.to_vec());
+        let workspace = tempdir().expect("workspace");
+        let temp = tempdir().expect("temp");
+
+        let first = connect_map_s3_source(lomo_sync::MapS3ConnectParams {
+            endpoint_url: &server.base_url(),
+            bucket: "bucket",
+            prefix: "lomo/",
+            region: "us-east-1",
+            access_key_id: "test-access",
+            secret_access_key: "test-secret",
+            temp_dir: temp.path(),
+            objects: objects.clone(),
+            timeout: Duration::from_secs(5),
+        })
+        .expect("first adapter")
+        .with_multipart_threshold(8)
+        .with_durable_multipart_root(workspace.path(), "gen-a|ds|identity");
+
+        server.set_faults(FaultConfig {
+            list_page_size: 1000,
+            fail_after_n_successful_parts: Some(1),
+            ..FaultConfig::default()
+        });
+        server.clear_multipart_wire_log();
+
+        let batch = PreparedRemoteBatch::new(
+            BatchAtomicity::PerPath,
+            vec![ProviderNeutralIntent::EnsurePresent {
+                path: path("memo/fence.bin"),
+                digest: digest_of(body),
+                expected_remote_token: None,
+            }],
+        )
+        .expect("batch");
+        let failed = first.publish(&batch).expect("first publish");
+        assert!(matches!(
+            failed.path_results[0].1,
+            PathPublishStatus::Failed { .. }
+        ));
+        let stale_upload_id = first.multipart_sessions_snapshot()[0].upload_id.clone();
+        drop(first);
+
+        server.set_faults(FaultConfig {
+            list_page_size: 1000,
+            fail_after_n_successful_parts: None,
+            ..FaultConfig::default()
+        });
+
+        // New workspace-generation fence: the stale durable record must not resume.
+        let second = connect_map_s3_source(lomo_sync::MapS3ConnectParams {
+            endpoint_url: &server.base_url(),
+            bucket: "bucket",
+            prefix: "lomo/",
+            region: "us-east-1",
+            access_key_id: "test-access",
+            secret_access_key: "test-secret",
+            temp_dir: temp.path(),
+            objects,
+            timeout: Duration::from_secs(5),
+        })
+        .expect("second adapter")
+        .with_multipart_threshold(8)
+        .with_durable_multipart_root(workspace.path(), "gen-b|ds|identity");
+
+        let revived = second.publish(&batch).expect("second publish");
+        assert!(
+            matches!(revived.path_results[0].1, PathPublishStatus::Applied { .. }),
+            "fresh-fence publish must restart and complete: {:?}",
+            revived.path_results[0].1
+        );
+        assert!(server.has("lomo/memo/fence.bin"));
+
+        let wire = server.multipart_wire_log();
+        assert!(
+            wire.iter().any(|e| matches!(
+                e,
+                MultipartWireEvent::Abort { upload_id } if upload_id == &stale_upload_id
+            )),
+            "stale-fence session must abort the old upload: {wire:?}"
+        );
+        // The resumed upload_id differs: fence mismatch never reuses the old upload.
+        let completed_upload_ids: Vec<&String> = wire
+            .iter()
+            .filter_map(|e| match e {
+                MultipartWireEvent::Complete { upload_id } => Some(upload_id),
+                MultipartWireEvent::Create { .. }
+                | MultipartWireEvent::UploadPart { .. }
+                | MultipartWireEvent::Abort { .. } => None,
+            })
+            .collect();
+        assert!(
+            completed_upload_ids
+                .iter()
+                .all(|id| *id != &stale_upload_id),
+            "stale-fence upload must never complete: {wire:?}"
+        );
+        let second_creates = wire
+            .iter()
+            .filter(|e| matches!(e, MultipartWireEvent::Create { .. }))
+            .count();
+        assert_eq!(
+            second_creates, 2,
+            "fence mismatch must create a fresh upload: {wire:?}"
+        );
+    }
+
+    /// Given an expired durable multipart session, when a fresh adapter resumes the same
+    /// path/digest under the same fence, then the stale upload is aborted, the record
+    /// cleared, and a fresh upload created — expiry never silently resumes.
+    #[test]
+    fn multipart_expired_session_aborts_and_restarts() {
+        let server = FaultServer::start();
+        let body = b"0123456789abcdef0123456789abcdef";
+        let mut objects = MapS3ObjectSource::default();
+        objects
+            .objects
+            .insert("memo/expired.bin".to_owned(), body.to_vec());
+        let workspace = tempdir().expect("workspace");
+        let temp = tempdir().expect("temp");
+
+        let first = connect_map_s3_source(lomo_sync::MapS3ConnectParams {
+            endpoint_url: &server.base_url(),
+            bucket: "bucket",
+            prefix: "lomo/",
+            region: "us-east-1",
+            access_key_id: "test-access",
+            secret_access_key: "test-secret",
+            temp_dir: temp.path(),
+            objects: objects.clone(),
+            timeout: Duration::from_secs(5),
+        })
+        .expect("first adapter")
+        .with_multipart_threshold(8)
+        .with_durable_multipart_root(workspace.path(), "gen-a|ds|identity");
+
+        server.set_faults(FaultConfig {
+            list_page_size: 1000,
+            fail_after_n_successful_parts: Some(1),
+            ..FaultConfig::default()
+        });
+        server.clear_multipart_wire_log();
+
+        let batch = PreparedRemoteBatch::new(
+            BatchAtomicity::PerPath,
+            vec![ProviderNeutralIntent::EnsurePresent {
+                path: path("memo/expired.bin"),
+                digest: digest_of(body),
+                expected_remote_token: None,
+            }],
+        )
+        .expect("batch");
+        let failed = first.publish(&batch).expect("first publish");
+        assert!(matches!(
+            failed.path_results[0].1,
+            PathPublishStatus::Failed { .. }
+        ));
+        let stale_upload_id = first.multipart_sessions_snapshot()[0].upload_id.clone();
+        drop(first);
+
+        server.set_faults(FaultConfig {
+            list_page_size: 1000,
+            fail_after_n_successful_parts: None,
+            ..FaultConfig::default()
+        });
+
+        // Same fence, zero TTL: the durable record is already expired.
+        let second = connect_map_s3_source(lomo_sync::MapS3ConnectParams {
+            endpoint_url: &server.base_url(),
+            bucket: "bucket",
+            prefix: "lomo/",
+            region: "us-east-1",
+            access_key_id: "test-access",
+            secret_access_key: "test-secret",
+            temp_dir: temp.path(),
+            objects,
+            timeout: Duration::from_secs(5),
+        })
+        .expect("second adapter")
+        .with_multipart_threshold(8)
+        .with_durable_multipart_root(workspace.path(), "gen-a|ds|identity")
+        .with_multipart_session_ttl_ms(0);
+
+        let revived = second.publish(&batch).expect("second publish");
+        assert!(
+            matches!(revived.path_results[0].1, PathPublishStatus::Applied { .. }),
+            "expired-session publish must restart and complete: {:?}",
+            revived.path_results[0].1
+        );
+
+        let wire = server.multipart_wire_log();
+        assert!(
+            wire.iter().any(|e| matches!(
+                e,
+                MultipartWireEvent::Abort { upload_id } if upload_id == &stale_upload_id
+            )),
+            "expired session must abort the old upload: {wire:?}"
+        );
+        let creates = wire
+            .iter()
+            .filter(|e| matches!(e, MultipartWireEvent::Create { .. }))
+            .count();
+        assert_eq!(
+            creates, 2,
+            "expired session must create a fresh upload: {wire:?}"
+        );
+    }
+
+    /// Given a durable multipart session anchored to `expected_remote_token=None`, when
+    /// the next cycle's intent carries a different token anchor (remote moved
+    /// out-of-band), then the stale upload is aborted, the record cleared, and a fresh
+    /// upload created — a changed CAS anchor never resumes the old upload.
+    #[test]
+    fn multipart_remote_token_change_aborts_and_restarts() {
+        let server = FaultServer::start();
+        let body = b"0123456789abcdef0123456789abcdef";
+        let mut objects = MapS3ObjectSource::default();
+        objects
+            .objects
+            .insert("memo/token.bin".to_owned(), body.to_vec());
+        let workspace = tempdir().expect("workspace");
+        let temp = tempdir().expect("temp");
+
+        let first = connect_map_s3_source(lomo_sync::MapS3ConnectParams {
+            endpoint_url: &server.base_url(),
+            bucket: "bucket",
+            prefix: "lomo/",
+            region: "us-east-1",
+            access_key_id: "test-access",
+            secret_access_key: "test-secret",
+            temp_dir: temp.path(),
+            objects: objects.clone(),
+            timeout: Duration::from_secs(5),
+        })
+        .expect("first adapter")
+        .with_multipart_threshold(8)
+        .with_durable_multipart_root(workspace.path(), "gen-a|ds|identity");
+
+        server.set_faults(FaultConfig {
+            list_page_size: 1000,
+            fail_after_n_successful_parts: Some(1),
+            ..FaultConfig::default()
+        });
+        server.clear_multipart_wire_log();
+
+        let create_batch = PreparedRemoteBatch::new(
+            BatchAtomicity::PerPath,
+            vec![ProviderNeutralIntent::EnsurePresent {
+                path: path("memo/token.bin"),
+                digest: digest_of(body),
+                expected_remote_token: None,
+            }],
+        )
+        .expect("create batch");
+        let failed = first.publish(&create_batch).expect("first publish");
+        assert!(matches!(
+            failed.path_results[0].1,
+            PathPublishStatus::Failed { .. }
+        ));
+        let stale_upload_id = first.multipart_sessions_snapshot()[0].upload_id.clone();
+        drop(first);
+
+        // Remote moved out-of-band: the object now exists with a foreign etag.
+        server.put_object("lomo/memo/token.bin", b"foreign-remote-body");
+        server.set_faults(FaultConfig {
+            list_page_size: 1000,
+            fail_after_n_successful_parts: None,
+            ..FaultConfig::default()
+        });
+
+        let second = connect_map_s3_source(lomo_sync::MapS3ConnectParams {
+            endpoint_url: &server.base_url(),
+            bucket: "bucket",
+            prefix: "lomo/",
+            region: "us-east-1",
+            access_key_id: "test-access",
+            secret_access_key: "test-secret",
+            temp_dir: temp.path(),
+            objects,
+            timeout: Duration::from_secs(5),
+        })
+        .expect("second adapter")
+        .with_multipart_threshold(8)
+        .with_durable_multipart_root(workspace.path(), "gen-a|ds|identity");
+
+        let update_batch = PreparedRemoteBatch::new(
+            BatchAtomicity::PerPath,
+            vec![ProviderNeutralIntent::EnsurePresent {
+                path: path("memo/token.bin"),
+                digest: digest_of(body),
+                expected_remote_token: Some(server.etag_of("lomo/memo/token.bin")),
+            }],
+        )
+        .expect("update batch");
+        let revived = second.publish(&update_batch).expect("second publish");
+        assert!(
+            matches!(revived.path_results[0].1, PathPublishStatus::Applied { .. }),
+            "token-anchored publish must restart and complete: {:?}",
+            revived.path_results[0].1
+        );
+
+        let wire = server.multipart_wire_log();
+        assert!(
+            wire.iter().any(|e| matches!(
+                e,
+                MultipartWireEvent::Abort { upload_id } if upload_id == &stale_upload_id
+            )),
+            "token-mismatch session must abort the old upload: {wire:?}"
+        );
+        let creates = wire
+            .iter()
+            .filter(|e| matches!(e, MultipartWireEvent::Create { .. }))
+            .count();
+        assert_eq!(
+            creates, 2,
+            "token mismatch must create a fresh upload: {wire:?}"
         );
     }
 

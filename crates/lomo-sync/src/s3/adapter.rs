@@ -13,15 +13,16 @@ use crate::durable::{
 };
 use crate::error::{corrupt_state, resource_limit, storage, validation};
 use crate::limits::{
-    MAX_ACTION_PAGE_ITEMS, MAX_DURABLE_RECORD_BYTES, MAX_S3_LIST_PAGES, MAX_S3_SNAPSHOT_ENTRIES,
-    MAX_STREAMING_REMOTE_PATH_KEYS, S3_MULTIPART_PART_BYTES, SYNC_DURABLE_SCHEMA,
+    MAX_ACTION_PAGE_ITEMS, MAX_DURABLE_RECORD_BYTES, MAX_S3_LIST_PAGES, MAX_S3_OBJECT_BYTES,
+    MAX_S3_SNAPSHOT_ENTRIES, MAX_STREAMING_REMOTE_PATH_KEYS, S3_MULTIPART_PART_BYTES,
+    S3_MULTIPART_SESSION_TTL_MILLIS, SYNC_DURABLE_SCHEMA,
 };
 use crate::pipeline::{
     BatchAtomicity, ContentDigest, PathPublishStatus, PreparedRemoteBatch, ProviderNeutralIntent,
     PublishReceipt, RemoteDigestFact, RemotePathEntry, RemoteSnapshot, RemoteValidator,
     SnapshotCompleteness, SyncPath, VerifiedRemoteState, VerifyExpectation, VerifyStatus,
 };
-use crate::ports::{RemoteListingStream, RemoteResolvedObject, RemoteSyncPort};
+use crate::ports::{RemoteCapabilities, RemoteListingStream, RemoteResolvedObject, RemoteSyncPort};
 use crate::s3::endpoint::{S3Credentials, S3Endpoint};
 use crate::s3::transport::S3Transport;
 use lomo_core::LomoError;
@@ -89,9 +90,22 @@ pub struct MultipartSession {
     pub confirmed_parts: Vec<MultipartConfirmedPart>,
     /// Content digest hex (SHA-256 of the full object body).
     pub content_digest: String,
+    /// Sync identity fence key (`generation|dataset|remote-identity`) owning this upload.
+    #[serde(default)]
+    pub fence: String,
+    /// Remote CAS anchor this upload was begun under (`None` for create-only intents).
+    #[serde(default)]
+    pub expected_remote_token: Option<String>,
+    /// Wall-clock epoch milliseconds when the upload was created.
+    #[serde(default)]
+    pub created_epoch_ms: u64,
 }
 
 /// On-disk multipart session record (LSYN framed JSON under `multipart/`).
+///
+/// Schema-1 records predating fence/token/expiry fields decode with empty/zero
+/// defaults; the resume gate treats them as fence-mismatched or expired and
+/// aborts + clears instead of silently resuming unknown provenance.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 struct DurableMultipartRecord {
     schema: u32,
@@ -100,6 +114,12 @@ struct DurableMultipartRecord {
     upload_id: String,
     confirmed_parts: Vec<MultipartConfirmedPart>,
     content_digest: String,
+    #[serde(default)]
+    fence: String,
+    #[serde(default)]
+    expected_remote_token: Option<String>,
+    #[serde(default)]
+    created_epoch_ms: u64,
 }
 
 /// S3 remote adapter implementing the public [`RemoteSyncPort`].
@@ -113,6 +133,10 @@ pub struct S3Adapter<S: S3ObjectSource> {
     multipart_sessions: std::sync::Mutex<BTreeMap<String, MultipartSession>>,
     /// Optional workspace root for durable multipart session files under `.lomo/sync/v1/multipart/`.
     durable_workspace_root: Option<PathBuf>,
+    /// Sync identity fence key bound to durable sessions; stale-fence records abort+clear.
+    multipart_fence: String,
+    /// Durable session TTL (default [`S3_MULTIPART_SESSION_TTL_MILLIS`]); expired records abort+clear.
+    multipart_session_ttl_ms: u64,
 }
 
 impl<S: S3ObjectSource> S3Adapter<S> {
@@ -136,6 +160,8 @@ impl<S: S3ObjectSource> S3Adapter<S> {
             multipart_threshold: S3_MULTIPART_PART_BYTES,
             multipart_sessions: std::sync::Mutex::new(BTreeMap::new()),
             durable_workspace_root: None,
+            multipart_fence: String::new(),
+            multipart_session_ttl_ms: S3_MULTIPART_SESSION_TTL_MILLIS,
         })
     }
 
@@ -153,13 +179,28 @@ impl<S: S3ObjectSource> S3Adapter<S> {
         self
     }
 
-    /// Enables durable on-disk multipart sessions under `{workspace}/.lomo/sync/v1/multipart/`.
+    /// Enables durable on-disk multipart sessions under `{workspace}/.lomo/sync/v1/multipart/`
+    /// bound to `fence` (the sync identity fence key: `generation|dataset|remote-identity`).
     ///
-    /// Process death can reload confirmed parts without re-uploading. Corrupt records fail closed
+    /// Process death can reload confirmed parts without re-uploading. A durable record resumes
+    /// only when fence, path/key, content digest, CAS anchor and TTL all match; otherwise the
+    /// remote upload is aborted and the record cleared. Corrupt records fail closed
     /// (`CorruptState`) and never clean-slate other durable sync state.
     #[must_use]
-    pub fn with_durable_multipart_root(mut self, workspace_root: impl Into<PathBuf>) -> Self {
+    pub fn with_durable_multipart_root(
+        mut self,
+        workspace_root: impl Into<PathBuf>,
+        fence: impl Into<String>,
+    ) -> Self {
         self.durable_workspace_root = Some(workspace_root.into());
+        self.multipart_fence = fence.into();
+        self
+    }
+
+    /// Test-only: pin the durable multipart session TTL (0 = every record is expired).
+    #[must_use]
+    pub const fn with_multipart_session_ttl_ms(mut self, ttl_ms: u64) -> Self {
+        self.multipart_session_ttl_ms = ttl_ms;
         self
     }
 
@@ -220,18 +261,17 @@ impl<S: S3ObjectSource> S3Adapter<S> {
         if !file.exists() {
             return Ok(None);
         }
-        let bytes = fs::read(&file).map_err(|err| {
-            storage(
-                "s3_multipart_session_open_failed",
-                &format!("cannot open {}: {err}", file.display()),
-            )
-        })?;
-        if bytes.len() > MAX_DURABLE_RECORD_BYTES + 64 {
-            return Err(corrupt_state(
-                "s3_multipart_session_too_large",
-                "multipart durable session exceeds hard size limit",
-            ));
-        }
+        let bytes = lomo_core::read_bounded(&file, (MAX_DURABLE_RECORD_BYTES + 64) as u64)
+            .map_err(|error| match error {
+                lomo_core::BoundedReadError::ExceedsLimit { .. } => corrupt_state(
+                    "s3_multipart_session_too_large",
+                    "multipart durable session exceeds hard size limit",
+                ),
+                lomo_core::BoundedReadError::Io(err) => storage(
+                    "s3_multipart_session_open_failed",
+                    &format!("cannot open {}: {err}", file.display()),
+                ),
+            })?;
         // Magic check surfaces CorruptState before decode for truncated partial writes.
         if bytes.len() < 4 || bytes.get(0..4) != Some(SYNC_RECORD_MAGIC.as_slice()) {
             return Err(corrupt_state(
@@ -270,6 +310,9 @@ impl<S: S3ObjectSource> S3Adapter<S> {
             upload_id: record.upload_id,
             confirmed_parts: record.confirmed_parts,
             content_digest: record.content_digest,
+            fence: record.fence,
+            expected_remote_token: record.expected_remote_token,
+            created_epoch_ms: record.created_epoch_ms,
         }))
     }
 
@@ -298,12 +341,17 @@ impl<S: S3ObjectSource> S3Adapter<S> {
             if path.extension().and_then(|ext| ext.to_str()) != Some("rec") {
                 continue;
             }
-            let bytes = fs::read(&path).map_err(|err| {
-                storage(
-                    "s3_multipart_session_open_failed",
-                    &format!("cannot open {}: {err}", path.display()),
-                )
-            })?;
+            let bytes = lomo_core::read_bounded(&path, (MAX_DURABLE_RECORD_BYTES + 64) as u64)
+                .map_err(|error| match error {
+                    lomo_core::BoundedReadError::ExceedsLimit { .. } => corrupt_state(
+                        "s3_multipart_session_too_large",
+                        "multipart durable session exceeds hard size limit",
+                    ),
+                    lomo_core::BoundedReadError::Io(err) => storage(
+                        "s3_multipart_session_open_failed",
+                        &format!("cannot open {}: {err}", path.display()),
+                    ),
+                })?;
             if bytes.len() < 4 || bytes.get(0..4) != Some(SYNC_RECORD_MAGIC.as_slice()) {
                 return Err(corrupt_state(
                     "s3_multipart_session_corrupt",
@@ -335,6 +383,9 @@ impl<S: S3ObjectSource> S3Adapter<S> {
                 upload_id: record.upload_id,
                 confirmed_parts: record.confirmed_parts,
                 content_digest: record.content_digest,
+                fence: record.fence,
+                expected_remote_token: record.expected_remote_token,
+                created_epoch_ms: record.created_epoch_ms,
             });
         }
         Ok(out)
@@ -354,6 +405,9 @@ impl<S: S3ObjectSource> S3Adapter<S> {
             upload_id: session.upload_id.clone(),
             confirmed_parts: session.confirmed_parts.clone(),
             content_digest: session.content_digest.clone(),
+            fence: session.fence.clone(),
+            expected_remote_token: session.expected_remote_token.clone(),
+            created_epoch_ms: session.created_epoch_ms,
         };
         let body = serde_json::to_string(&record).map_err(|err| {
             validation(
@@ -522,8 +576,8 @@ impl<S: S3ObjectSource> S3Adapter<S> {
         if let Some(status) = self.multipart_precondition(key, expected_remote_token) {
             return status;
         }
-        let (upload_id, mut confirmed) = match self.multipart_begin(key, path, digest) {
-            Ok(started) => started,
+        let mut session = match self.multipart_begin(key, path, digest, expected_remote_token) {
+            Ok(session) => session,
             Err(error) => {
                 return PathPublishStatus::Failed {
                     code: error.code().to_owned(),
@@ -535,7 +589,8 @@ impl<S: S3ObjectSource> S3Adapter<S> {
         let total_parts = bytes.len().div_ceil(part_size);
         for part_number in 1..=total_parts {
             let part_number_u32 = u32::try_from(part_number).unwrap_or(u32::MAX);
-            if confirmed
+            if session
+                .confirmed_parts
                 .iter()
                 .any(|part| part.part_number == part_number_u32)
             {
@@ -550,17 +605,15 @@ impl<S: S3ObjectSource> S3Adapter<S> {
             };
             match self
                 .transport
-                .upload_part(key, &upload_id, part_number_u32, chunk)
+                .upload_part(key, &session.upload_id, part_number_u32, chunk)
             {
                 Ok(etag) => {
-                    confirmed.push(MultipartConfirmedPart {
+                    session.confirmed_parts.push(MultipartConfirmedPart {
                         part_number: part_number_u32,
                         etag,
                         size_bytes: end - start,
                     });
-                    if let Err(error) =
-                        self.store_multipart_session(path, key, &upload_id, &confirmed, digest)
-                    {
+                    if let Err(error) = self.store_multipart_session(&session) {
                         return PathPublishStatus::Failed {
                             code: error.code().to_owned(),
                         };
@@ -574,14 +627,15 @@ impl<S: S3ObjectSource> S3Adapter<S> {
             }
         }
 
-        confirmed.sort_by_key(|part| part.part_number);
-        let parts: Vec<(u32, String)> = confirmed
+        session.confirmed_parts.sort_by_key(|part| part.part_number);
+        let parts: Vec<(u32, String)> = session
+            .confirmed_parts
             .iter()
             .map(|part| (part.part_number, part.etag.clone()))
             .collect();
         match self
             .transport
-            .complete_multipart_upload(key, &upload_id, &parts)
+            .complete_multipart_upload(key, &session.upload_id, &parts)
         {
             Ok(etag) => {
                 self.clear_multipart_session(path.as_str());
@@ -638,51 +692,72 @@ impl<S: S3ObjectSource> S3Adapter<S> {
         self.clear_durable_multipart_session(path);
     }
 
+    /// Begins or resumes a multipart upload for `path`.
+    ///
+    /// A recorded session resumes only when fence, object key, content digest, CAS anchor
+    /// (`expected_remote_token`) and TTL all match the current intent; any mismatch or expiry
+    /// aborts the remote upload and clears the record before a fresh `CreateMultipartUpload`.
     fn multipart_begin(
         &self,
         key: &str,
         path: &SyncPath,
         digest: &ContentDigest,
-    ) -> Result<(String, Vec<MultipartConfirmedPart>), LomoError> {
-        let existing = self.lookup_multipart_session(path.as_str())?;
-        if let Some(session) = existing {
-            if session.content_digest.as_str() == digest.as_str() && session.key == key {
+        expected_remote_token: Option<&str>,
+    ) -> Result<MultipartSession, LomoError> {
+        if let Some(session) = self.lookup_multipart_session(path.as_str())? {
+            if self.multipart_session_resumable(&session, key, digest, expected_remote_token) {
                 // Hydrate memory cache from durable/disk session for subsequent store updates.
                 if let Ok(mut guard) = self.multipart_sessions.lock() {
                     guard.insert(path.as_str().to_owned(), session.clone());
                 }
-                return Ok((session.upload_id, session.confirmed_parts));
+                return Ok(session);
             }
-            // Stale session for different content — abort and restart.
+            // Stale-fence / expired / CAS-anchor or content-mismatched session — abort and restart.
             let _aborted: Result<(), LomoError> = self
                 .transport
                 .abort_multipart_upload(&session.key, &session.upload_id);
             self.clear_multipart_session(path.as_str());
         }
         let upload_id = self.transport.create_multipart_upload(key)?;
-        Ok((upload_id, Vec::new()))
-    }
-
-    fn store_multipart_session(
-        &self,
-        path: &SyncPath,
-        key: &str,
-        upload_id: &str,
-        confirmed: &[MultipartConfirmedPart],
-        digest: &ContentDigest,
-    ) -> Result<(), LomoError> {
         let session = MultipartSession {
             path: path.as_str().to_owned(),
             key: key.to_owned(),
-            upload_id: upload_id.to_owned(),
-            confirmed_parts: confirmed.to_vec(),
+            upload_id,
+            confirmed_parts: Vec::new(),
             content_digest: digest.as_str().to_owned(),
+            fence: self.multipart_fence.clone(),
+            expected_remote_token: expected_remote_token.map(str::to_owned),
+            created_epoch_ms: now_epoch_ms(),
         };
+        // Persist before the first part: a crash between CreateMultipartUpload and the first
+        // confirmed part must still resume (or expire + abort) under this same record.
+        self.store_multipart_session(&session)?;
+        Ok(session)
+    }
+
+    /// Resume gate: the durable/memory session continues only when every resume witness
+    /// (fence, key, digest, CAS anchor, TTL) matches the current intent.
+    fn multipart_session_resumable(
+        &self,
+        session: &MultipartSession,
+        key: &str,
+        digest: &ContentDigest,
+        expected_remote_token: Option<&str>,
+    ) -> bool {
+        session.fence == self.multipart_fence
+            && session.key == key
+            && session.content_digest.as_str() == digest.as_str()
+            && session.expected_remote_token.as_deref() == expected_remote_token
+            && now_epoch_ms().saturating_sub(session.created_epoch_ms)
+                < self.multipart_session_ttl_ms
+    }
+
+    fn store_multipart_session(&self, session: &MultipartSession) -> Result<(), LomoError> {
         if let Ok(mut guard) = self.multipart_sessions.lock() {
-            guard.insert(path.as_str().to_owned(), session.clone());
+            guard.insert(session.path.clone(), session.clone());
         }
         // When durable root is configured, disk write is authoritative for process-death resume.
-        self.persist_durable_multipart_session(&session)
+        self.persist_durable_multipart_session(session)
     }
 
     fn publish_ensure_absent(
@@ -729,13 +804,20 @@ impl<S: S3ObjectSource> S3Adapter<S> {
         let key = self.transport.endpoint().object_key(path.as_str())?;
         match self.transport.get_to_temp(&key) {
             Ok((temp_path, etag, digest_hex)) => {
-                let bytes = fs::read(&temp_path).map_err(|error| {
-                    let _removed: Result<(), std::io::Error> = fs::remove_file(&temp_path);
-                    storage(
-                        "s3_object_read_failed",
-                        &format!("failed to read s3 object body: {error}"),
-                    )
-                })?;
+                let bytes = lomo_core::read_bounded(&temp_path, MAX_S3_OBJECT_BYTES as u64)
+                    .map_err(|error| {
+                        let _removed: Result<(), std::io::Error> = fs::remove_file(&temp_path);
+                        match error {
+                            lomo_core::BoundedReadError::ExceedsLimit { .. } => resource_limit(
+                                "s3_object_too_large",
+                                "s3 object body exceeds the 32 MiB object bound",
+                            ),
+                            lomo_core::BoundedReadError::Io(error) => storage(
+                                "s3_object_read_failed",
+                                &format!("failed to read s3 object body: {error}"),
+                            ),
+                        }
+                    })?;
                 let _removed: Result<(), std::io::Error> = fs::remove_file(&temp_path);
                 Ok(Some((bytes, ContentDigest::parse(&digest_hex)?, etag)))
             }
@@ -845,6 +927,19 @@ impl<S: S3ObjectSource> RemoteSyncPort for S3Adapter<S> {
             SnapshotCompleteness::Complete
         };
         RemoteListingStream::from_pages(completeness, pages)
+    }
+
+    fn remote_capabilities(&self) -> Result<RemoteCapabilities, LomoError> {
+        // Protocol-static: the S3 wire contract the adapter exercises (If-None-Match/
+        // If-Match precondition headers, strong ETags, CopyObject). S3 offers no
+        // capability endpoint, so these are the declared facts the cycle consumes.
+        Ok(RemoteCapabilities {
+            conditional_write: true,
+            conditional_delete: true,
+            supports_move: false,
+            supports_copy: true,
+            supports_etag: true,
+        })
     }
 
     fn publish(&self, batch: &PreparedRemoteBatch) -> Result<PublishReceipt, LomoError> {
@@ -976,6 +1071,14 @@ fn strip_quotes(token: &str) -> &str {
     token.trim_matches('"')
 }
 
+/// Wall-clock epoch milliseconds for durable multipart session expiry bookkeeping.
+fn now_epoch_ms() -> u64 {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_millis());
+    u64::try_from(millis).unwrap_or(u64::MAX)
+}
+
 /// Production object source: loads user file bytes from the Direct workspace filesystem.
 #[derive(Clone, Debug)]
 pub struct WorkspaceFileObjectSource {
@@ -990,6 +1093,12 @@ impl WorkspaceFileObjectSource {
             workspace_root: workspace_root.into(),
         }
     }
+
+    /// Workspace root backing both object reads and the durable multipart directory.
+    #[must_use]
+    pub fn workspace_root(&self) -> &Path {
+        &self.workspace_root
+    }
 }
 
 impl S3ObjectSource for WorkspaceFileObjectSource {
@@ -999,15 +1108,22 @@ impl S3ObjectSource for WorkspaceFileObjectSource {
         expected_digest: &ContentDigest,
     ) -> Result<Vec<u8>, LomoError> {
         let absolute = self.workspace_root.join(path.as_str());
-        let bytes = fs::read(&absolute).map_err(|err| {
-            validation(
-                "workspace_object_source_missing",
-                &format!(
-                    "workspace object source cannot read {}: {err}",
-                    path.as_str()
-                ),
-            )
-        })?;
+        let bytes =
+            lomo_core::read_bounded(&absolute, MAX_S3_OBJECT_BYTES as u64).map_err(|error| {
+                match error {
+                    lomo_core::BoundedReadError::ExceedsLimit { .. } => resource_limit(
+                        "workspace_object_source_too_large",
+                        "workspace object source exceeds the 32 MiB object bound",
+                    ),
+                    lomo_core::BoundedReadError::Io(err) => validation(
+                        "workspace_object_source_missing",
+                        &format!(
+                            "workspace object source cannot read {}: {err}",
+                            path.as_str()
+                        ),
+                    ),
+                }
+            })?;
         let digest = format!("{:x}", Sha256::digest(&bytes));
         if digest != expected_digest.as_str() {
             return Err(validation(
@@ -1020,6 +1136,11 @@ impl S3ObjectSource for WorkspaceFileObjectSource {
 }
 
 /// Connects a production path-style S3 adapter over workspace file object source.
+///
+/// The production constructor always enables the fence-bound durable multipart root under
+/// `{workspace}/.lomo/sync/v1/multipart/`; `workspace_fence` is the sync identity fence key
+/// (`generation|dataset|remote-identity`) so stale-generation records abort + clear instead
+/// of resuming foreign uploads.
 ///
 /// # Errors
 ///
@@ -1037,6 +1158,7 @@ pub fn connect_workspace_s3(
     secret_access_key: &str,
     temp_dir: &Path,
     objects: WorkspaceFileObjectSource,
+    workspace_fence: &str,
     timeout: Duration,
 ) -> Result<S3Adapter<WorkspaceFileObjectSource>, LomoError> {
     use crate::s3::endpoint::S3AddressingStyle;
@@ -1048,5 +1170,9 @@ pub fn connect_workspace_s3(
         S3AddressingStyle::PathStyle,
     )?;
     let credentials = S3Credentials::new(access_key_id, secret_access_key)?;
-    S3Adapter::connect(endpoint, credentials, temp_dir, objects, timeout)
+    let workspace_root = objects.workspace_root().to_path_buf();
+    Ok(
+        S3Adapter::connect(endpoint, credentials, temp_dir, objects, timeout)?
+            .with_durable_multipart_root(workspace_root, workspace_fence),
+    )
 }

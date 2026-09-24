@@ -297,6 +297,7 @@ mod tests {
             &required_env(&format!("{prefix_env}_SECRET_ACCESS_KEY")),
             exchange.path(),
             S3WorkspaceFileObjectSource::new(workspace.path()),
+            "provider-smoke|smoke-dataset|smoke-identity",
             SMOKE_TIMEOUT,
         )
         .expect("s3 adapter must connect with the supplied smoke credentials");

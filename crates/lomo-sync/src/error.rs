@@ -96,6 +96,19 @@ pub fn busy(code: &str, diagnostic: &str) -> LomoError {
     )
 }
 
+/// Builds a cancelled error — the durable cancel request stopped the cycle.
+///
+/// Disposition is `AfterUserAction`: the user already acted, so the host must not auto-retry.
+#[must_use]
+pub fn cancelled(code: &str, diagnostic: &str) -> LomoError {
+    boundary(
+        ErrorCategory::Cancelled,
+        code,
+        RetryDisposition::AfterUserAction,
+        diagnostic,
+    )
+}
+
 fn boundary(
     category: ErrorCategory,
     code: &str,

@@ -810,6 +810,78 @@ mod tests {
         assert!(!caps2.supports_move);
     }
 
+    /// Given a server whose capability probe reports no conditional write support,
+    /// when publish receives conditional intents, then it fails closed with
+    /// `remote_capability_unsupported` — conditional writes never rely on server
+    /// leniency.
+    #[test]
+    fn publish_refuses_conditional_writes_when_capability_probe_fails() {
+        let server = FaultServer::start();
+        let body = b"capability-gated";
+        let mut objects = MapObjectSource::default();
+        objects
+            .objects
+            .insert("memo/cap.md".to_owned(), body.to_vec());
+        let (_dir, adapter) = adapter_with(&server, objects);
+
+        // PROPFIND failures are non-auth: probe soft-fails to conditional_* = false.
+        server.set_faults(FaultConfig {
+            propfind_fail_prefix: Some(String::new()),
+            ..FaultConfig::default()
+        });
+        let caps = adapter.remote_capabilities().expect("capabilities probe");
+        assert!(!caps.conditional_write);
+        assert!(!caps.conditional_delete);
+        assert!(!caps.supports_etag);
+
+        let batch = PreparedRemoteBatch::new(
+            BatchAtomicity::PerPath,
+            vec![
+                ProviderNeutralIntent::EnsurePresent {
+                    path: path("memo/cap.md"),
+                    digest: digest_of(body),
+                    expected_remote_token: None,
+                },
+                ProviderNeutralIntent::EnsureAbsent {
+                    path: path("memo/gone.md"),
+                    expected_remote_token: "\"etoken\"".to_owned(),
+                },
+            ],
+        )
+        .expect("batch");
+        let err = adapter.publish(&batch).expect_err("capability refusal");
+        assert_eq!(err.code(), "remote_capability_unsupported");
+        assert_eq!(err.category(), ErrorCategory::Validation);
+        assert!(
+            !server.has("memo/cap.md"),
+            "unsupported conditional write must never reach the wire"
+        );
+    }
+
+    /// Given a server that supports conditional operations, when a second publish runs
+    /// after the first, then the capability probe is memoized per adapter — one OPTIONS
+    /// + one PROPFIND-0 per cycle, not per batch.
+    #[test]
+    fn remote_capabilities_memoized_per_adapter_instance() {
+        let server = FaultServer::start();
+        let body = b"memoized";
+        let mut objects = MapObjectSource::default();
+        objects
+            .objects
+            .insert("memo/memo.md".to_owned(), body.to_vec());
+        let (_dir, adapter) = adapter_with(&server, objects);
+        let first = adapter.remote_capabilities().expect("first caps");
+        server.set_faults(FaultConfig {
+            options_no_move: true,
+            ..FaultConfig::default()
+        });
+        let second = adapter.remote_capabilities().expect("second caps");
+        assert_eq!(
+            first, second,
+            "capability probe is memoized per adapter (cycle) instance"
+        );
+    }
+
     #[test]
     fn complete_snapshot_lists_files_with_sha256_digests() {
         let server = FaultServer::start();

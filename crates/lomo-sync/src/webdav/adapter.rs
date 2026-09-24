@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use sha2::{Digest, Sha256};
@@ -9,18 +10,18 @@ use url::Url;
 
 use crate::error::{resource_limit, storage, validation};
 use crate::limits::{
-    MAX_ACTION_PAGE_ITEMS, MAX_STREAMING_REMOTE_PATH_KEYS, MAX_WEBDAV_SNAPSHOT_ENTRIES,
-    MAX_WEBDAV_TRAVERSAL_DEPTH,
+    MAX_ACTION_PAGE_ITEMS, MAX_STREAMING_REMOTE_PATH_KEYS, MAX_WEBDAV_OBJECT_BYTES,
+    MAX_WEBDAV_SNAPSHOT_ENTRIES, MAX_WEBDAV_TRAVERSAL_DEPTH,
 };
 use crate::pipeline::{
     BatchAtomicity, ContentDigest, PathPublishStatus, PreparedRemoteBatch, ProviderNeutralIntent,
     PublishReceipt, RemoteDigestFact, RemotePathEntry, RemoteSnapshot, RemoteValidator,
     SnapshotCompleteness, SyncPath, VerifiedRemoteState, VerifyExpectation, VerifyStatus,
 };
-use crate::ports::{RemoteListingStream, RemoteResolvedObject, RemoteSyncPort};
+use crate::ports::{RemoteCapabilities, RemoteListingStream, RemoteResolvedObject, RemoteSyncPort};
 use crate::webdav::endpoint::{WebDavCredentials, WebDavEndpoint};
 use crate::webdav::multistatus::{MultistatusResource, parse_multistatus};
-use crate::webdav::transport::{RemoteCapabilities, WebDavTransport};
+use crate::webdav::transport::WebDavTransport;
 use lomo_core::LomoError;
 
 /// Supplies object bytes for `EnsurePresent` publishes (path → digest map known to the planner).
@@ -74,6 +75,8 @@ pub struct WebDavAdapter<S: WebDavObjectSource> {
     objects: S,
     /// When set, force snapshot completeness to Incomplete after listing (test injection).
     force_incomplete: bool,
+    /// Memoized capability probe for this adapter instance (one probe per cycle).
+    capabilities: Mutex<Option<RemoteCapabilities>>,
 }
 
 impl<S: WebDavObjectSource> WebDavAdapter<S> {
@@ -94,6 +97,7 @@ impl<S: WebDavObjectSource> WebDavAdapter<S> {
             transport,
             objects,
             force_incomplete: false,
+            capabilities: Mutex::new(None),
         })
     }
 
@@ -370,13 +374,20 @@ impl<S: WebDavObjectSource> WebDavAdapter<S> {
         let url = self.transport.endpoint().resolve_path(path.as_str())?;
         match self.transport.get_to_temp(&url) {
             Ok((temp_path, etag, digest_hex)) => {
-                let bytes = std::fs::read(&temp_path).map_err(|error| {
-                    let _removed: Result<(), std::io::Error> = std::fs::remove_file(&temp_path);
-                    storage(
-                        "webdav_object_read_failed",
-                        &format!("failed to read webdav object body: {error}"),
-                    )
-                })?;
+                let bytes = lomo_core::read_bounded(&temp_path, MAX_WEBDAV_OBJECT_BYTES as u64)
+                    .map_err(|error| {
+                        let _removed: Result<(), std::io::Error> = std::fs::remove_file(&temp_path);
+                        match error {
+                            lomo_core::BoundedReadError::ExceedsLimit { .. } => resource_limit(
+                                "webdav_object_too_large",
+                                "webdav object body exceeds the 32 MiB object bound",
+                            ),
+                            lomo_core::BoundedReadError::Io(error) => storage(
+                                "webdav_object_read_failed",
+                                &format!("failed to read webdav object body: {error}"),
+                            ),
+                        }
+                    })?;
                 let _removed: Result<(), std::io::Error> = std::fs::remove_file(&temp_path);
                 Ok(Some((bytes, ContentDigest::parse(&digest_hex)?, etag)))
             }
@@ -513,6 +524,19 @@ impl<S: WebDavObjectSource> RemoteSyncPort for WebDavAdapter<S> {
         RemoteListingStream::from_pages(completeness, pages)
     }
 
+    fn remote_capabilities(&self) -> Result<RemoteCapabilities, LomoError> {
+        if let Ok(guard) = self.capabilities.lock()
+            && let Some(caps) = *guard
+        {
+            return Ok(caps);
+        }
+        let caps = self.transport.probe_capabilities()?;
+        if let Ok(mut guard) = self.capabilities.lock() {
+            *guard = Some(caps);
+        }
+        Ok(caps)
+    }
+
     fn publish(&self, batch: &PreparedRemoteBatch) -> Result<PublishReceipt, LomoError> {
         if batch.atomicity != BatchAtomicity::PerPath {
             return Err(validation(
@@ -520,6 +544,9 @@ impl<S: WebDavObjectSource> RemoteSyncPort for WebDavAdapter<S> {
                 "webdav adapter only executes PerPath batches",
             ));
         }
+        // Capability edge enforcement: conditional intents are refused when the probed
+        // remote cannot honour them — never rely on server leniency mid-batch.
+        crate::pipeline::require_remote_capabilities(&batch.intents, self.remote_capabilities()?)?;
         let mut path_results = Vec::with_capacity(batch.intents.len());
         for intent in &batch.intents {
             match intent {
@@ -639,15 +666,22 @@ fn load_workspace_file_bytes(
     expected_digest: &ContentDigest,
 ) -> Result<Vec<u8>, LomoError> {
     let absolute = workspace_root.join(path.as_str());
-    let bytes = std::fs::read(&absolute).map_err(|err| {
-        validation(
-            "workspace_object_source_missing",
-            &format!(
-                "workspace object source cannot read {}: {err}",
-                path.as_str()
-            ),
-        )
-    })?;
+    let bytes =
+        lomo_core::read_bounded(&absolute, MAX_WEBDAV_OBJECT_BYTES as u64).map_err(|error| {
+            match error {
+                lomo_core::BoundedReadError::ExceedsLimit { .. } => resource_limit(
+                    "workspace_object_source_too_large",
+                    "workspace object source exceeds the 32 MiB object bound",
+                ),
+                lomo_core::BoundedReadError::Io(err) => validation(
+                    "workspace_object_source_missing",
+                    &format!(
+                        "workspace object source cannot read {}: {err}",
+                        path.as_str()
+                    ),
+                ),
+            }
+        })?;
     let digest = format!("{:x}", Sha256::digest(&bytes));
     if digest != expected_digest.as_str() {
         return Err(validation(

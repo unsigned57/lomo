@@ -10,10 +10,11 @@ mod multistatus;
 mod status_map;
 mod transport;
 
+pub use crate::ports::RemoteCapabilities;
 pub use adapter::{
     MapObjectSource, WebDavAdapter, WebDavObjectSource, WorkspaceFileObjectSource,
     connect_map_source, connect_workspace_webdav,
 };
 pub use endpoint::{WebDavCredentials, WebDavEndpoint};
 pub use status_map::map_http_status;
-pub use transport::{RemoteCapabilities, is_same_origin};
+pub use transport::is_same_origin;

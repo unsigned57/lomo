@@ -67,6 +67,12 @@ pub struct StreamingSyncCycleResult {
     pub baseline_advanced: bool,
     pub baseline: BaselineHead,
     pub conflict_session: Option<ConflictSession>,
+    /// Local projection entries the cycle observed (durable status fact).
+    pub local_entry_count: u32,
+    /// Remote listing entries the cycle observed across all pages.
+    pub remote_listed_count: u32,
+    /// Baseline entries after this cycle's advancement (synced-path count).
+    pub baseline_entry_count: u32,
 }
 
 /// Coarse plan/readiness summary for one dark host cycle inspect (no publish/apply).
@@ -92,6 +98,16 @@ pub struct SyncCyclePlanSummary {
     pub conflict_revision: Option<u64>,
     /// WorkManager-facing disposition name owned by Rust (`never` / `after_user_action` / `transient`).
     pub retry_disposition: &'static str,
+    /// Intent pages published + verified this cycle (0 for plan-only).
+    pub pages_applied: u32,
+    /// True when this cycle advanced the durable baseline.
+    pub baseline_advanced: bool,
+    /// Local projection entries the cycle observed.
+    pub local_entry_count: u32,
+    /// Remote listing entries the cycle observed across all pages.
+    pub remote_listed_count: u32,
+    /// Baseline entries after this cycle's advancement.
+    pub baseline_entry_count: u32,
 }
 
 /// Outcome of a streaming multi-page plan (intent pages only; never a full-path payload dump).
@@ -815,7 +831,9 @@ pub fn run_sync_cycle_streaming(
         execute_pending_resolved_remote_apply(sync_paths, remote)?;
     }
     let local_snap = local.snapshot()?;
+    let local_entry_count = count_u32(local_snap.entries.len())?;
     let facts = observe_streaming_listing(remote, &local_snap, &baseline)?;
+    let remote_listed_count = facts.listed_count_u32()?;
     let listing = facts.listing;
     let overall_completeness = listing.overall_completeness;
     let publish_contract = facts.publish_contract;
@@ -859,18 +877,7 @@ pub fn run_sync_cycle_streaming(
         &tombstones,
     )?;
 
-    let first_page_batch = match plan.intent_pages.first() {
-        None => {
-            let mut empty = PreparedRemoteBatch::from_contract(publish_contract, Vec::new())?;
-            merge_recovery_ensure_absent(&mut empty, recovery_intents);
-            empty
-        }
-        Some(first) => {
-            let mut first = first.clone();
-            merge_recovery_ensure_absent(&mut first, recovery_intents);
-            first
-        }
-    };
+    let first_page_batch = first_streaming_batch(&plan, publish_contract, recovery_intents)?;
 
     let loaded_bodies =
         owned_conflict_bodies_for_streaming_plan(conflict_bodies, paths, &plan, remote)?;
@@ -886,8 +893,11 @@ pub fn run_sync_cycle_streaming(
             receipt: None,
             verified: None,
             baseline_advanced: false,
+            baseline_entry_count: count_u32(baseline.entries.len())?,
             baseline,
             conflict_session,
+            local_entry_count,
+            remote_listed_count,
         });
     }
 
@@ -911,9 +921,33 @@ pub fn run_sync_cycle_streaming(
         receipt: applied.receipt,
         verified: Some(applied.verified),
         baseline_advanced: applied.baseline_advanced,
+        baseline_entry_count: count_u32(baseline.entries.len())?,
         baseline,
         conflict_session,
+        local_entry_count,
+        remote_listed_count,
     })
+}
+
+/// First apply batch: the plan's first intent page (or an empty contract batch) with pending
+/// delete-recovery `EnsureAbsent` intents merged in.
+fn first_streaming_batch(
+    plan: &StreamingPlanOutcome,
+    publish_contract: RemotePublishContract,
+    recovery_intents: Vec<ProviderNeutralIntent>,
+) -> Result<PreparedRemoteBatch, LomoError> {
+    match plan.intent_pages.first() {
+        None => {
+            let mut empty = PreparedRemoteBatch::from_contract(publish_contract, Vec::new())?;
+            merge_recovery_ensure_absent(&mut empty, recovery_intents);
+            Ok(empty)
+        }
+        Some(first) => {
+            let mut first = first.clone();
+            merge_recovery_ensure_absent(&mut first, recovery_intents);
+            Ok(first)
+        }
+    }
 }
 
 struct StreamingApplyRequest<'a> {
@@ -956,7 +990,19 @@ fn apply_streaming_intent_pages(
     let mut baseline_advanced = false;
     let mut any_receipt = false;
 
+    if let Some(paths) = request.paths {
+        crate::cycle_state::note_sync_cycle_applying(paths)?;
+    }
     for batch in &batches_to_apply {
+        if let Some(paths) = request.paths
+            && crate::cycle_state::sync_cycle_cancel_requested(paths)?
+        {
+            crate::cycle_state::mark_sync_cycle_cancelled(paths, pages_applied)?;
+            return Err(crate::error::cancelled(
+                crate::cycle_state::CYCLE_CANCELLED_CODE,
+                "durable cancel request observed between publication pages",
+            ));
+        }
         let (receipt, verified) = publish_and_verify(
             request.remote,
             batch,
@@ -1009,6 +1055,13 @@ struct StreamingListingFacts<'r> {
     remote_view: RemoteSnapshot,
     publish_contract: RemotePublishContract,
     resolved: ResolvedObjectCache<'r>,
+}
+
+impl StreamingListingFacts<'_> {
+    /// Total remote entries across all listing pages (durable status fact).
+    fn listed_count_u32(&self) -> Result<u32, LomoError> {
+        count_u32(self.listing.pages.iter().flatten().count())
+    }
 }
 
 /// Lists remote pages and resolves metadata-only digests for the paths the planner must decide
@@ -1327,7 +1380,7 @@ fn materialize_or_load_streaming_conflict_session(
             "OpenConflict materialize requires candidate body source",
         )
     })?;
-    let conflict_session_id = format!("{}-conflict", session.session_id);
+    let conflict_session_id = crate::conflict::conflict_session_id(&session.session_id);
     materialize_conflicts_from_intent_pages(
         sync_paths,
         &session.fence,
@@ -1363,7 +1416,7 @@ fn materialize_or_load_conflict_session(
                 "OpenConflict materialize requires candidate body source",
             )
         })?;
-        let conflict_session_id = format!("{}-conflict", session.session_id);
+        let conflict_session_id = crate::conflict::conflict_session_id(&session.session_id);
         return materialize_conflicts_from_plan(
             sync_paths,
             &session.fence,
@@ -1399,6 +1452,12 @@ fn publish_and_verify(
     // Remote mutations only: EnsurePresent / EnsureAbsent. OpenConflict / PullPresent /
     // ReportUnrecognized never publish (adapters would Skip; hollow conflict must not pretend apply).
     let receipt = if batch_has_remote_mutations(batch) {
+        // Capability participation: the probed/declared remote capability facts gate
+        // conditional mutations before any publish — server leniency is never assumed.
+        crate::pipeline::require_remote_capabilities(
+            &batch.intents,
+            remote.remote_capabilities()?,
+        )?;
         Some(remote.publish(batch)?)
     } else {
         None
@@ -1780,7 +1839,48 @@ pub fn inspect_sync_cycle_plan_with_ports(
         open_conflict_paths,
         conflict_revision,
         retry_disposition,
+        pages_applied: result.pages_applied,
+        baseline_advanced: result.baseline_advanced,
+        local_entry_count: result.local_entry_count,
+        remote_listed_count: result.remote_listed_count,
+        baseline_entry_count: result.baseline_entry_count,
     })
+}
+
+/// Wraps one composed cycle body with the durable [`crate::SyncCycleRecord`] lifecycle.
+///
+/// `begin_sync_cycle` repairs a stale `Running` record (writer death → `Failed(interrupted)`)
+/// and persists `Running` before any port construction work, so connect failures also land in
+/// the durable record. The terminal write lands on success, owner error, or the apply loop's
+/// own `sync_cycle_cancelled` write. Conversion-only inspect ([`inspect_sync_cycle_plan`])
+/// stays side-effect-free — it is not a cycle.
+///
+/// # Errors
+///
+/// Session/cycle-state persistence errors; the wrapped body's own errors after the terminal
+/// record write.
+fn run_cycle_with_record(
+    paths: &SyncPaths,
+    backend_kind: SyncBackendKind,
+    apply_remote: bool,
+    run: impl FnOnce() -> Result<SyncCyclePlanSummary, LomoError>,
+) -> Result<SyncCyclePlanSummary, LomoError> {
+    let session = read_session(paths)?;
+    let mut record =
+        crate::cycle_state::begin_sync_cycle(paths, &session, backend_kind, apply_remote)?;
+    match run() {
+        Ok(summary) => {
+            crate::cycle_state::complete_sync_cycle(paths, &mut record, &summary)?;
+            Ok(summary)
+        }
+        Err(err) => {
+            // The apply loop persists the terminal Cancelled write itself.
+            if err.code() != crate::cycle_state::CYCLE_CANCELLED_CODE {
+                crate::cycle_state::fail_sync_cycle(paths, &mut record, &err)?;
+            }
+            Err(err)
+        }
+    }
 }
 
 /// Backend kind for production composition (conversion-friendly string wire).
@@ -1800,43 +1900,147 @@ pub enum SyncBackendKind {
     Git,
 }
 
+impl SyncBackendKind {
+    /// Stable wire name (`hermetic_fake` | `webdav` | `s3` | `git`).
+    #[must_use]
+    pub const fn wire_name(self) -> &'static str {
+        match self {
+            Self::HermeticFake => "hermetic_fake",
+            Self::WebDav => "webdav",
+            Self::S3 => "s3",
+            Self::Git => "git",
+        }
+    }
+}
+
 /// Non-secret backend configuration for one production cycle composition.
 ///
-/// Secrets are never stored here — callers resolve a process-local secret lease and pass material
-/// separately. Git adapter construction lives at the native composition edge (`lomo-git`); this
-/// config still carries Git non-secret identity for the durable session fence.
+/// Each backend is a dedicated variant — fields cannot be borrowed across providers.
+/// Secrets are never stored here — callers resolve a process-local secret lease and pass
+/// material separately. Git adapter construction lives at the native composition edge
+/// (`lomo-git`); this config still carries Git non-secret identity for the durable session fence.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SyncBackendConfig {
-    pub kind: SyncBackendKind,
-    /// Endpoint / base URL (`WebDAV` / S3) or Git remote URL.
-    pub endpoint_url: String,
-    /// `WebDAV` username, S3 access key id, or Git HTTPS username (non-secret identity).
-    pub username_or_access_key: String,
-    /// S3 bucket (required for S3; empty for `WebDAV` / Git / hermetic).
-    /// For Git: branch short name when non-empty (default `main` at the composition edge).
-    pub bucket: String,
-    /// S3 key prefix (optional; empty when unused).
-    /// For Git: author name when non-empty (default `Lomo` at the composition edge).
-    pub prefix: String,
-    /// S3 region (required for S3; empty otherwise).
-    /// For Git: author email when non-empty (default `git@lomo.local` at the composition edge).
-    pub region: String,
-    /// Opaque remote dataset id for the durable identity fence.
-    pub remote_dataset_id: String,
+pub enum SyncBackendConfig {
+    /// Hermetic fake backend (no network; host composition proof).
+    HermeticFake {
+        /// Opaque remote dataset id for the durable identity fence.
+        remote_dataset_id: String,
+    },
+    /// `WebDAV` endpoint + non-secret username.
+    WebDav {
+        /// Endpoint base URL.
+        endpoint_url: String,
+        /// `WebDAV` username (non-secret identity).
+        username: String,
+        /// Opaque remote dataset id for the durable identity fence.
+        remote_dataset_id: String,
+    },
+    /// Path-style S3 endpoint + bucket/prefix/region + non-secret access key id.
+    S3 {
+        /// Endpoint base URL.
+        endpoint_url: String,
+        /// Access key id (non-secret identity; the secret key travels via lease).
+        access_key_id: String,
+        /// Bucket name (required).
+        bucket: String,
+        /// Key prefix (optional; empty when unused).
+        prefix: String,
+        /// Region (required).
+        region: String,
+        /// Opaque remote dataset id for the durable identity fence.
+        remote_dataset_id: String,
+    },
+    /// Git remote + explicit branch and commit author identity (all non-secret).
+    Git {
+        /// Remote URL (validated by `lomo-git` at the composition edge; userinfo is rejected).
+        remote_url: String,
+        /// HTTPS username (non-secret identity; may be empty for anonymous local remotes).
+        username: String,
+        /// Branch short name (e.g. `main`).
+        branch: String,
+        /// Commit author name.
+        author_name: String,
+        /// Commit author email.
+        author_email: String,
+        /// Opaque remote dataset id for the durable identity fence.
+        remote_dataset_id: String,
+    },
 }
 
 impl SyncBackendConfig {
     /// Builds a hermetic fake backend config (no network; host composition proof).
     #[must_use]
     pub fn hermetic_fake(remote_dataset_id: impl Into<String>) -> Self {
-        Self {
-            kind: SyncBackendKind::HermeticFake,
-            endpoint_url: String::new(),
-            username_or_access_key: String::new(),
-            bucket: String::new(),
-            prefix: String::new(),
-            region: String::new(),
+        Self::HermeticFake {
             remote_dataset_id: remote_dataset_id.into(),
+        }
+    }
+
+    /// Backend discriminant for diagnostics and canonical identity.
+    #[must_use]
+    pub const fn kind(&self) -> SyncBackendKind {
+        match self {
+            Self::HermeticFake { .. } => SyncBackendKind::HermeticFake,
+            Self::WebDav { .. } => SyncBackendKind::WebDav,
+            Self::S3 { .. } => SyncBackendKind::S3,
+            Self::Git { .. } => SyncBackendKind::Git,
+        }
+    }
+
+    /// Opaque remote dataset id carried by every variant.
+    #[must_use]
+    pub fn remote_dataset_id(&self) -> &str {
+        match self {
+            Self::HermeticFake { remote_dataset_id }
+            | Self::WebDav {
+                remote_dataset_id, ..
+            }
+            | Self::S3 {
+                remote_dataset_id, ..
+            }
+            | Self::Git {
+                remote_dataset_id, ..
+            } => remote_dataset_id,
+        }
+    }
+
+    /// Canonical non-secret identity bytes for the durable session fence.
+    ///
+    /// Per-variant field names are part of the canonical form — the same values under a
+    /// different backend spell a different fence. Secret material never participates.
+    #[must_use]
+    pub fn canonical_identity(&self) -> String {
+        match self {
+            Self::HermeticFake { remote_dataset_id } => {
+                format!("kind=HermeticFake\ndataset={remote_dataset_id}\n")
+            }
+            Self::WebDav {
+                endpoint_url,
+                username,
+                remote_dataset_id,
+            } => format!(
+                "kind=WebDav\nendpoint={endpoint_url}\nuser={username}\ndataset={remote_dataset_id}\n"
+            ),
+            Self::S3 {
+                endpoint_url,
+                access_key_id,
+                bucket,
+                prefix,
+                region,
+                remote_dataset_id,
+            } => format!(
+                "kind=S3\nendpoint={endpoint_url}\naccess_key={access_key_id}\nbucket={bucket}\nprefix={prefix}\nregion={region}\ndataset={remote_dataset_id}\n"
+            ),
+            Self::Git {
+                remote_url,
+                username,
+                branch,
+                author_name,
+                author_email,
+                remote_dataset_id,
+            } => format!(
+                "kind=Git\nremote={remote_url}\nuser={username}\nbranch={branch}\nauthor={author_name}\nemail={author_email}\ndataset={remote_dataset_id}\n"
+            ),
         }
     }
 }
@@ -1869,22 +2073,23 @@ pub fn run_composed_sync_cycle(
             "workspace root must be non-empty for composed cycle",
         ));
     }
-    if config.remote_dataset_id.is_empty() || config.remote_dataset_id.len() > 128 {
+    if config.remote_dataset_id().is_empty() || config.remote_dataset_id().len() > 128 {
         return Err(validation(
             "sync_remote_dataset_id_invalid",
             "remote_dataset_id must be 1..=128 bytes",
         ));
     }
 
-    if matches!(config.kind, SyncBackendKind::Git) {
+    if matches!(config, SyncBackendConfig::Git { .. }) {
         return Err(validation(
             "sync_git_compose_via_remote_port",
             "git composition builds lomo-git at the native edge; use run_composed_sync_cycle_with_remote_port",
         ));
     }
 
-    // Real local port: store coarse snapshot (path/digest/generation only).
-    let store = lomo_store::Store::open(workspace_root)?;
+    // Real local port: store coarse snapshot (path/digest/generation only). Read-only: the
+    // projection handle is used because a session-migrated V2 workspace refuses v1 writers.
+    let store = lomo_store::Store::open_projection(workspace_root)?;
     let snap = store.snapshot_sync_view()?;
     if snap.workspace_generation.is_empty() {
         return Err(validation(
@@ -1901,14 +2106,16 @@ pub fn run_composed_sync_cycle(
 
     let paths = SyncPaths::for_workspace(workspace_root);
     ensure_session_for_composition(&paths, &snap.workspace_generation, config)?;
-    run_composed_with_remote(
-        workspace_root,
-        &paths,
-        &local,
-        config,
-        secret_material,
-        apply_remote,
-    )
+    run_cycle_with_record(&paths, config.kind(), apply_remote, || {
+        run_composed_with_remote(
+            workspace_root,
+            &paths,
+            &local,
+            config,
+            secret_material,
+            apply_remote,
+        )
+    })
 }
 
 /// Runs one production-shaped owner cycle with a **caller-provided** remote port.
@@ -1932,14 +2139,15 @@ pub fn run_composed_sync_cycle_with_remote_port(
             "workspace root must be non-empty for composed cycle",
         ));
     }
-    if config.remote_dataset_id.is_empty() || config.remote_dataset_id.len() > 128 {
+    if config.remote_dataset_id().is_empty() || config.remote_dataset_id().len() > 128 {
         return Err(validation(
             "sync_remote_dataset_id_invalid",
             "remote_dataset_id must be 1..=128 bytes",
         ));
     }
 
-    let store = lomo_store::Store::open(workspace_root)?;
+    // Read-only local snapshot: same projection-open rule as above (V2 refuses v1 writers).
+    let store = lomo_store::Store::open_projection(workspace_root)?;
     let snap = store.snapshot_sync_view()?;
     if snap.workspace_generation.is_empty() {
         return Err(validation(
@@ -1955,7 +2163,9 @@ pub fn run_composed_sync_cycle_with_remote_port(
     )?;
     let paths = SyncPaths::for_workspace(workspace_root);
     ensure_session_for_composition(&paths, &snap.workspace_generation, config)?;
-    inspect_sync_cycle_plan_with_ports(&paths, &local, remote, apply_remote, None)
+    run_cycle_with_record(&paths, config.kind(), apply_remote, || {
+        inspect_sync_cycle_plan_with_ports(&paths, &local, remote, apply_remote, None)
+    })
 }
 
 fn run_composed_with_remote(
@@ -1966,11 +2176,30 @@ fn run_composed_with_remote(
     secret_material: Option<&[u8]>,
     apply_remote: bool,
 ) -> Result<SyncCyclePlanSummary, LomoError> {
-    match config.kind {
-        SyncBackendKind::HermeticFake => {
+    let remote = connect_sync_remote_port(workspace_root, paths, config, secret_material)?;
+    inspect_sync_cycle_plan_with_ports(paths, local, remote.as_ref(), apply_remote, None)
+}
+
+/// Connects the production remote port for a non-Git backend.
+///
+/// Shared by composed cycles and host probes (`testConnection`): the probe exercises the same
+/// adapter construction, capabilities, and listing path instead of reporting acceptance without
+/// touching the remote. Git stays rejected — `lomo-git` is built at the native composition edge.
+///
+/// # Errors
+///
+/// Validation for incomplete config / Git kind; secret-lease and adapter construction errors.
+pub fn connect_sync_remote_port(
+    workspace_root: &std::path::Path,
+    paths: &SyncPaths,
+    config: &SyncBackendConfig,
+    secret_material: Option<&[u8]>,
+) -> Result<Box<dyn RemoteSyncPort>, LomoError> {
+    match config {
+        SyncBackendConfig::HermeticFake { .. } => {
             // Non-empty ports: local is real store; remote is hermetic empty complete listing.
             // This is the host proof that production composition is not empty-port inspect.
-            let remote = FakeRemotePort::new(
+            Ok(Box::new(FakeRemotePort::new(
                 RemoteSnapshot::new(SnapshotCompleteness::Complete, Vec::new())?,
                 PublishReceipt {
                     path_results: Vec::new(),
@@ -1978,12 +2207,15 @@ fn run_composed_with_remote(
                 VerifiedRemoteState {
                     results: Vec::new(),
                 },
-            );
-            inspect_sync_cycle_plan_with_ports(paths, local, &remote, apply_remote, None)
+            )))
         }
-        SyncBackendKind::WebDav => {
+        SyncBackendConfig::WebDav {
+            endpoint_url,
+            username,
+            ..
+        } => {
             let password = secret_utf8(secret_material, "webdav_secret_required")?;
-            if config.endpoint_url.is_empty() || config.username_or_access_key.is_empty() {
+            if endpoint_url.is_empty() || username.is_empty() {
                 return Err(validation(
                     "webdav_config_incomplete",
                     "webdav endpoint_url and username are required",
@@ -1999,21 +2231,28 @@ fn run_composed_with_remote(
             let objects =
                 crate::webdav::WorkspaceFileObjectSource::new(workspace_root.to_path_buf());
             let remote = crate::webdav::connect_workspace_webdav(
-                &config.endpoint_url,
-                &config.username_or_access_key,
+                endpoint_url,
+                username,
                 password,
                 &temp_dir,
                 objects,
                 std::time::Duration::from_secs(30),
             )?;
-            inspect_sync_cycle_plan_with_ports(paths, local, &remote, apply_remote, None)
+            Ok(Box::new(remote))
         }
-        SyncBackendKind::S3 => {
+        SyncBackendConfig::S3 {
+            endpoint_url,
+            access_key_id,
+            bucket,
+            prefix,
+            region,
+            ..
+        } => {
             let secret = secret_utf8(secret_material, "s3_secret_required")?;
-            if config.endpoint_url.is_empty()
-                || config.username_or_access_key.is_empty()
-                || config.bucket.is_empty()
-                || config.region.is_empty()
+            if endpoint_url.is_empty()
+                || access_key_id.is_empty()
+                || bucket.is_empty()
+                || region.is_empty()
             {
                 return Err(validation(
                     "s3_config_incomplete",
@@ -2028,20 +2267,24 @@ fn run_composed_with_remote(
                 )
             })?;
             let objects = crate::s3::WorkspaceFileObjectSource::new(workspace_root.to_path_buf());
+            // Durable multipart sessions bind to the canonical sync identity fence ensured
+            // by composition; a stale-generation record aborts + clears instead of resuming.
+            let session = read_session(paths)?;
             let remote = crate::s3::connect_workspace_s3(
-                &config.endpoint_url,
-                &config.bucket,
-                &config.prefix,
-                &config.region,
-                &config.username_or_access_key,
+                endpoint_url,
+                bucket,
+                prefix,
+                region,
+                access_key_id,
                 secret,
                 &temp_dir,
                 objects,
+                &session.fence.stable_key(),
                 std::time::Duration::from_secs(30),
             )?;
-            inspect_sync_cycle_plan_with_ports(paths, local, &remote, apply_remote, None)
+            Ok(Box::new(remote))
         }
-        SyncBackendKind::Git => Err(validation(
+        SyncBackendConfig::Git { .. } => Err(validation(
             "sync_git_compose_via_remote_port",
             "git composition builds lomo-git at the native edge; use run_composed_sync_cycle_with_remote_port",
         )),
@@ -2081,23 +2324,13 @@ fn ensure_session_for_composition(
         return Ok(());
     }
     let generation = lomo_workspace::WorkspaceGenerationId::parse(workspace_generation)?;
-    let dataset = lomo_workspace::RemoteDatasetId::parse(&config.remote_dataset_id)?;
+    let dataset = lomo_workspace::RemoteDatasetId::parse(config.remote_dataset_id())?;
     // Canonical identity: backend kind + endpoint + non-secret identity fields (never secret bytes).
-    let canonical = format!(
-        "kind={:?}\nendpoint={}\nuser={}\nbucket={}\nprefix={}\nregion={}\ndataset={}\n",
-        config.kind,
-        config.endpoint_url,
-        config.username_or_access_key,
-        config.bucket,
-        config.prefix,
-        config.region,
-        config.remote_dataset_id,
-    );
+    let canonical = config.canonical_identity();
     let identity =
         lomo_workspace::RemoteIdentityDigest::from_canonical_config_bytes(canonical.as_bytes());
     let fence = SyncIdentityFence::from_parts(&generation, &dataset, &identity);
-    let session_id = format!("cycle-{}", config.remote_dataset_id);
-    let session = SyncSession::new(fence, SessionKind::FirstTakeover, session_id)?;
+    let session = SyncSession::for_first_takeover(fence, &dataset)?;
     write_session(paths, &session)
 }
 
@@ -2173,6 +2406,10 @@ impl RemoteSyncPort for ResolvedObjectCache<'_> {
 
     fn batch_atomicity(&self) -> BatchAtomicity {
         self.inner.batch_atomicity()
+    }
+
+    fn remote_capabilities(&self) -> Result<crate::ports::RemoteCapabilities, LomoError> {
+        self.inner.remote_capabilities()
     }
 
     fn publish(&self, batch: &PreparedRemoteBatch) -> Result<PublishReceipt, LomoError> {
