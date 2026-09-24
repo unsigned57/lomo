@@ -366,25 +366,77 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
                 )
         }
 
-        test("entryWorkspaceStateFor maps domain readiness into entry workspace lane") {
-            entryWorkspaceStateFor(com.lomo.domain.model.EngineReadiness.AwaitingWorkspaceSelection)
-                .first shouldBe EntryWorkspaceState.Resolving
-            entryWorkspaceStateFor(com.lomo.domain.model.EngineReadiness.Opening)
-                .first shouldBe EntryWorkspaceState.Preparing
+        test("entryWorkspaceStateFor maps the published mount into the entry workspace lane") {
             entryWorkspaceStateFor(
-                com.lomo.domain.model.EngineReadiness.Ready,
+                com.lomo.domain.model.WorkspaceMount(
+                    readiness = com.lomo.domain.model.EngineReadiness.AwaitingWorkspaceSelection,
+                    location = null,
+                    authority = null,
+                    freshness = com.lomo.domain.model.ProjectionFreshness.Unavailable,
+                ),
+            ).first shouldBe EntryWorkspaceState.Resolving
+            entryWorkspaceStateFor(
+                com.lomo.domain.model.WorkspaceMount(
+                    readiness = com.lomo.domain.model.EngineReadiness.Opening,
+                    location = null,
+                    authority = null,
+                    freshness = com.lomo.domain.model.ProjectionFreshness.Unavailable,
+                ),
+            ).first shouldBe EntryWorkspaceState.Preparing
+            entryWorkspaceStateFor(
+                com.lomo.domain.model.WorkspaceMount(
+                    readiness = com.lomo.domain.model.EngineReadiness.Ready,
+                    location = com.lomo.domain.model.StorageLocation("/workspace"),
+                    authority =
+                        com.lomo.domain.model.WorkspaceAuthority(
+                            workspaceId = "w",
+                            generation = 1,
+                            projectionRevision = 1uL,
+                        ),
+                    freshness = com.lomo.domain.model.ProjectionFreshness.Verified(1uL),
+                ),
             ).first shouldBe EntryWorkspaceState.Ready
             val recovery =
                 entryWorkspaceStateFor(
-                    com.lomo.domain.model.EngineReadiness.ReadOnlyRecovery(
-                        category = com.lomo.domain.model.EngineFailureCategory.CORRUPTION,
-                        code = "journal_corrupt",
-                        retryDisposition = com.lomo.domain.model.EngineRetryDisposition.NEVER,
-                        diagnostic = "checksum mismatch",
+                    com.lomo.domain.model.WorkspaceMount(
+                        readiness =
+                            com.lomo.domain.model.EngineReadiness.ReadOnlyRecovery(
+                                category = com.lomo.domain.model.EngineFailureCategory.CORRUPTION,
+                                code = "journal_corrupt",
+                                retryDisposition = com.lomo.domain.model.EngineRetryDisposition.NEVER,
+                                diagnostic = "checksum mismatch",
+                            ),
+                        location = null,
+                        authority = null,
+                        freshness = com.lomo.domain.model.ProjectionFreshness.Unavailable,
                     ),
                 )
             recovery.first shouldBe EntryWorkspaceState.ReadOnlyRecovery
             recovery.second shouldBe ("journal_corrupt" to "checksum mismatch")
+        }
+
+        test("entryWorkspaceStateFor keeps dispatch waiting while a Ready mount does not admit reads") {
+            listOf(
+                com.lomo.domain.model.WorkspaceMount(
+                    readiness = com.lomo.domain.model.EngineReadiness.Ready,
+                    location = com.lomo.domain.model.StorageLocation("/workspace"),
+                    authority = null,
+                    freshness = com.lomo.domain.model.ProjectionFreshness.Unavailable,
+                ),
+                com.lomo.domain.model.WorkspaceMount(
+                    readiness = com.lomo.domain.model.EngineReadiness.Ready,
+                    location = com.lomo.domain.model.StorageLocation("/workspace"),
+                    authority =
+                        com.lomo.domain.model.WorkspaceAuthority(
+                            workspaceId = "w",
+                            generation = 1,
+                            projectionRevision = 2uL,
+                        ),
+                    freshness = com.lomo.domain.model.ProjectionFreshness.Unavailable,
+                ),
+            ).forEach { mount ->
+                entryWorkspaceStateFor(mount).first shouldBe EntryWorkspaceState.Preparing
+            }
         }
 
         test("shouldDispatchPendingLaunchCommands only allows Ready entry lane") {
@@ -392,6 +444,57 @@ class MainActivityLaunchRoutingTest : AppFunSpec() {
             shouldDispatchPendingLaunchCommands(EntryWorkspaceState.Resolving) shouldBe false
             shouldDispatchPendingLaunchCommands(EntryWorkspaceState.Preparing) shouldBe false
             shouldDispatchPendingLaunchCommands(EntryWorkspaceState.ReadOnlyRecovery) shouldBe false
+        }
+
+        test("dispatchPendingLaunchCommand hands only ready commands to their consumer") {
+            val readiness =
+                EntryFlowReadiness(
+                    appLock = EntryAppLockState.Unlocked,
+                    configuredCapabilities = EntryCapability.entries.toSet(),
+                    workspace = EntryWorkspaceState.Ready,
+                )
+            val dispatched = mutableListOf<PendingLaunchAction>()
+
+            val ready =
+                dispatchPendingLaunchCommand(
+                    command = PendingLaunchCommand(id = 7L, action = PendingLaunchAction.OpenMemo("m-1")),
+                    readiness = readiness,
+                ) { action -> dispatched += action }
+
+            ready shouldBe true
+            dispatched shouldBe listOf(PendingLaunchAction.OpenMemo("m-1"))
+
+            val blocked =
+                dispatchPendingLaunchCommand(
+                    command = PendingLaunchCommand(id = 8L, action = PendingLaunchAction.SharedText("x")),
+                    readiness = readiness.copy(appLock = EntryAppLockState.Locked),
+                ) { action -> dispatched += action }
+
+            blocked shouldBe false
+            dispatched shouldBe listOf(PendingLaunchAction.OpenMemo("m-1"))
+        }
+
+        test("a cold-restored pending command queue keeps ids and payloads so dispatch runs once") {
+            val imageUri = mockk<android.net.Uri>()
+            io.mockk.every { imageUri.toString() } returns "content://img/1"
+            io.mockk.mockkStatic(android.net.Uri::class)
+            io.mockk.every { android.net.Uri.parse("content://img/1") } returns imageUri
+            try {
+                val commands =
+                    listOf(
+                        PendingLaunchCommand(id = 3L, action = PendingLaunchAction.SharedText("hello")),
+                        PendingLaunchCommand(id = 4L, action = PendingLaunchAction.SharedImage(imageUri)),
+                        PendingLaunchCommand(id = 5L, action = PendingLaunchAction.OpenMemo("m-9")),
+                    )
+
+                val snapshot = pendingLaunchCommandsSnapshot(nextCommandId = 6L, commands = commands)
+                val (nextId, restored) = snapshot.toPendingLaunchQueue()
+
+                nextId shouldBe 6L
+                restored shouldBe commands
+            } finally {
+                io.mockk.unmockkStatic(android.net.Uri::class)
+            }
         }
     }
 }

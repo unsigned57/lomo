@@ -38,7 +38,7 @@ data class MemoEditorSessionState(
     val attachedGeoLocation: String? = null,
     val isRecording: Boolean = false,
     val recordingDuration: Long = 0L,
-    val recordingAmplitude: Int = 0,
+    val recordingAmplitude: Int? = null,
     val dateFormat: String = "yyyy-MM-dd",
     val timeFormat: String = "HH:mm",
     val onImageDirectoryMissing: (() -> Unit)? = null,

@@ -35,6 +35,7 @@ class MemoEditorViewModel(
     private val diagnostics: EngineDiagnosticsRecorder,
 ) : ViewModel() {
     /** Staged draft media destinations (image + voice relative paths) for discard. */
+    // behavior-contract: mutable-payload-ok: private discard ledger for staged-media cleanup; never rendered or exposed
     private val trackedStagedMedia = mutableSetOf<String>()
     private val draftId = com.lomo.app.feature.common.newDraftId()
     private val hasLocalDraftMutation = MutableStateFlow(false)

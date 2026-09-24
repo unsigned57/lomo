@@ -231,7 +231,7 @@ internal class MemoEditorSubmissionStateMachine {
 internal class MemoEditorCommitCoordinator(
     draftId: DraftId,
     private val scope: CoroutineScope,
-    private val createMemo: suspend (MemoCreateAttempt) -> Unit,
+    private val createMemo: suspend (MemoCreateAttempt) -> Memo,
     private val updateMemo: suspend (MemoUpdateAttempt) -> Unit,
     private val onCreateCommitted: () -> Unit,
     private val onUpdateCommitted: () -> Unit,
@@ -242,6 +242,22 @@ internal class MemoEditorCommitCoordinator(
     private val stateMachine = MemoEditorSubmissionStateMachine()
     val state: StateFlow<MemoEditorSubmissionState> = stateMachine.state
 
+    /**
+     * The memo committed by the latest create submission. Consumers that only know the
+     * submission id — like the new-head reveal pipeline — query the committed identity here
+     * instead of guessing which row the write produced.
+     */
+    private val _committedCreate = MutableStateFlow<CommittedCreate?>(null)
+    val committedCreate: StateFlow<CommittedCreate?> = _committedCreate.asStateFlow()
+
+    data class CommittedCreate(
+        val submissionId: MemoEditorSubmissionId,
+        val memo: Memo,
+    )
+
+    fun committedMemo(submissionId: MemoEditorSubmissionId): Memo? =
+        _committedCreate.value?.takeIf { it.submissionId == submissionId }?.memo
+
     fun create(
         submissionId: MemoEditorSubmissionId,
         content: String,
@@ -249,7 +265,8 @@ internal class MemoEditorCommitCoordinator(
     ) {
         onStarted()
         stateMachine.launch(scope, submissionId, onFailure) { previous ->
-            createMemo(attempts.create(content, timestampMillis, previous))
+            val committed = createMemo(attempts.create(content, timestampMillis, previous))
+            _committedCreate.value = CommittedCreate(submissionId, committed)
             onCreateCommitted()
         }
     }

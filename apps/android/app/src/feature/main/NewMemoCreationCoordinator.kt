@@ -7,37 +7,36 @@ import com.lomo.ui.component.common.HeadEnterBaseline
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 
-private const val DEFAULT_BASELINE_TIMEOUT_MILLIS = 250L
-
-/** Inputs for one new-memo reveal cycle: the scroll/enter handles plus the bounded timeout policy. */
+/** Inputs for one new-memo reveal cycle: the scroll/enter handles plus the head-rank oracle. */
 internal data class NewMemoCreationCoordinatorDependencies<T>(
     val scope: CoroutineScope,
     val isListAtAbsoluteTop: () -> Boolean,
     val scrollListToAbsoluteTop: suspend () -> Unit,
-    val awaitTopBaseline: suspend () -> HeadEnterBaseline,
+    val readTopBaseline: () -> HeadEnterBaseline?,
     val prepareNewTopEnter: (HeadEnterBaseline) -> EnterRequestId,
-    val createMemo: suspend (request: T, wasAtTop: Boolean) -> Boolean,
+    val createMemo: suspend (request: T, wasAtTop: Boolean) -> String?,
+    val newHeadRank: suspend (memoId: String) -> Int?,
     val awaitNewTopItem: suspend (HeadEnterBaseline) -> String?,
     val revealNewTopItem: suspend (newTopId: String) -> Unit,
     val cancelPreparedEnter: (EnterRequestId) -> Unit,
-    val baselineTimeoutMillis: Long = DEFAULT_BASELINE_TIMEOUT_MILLIS,
     val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 )
 
 /**
  * Coordinates the full new-memo insert lifecycle:
- * 1. submit and await the acknowledged durable `createMemo` result
- * 2. if not at top, scroll to top for presentation
- * 3. opportunistically resolve a loaded top baseline and prepare the head-enter animation
- * 4. `awaitNewTopItem` waits until the paging snapshot reflects a new top memo
- *    (which resolves the typed head baseline)
+ * 1. read the currently available top baseline synchronously — the durable commit never waits on
+ *    the viewport, and a baseline sampled after submission can never masquerade as pre-commit state
+ * 2. submit and await the acknowledged durable `createMemo` result, which yields the new memo id
+ * 3. if not at top, scroll to top for presentation
+ * 4. `newHeadRank` asks the owning query engine whether the committed memo is the list head under
+ *    the active spec; `awaitNewTopItem`/`revealNewTopItem` run only when it is rank 0, so a memo
+ *    the current filter, ordering or pinned head can never surface never triggers a bounded wait
  * 5. `revealNewTopItem` scrolls the list to absolute top so the freshly created memo
  *    lands in the viewport.
  *
- * Paging is presentation state, so baseline resolution is bounded and can only disable animation;
- * it can never prevent the workspace mutation from being submitted.
+ * Paging is presentation state: the baseline only feeds the enter animation and the rank oracle
+ * only feeds the reveal wait — neither can delay or suppress the workspace mutation itself.
  */
 internal class NewMemoCreationCoordinator<T>(
     dependencies: NewMemoCreationCoordinatorDependencies<T>,
@@ -45,13 +44,13 @@ internal class NewMemoCreationCoordinator<T>(
     private val scope = dependencies.scope
     private val isListAtAbsoluteTop = dependencies.isListAtAbsoluteTop
     private val scrollListToAbsoluteTop = dependencies.scrollListToAbsoluteTop
-    private val awaitTopBaseline = dependencies.awaitTopBaseline
+    private val readTopBaseline = dependencies.readTopBaseline
     private val prepareNewTopEnter = dependencies.prepareNewTopEnter
     private val createMemo = dependencies.createMemo
+    private val newHeadRank = dependencies.newHeadRank
     private val awaitNewTopItem = dependencies.awaitNewTopItem
     private val revealNewTopItem = dependencies.revealNewTopItem
     private val cancelPreparedEnter = dependencies.cancelPreparedEnter
-    private val baselineTimeoutMillis = dependencies.baselineTimeoutMillis
     private val dispatcherProvider = dependencies.dispatcherProvider
     private var submissionInFlight = false
 
@@ -66,17 +65,18 @@ internal class NewMemoCreationCoordinator<T>(
             var preparedEnterResolved = false
             try {
                 val wasAtTop = isListAtAbsoluteTop()
-                val baseline = withTimeoutOrNull(baselineTimeoutMillis) { awaitTopBaseline() }
+                val baseline = readTopBaseline()
                 if (baseline != null) {
                     preparedEnterRequest = prepareNewTopEnter(baseline)
                 }
-                if (!createMemo(request, wasAtTop)) {
+                val memoId = createMemo(request, wasAtTop)
+                if (memoId == null) {
                     return@launch
                 }
                 if (!isListAtAbsoluteTop()) {
                     scrollListToAbsoluteTop()
                 }
-                if (baseline != null) {
+                if (baseline != null && newHeadRank(memoId) == 0) {
                     val newTopId = awaitNewTopItem(baseline)
                     if (newTopId != null) {
                         revealNewTopItem(newTopId)
