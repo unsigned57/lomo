@@ -12,21 +12,26 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::Write as _;
+use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
 use crate::batch::{
     LanApproval, LanAttachmentRef, LanBatchDecision, LanBatchId, LanBatchPlan, LanBatchSnapshot,
-    LanDurableBatch, LanItemOutcome, LanItemPlan,
+    LanDurableBatch, LanItemOutcome, LanItemPlan, PlannedPayload, chunk_count,
+    expected_chunk_length, planned_payload, planned_payload_coordinates,
 };
 use crate::commit::ApprovedGeneration;
-use crate::error::{authentication, corrupt_state, resource_limit, storage, validation};
+use crate::error::{
+    authentication, conflict, corrupt_state, permission, resource_limit, storage, validation,
+};
 use crate::identity::{DeviceId, DevicePublicKey, DisplayName, PeerRecord};
 use crate::limits::{
-    CHUNK_PLAINTEXT_BYTES, LAN_DURABLE_SCHEMA, MAX_BATCH_TOTAL_BYTES, MAX_LAN_RECORD_BYTES,
-    MAX_TRUSTED_PEERS,
+    CHUNK_PLAINTEXT_BYTES, LAN_BATCH_RETIRE_DELAY_MS, LAN_CONFIRMED_LOG_COMPACT_BYTES,
+    LAN_DURABLE_SCHEMA, LAN_DURABLE_SCHEMA_MIN_READ, LAN_RETIRED_WITNESS_RETENTION_MS,
+    LAN_SESSION_WITNESS_RETENTION_MS, MAX_BATCH_TOTAL_BYTES, MAX_LAN_RECORD_BYTES,
+    MAX_RETIRED_WITNESSES, MAX_SESSION_WITNESSES, MAX_TRUSTED_PEERS,
 };
 use crate::session::{ChunkBinding, LanSessionId};
 use lomo_core::LomoError;
@@ -61,10 +66,26 @@ pub fn encode_record(body: &[u8]) -> Result<Vec<u8>, LomoError> {
 
 /// Decodes a record body, failing closed on magic, schema, length or checksum mismatch.
 ///
+/// The strict decode only accepts the current schema; the open path uses
+/// `decode_record_versioned` so records written by older builds stay readable.
+///
 /// # Errors
 ///
 /// Corruption for any header or checksum mismatch; resource-limit for an oversized declared length.
 pub fn decode_record(bytes: &[u8]) -> Result<Vec<u8>, LomoError> {
+    decode_record_versioned(bytes, LAN_DURABLE_SCHEMA).map(|(body, _schema)| body)
+}
+
+/// Decodes a record body whose schema may be any version this build can still read.
+///
+/// Returns the body together with the record's own schema so format-versioned payloads (session
+/// witnesses, outgoing batch facts) can branch on it instead of guessing.
+///
+/// # Errors
+///
+/// Corruption for any header, schema-range or checksum mismatch; resource-limit for an oversized
+/// declared length.
+fn decode_record_versioned(bytes: &[u8], min_schema: u32) -> Result<(Vec<u8>, u32), LomoError> {
     let header = bytes.get(0..RECORD_HEADER_BYTES).ok_or_else(|| {
         corrupt_state("lan_record_truncated", "durable LAN record header is short")
     })?;
@@ -75,7 +96,7 @@ pub fn decode_record(bytes: &[u8]) -> Result<Vec<u8>, LomoError> {
         ));
     }
     let schema = be_u32(header, 4)?;
-    if schema != LAN_DURABLE_SCHEMA {
+    if !(min_schema..=LAN_DURABLE_SCHEMA).contains(&schema) {
         return Err(corrupt_state(
             "lan_record_unknown_schema",
             "durable LAN record schema is not readable by this build",
@@ -106,7 +127,7 @@ pub fn decode_record(bytes: &[u8]) -> Result<Vec<u8>, LomoError> {
             "durable LAN record checksum does not match its body",
         ));
     }
-    Ok(body.to_vec())
+    Ok((body.to_vec(), schema))
 }
 
 /// Paths of the app-private LAN journal tree.
@@ -171,6 +192,34 @@ impl LanJournalPaths {
         self.root.join("chunks.rec")
     }
 
+    /// Append-only tail of confirmed coordinates between compactions.
+    #[must_use]
+    pub fn confirmed_log(&self) -> PathBuf {
+        self.root.join("chunks.log")
+    }
+
+    /// Contiguous reassembled payload bytes for one transfer coordinate.
+    #[must_use]
+    fn assembled_payload(&self, batch_id: &LanBatchId, item_index: u16, slot: u16) -> PathBuf {
+        self.payload_batch_dir(batch_id)
+            .join(format!("assembled-{item_index}-{slot}.payload"))
+    }
+
+    #[must_use]
+    pub fn retired(&self) -> PathBuf {
+        self.root.join("retired.rec")
+    }
+
+    #[must_use]
+    fn payloads_dir(&self) -> PathBuf {
+        self.root.join("payloads")
+    }
+
+    #[must_use]
+    fn payload_batch_dir(&self, batch_id: &LanBatchId) -> PathBuf {
+        self.payloads_dir().join(batch_id.as_str())
+    }
+
     fn staged_chunk(&self, coordinate: &DurableChunkCoordinate) -> PathBuf {
         self.root
             .join("payloads")
@@ -183,7 +232,35 @@ impl LanJournalPaths {
     }
 }
 
+/// A digest-verified contiguous payload staged in the private LAN journal tree.
+///
+/// The artifact reference is what crosses the commit boundary: commit code re-checks the durable
+/// size/digest facts and streams the file onward instead of holding the payload in memory.
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LanStagedPayload {
+    path: PathBuf,
+    size_bytes: u64,
+    digest: String,
+}
+
+impl LanStagedPayload {
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    #[must_use]
+    pub const fn size_bytes(&self) -> u64 {
+        self.size_bytes
+    }
+
+    #[must_use]
+    pub fn digest(&self) -> &str {
+        &self.digest
+    }
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct DurableChunkCoordinate {
     batch_id: String,
     item_index: u16,
@@ -207,11 +284,12 @@ impl From<&ChunkBinding> for DurableChunkCoordinate {
 pub struct LanJournal {
     paths: LanJournalPaths,
     peers: BTreeMap<DeviceId, PeerRecord>,
-    sessions: BTreeSet<LanSessionId>,
+    sessions: BTreeMap<LanSessionId, i64>,
     batches: BTreeMap<LanBatchId, LanDurableBatch>,
     outgoing_batches: BTreeMap<LanBatchId, LanDurableOutgoingBatch>,
     approvals: BTreeMap<LanBatchId, LanApproval>,
-    confirmed: Vec<DurableChunkCoordinate>,
+    confirmed: BTreeSet<DurableChunkCoordinate>,
+    retired: BTreeMap<(DeviceId, LanBatchId), i64>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -221,6 +299,14 @@ pub enum LanOutgoingDecision {
     Rejected,
 }
 
+/// A terminal refusal observed on an outgoing batch: the peer or transport refused it with a
+/// stable disposition code, so the batch drives as failed instead of retrying forever.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LanOutgoingFailure {
+    pub(crate) code: String,
+    pub(crate) failed_at_ms: i64,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LanDurableOutgoingBatch {
     plan: LanBatchPlan,
@@ -228,6 +314,8 @@ pub struct LanDurableOutgoingBatch {
     peer_device_id: DeviceId,
     peer_display_name: DisplayName,
     decision: LanOutgoingDecision,
+    failure: Option<LanOutgoingFailure>,
+    terminal_at_ms: Option<i64>,
     confirmed: BTreeSet<(u16, u16, u32)>,
     snapshot: LanBatchSnapshot,
 }
@@ -246,6 +334,8 @@ impl LanDurableOutgoingBatch {
             peer_device_id,
             peer_display_name,
             decision: LanOutgoingDecision::AwaitingApproval,
+            failure: None,
+            terminal_at_ms: None,
             confirmed: BTreeSet::new(),
             snapshot,
         }
@@ -263,6 +353,40 @@ impl LanDurableOutgoingBatch {
         self.decision
     }
 
+    pub(crate) fn failure_code(&self) -> Option<&str> {
+        self.failure.as_ref().map(|failure| failure.code.as_str())
+    }
+
+    pub(crate) const fn peer_device_id(&self) -> &DeviceId {
+        &self.peer_device_id
+    }
+
+    pub(crate) const fn peer_display_name(&self) -> &DisplayName {
+        &self.peer_display_name
+    }
+
+    pub(crate) const fn snapshot(&self) -> &LanBatchSnapshot {
+        &self.snapshot
+    }
+
+    /// True when every payload coordinate's chunks are all durably confirmed by the receiver.
+    pub(crate) fn all_payloads_confirmed(&self) -> Result<bool, LomoError> {
+        for (item_index, attachment_slot) in planned_payload_coordinates(&self.plan)? {
+            let payload = planned_payload(&self.plan, item_index, attachment_slot)?;
+            let total_chunks = chunk_count(payload.size_bytes)?;
+            for chunk_index in 0..total_chunks {
+                if !self.confirmed.contains(&(
+                    payload.item_index,
+                    payload.attachment_slot,
+                    chunk_index,
+                )) {
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(true)
+    }
+
     pub(crate) fn unconfirmed_chunk_indices(
         &self,
         item_index: u16,
@@ -277,10 +401,40 @@ impl LanDurableOutgoingBatch {
             })
             .collect()
     }
+
+    /// Durable confirmed bytes for this outgoing batch, summed from plan-declared chunk lengths.
+    ///
+    /// # Errors
+    ///
+    /// Validation/corruption when the plan's payload coordinates cannot be reconstructed.
+    pub(crate) fn confirmed_payload_bytes(&self) -> Result<u64, LomoError> {
+        let mut bytes = 0_u64;
+        for (item_index, attachment_slot) in planned_payload_coordinates(&self.plan)? {
+            let payload = planned_payload(&self.plan, item_index, attachment_slot)?;
+            let total_chunks = chunk_count(payload.size_bytes)?;
+            for chunk_index in 0..total_chunks {
+                if self.confirmed.contains(&(
+                    payload.item_index,
+                    payload.attachment_slot,
+                    chunk_index,
+                )) {
+                    bytes = bytes.saturating_add(
+                        u64::try_from(expected_chunk_length(payload.size_bytes, chunk_index)?)
+                            .unwrap_or(0),
+                    );
+                }
+            }
+        }
+        Ok(bytes)
+    }
 }
 
 impl LanJournal {
     /// Opens (or initializes) the journal, failing closed on any corrupt record.
+    ///
+    /// Opening reconciles durable confirmations against staged bytes: a confirmed coordinate whose
+    /// batch, file, planned length or payload digest cannot be verified downgrades to
+    /// retransmittable instead of poisoning the batch as "confirmed but impossible to complete".
     ///
     /// # Errors
     ///
@@ -297,8 +451,10 @@ impl LanJournal {
         let batches = read_batches(&paths.batches())?;
         let outgoing_batches = read_outgoing_batches(&paths.outgoing_batches())?;
         let approvals = read_approvals(&paths.approvals())?;
-        let confirmed = read_confirmed(&paths.confirmed_chunks())?;
-        Ok(Self {
+        let mut confirmed = read_confirmed(&paths.confirmed_chunks())?;
+        confirmed.extend(read_confirmed_log(&paths.confirmed_log())?);
+        let retired = read_retired(&paths.retired())?;
+        let mut journal = Self {
             paths,
             peers,
             sessions,
@@ -306,7 +462,11 @@ impl LanJournal {
             outgoing_batches,
             approvals,
             confirmed,
-        })
+            retired,
+        };
+        journal.reconcile_confirmed()?;
+        journal.reclaim_orphan_payloads()?;
+        Ok(journal)
     }
 
     /// Trusted peers by device id.
@@ -317,17 +477,24 @@ impl LanJournal {
 
     /// Accepts a fresh session identity exactly once across process restarts.
     ///
+    /// The acceptance instant is journaled with the id so the witness can retire past the replay
+    /// retention window instead of growing forever.
+    ///
     /// # Errors
     ///
     /// Authentication when the id was already accepted; storage when durability fails.
-    pub fn accept_session(&mut self, session_id: &LanSessionId) -> Result<(), LomoError> {
-        if self.sessions.contains(session_id) {
+    pub fn accept_session(
+        &mut self,
+        session_id: &LanSessionId,
+        accepted_at_ms: i64,
+    ) -> Result<(), LomoError> {
+        if self.sessions.contains_key(session_id) {
             return Err(authentication(
                 "lan_session_replayed",
                 "session id was already used and may not be replayed",
             ));
         }
-        self.sessions.insert(session_id.clone());
+        self.sessions.insert(session_id.clone(), accepted_at_ms);
         if let Err(error) = self.flush_sessions() {
             self.sessions.remove(session_id);
             return Err(error);
@@ -338,16 +505,29 @@ impl LanJournal {
     /// True when recovery refers to a session that was previously authenticated.
     #[must_use]
     pub fn has_session(&self, session_id: &LanSessionId) -> bool {
-        self.sessions.contains(session_id)
+        self.sessions.contains_key(session_id)
+    }
+
+    /// True when `(counterparty, batch id)` was retired and must never resurrect with new facts.
+    pub(crate) fn is_batch_retired(&self, counterparty: &DeviceId, batch_id: &LanBatchId) -> bool {
+        self.retired
+            .contains_key(&(counterparty.clone(), batch_id.clone()))
     }
 
     /// Stores complete pending recovery state before exposing its approval preview.
     ///
     /// # Errors
     ///
-    /// Storage/resource-limit when the checksummed batch record cannot be persisted.
+    /// Conflict when the id was retired inside the anti-replay window; storage/resource-limit when
+    /// the checksummed batch record cannot be persisted.
     pub fn store_batch(&mut self, batch: LanDurableBatch) -> Result<(), LomoError> {
         let batch_id = batch.plan().batch_id().clone();
+        if self.is_batch_retired(batch.sender_device_id(), &batch_id) {
+            return Err(conflict(
+                "lan_batch_retired",
+                "batch id was retired inside the anti-replay window and cannot resurrect",
+            ));
+        }
         let previous = self.batches.insert(batch_id.clone(), batch);
         if let Err(error) = self.flush_batches() {
             restore_map_entry(&mut self.batches, batch_id, previous);
@@ -390,9 +570,15 @@ impl LanJournal {
                 self.flush_outgoing_batches()?;
                 return Ok(());
             }
-            return Err(crate::error::conflict(
+            return Err(conflict(
                 "lan_outgoing_batch_replayed_with_different_plan",
                 "outgoing batch id was reused with different durable facts",
+            ));
+        }
+        if self.is_batch_retired(&batch.peer_device_id, &batch_id) {
+            return Err(conflict(
+                "lan_batch_retired",
+                "batch id was retired inside the anti-replay window and cannot resurrect",
             ));
         }
         self.outgoing_batches.insert(batch_id.clone(), batch);
@@ -412,23 +598,52 @@ impl LanJournal {
                 batch.decision = LanOutgoingDecision::Approved;
                 Ok(())
             }
-            LanOutgoingDecision::Rejected => Err(crate::error::conflict(
+            LanOutgoingDecision::Rejected => Err(conflict(
                 "lan_batch_decision_terminal",
                 "a rejected outgoing batch cannot become approved",
             )),
         })
     }
 
-    pub(crate) fn reject_outgoing_batch(&mut self, batch_id: &LanBatchId) -> Result<(), LomoError> {
+    pub(crate) fn reject_outgoing_batch(
+        &mut self,
+        batch_id: &LanBatchId,
+        rejected_at_ms: i64,
+    ) -> Result<(), LomoError> {
         self.mutate_outgoing_batch(batch_id, |batch| match batch.decision {
             LanOutgoingDecision::AwaitingApproval | LanOutgoingDecision::Rejected => {
                 batch.decision = LanOutgoingDecision::Rejected;
+                batch.terminal_at_ms.get_or_insert(rejected_at_ms);
                 Ok(())
             }
-            LanOutgoingDecision::Approved => Err(crate::error::conflict(
+            LanOutgoingDecision::Approved => Err(conflict(
                 "lan_batch_decision_terminal",
                 "an approved outgoing batch cannot become rejected",
             )),
+        })
+    }
+
+    /// Marks an outgoing batch terminally failed: the peer or transport refused it with a stable
+    /// disposition code. The first durable failure fact wins; a repeated mark is idempotent.
+    ///
+    /// # Errors
+    ///
+    /// Validation for an unknown batch; storage when durability fails.
+    pub(crate) fn fail_outgoing_batch(
+        &mut self,
+        batch_id: &LanBatchId,
+        code: &str,
+        failed_at_ms: i64,
+    ) -> Result<(), LomoError> {
+        self.mutate_outgoing_batch(batch_id, |batch| {
+            if batch.failure.is_none() {
+                batch.failure = Some(LanOutgoingFailure {
+                    code: code.to_owned(),
+                    failed_at_ms,
+                });
+                batch.terminal_at_ms.get_or_insert(failed_at_ms);
+            }
+            Ok(())
         })
     }
 
@@ -436,30 +651,30 @@ impl LanJournal {
         &mut self,
         batch_id: &LanBatchId,
         session_id: &LanSessionId,
-        peer_device_id: &DeviceId,
         decision: LanOutgoingDecision,
         confirmed: BTreeSet<(u16, u16, u32)>,
         outcomes: &[LanItemOutcome],
+        now_ms: i64,
     ) -> Result<(), LomoError> {
         self.mutate_outgoing_batch(batch_id, |batch| {
-            if batch.session_id != *session_id || batch.peer_device_id != *peer_device_id {
-                return Err(crate::error::permission(
+            if batch.session_id != *session_id {
+                return Err(permission(
                     "lan_batch_session_mismatch",
-                    "remote batch status does not belong to the outgoing batch session and peer",
+                    "remote batch status does not belong to the outgoing batch session",
                 ));
             }
             batch.decision = match (batch.decision, decision) {
                 (current, remote) if current == remote => current,
                 (LanOutgoingDecision::AwaitingApproval, remote) => remote,
                 _ => {
-                    return Err(crate::error::conflict(
+                    return Err(conflict(
                         "lan_outgoing_status_regressed",
                         "remote batch decision conflicts with durable outgoing state",
                     ));
                 }
             };
             if !batch.confirmed.is_subset(&confirmed) {
-                return Err(crate::error::conflict(
+                return Err(conflict(
                     "lan_outgoing_status_regressed",
                     "remote confirmed chunks moved behind durable outgoing state",
                 ));
@@ -478,13 +693,13 @@ impl LanJournal {
                     )
                 })?;
                 if current.is_terminal() && matches!(outcome, LanItemOutcome::Pending) {
-                    return Err(crate::error::conflict(
+                    return Err(conflict(
                         "lan_outgoing_status_regressed",
                         "remote item outcome moved behind durable outgoing state",
                     ));
                 }
                 if matches!(current, LanItemOutcome::Committed { .. }) && current != outcome {
-                    return Err(crate::error::conflict(
+                    return Err(conflict(
                         "lan_outgoing_status_regressed",
                         "remote committed item result changed after durability",
                     ));
@@ -492,6 +707,9 @@ impl LanJournal {
                 batch.snapshot.record(item.item_id(), outcome.clone())?;
             }
             batch.confirmed = confirmed;
+            if batch.decision == LanOutgoingDecision::Rejected || batch.snapshot.is_complete() {
+                batch.terminal_at_ms.get_or_insert(now_ms);
+            }
             Ok(())
         })
     }
@@ -522,6 +740,193 @@ impl LanJournal {
         rejected_at_ms: i64,
     ) -> Result<(), LomoError> {
         self.mutate_batch(batch_id, |batch| batch.reject(rejected_at_ms))
+    }
+
+    /// Retires a received batch past its terminal anchor plus the anti-replay window.
+    ///
+    /// Retirement reclaims the batch record, its confirmed coordinates and staged payload bytes,
+    /// and leaves a durable `(sender, batch id)` witness so the id cannot resurrect inside the
+    /// replay horizon. The witness is journaled first so a crash between flushes still fails
+    /// closed: record-present wins over the witness, and witness-only blocks resurrection.
+    ///
+    /// # Errors
+    ///
+    /// Validation for an unknown batch; conflict while the batch is not terminal or the
+    /// anti-replay window is still open; storage when durability fails.
+    pub fn retire_batch(&mut self, batch_id: &LanBatchId, now_ms: i64) -> Result<(), LomoError> {
+        let batch = self.batches.get(batch_id).ok_or_else(|| {
+            validation(
+                "lan_batch_unknown",
+                "batch is not present in durable recovery state",
+            )
+        })?;
+        let Some(anchor) = received_terminal_anchor(batch) else {
+            return Err(conflict(
+                "lan_batch_not_retirable",
+                "a batch whose decision is still pending can never be reclaimed",
+            ));
+        };
+        if now_ms < anchor.saturating_add(LAN_BATCH_RETIRE_DELAY_MS) {
+            return Err(conflict(
+                "lan_batch_not_retirable",
+                "the anti-replay window must close before the batch can be reclaimed",
+            ));
+        }
+        let owner = batch.sender_device_id().clone();
+        self.retired.insert((owner, batch_id.clone()), now_ms);
+        self.flush_retired()?;
+        let removed = self.batches.remove(batch_id);
+        let removed_coordinates: Vec<DurableChunkCoordinate> = self
+            .confirmed
+            .iter()
+            .filter(|coordinate| coordinate.batch_id == batch_id.as_str())
+            .cloned()
+            .collect();
+        self.confirmed
+            .retain(|coordinate| coordinate.batch_id != batch_id.as_str());
+        if let Err(error) = self.flush_batches().and_then(|()| self.compact_confirmed()) {
+            if let Some(batch) = removed {
+                self.batches.insert(batch_id.clone(), batch);
+            }
+            self.confirmed.extend(removed_coordinates);
+            return Err(error);
+        }
+        let dir = self.paths.payload_batch_dir(batch_id);
+        match fs::remove_dir_all(&dir) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(storage(
+                "lan_payload_reclaim_failed",
+                &format!("cannot reclaim retired LAN payload bytes: {error}"),
+            )),
+        }
+    }
+
+    /// Retires an outgoing batch whose terminal anchor plus the anti-replay window has passed.
+    ///
+    /// The witness is keyed by `(peer device, batch id)`: the id may not be reused with that peer
+    /// inside the replay horizon.
+    ///
+    /// # Errors
+    ///
+    /// Validation for an unknown batch; conflict while not retirable; storage on durability
+    /// failure.
+    pub(crate) fn retire_outgoing_batch(
+        &mut self,
+        batch_id: &LanBatchId,
+        now_ms: i64,
+    ) -> Result<(), LomoError> {
+        let batch = self.outgoing_batches.get(batch_id).ok_or_else(|| {
+            validation(
+                "lan_batch_unknown",
+                "outgoing batch is not present in durable recovery state",
+            )
+        })?;
+        let Some(anchor) = outgoing_terminal_anchor(batch) else {
+            return Err(conflict(
+                "lan_batch_not_retirable",
+                "an outgoing batch still awaiting a decision or transfer can never be reclaimed",
+            ));
+        };
+        if now_ms < anchor.saturating_add(LAN_BATCH_RETIRE_DELAY_MS) {
+            return Err(conflict(
+                "lan_batch_not_retirable",
+                "the anti-replay window must close before the outgoing batch can be reclaimed",
+            ));
+        }
+        let peer = batch.peer_device_id.clone();
+        self.retired.insert((peer, batch_id.clone()), now_ms);
+        self.flush_retired()?;
+        let removed = self.outgoing_batches.remove(batch_id);
+        if let Err(error) = self.flush_outgoing_batches() {
+            if let Some(batch) = removed {
+                self.outgoing_batches.insert(batch_id.clone(), batch);
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Drives every durable lifecycle that time alone advances: expiring session witnesses,
+    /// retiring terminal batches, evicting expired retired witnesses and reclaiming orphaned
+    /// payload bytes. Bounded work per call; safe to run on every inbox read.
+    ///
+    /// # Errors
+    ///
+    /// Storage when any durable flush or payload reclamation fails.
+    pub fn maintain(&mut self, now_ms: i64) -> Result<(), LomoError> {
+        let sessions_before = self.sessions.len();
+        self.sessions.retain(|_session_id, accepted_at_ms| {
+            now_ms < accepted_at_ms.saturating_add(LAN_SESSION_WITNESS_RETENTION_MS)
+        });
+        while self.sessions.len() > MAX_SESSION_WITNESSES {
+            let oldest = self
+                .sessions
+                .iter()
+                .min_by_key(|(session_id, accepted_at_ms)| (*accepted_at_ms, (*session_id).clone()))
+                .map(|(session_id, _accepted_at_ms)| session_id.clone());
+            match oldest {
+                Some(session_id) => {
+                    self.sessions.remove(&session_id);
+                }
+                None => break,
+            }
+        }
+        if self.sessions.len() != sessions_before {
+            self.flush_sessions()?;
+        }
+
+        let retired_before = self.retired.len();
+        self.retired.retain(|_key, retired_at_ms| {
+            now_ms < retired_at_ms.saturating_add(LAN_RETIRED_WITNESS_RETENTION_MS)
+        });
+        while self.retired.len() > MAX_RETIRED_WITNESSES {
+            let oldest = self
+                .retired
+                .iter()
+                .min_by_key(|(key, retired_at_ms)| (*retired_at_ms, (*key).clone()))
+                .map(|(key, _retired_at_ms)| key.clone());
+            match oldest {
+                Some(key) => {
+                    self.retired.remove(&key);
+                }
+                None => break,
+            }
+        }
+        if self.retired.len() != retired_before {
+            self.flush_retired()?;
+        }
+
+        let retirable_received: Vec<LanBatchId> = self
+            .batches
+            .iter()
+            .filter(|(_batch_id, batch)| {
+                received_terminal_anchor(batch).is_some_and(|anchor| {
+                    now_ms >= anchor.saturating_add(LAN_BATCH_RETIRE_DELAY_MS)
+                })
+            })
+            .map(|(batch_id, _batch)| batch_id.clone())
+            .collect();
+        for batch_id in retirable_received {
+            self.retire_batch(&batch_id, now_ms)?;
+        }
+
+        let retirable_outgoing: Vec<LanBatchId> = self
+            .outgoing_batches
+            .iter()
+            .filter(|(_batch_id, batch)| {
+                outgoing_terminal_anchor(batch).is_some_and(|anchor| {
+                    now_ms >= anchor.saturating_add(LAN_BATCH_RETIRE_DELAY_MS)
+                })
+            })
+            .map(|(batch_id, _batch)| batch_id.clone())
+            .collect();
+        for batch_id in retirable_outgoing {
+            self.retire_outgoing_batch(&batch_id, now_ms)?;
+        }
+
+        self.reclaim_orphan_payloads()?;
+        self.maybe_compact_confirmed()
     }
 
     /// Durably records one per-item result without changing committed siblings.
@@ -622,10 +1027,13 @@ impl LanJournal {
     /// Storage on write failure.
     pub fn confirm_chunk(&mut self, binding: &ChunkBinding) -> Result<(), LomoError> {
         let coordinate = DurableChunkCoordinate::from(binding);
-        if !self.confirmed.contains(&coordinate) {
-            self.confirmed.push(coordinate);
-            self.flush_confirmed()?;
+        if self.confirmed.contains(&coordinate) {
+            return Ok(());
         }
+        // The append fsyncs before the in-memory mark: an ACK must never precede durability.
+        self.append_confirmed(&coordinate)?;
+        self.confirmed.insert(coordinate);
+        self.maybe_compact_confirmed()?;
         Ok(())
     }
 
@@ -655,9 +1063,28 @@ impl LanJournal {
                 "plaintext chunk exceeds the fixed LAN chunk ceiling",
             ));
         }
+        // The batch plan is the staging reservation: a known batch may only ever hold the exact
+        // bytes its declared coordinate reserved. Writes beyond the plan are refused before any
+        // byte reaches disk.
+        if let Ok(batch_id) = LanBatchId::parse(binding.batch_id())
+            && let Some(batch) = self.batches.get(&batch_id)
+        {
+            let payload = planned_payload(
+                batch.plan(),
+                binding.item_index(),
+                binding.attachment_slot(),
+            )?;
+            let expected = expected_chunk_length(payload.size_bytes, binding.chunk_index())?;
+            if plaintext.len() != expected {
+                return Err(validation(
+                    "lan_chunk_plan_mismatch",
+                    "staged chunk length does not match the batch plan reservation",
+                ));
+            }
+        }
         let coordinate = DurableChunkCoordinate::from(binding);
         let path = self.paths.staged_chunk(&coordinate);
-        match fs::read(&path) {
+        match lomo_core::read_bounded(&path, CHUNK_PLAINTEXT_BYTES as u64) {
             Ok(existing) if existing == plaintext => return Ok(()),
             Ok(_existing) => {
                 return Err(authentication(
@@ -665,8 +1092,15 @@ impl LanJournal {
                     "a confirmed chunk binding was replayed with different plaintext bytes",
                 ));
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
+            Err(lomo_core::BoundedReadError::Io(error))
+                if error.kind() == io::ErrorKind::NotFound => {}
+            Err(lomo_core::BoundedReadError::ExceedsLimit { .. }) => {
+                return Err(corrupt_state(
+                    "lan_chunk_stage_oversized",
+                    "a staged LAN chunk exceeds the fixed chunk ceiling",
+                ));
+            }
+            Err(lomo_core::BoundedReadError::Io(error)) => {
                 return Err(storage(
                     "lan_chunk_stage_read_failed",
                     &format!("cannot inspect a staged LAN chunk: {error}"),
@@ -686,12 +1120,7 @@ impl LanJournal {
             )
         })?;
         let temp = path.with_extension("chunk.tmp");
-        write_synced(
-            &temp,
-            plaintext,
-            "lan_chunk_stage_write_failed",
-            "cannot write a staged LAN chunk",
-        )?;
+        write_chunk_synced(&temp, plaintext)?;
         fs::rename(&temp, &path).map_err(|error| {
             storage(
                 "lan_chunk_stage_commit_failed",
@@ -701,19 +1130,26 @@ impl LanJournal {
         sync_parent_directory(&path)
     }
 
-    /// Reassembles a payload only when every requested chunk is durably confirmed.
+    /// Streams every confirmed chunk into one contiguous staged payload file.
+    ///
+    /// Reassembly never holds the payload in memory: each staged chunk file is copied through a
+    /// SHA-256 tee into the private assembled artifact, which is fsynced and renamed before its
+    /// reference is handed out. A confirmed coordinate whose staged file vanished downgrades to
+    /// retransmittable (journaled) instead of poisoning the batch; the payload then reports
+    /// `None`. An already-assembled file is re-hashed and reused only while it still matches the
+    /// recorded facts — bytes on disk are verified, not trusted because AEAD once sealed them.
     ///
     /// # Errors
     ///
     /// Resource-limit when the requested range or assembled bytes exceed the batch ceiling;
-    /// corruption when a confirmed chunk file is absent; storage on I/O failure.
-    pub fn read_confirmed_payload(
-        &self,
+    /// storage on I/O failure or when the durable downgrade cannot be journaled.
+    pub fn assemble_confirmed_payload(
+        &mut self,
         batch_id: &LanBatchId,
         item_index: u16,
         attachment_slot: u16,
         total_chunks: u32,
-    ) -> Result<Option<Vec<u8>>, LomoError> {
+    ) -> Result<Option<LanStagedPayload>, LomoError> {
         let max_chunks = MAX_BATCH_TOTAL_BYTES.div_ceil(CHUNK_PLAINTEXT_BYTES as u64);
         if u64::from(total_chunks) > max_chunks {
             return Err(resource_limit(
@@ -721,7 +1157,6 @@ impl LanJournal {
                 "payload chunk range exceeds the maximum LAN batch size",
             ));
         }
-        let mut payload = Vec::new();
         for chunk_index in 0..total_chunks {
             let coordinate = DurableChunkCoordinate {
                 batch_id: batch_id.as_str().to_owned(),
@@ -732,28 +1167,182 @@ impl LanJournal {
             if !self.confirmed.contains(&coordinate) {
                 return Ok(None);
             }
-            let chunk = fs::read(self.paths.staged_chunk(&coordinate)).map_err(|error| {
-                if error.kind() == std::io::ErrorKind::NotFound {
-                    return corrupt_state(
-                        "lan_confirmed_chunk_missing",
-                        "confirmed LAN chunk bytes are missing from staging",
-                    );
+        }
+        let target = self
+            .paths
+            .assembled_payload(batch_id, item_index, attachment_slot);
+        if let Some(payload) = verify_assembled_payload(&target)? {
+            return Ok(Some(payload));
+        }
+        let batch_dir = self.paths.payload_batch_dir(batch_id);
+        fs::create_dir_all(&batch_dir).map_err(|error| {
+            storage(
+                "lan_payload_assemble_failed",
+                &format!("cannot create the LAN payload directory: {error}"),
+            )
+        })?;
+        let temp = target.with_extension("payload.tmp");
+        let file = fs::File::create(&temp).map_err(|error| stage_io_error(&error))?;
+        let mut hasher = Sha256::new();
+        let mut writer = io::BufWriter::new(HashWriter {
+            inner: file,
+            hasher: &mut hasher,
+        });
+        match self.stream_confirmed_chunks(
+            batch_id,
+            item_index,
+            attachment_slot,
+            total_chunks,
+            &mut writer,
+        ) {
+            Ok(StreamedChunks::Complete(assembled)) => {
+                writer.flush().map_err(|error| {
+                    storage(
+                        "lan_payload_assemble_failed",
+                        &format!("cannot flush a staged LAN payload: {error}"),
+                    )
+                })?;
+                let file = writer
+                    .into_inner()
+                    .map_err(|error| {
+                        storage(
+                            "lan_payload_assemble_failed",
+                            &format!("cannot finish a staged LAN payload: {error}"),
+                        )
+                    })?
+                    .inner;
+                file.sync_all().map_err(|error| {
+                    storage(
+                        "lan_payload_assemble_failed",
+                        &format!("cannot sync a staged LAN payload: {error}"),
+                    )
+                })?;
+                fs::rename(&temp, &target).map_err(|error| {
+                    storage(
+                        "lan_payload_assemble_failed",
+                        &format!("cannot commit a staged LAN payload: {error}"),
+                    )
+                })?;
+                sync_parent_directory(&target)?;
+                Ok(Some(LanStagedPayload {
+                    path: target,
+                    size_bytes: assembled,
+                    digest: format!("{:x}", hasher.finalize()),
+                }))
+            }
+            Ok(StreamedChunks::Missing(coordinate)) => {
+                drop(writer);
+                let _ignored = fs::remove_file(&temp);
+                self.drop_confirmed(&coordinate)?;
+                Ok(None)
+            }
+            Err(error) => {
+                drop(writer);
+                let _ignored = fs::remove_file(&temp);
+                Err(error)
+            }
+        }
+    }
+
+    /// Streams every confirmed chunk of one payload into `writer`, enforcing the batch byte
+    /// ceiling as bytes flow. `Missing` reports the coordinate whose staged file vanished so the
+    /// caller can downgrade it to retransmittable.
+    fn stream_confirmed_chunks(
+        &self,
+        batch_id: &LanBatchId,
+        item_index: u16,
+        attachment_slot: u16,
+        total_chunks: u32,
+        writer: &mut impl io::Write,
+    ) -> Result<StreamedChunks, LomoError> {
+        let mut assembled = 0_u64;
+        for chunk_index in 0..total_chunks {
+            let coordinate = DurableChunkCoordinate {
+                batch_id: batch_id.as_str().to_owned(),
+                item_index,
+                attachment_slot,
+                chunk_index,
+            };
+            let mut chunk = match fs::File::open(self.paths.staged_chunk(&coordinate)) {
+                Ok(chunk) => chunk,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    return Ok(StreamedChunks::Missing(coordinate));
                 }
-                storage(
-                    "lan_chunk_stage_read_failed",
-                    &format!("cannot read a staged LAN chunk: {error}"),
-                )
-            })?;
-            let assembled = payload.len().saturating_add(chunk.len());
-            if u64::try_from(assembled).unwrap_or(u64::MAX) > MAX_BATCH_TOTAL_BYTES {
+                Err(error) => {
+                    return Err(storage(
+                        "lan_chunk_stage_read_failed",
+                        &format!("cannot read a staged LAN chunk: {error}"),
+                    ));
+                }
+            };
+            assembled =
+                assembled.saturating_add(io::copy(&mut chunk, writer).map_err(|error| {
+                    storage(
+                        "lan_payload_assemble_failed",
+                        &format!("cannot assemble a staged LAN payload: {error}"),
+                    )
+                })?);
+            if assembled > MAX_BATCH_TOTAL_BYTES {
                 return Err(resource_limit(
                     "lan_payload_too_large",
                     "assembled LAN payload exceeds the batch byte ceiling",
                 ));
             }
-            payload.extend_from_slice(&chunk);
         }
-        Ok(Some(payload))
+        Ok(StreamedChunks::Complete(assembled))
+    }
+
+    /// Drops every confirmed coordinate of one payload and deletes its staged files, so a payload
+    /// that fails plan-digest verification becomes retransmittable instead of a poison pill.
+    ///
+    /// # Errors
+    ///
+    /// Storage when the durable downgrade cannot be journaled.
+    pub(crate) fn unconfirm_payload(
+        &mut self,
+        batch_id: &LanBatchId,
+        item_index: u16,
+        attachment_slot: u16,
+        total_chunks: u32,
+    ) -> Result<(), LomoError> {
+        let mut dropped = false;
+        for chunk_index in 0..total_chunks {
+            let coordinate = DurableChunkCoordinate {
+                batch_id: batch_id.as_str().to_owned(),
+                item_index,
+                attachment_slot,
+                chunk_index,
+            };
+            dropped |= self.confirmed.remove(&coordinate);
+            let path = self.paths.staged_chunk(&coordinate);
+            match fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(storage(
+                        "lan_payload_reclaim_failed",
+                        &format!("cannot remove an unconfirmed staged LAN chunk: {error}"),
+                    ));
+                }
+            }
+        }
+        let assembled = self
+            .paths
+            .assembled_payload(batch_id, item_index, attachment_slot);
+        match fs::remove_file(&assembled) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(storage(
+                    "lan_payload_reclaim_failed",
+                    &format!("cannot remove an unconfirmed assembled payload: {error}"),
+                ));
+            }
+        }
+        if dropped {
+            self.compact_confirmed()?;
+        }
+        Ok(())
     }
 
     /// True when the chunk is already confirmed.
@@ -761,6 +1350,38 @@ impl LanJournal {
     pub fn is_chunk_confirmed(&self, binding: &ChunkBinding) -> bool {
         self.confirmed
             .contains(&DurableChunkCoordinate::from(binding))
+    }
+
+    /// Durable confirmed bytes for one received batch: the sum of plan-declared lengths for every
+    /// confirmed coordinate. Progress facts come from this durable set, never from wire traffic.
+    ///
+    /// # Errors
+    ///
+    /// Validation/corruption when the plan's payload coordinates cannot be reconstructed.
+    pub(crate) fn confirmed_payload_bytes(
+        &self,
+        batch: &LanDurableBatch,
+    ) -> Result<u64, LomoError> {
+        let mut bytes = 0_u64;
+        for (item_index, attachment_slot) in planned_payload_coordinates(batch.plan())? {
+            let payload = planned_payload(batch.plan(), item_index, attachment_slot)?;
+            let total_chunks = chunk_count(payload.size_bytes)?;
+            for chunk_index in 0..total_chunks {
+                let coordinate = DurableChunkCoordinate {
+                    batch_id: batch.plan().batch_id().as_str().to_owned(),
+                    item_index: payload.item_index,
+                    attachment_slot: payload.attachment_slot,
+                    chunk_index,
+                };
+                if self.confirmed.contains(&coordinate) {
+                    bytes = bytes.saturating_add(
+                        u64::try_from(expected_chunk_length(payload.size_bytes, chunk_index)?)
+                            .unwrap_or(0),
+                    );
+                }
+            }
+        }
+        Ok(bytes)
     }
 
     /// Chunk indices still to send for one item/attachment slot in one session.
@@ -811,8 +1432,9 @@ impl LanJournal {
 
     fn flush_sessions(&self) -> Result<(), LomoError> {
         let mut body = Vec::new();
-        for session_id in &self.sessions {
+        for (session_id, accepted_at_ms) in &self.sessions {
             push_field(&mut body, session_id.as_str().as_bytes());
+            body.extend_from_slice(&accepted_at_ms.to_be_bytes());
         }
         write_record(&self.paths.sessions(), &body)
     }
@@ -868,6 +1490,69 @@ impl LanJournal {
         Ok(())
     }
 
+    /// Appends one confirmed coordinate to the append tail. The tail is the durability record
+    /// between compactions: fsync-before-ACK ordering is preserved because the append is flushed
+    /// before `confirm_chunk` returns.
+    fn append_confirmed(&self, coordinate: &DurableChunkCoordinate) -> Result<(), LomoError> {
+        let path = self.paths.confirmed_log();
+        let mut entry = Vec::with_capacity(coordinate.batch_id.len() + 12);
+        push_field(&mut entry, coordinate.batch_id.as_bytes());
+        entry.extend_from_slice(&coordinate.item_index.to_be_bytes());
+        entry.extend_from_slice(&coordinate.attachment_slot.to_be_bytes());
+        entry.extend_from_slice(&coordinate.chunk_index.to_be_bytes());
+        let created = !path.exists();
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&path)
+            .map_err(|error| {
+                storage(
+                    "lan_journal_write_failed",
+                    &format!("cannot open the LAN confirmed-chunk log: {error}"),
+                )
+            })?;
+        file.write_all(&entry)
+            .and_then(|()| file.sync_all())
+            .map_err(|error| {
+                storage(
+                    "lan_journal_write_failed",
+                    &format!("cannot append to the LAN confirmed-chunk log: {error}"),
+                )
+            })?;
+        if created {
+            sync_parent_directory(&path)?;
+        }
+        Ok(())
+    }
+
+    /// Folds the append tail into the compacted snapshot record, then removes the tail.
+    ///
+    /// The record is durable before the tail is deleted; a crash between the two replays the
+    /// same `+` entries over the fresh snapshot, which is idempotent because the tail only ever
+    /// carries additions.
+    fn compact_confirmed(&self) -> Result<(), LomoError> {
+        self.flush_confirmed()?;
+        let log = self.paths.confirmed_log();
+        match fs::remove_file(&log) {
+            Ok(()) => sync_parent_directory(&log),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(storage(
+                "lan_journal_commit_failed",
+                &format!("cannot retire the LAN confirmed-chunk log: {error}"),
+            )),
+        }
+    }
+
+    /// Compacts the append tail once it outgrows the amortization bound.
+    fn maybe_compact_confirmed(&self) -> Result<(), LomoError> {
+        let oversized = fs::metadata(self.paths.confirmed_log())
+            .is_ok_and(|metadata| metadata.len() > LAN_CONFIRMED_LOG_COMPACT_BYTES);
+        if oversized {
+            self.compact_confirmed()?;
+        }
+        Ok(())
+    }
+
     fn flush_confirmed(&self) -> Result<(), LomoError> {
         let mut body = Vec::new();
         for coordinate in &self.confirmed {
@@ -878,10 +1563,236 @@ impl LanJournal {
         }
         write_record(&self.paths.confirmed_chunks(), &body)
     }
+
+    fn flush_retired(&self) -> Result<(), LomoError> {
+        let mut body = Vec::new();
+        for ((counterparty, batch_id), retired_at_ms) in &self.retired {
+            push_field(&mut body, counterparty.as_str().as_bytes());
+            push_field(&mut body, batch_id.as_str().as_bytes());
+            body.extend_from_slice(&retired_at_ms.to_be_bytes());
+        }
+        write_record(&self.paths.retired(), &body)
+    }
+
+    /// Removes one confirmed coordinate and journals the downgrade.
+    fn drop_confirmed(&mut self, coordinate: &DurableChunkCoordinate) -> Result<(), LomoError> {
+        if self.confirmed.remove(coordinate) {
+            self.compact_confirmed()?;
+        }
+        Ok(())
+    }
+
+    /// Drops confirmed coordinates that cannot be backed by durable verifiable bytes: the owning
+    /// batch is gone, the coordinate is outside the plan, the staged file is missing or torn, or a
+    /// fully confirmed payload no longer matches the plan digest. The downgrade is journaled so a
+    /// crash cannot resurrect a coordinate that was already found unverifiable.
+    fn reconcile_confirmed(&mut self) -> Result<(), LomoError> {
+        let coordinates = std::mem::take(&mut self.confirmed);
+        let mut dirty = false;
+        for coordinate in coordinates {
+            if self.staged_chunk_verifiable(&coordinate)? {
+                self.confirmed.insert(coordinate);
+            } else {
+                dirty = true;
+            }
+        }
+
+        let batch_ids: Vec<LanBatchId> = self.batches.keys().cloned().collect();
+        for batch_id in batch_ids {
+            let plan = self
+                .batches
+                .get(&batch_id)
+                .map(|batch| batch.plan().clone())
+                .ok_or_else(|| {
+                    corrupt_state(
+                        "lan_batch_record_invalid",
+                        "durable batch disappeared during reconciliation",
+                    )
+                })?;
+            for (item_index, attachment_slot) in planned_payload_coordinates(&plan)? {
+                let payload = planned_payload(&plan, item_index, attachment_slot)?;
+                let total_chunks = chunk_count(payload.size_bytes)?;
+                if total_chunks == 0 {
+                    continue;
+                }
+                let all_confirmed = (0..total_chunks).all(|chunk_index| {
+                    self.confirmed.contains(&DurableChunkCoordinate {
+                        batch_id: batch_id.as_str().to_owned(),
+                        item_index: payload.item_index,
+                        attachment_slot: payload.attachment_slot,
+                        chunk_index,
+                    })
+                });
+                if !all_confirmed {
+                    continue;
+                }
+                if self.hash_staged_payload(&batch_id, &payload, total_chunks)? != payload.digest {
+                    self.unconfirm_payload(
+                        &batch_id,
+                        payload.item_index,
+                        payload.attachment_slot,
+                        total_chunks,
+                    )?;
+                    dirty = true;
+                }
+            }
+        }
+        if dirty {
+            self.compact_confirmed()?;
+        }
+        Ok(())
+    }
+
+    /// True only when the coordinate belongs to a known batch plan and its staged file exists with
+    /// the exact length the plan declares. A torn file is reclaimed as garbage.
+    fn staged_chunk_verifiable(
+        &self,
+        coordinate: &DurableChunkCoordinate,
+    ) -> Result<bool, LomoError> {
+        let Ok(batch_id) = LanBatchId::parse(&coordinate.batch_id) else {
+            return Ok(false);
+        };
+        let Some(batch) = self.batches.get(&batch_id) else {
+            return Ok(false);
+        };
+        let Ok(payload) = planned_payload(
+            batch.plan(),
+            coordinate.item_index,
+            coordinate.attachment_slot,
+        ) else {
+            return Ok(false);
+        };
+        let Ok(expected_length) = expected_chunk_length(payload.size_bytes, coordinate.chunk_index)
+        else {
+            return Ok(false);
+        };
+        let path = self.paths.staged_chunk(coordinate);
+        match fs::metadata(&path) {
+            Ok(metadata) if metadata.len() == expected_length as u64 => Ok(true),
+            Ok(_metadata) => {
+                fs::remove_file(&path).map_err(|error| {
+                    storage(
+                        "lan_payload_reclaim_failed",
+                        &format!("cannot remove a torn staged LAN chunk: {error}"),
+                    )
+                })?;
+                Ok(false)
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(storage(
+                "lan_chunk_stage_read_failed",
+                &format!("cannot inspect a staged LAN chunk: {error}"),
+            )),
+        }
+    }
+
+    /// Hashes a fully confirmed payload straight from its staged chunk files so a large payload
+    /// never needs a second in-memory copy.
+    fn hash_staged_payload(
+        &self,
+        batch_id: &LanBatchId,
+        payload: &PlannedPayload,
+        total_chunks: u32,
+    ) -> Result<String, LomoError> {
+        let mut hasher = Sha256::new();
+        for chunk_index in 0..total_chunks {
+            let coordinate = DurableChunkCoordinate {
+                batch_id: batch_id.as_str().to_owned(),
+                item_index: payload.item_index,
+                attachment_slot: payload.attachment_slot,
+                chunk_index,
+            };
+            let bytes = lomo_core::read_bounded(
+                &self.paths.staged_chunk(&coordinate),
+                CHUNK_PLAINTEXT_BYTES as u64,
+            )
+            .map_err(|error| match error {
+                lomo_core::BoundedReadError::ExceedsLimit { .. } => corrupt_state(
+                    "lan_chunk_stage_oversized",
+                    "a staged LAN chunk exceeds the fixed chunk ceiling",
+                ),
+                lomo_core::BoundedReadError::Io(error) => storage(
+                    "lan_chunk_stage_read_failed",
+                    &format!("cannot read a staged LAN chunk: {error}"),
+                ),
+            })?;
+            hasher.update(&bytes);
+        }
+        Ok(format!("{:x}", hasher.finalize()))
+    }
+
+    /// Deletes staged payload subtrees whose batch id no longer owns a durable batch record.
+    fn reclaim_orphan_payloads(&self) -> Result<(), LomoError> {
+        let dir = self.paths.payloads_dir();
+        let entries = match fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                return Err(storage(
+                    "lan_payload_reclaim_failed",
+                    &format!("cannot inspect staged LAN payloads: {error}"),
+                ));
+            }
+        };
+        for entry in entries {
+            let entry = entry.map_err(|error| {
+                storage(
+                    "lan_payload_reclaim_failed",
+                    &format!("cannot inspect a staged LAN payload directory: {error}"),
+                )
+            })?;
+            let is_dir = entry.file_type().map_err(|error| {
+                storage(
+                    "lan_payload_reclaim_failed",
+                    &format!("cannot inspect a staged LAN payload entry: {error}"),
+                )
+            })?;
+            if !is_dir.is_dir() {
+                continue;
+            }
+            let name = entry.file_name();
+            let known = LanBatchId::parse(&name.to_string_lossy())
+                .is_ok_and(|batch_id| self.batches.contains_key(&batch_id));
+            if !known {
+                fs::remove_dir_all(entry.path()).map_err(|error| {
+                    storage(
+                        "lan_payload_reclaim_failed",
+                        &format!("cannot reclaim an orphaned staged LAN payload: {error}"),
+                    )
+                })?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The instant a received batch becomes terminal for reclamation: explicit rejection, or the end
+/// of the approval window that bounded replay.
+const fn received_terminal_anchor(batch: &LanDurableBatch) -> Option<i64> {
+    match batch.decision() {
+        LanBatchDecision::Pending => None,
+        LanBatchDecision::Rejected { rejected_at_ms } => Some(*rejected_at_ms),
+        LanBatchDecision::Approved { approval, .. } => {
+            Some(approval.approved_at_ms().saturating_add(approval.ttl_ms()))
+        }
+    }
+}
+
+/// The instant an outgoing batch becomes terminal for reclamation: the recorded terminal instant,
+/// or — for records written before terminal timestamps existed — epoch 0 when the durable facts
+/// are already terminal (rejected or fully resolved items).
+fn outgoing_terminal_anchor(batch: &LanDurableOutgoingBatch) -> Option<i64> {
+    if let Some(terminal_at_ms) = batch.terminal_at_ms {
+        return Some(terminal_at_ms);
+    }
+    if batch.decision == LanOutgoingDecision::Rejected || batch.snapshot.is_complete() {
+        return Some(0);
+    }
+    None
 }
 
 fn read_peers(path: &Path) -> Result<BTreeMap<DeviceId, PeerRecord>, LomoError> {
-    let Some(body) = read_record(path)? else {
+    let Some((body, _schema)) = read_record(path)? else {
         return Ok(BTreeMap::new());
     };
     let mut peers = BTreeMap::new();
@@ -916,7 +1827,7 @@ fn read_peers(path: &Path) -> Result<BTreeMap<DeviceId, PeerRecord>, LomoError> 
 }
 
 fn read_approvals(path: &Path) -> Result<BTreeMap<LanBatchId, LanApproval>, LomoError> {
-    let Some(body) = read_record(path)? else {
+    let Some((body, _schema)) = read_record(path)? else {
         return Ok(BTreeMap::new());
     };
     let mut approvals = BTreeMap::new();
@@ -938,24 +1849,51 @@ fn read_approvals(path: &Path) -> Result<BTreeMap<LanBatchId, LanApproval>, Lomo
     Ok(approvals)
 }
 
-fn read_sessions(path: &Path) -> Result<BTreeSet<LanSessionId>, LomoError> {
-    let Some(body) = read_record(path)? else {
-        return Ok(BTreeSet::new());
+fn read_sessions(path: &Path) -> Result<BTreeMap<LanSessionId, i64>, LomoError> {
+    let Some((body, schema)) = read_record(path)? else {
+        return Ok(BTreeMap::new());
     };
-    let mut sessions = BTreeSet::new();
+    let mut sessions = BTreeMap::new();
     let mut cursor = 0_usize;
     while cursor < body.len() {
         let (session_bytes, next) = take_field(&body, cursor)?;
         cursor = next;
+        let accepted_at_ms = if schema >= 4 {
+            let accepted_at_ms = take_i64(&body, cursor)?;
+            cursor = cursor.saturating_add(8);
+            accepted_at_ms
+        } else {
+            // Schema 3 carried no timestamp; such a witness predates any live session TTL and
+            // retires at the first maintenance pass.
+            0
+        };
         let session_text = std::str::from_utf8(session_bytes).map_err(|_error| {
             corrupt_state(
                 "lan_session_record_invalid",
                 "session id is not valid UTF-8",
             )
         })?;
-        sessions.insert(LanSessionId::parse(session_text)?);
+        sessions.insert(LanSessionId::parse(session_text)?, accepted_at_ms);
     }
     Ok(sessions)
+}
+
+fn read_retired(path: &Path) -> Result<BTreeMap<(DeviceId, LanBatchId), i64>, LomoError> {
+    let Some((body, _schema)) = read_record(path)? else {
+        return Ok(BTreeMap::new());
+    };
+    let mut retired = BTreeMap::new();
+    let mut cursor = 0_usize;
+    while cursor < body.len() {
+        let (counterparty_bytes, next) = take_field(&body, cursor)?;
+        let (batch_bytes, next) = take_field(&body, next)?;
+        let retired_at_ms = take_i64(&body, next)?;
+        cursor = next.saturating_add(8);
+        let counterparty = DeviceId::parse(record_text(counterparty_bytes)?)?;
+        let batch_id = LanBatchId::parse(record_text(batch_bytes)?)?;
+        retired.insert((counterparty, batch_id), retired_at_ms);
+    }
+    Ok(retired)
 }
 
 fn encode_batches(batches: &BTreeMap<LanBatchId, LanDurableBatch>) -> Vec<u8> {
@@ -1046,6 +1984,15 @@ fn encode_outgoing_batches(batches: &BTreeMap<LanBatchId, LanDurableOutgoingBatc
                 None => body.push(u8::MAX),
             }
         }
+        match &batch.failure {
+            Some(failure) => {
+                body.push(1);
+                push_field(&mut body, failure.code.as_bytes());
+                body.extend_from_slice(&failure.failed_at_ms.to_be_bytes());
+            }
+            None => body.push(0),
+        }
+        body.extend_from_slice(&batch.terminal_at_ms.unwrap_or(0).to_be_bytes());
     }
     body
 }
@@ -1087,7 +2034,7 @@ fn encode_batch_plan(
 }
 
 fn read_batches(path: &Path) -> Result<BTreeMap<LanBatchId, LanDurableBatch>, LomoError> {
-    let Some(body) = read_record(path)? else {
+    let Some((body, _schema)) = read_record(path)? else {
         return Ok(BTreeMap::new());
     };
     let mut batches = BTreeMap::new();
@@ -1105,7 +2052,7 @@ fn read_batches(path: &Path) -> Result<BTreeMap<LanBatchId, LanDurableBatch>, Lo
 fn read_outgoing_batches(
     path: &Path,
 ) -> Result<BTreeMap<LanBatchId, LanDurableOutgoingBatch>, LomoError> {
-    let Some(body) = read_record(path)? else {
+    let Some((body, schema)) = read_record(path)? else {
         return Ok(BTreeMap::new());
     };
     let mut batches = BTreeMap::new();
@@ -1143,6 +2090,31 @@ fn read_outgoing_batches(
             cursor = next;
             snapshot.record(item.item_id(), outcome)?;
         }
+        let failure = if schema >= 4 {
+            match take_u8(&body, cursor)? {
+                0 => {
+                    cursor = cursor.saturating_add(1);
+                    None
+                }
+                1 => {
+                    let (code_bytes, next) = take_field(&body, cursor.saturating_add(1))?;
+                    let code = record_text(code_bytes)?.to_owned();
+                    let failed_at_ms = take_i64(&body, next)?;
+                    cursor = next.saturating_add(8);
+                    Some(LanOutgoingFailure { code, failed_at_ms })
+                }
+                _ => return Err(batch_record_invalid()),
+            }
+        } else {
+            None
+        };
+        let terminal_at_ms = if schema >= 4 {
+            let terminal_at_ms = take_i64(&body, cursor)?;
+            cursor = cursor.saturating_add(8);
+            (terminal_at_ms != 0).then_some(terminal_at_ms)
+        } else {
+            None
+        };
         let batch_id = plan.batch_id().clone();
         let durable = LanDurableOutgoingBatch {
             plan,
@@ -1150,6 +2122,8 @@ fn read_outgoing_batches(
             peer_device_id,
             peer_display_name,
             decision,
+            failure,
+            terminal_at_ms,
             confirmed,
             snapshot,
         };
@@ -1307,38 +2281,159 @@ fn batch_record_invalid() -> LomoError {
     )
 }
 
-fn read_confirmed(path: &Path) -> Result<Vec<DurableChunkCoordinate>, LomoError> {
-    let Some(body) = read_record(path)? else {
-        return Ok(Vec::new());
+fn read_confirmed(path: &Path) -> Result<BTreeSet<DurableChunkCoordinate>, LomoError> {
+    let Some((body, _schema)) = read_record(path)? else {
+        return Ok(BTreeSet::new());
     };
-    let mut confirmed = Vec::new();
+    let mut confirmed = BTreeSet::new();
     let mut cursor = 0_usize;
     while cursor < body.len() {
-        let (batch_bytes, next) = take_field(&body, cursor)?;
-        let item_index = take_u16(&body, next)?;
-        let attachment_slot = take_u16(&body, next.saturating_add(2))?;
-        let chunk_index = take_u32(&body, next.saturating_add(4))?;
-        cursor = next.saturating_add(8);
-
-        let batch_id = std::str::from_utf8(batch_bytes).map_err(|_error| {
-            corrupt_state("lan_chunk_record_invalid", "batch id is not valid UTF-8")
-        })?;
-        LanBatchId::parse(batch_id)?;
-        confirmed.push(DurableChunkCoordinate {
-            batch_id: batch_id.to_owned(),
-            item_index,
-            attachment_slot,
-            chunk_index,
-        });
+        let coordinate = take_confirmed_entry(&body, &mut cursor)?;
+        confirmed.insert(coordinate);
     }
     Ok(confirmed)
 }
 
-fn read_record(path: &Path) -> Result<Option<Vec<u8>>, LomoError> {
-    match fs::read(path) {
-        Ok(bytes) => decode_record(&bytes).map(Some),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(storage(
+/// Replays the append-only confirmed tail. The tail carries the same entry encoding as the
+/// compacted snapshot; a torn tail (a crash mid-append) contributes its valid prefix and the rest
+/// is dropped — the next compaction rewrites the snapshot from the in-memory set anyway.
+fn read_confirmed_log(path: &Path) -> Result<BTreeSet<DurableChunkCoordinate>, LomoError> {
+    let limit = MAX_LAN_RECORD_BYTES.saturating_mul(8) as u64;
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(BTreeSet::new());
+        }
+        Err(error) => {
+            return Err(storage(
+                "lan_journal_read_failed",
+                &format!("cannot read the LAN confirmed-chunk log: {error}"),
+            ));
+        }
+    };
+    let mut bytes = Vec::new();
+    if let Err(error) = file.take(limit.saturating_add(1)).read_to_end(&mut bytes) {
+        return Err(storage(
+            "lan_journal_read_failed",
+            &format!("cannot read the LAN confirmed-chunk log: {error}"),
+        ));
+    }
+    if bytes.len() as u64 > limit {
+        return Err(corrupt_state(
+            "lan_journal_record_oversized",
+            "the LAN confirmed-chunk log exceeds its durable bound",
+        ));
+    }
+    let mut confirmed = BTreeSet::new();
+    let mut cursor = 0_usize;
+    while cursor < bytes.len() {
+        match take_confirmed_entry(&bytes, &mut cursor) {
+            Ok(coordinate) => {
+                confirmed.insert(coordinate);
+            }
+            Err(_torn) => break,
+        }
+    }
+    Ok(confirmed)
+}
+
+fn take_confirmed_entry(
+    body: &[u8],
+    cursor: &mut usize,
+) -> Result<DurableChunkCoordinate, LomoError> {
+    let (batch_bytes, next) = take_field(body, *cursor)?;
+    let item_index = take_u16(body, next)?;
+    let attachment_slot = take_u16(body, next.saturating_add(2))?;
+    let chunk_index = take_u32(body, next.saturating_add(4))?;
+    *cursor = next.saturating_add(8);
+
+    let batch_id = std::str::from_utf8(batch_bytes).map_err(|_error| {
+        corrupt_state("lan_chunk_record_invalid", "batch id is not valid UTF-8")
+    })?;
+    LanBatchId::parse(batch_id)?;
+    Ok(DurableChunkCoordinate {
+        batch_id: batch_id.to_owned(),
+        item_index,
+        attachment_slot,
+        chunk_index,
+    })
+}
+
+/// Re-hashes an existing assembled artifact so reuse is backed by current bytes, not by the fact
+/// it was verified once. `None` means no assembled file exists yet.
+fn verify_assembled_payload(target: &Path) -> Result<Option<LanStagedPayload>, LomoError> {
+    let file = match fs::File::open(target) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(storage(
+                "lan_payload_assemble_failed",
+                &format!("cannot inspect a staged LAN payload: {error}"),
+            ));
+        }
+    };
+    let mut hasher = Sha256::new();
+    let mut sink = HashWriter {
+        inner: io::sink(),
+        hasher: &mut hasher,
+    };
+    let mut reader = io::BufReader::new(file);
+    let size_bytes = io::copy(&mut reader, &mut sink).map_err(|error| {
+        storage(
+            "lan_payload_assemble_failed",
+            &format!("cannot hash a staged LAN payload: {error}"),
+        )
+    })?;
+    Ok(Some(LanStagedPayload {
+        path: target.to_path_buf(),
+        size_bytes,
+        digest: format!("{:x}", hasher.finalize()),
+    }))
+}
+
+/// The outcome of streaming one payload's confirmed chunks into an assembled artifact.
+enum StreamedChunks {
+    Complete(u64),
+    Missing(DurableChunkCoordinate),
+}
+
+/// A write-through tee that feeds every written byte to a SHA-256 hasher.
+struct HashWriter<'a, W: io::Write> {
+    inner: W,
+    hasher: &'a mut Sha256,
+}
+
+impl<W: io::Write> io::Write for HashWriter<'_, W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let written = self.inner.write(buf)?;
+        if let Some(consumed) = buf.get(..written) {
+            self.hasher.update(consumed);
+        }
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+        self.inner.write_all(buf)?;
+        self.hasher.update(buf);
+        Ok(())
+    }
+}
+
+fn read_record(path: &Path) -> Result<Option<(Vec<u8>, u32)>, LomoError> {
+    match lomo_core::read_bounded(path, MAX_LAN_RECORD_BYTES as u64) {
+        Ok(bytes) => decode_record_versioned(&bytes, LAN_DURABLE_SCHEMA_MIN_READ).map(Some),
+        Err(lomo_core::BoundedReadError::Io(error)) if error.kind() == io::ErrorKind::NotFound => {
+            Ok(None)
+        }
+        Err(lomo_core::BoundedReadError::ExceedsLimit { .. }) => Err(corrupt_state(
+            "lan_journal_record_oversized",
+            "the LAN journal record exceeds the durable record byte bound",
+        )),
+        Err(lomo_core::BoundedReadError::Io(error)) => Err(storage(
             "lan_journal_read_failed",
             &format!("cannot read the LAN journal record: {error}"),
         )),
@@ -1366,6 +2461,28 @@ fn write_record(path: &Path, body: &[u8]) -> Result<(), LomoError> {
         )
     })?;
     sync_parent_directory(path)
+}
+
+/// Writes one staged chunk, surfacing storage exhaustion as a batch-scoped resource limit rather
+/// than a generic fault so the peer records an explicit failure disposition.
+fn write_chunk_synced(path: &Path, bytes: &[u8]) -> Result<(), LomoError> {
+    let mut file = fs::File::create(path).map_err(|error| stage_io_error(&error))?;
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|error| stage_io_error(&error))
+}
+
+fn stage_io_error(error: &io::Error) -> LomoError {
+    if error.kind() == io::ErrorKind::StorageFull {
+        return resource_limit(
+            "lan_stage_quota_exceeded",
+            "device storage is exhausted; the batch keeps an explicit failure result",
+        );
+    }
+    storage(
+        "lan_chunk_stage_write_failed",
+        &format!("cannot write a staged LAN chunk: {error}"),
+    )
 }
 
 /// Writes `bytes` and flushes them to stable storage before returning.

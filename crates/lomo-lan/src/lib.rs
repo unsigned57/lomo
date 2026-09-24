@@ -22,6 +22,7 @@ mod identity;
 mod journal;
 mod limits;
 mod pairing;
+mod pool;
 mod runtime;
 mod session;
 mod transport;
@@ -46,28 +47,35 @@ pub use frame::{
 pub use identity::{
     DEVICE_PUBLIC_KEY_BYTES, DeviceId, DevicePublicKey, DeviceSigner, DisplayName, PeerRecord,
 };
-pub use journal::{LAN_RECORD_MAGIC, LanJournal, LanJournalPaths, decode_record, encode_record};
+pub use journal::{
+    LAN_RECORD_MAGIC, LanJournal, LanJournalPaths, LanStagedPayload, decode_record, encode_record,
+};
 pub use limits::{
-    AEAD_TAG_BYTES, APPROVAL_TTL_MS, CHUNK_PLAINTEXT_BYTES, LAN_DURABLE_SCHEMA,
-    MAX_ATTACHMENT_BYTES, MAX_BATCH_ITEMS, MAX_BATCH_TOTAL_BYTES, MAX_CONTROL_PAYLOAD_BYTES,
-    MAX_DISPLAY_NAME_BYTES, MAX_INFLIGHT_CHUNKS, MAX_LAN_RECORD_BYTES, MAX_PREVIEW_TITLE_CHARS,
-    MAX_SEALED_CHUNK_PAYLOAD_BYTES, MAX_SNAPSHOT_ENTRIES, MAX_TRUSTED_PEERS, PAIRING_CODE_DIGITS,
-    PAIRING_TTL_MS, RUNTIME_CHUNK_PLAINTEXT_BYTES, RUNTIME_CHUNK_PLAINTEXT_BYTES_U32,
-    SESSION_TTL_MS, remaining_ttl_ms,
+    AEAD_TAG_BYTES, APPROVAL_TTL_MS, CHUNK_PLAINTEXT_BYTES, LAN_BATCH_RETIRE_DELAY_MS,
+    LAN_DURABLE_SCHEMA, LAN_SESSION_WITNESS_RETENTION_MS, MAX_ATTACHMENT_BYTES, MAX_BATCH_ITEMS,
+    MAX_BATCH_TOTAL_BYTES, MAX_CONTROL_PAYLOAD_BYTES, MAX_DISPLAY_NAME_BYTES,
+    MAX_INBOUND_CONNECTIONS, MAX_INFLIGHT_CHUNKS, MAX_LAN_RECORD_BYTES, MAX_OUTBOUND_CHANNELS,
+    MAX_PAIR_HELLO_SOURCES, MAX_PAIR_HELLOS_PER_WINDOW, MAX_PENDING_PAIRINGS, MAX_PENDING_SESSIONS,
+    MAX_PREVIEW_TITLE_CHARS, MAX_SEALED_CHUNK_PAYLOAD_BYTES, MAX_SNAPSHOT_ENTRIES,
+    MAX_TRUSTED_PEERS, PAIR_HELLO_WINDOW_MS, PAIRING_CODE_DIGITS, PAIRING_TTL_MS,
+    RUNTIME_CHUNK_PLAINTEXT_BYTES, RUNTIME_CHUNK_PLAINTEXT_BYTES_U32, SESSION_TTL_MS,
+    remaining_ttl_ms,
 };
 
 pub use pairing::{
     PairingRole, PairingTranscript, derive_pairing_code, verify_pairing_confirmation,
 };
+pub use pool::LanConnectionPool;
 pub use runtime::{
-    DiscoveredPeerEndpoint, LanBatchRecovery, LanBindCandidate, LanCommittableItem,
-    LanDiscoverySnapshot, LanNetworkSnapshot, LanOutgoingBatch, LanOutgoingBatchPhase,
+    ChunkSendPlan, DiscoveredPeerEndpoint, LanBatchRecovery, LanBindCandidate, LanCommittableItem,
+    LanDiscoverySnapshot, LanNetworkSnapshot, LanOutgoingBatch, LanOutgoingBatchDrive,
     LanPairingChallenge, LanPairingId, LanPendingBatch, LanReceivedBatchDecision,
-    LanReceivedItemOutcome, LanReceivedItemRecovery, LanRuntimeInbox, LanServiceManager,
-    LanServicePhase, LanServiceSnapshot, LanSessionChallenge, LanSessionPhase, LanSessionSnapshot,
+    LanReceivedBatchDrive, LanReceivedItemOutcome, LanReceivedItemRecovery, LanRuntimeInbox,
+    LanServiceManager, LanServicePhase, LanServiceSnapshot, LanSessionChallenge, LanSessionPhase,
+    LanSessionSnapshot,
 };
 pub use session::{
-    ATTACHMENT_SLOT_BODY, ChunkBinding, ControlBinding, LanDirection, LanSessionId, ReplayLedger,
+    ATTACHMENT_SLOT_BODY, ChunkBinding, ControlBinding, LanDirection, LanSessionId,
     SessionControlKind, SessionKey, SessionTranscript,
 };
 

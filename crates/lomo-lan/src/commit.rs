@@ -11,8 +11,11 @@
 //! 2. the active workspace generation must equal the one captured at approval, and
 //! 3. the item id must not already be committed — a replay returns the existing result.
 
+use std::path::{Path, PathBuf};
+
 use crate::batch::{LanApproval, LanAttachmentRef, LanBatchSnapshot, LanItemId, LanItemPlan};
 use crate::error::{conflict, validation};
+use crate::journal::LanStagedPayload;
 use lomo_core::LomoError;
 
 /// The workspace generation an approval was bound to.
@@ -118,30 +121,28 @@ pub struct AuthorizedReceivedCreate {
 }
 
 /// One fully verified attachment carried by an authorized received create.
+///
+/// The attachment bytes stay in the LAN private stage: the command carries the verified artifact
+/// reference and durable facts so the commit boundary streams the file onward instead of holding
+/// every attachment in memory.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AuthorizedReceivedAttachment {
     source_reference: String,
     name: String,
     digest: String,
-    bytes: Vec<u8>,
+    size_bytes: u64,
+    payload_path: PathBuf,
 }
 
 impl AuthorizedReceivedAttachment {
     pub(crate) fn verified(
         reference: &LanAttachmentRef,
         transfer: &LanAttachmentRef,
-        bytes: Vec<u8>,
+        payload: &LanStagedPayload,
     ) -> Result<Self, LomoError> {
-        let size = u64::try_from(bytes.len()).map_err(|_error| {
-            validation(
-                "lan_attachment_size_invalid",
-                "received attachment size does not fit the plan width",
-            )
-        })?;
-        let digest = format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(&bytes));
         if reference.digest() != transfer.digest()
-            || size != transfer.size_bytes()
-            || digest != transfer.digest()
+            || payload.size_bytes() != transfer.size_bytes()
+            || payload.digest() != transfer.digest()
         {
             return Err(validation(
                 "lan_attachment_digest_mismatch",
@@ -151,8 +152,9 @@ impl AuthorizedReceivedAttachment {
         Ok(Self {
             source_reference: reference.source_reference().to_owned(),
             name: transfer.name().to_owned(),
-            digest,
-            bytes,
+            digest: payload.digest().to_owned(),
+            size_bytes: payload.size_bytes(),
+            payload_path: payload.path().to_path_buf(),
         })
     }
 
@@ -172,8 +174,14 @@ impl AuthorizedReceivedAttachment {
     }
 
     #[must_use]
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
+    pub const fn size_bytes(&self) -> u64 {
+        self.size_bytes
+    }
+
+    /// The digest-verified LAN private stage file backing this attachment.
+    #[must_use]
+    pub fn payload_path(&self) -> &Path {
+        &self.payload_path
     }
 }
 

@@ -24,9 +24,30 @@
 //!   closed as corruption instead of resetting to an empty set.
 //! - Given a body above the record ceiling, when encoded, then it is rejected.
 //! - Given a full peer registry, when pairing another device, then it is rejected.
+//! - Given a confirmed chunk whose staged file is missing, torn or digest-corrupt, when the
+//!   journal reopens, then the coordinate downgrades to retransmittable instead of poisoning the
+//!   batch as "confirmed but impossible to complete".
+//! - Given a crash mid-append left a torn tail in `chunks.log`, when the journal reopens, then
+//!   the valid prefix replays and the torn suffix is ignored instead of failing the open.
+//! - Given staged payload files for an unknown or retired batch, when the journal reopens, then
+//!   the orphaned bytes are reclaimed and orphaned coordinates dropped.
+//! - Given a batch past its terminal anchor plus the anti-replay window, when it is retired,
+//!   then its payloads and records are reclaimed and a durable witness blocks id resurrection.
+//! - Given accepted session witnesses, when the replay retention window passes or the witness
+//!   ceiling fills, then stale witnesses are evicted instead of growing forever.
 //!
 //! Observable outcomes: reloaded journal contents, revocation state, unconfirmed index lists,
 //! `LomoError` code/category, on-disk record bytes.
+//!
+//! Test Change Justification:
+//! - Reason category: behavior contract change (confirmed coordinates are verified against
+//!   staged files and owning batch plans at open).
+//! - Old behavior/assertion being replaced: restart fixtures confirmed coordinates without a
+//!   stored batch plan or staged bytes; those coordinates now downgrade as unverifiable.
+//! - Coverage preserved by: fixtures store the owning batch and stage exact-length bytes, so the
+//!   same survival assertions still lock confirmed-coordinate durability.
+//! - Why this is not fitting the test to the implementation: the invariant is the declared T42
+//!   contract — confirmed must mean durable and verifiable bytes exist.
 //!
 //! Excludes: sockets, AEAD, `lomo-store` commit, Kotlin adapters.
 
@@ -44,8 +65,10 @@ mod tests {
         ATTACHMENT_SLOT_BODY, ApprovedGeneration, ChunkBinding, DeviceId, DevicePublicKey,
         DisplayName, LanApproval, LanBatchId, LanBatchPlan, LanDurableBatch, LanItemOutcome,
         LanItemPlan, LanJournal, LanJournalPaths, LanSessionId, MAX_LAN_RECORD_BYTES, PeerRecord,
-        decode_record, encode_record,
+        RUNTIME_CHUNK_PLAINTEXT_BYTES, decode_record, encode_record,
     };
+    use sha2::{Digest, Sha256};
+    use std::path::PathBuf;
 
     fn device_key() -> DevicePublicKey {
         use aws_lc_rs::encoding::AsBigEndian;
@@ -89,6 +112,53 @@ mod tests {
         LanBatchPlan::new(batch, vec![item]).expect("batch plan is valid")
     }
 
+    /// A one-item plan whose body digest is the real SHA-256 of `body`, so fully confirmed
+    /// payloads pass the open-time digest verification.
+    fn verified_plan(body: &[u8]) -> LanBatchPlan {
+        verified_plan_named("batch-resume", body)
+    }
+
+    fn verified_plan_named(batch_id: &str, body: &[u8]) -> LanBatchPlan {
+        let batch = LanBatchId::parse(batch_id).expect("fixture batch id is valid");
+        let item = LanItemPlan::new(
+            &batch,
+            0,
+            1_700_000_000_000,
+            &format!("{:x}", Sha256::digest(body)),
+            body.len() as u64,
+            "Recovery title",
+            Vec::new(),
+        )
+        .expect("item plan is valid");
+        LanBatchPlan::new(batch, vec![item]).expect("batch plan is valid")
+    }
+
+    fn store_pending(journal: &mut LanJournal, plan: &LanBatchPlan) {
+        journal
+            .store_batch(LanDurableBatch::pending(
+                plan.clone(),
+                session(),
+                DeviceId::derive(&device_key()),
+                name("Sender"),
+            ))
+            .expect("pending batch stores");
+    }
+
+    fn staged_file(
+        paths: &LanJournalPaths,
+        batch_id: &str,
+        item_index: u16,
+        attachment_slot: u16,
+        chunk_index: u32,
+    ) -> PathBuf {
+        paths
+            .root()
+            .join("payloads")
+            .join(batch_id)
+            .join(format!("{item_index}-{attachment_slot}"))
+            .join(format!("{chunk_index}.chunk"))
+    }
+
     #[test]
     fn a_journal_root_under_a_lomo_control_tree_is_rejected() {
         let error = LanJournalPaths::new("/tmp/workspace/.lomo/private")
@@ -114,6 +184,20 @@ mod tests {
             journal
                 .store_approval(LanApproval::granted(batch(), 1_700_000_000_000, 600_000))
                 .expect("approval is stored");
+            let three_chunk_body = vec![0_u8; RUNTIME_CHUNK_PLAINTEXT_BYTES * 2 + 1];
+            store_pending(&mut journal, &verified_plan(&three_chunk_body));
+            journal
+                .stage_chunk(
+                    &chunk(0),
+                    &three_chunk_body[..RUNTIME_CHUNK_PLAINTEXT_BYTES],
+                )
+                .expect("chunk 0 stages");
+            journal
+                .stage_chunk(
+                    &chunk(2),
+                    &three_chunk_body[RUNTIME_CHUNK_PLAINTEXT_BYTES * 2..],
+                )
+                .expect("chunk 2 stages");
             journal.confirm_chunk(&chunk(0)).expect("chunk 0 confirmed");
             journal.confirm_chunk(&chunk(2)).expect("chunk 2 confirmed");
         }
@@ -147,7 +231,7 @@ mod tests {
         {
             let mut journal = LanJournal::open(paths.clone()).expect("journal opens");
             journal
-                .accept_session(&session())
+                .accept_session(&session(), 1_700_000_000_000)
                 .expect("fresh session is accepted durably");
         }
 
@@ -157,7 +241,7 @@ mod tests {
             "recovery identifies the accepted session"
         );
         let error = reopened
-            .accept_session(&session())
+            .accept_session(&session(), 1_700_000_010_000)
             .expect_err("the same id cannot enter a second fresh session");
         assert_eq!(error.category(), ErrorCategory::Authentication);
         assert_eq!(error.code(), "lan_session_replayed");
@@ -288,6 +372,14 @@ mod tests {
         let paths = LanJournalPaths::new(root.path()).expect("paths build");
         let mut journal = LanJournal::open(paths.clone()).expect("journal opens");
 
+        let four_chunk_body = vec![0_u8; RUNTIME_CHUNK_PLAINTEXT_BYTES * 3 + 1];
+        store_pending(&mut journal, &verified_plan(&four_chunk_body));
+        journal
+            .stage_chunk(
+                &chunk(3),
+                &four_chunk_body[RUNTIME_CHUNK_PLAINTEXT_BYTES * 3..],
+            )
+            .expect("chunk 3 stages");
         journal.confirm_chunk(&chunk(3)).expect("first confirm");
         journal
             .confirm_chunk(&chunk(3))
@@ -402,29 +494,445 @@ mod tests {
         let paths = LanJournalPaths::new(root.path()).expect("paths build");
         {
             let mut journal = LanJournal::open(paths.clone()).expect("journal opens");
+            store_pending(&mut journal, &verified_plan(b"first payload"));
             journal
-                .stage_chunk(&chunk(0), b"first ")
+                .stage_chunk(&chunk(0), b"first payload")
                 .expect("first chunk stages");
             journal
-                .stage_chunk(&chunk(1), b"payload")
-                .expect("second chunk stages");
-            journal
-                .stage_chunk(&chunk(0), b"first ")
+                .stage_chunk(&chunk(0), b"first payload")
                 .expect("identical retry is idempotent");
             let replay = journal
-                .stage_chunk(&chunk(0), b"changed")
+                .stage_chunk(&chunk(0), b"first payloaa")
                 .expect_err("different bytes under one binding fail closed");
             assert_eq!(replay.code(), "lan_chunk_replayed_with_different_bytes");
+            journal.confirm_chunk(&chunk(0)).expect("chunk confirms");
+        }
+
+        let mut reopened = LanJournal::open(paths).expect("journal reopens");
+        let payload = reopened
+            .assemble_confirmed_payload(&batch(), 0, ATTACHMENT_SLOT_BODY, 1)
+            .expect("payload assembles")
+            .expect("fully confirmed payload is present");
+        assert_eq!(
+            payload.size_bytes(),
+            u64::try_from(b"first payload".len()).expect("byte length fits u64")
+        );
+        assert_eq!(
+            payload.digest(),
+            format!("{:x}", Sha256::digest(b"first payload"))
+        );
+        assert_eq!(
+            std::fs::read(payload.path()).expect("assembled payload reads"),
+            b"first payload"
+        );
+    }
+
+    #[test]
+    fn a_confirmed_chunk_without_staged_bytes_reopens_as_retransmittable() {
+        let root = tempfile::tempdir().expect("app-private root is creatable");
+        let paths = LanJournalPaths::new(root.path()).expect("paths build");
+        {
+            let mut journal = LanJournal::open(paths.clone()).expect("journal opens");
+            store_pending(&mut journal, &verified_plan(b"resume me"));
+            journal
+                .stage_chunk(&chunk(0), b"resume me")
+                .expect("chunk stages");
+            journal.confirm_chunk(&chunk(0)).expect("chunk confirms");
+        }
+        std::fs::remove_file(staged_file(
+            &paths,
+            "batch-resume",
+            0,
+            ATTACHMENT_SLOT_BODY,
+            0,
+        ))
+        .expect("staged file deletes");
+
+        let mut reopened = LanJournal::open(paths.clone()).expect("journal reopens");
+        assert!(
+            !reopened.is_chunk_confirmed(&chunk(0)),
+            "a confirmed coordinate without durable bytes must downgrade, not poison the batch"
+        );
+        assert_eq!(
+            reopened.unconfirmed_chunk_indices(&batch(), 0, ATTACHMENT_SLOT_BODY, 1),
+            vec![0]
+        );
+        assert_eq!(
+            reopened
+                .assemble_confirmed_payload(&batch(), 0, ATTACHMENT_SLOT_BODY, 1)
+                .expect("a missing confirmed file is retransmittable, not corrupt"),
+            None
+        );
+
+        let third = LanJournal::open(paths).expect("the downgrade is itself durable");
+        assert_eq!(
+            third.unconfirmed_chunk_indices(&batch(), 0, ATTACHMENT_SLOT_BODY, 1),
+            vec![0],
+            "the downgraded coordinate stays downgraded across opens"
+        );
+    }
+
+    #[test]
+    fn a_torn_staged_chunk_reopens_as_retransmittable() {
+        let root = tempfile::tempdir().expect("app-private root is creatable");
+        let paths = LanJournalPaths::new(root.path()).expect("paths build");
+        {
+            let mut journal = LanJournal::open(paths.clone()).expect("journal opens");
+            store_pending(&mut journal, &verified_plan(b"resume me"));
+            journal
+                .stage_chunk(&chunk(0), b"resume me")
+                .expect("chunk stages");
+            journal.confirm_chunk(&chunk(0)).expect("chunk confirms");
+        }
+        std::fs::write(
+            staged_file(&paths, "batch-resume", 0, ATTACHMENT_SLOT_BODY, 0),
+            b"torn",
+        )
+        .expect("staged file is torn to a wrong length");
+
+        let reopened = LanJournal::open(paths).expect("journal reopens");
+        assert!(
+            !reopened.is_chunk_confirmed(&chunk(0)),
+            "a staged file whose length no longer matches the plan must downgrade"
+        );
+        assert_eq!(
+            reopened.unconfirmed_chunk_indices(&batch(), 0, ATTACHMENT_SLOT_BODY, 1),
+            vec![0]
+        );
+    }
+
+    #[test]
+    fn a_fully_confirmed_payload_with_corrupted_bytes_reopens_as_retransmittable() {
+        let root = tempfile::tempdir().expect("app-private root is creatable");
+        let paths = LanJournalPaths::new(root.path()).expect("paths build");
+        {
+            let mut journal = LanJournal::open(paths.clone()).expect("journal opens");
+            store_pending(&mut journal, &verified_plan(b"resume me"));
+            journal
+                .stage_chunk(&chunk(0), b"resume me")
+                .expect("chunk stages");
+            journal.confirm_chunk(&chunk(0)).expect("chunk confirms");
+        }
+        let file = staged_file(&paths, "batch-resume", 0, ATTACHMENT_SLOT_BODY, 0);
+        let mut bytes = std::fs::read(&file).expect("staged file exists");
+        bytes[0] ^= 0xFF;
+        std::fs::write(&file, &bytes).expect("staged file keeps its length but changes a byte");
+
+        let reopened = LanJournal::open(paths).expect("journal reopens");
+        assert!(
+            !reopened.is_chunk_confirmed(&chunk(0)),
+            "a fully confirmed payload whose bytes fail the plan digest must downgrade"
+        );
+        assert_eq!(
+            reopened.unconfirmed_chunk_indices(&batch(), 0, ATTACHMENT_SLOT_BODY, 1),
+            vec![0]
+        );
+    }
+
+    #[test]
+    fn orphaned_payload_bytes_and_coordinates_are_reclaimed_at_open() {
+        let root = tempfile::tempdir().expect("app-private root is creatable");
+        let paths = LanJournalPaths::new(root.path()).expect("paths build");
+        {
+            let journal = LanJournal::open(paths.clone()).expect("journal opens");
+            drop(journal);
+        }
+        let orphan_dir = paths
+            .root()
+            .join("payloads")
+            .join("batch-orphaned")
+            .join("0-65535");
+        std::fs::create_dir_all(&orphan_dir).expect("orphan directory creates");
+        std::fs::write(orphan_dir.join("0.chunk"), b"orphan").expect("orphan file writes");
+        {
+            let mut journal = LanJournal::open(paths.clone()).expect("journal reopens");
+            journal
+                .confirm_chunk(
+                    &ChunkBinding::new(&session(), "batch-orphaned", 0, ATTACHMENT_SLOT_BODY, 0)
+                        .expect("orphan binding builds"),
+                )
+                .expect("an orphaned coordinate is journaled");
+        }
+
+        let reopened = LanJournal::open(paths.clone()).expect("journal reopens");
+        assert!(
+            !reopened.is_chunk_confirmed(
+                &ChunkBinding::new(&session(), "batch-orphaned", 0, ATTACHMENT_SLOT_BODY, 0)
+                    .expect("orphan binding builds")
+            ),
+            "a confirmed coordinate for an unknown batch cannot survive reconciliation"
+        );
+        assert!(
+            !paths
+                .root()
+                .join("payloads")
+                .join("batch-orphaned")
+                .exists(),
+            "payload bytes for an unknown batch are reclaimed"
+        );
+    }
+
+    #[test]
+    fn a_retired_batch_leaves_a_witness_and_releases_its_payloads() {
+        let root = tempfile::tempdir().expect("app-private root is creatable");
+        let paths = LanJournalPaths::new(root.path()).expect("paths build");
+        let mut journal = LanJournal::open(paths.clone()).expect("journal opens");
+        let sender = DeviceId::derive(&device_key());
+        journal
+            .store_batch(LanDurableBatch::pending(
+                verified_plan(b"retire me"),
+                session(),
+                sender.clone(),
+                name("Sender"),
+            ))
+            .expect("pending batch stores");
+        journal
+            .stage_chunk(&chunk(0), b"retire me")
+            .expect("chunk stages");
+        journal.confirm_chunk(&chunk(0)).expect("chunk confirms");
+        journal
+            .reject_batch(&batch(), 1_000)
+            .expect("rejection stores");
+        let rejected_dir = paths.root().join("payloads").join("batch-resume");
+        assert!(rejected_dir.exists());
+
+        journal
+            .retire_batch(&batch(), 1_000 + lomo_lan::LAN_BATCH_RETIRE_DELAY_MS)
+            .expect("a batch past its terminal anchor plus replay window retires");
+        assert!(journal.batch(&batch()).is_none());
+        assert!(!journal.is_chunk_confirmed(&chunk(0)));
+        assert!(
+            !rejected_dir.exists(),
+            "retirement reclaims the staged payload subtree"
+        );
+        let error = journal
+            .store_batch(LanDurableBatch::pending(
+                verified_plan(b"retire me"),
+                session(),
+                sender.clone(),
+                name("Sender"),
+            ))
+            .expect_err("a retired batch id cannot resurrect from the same sender");
+        assert_eq!(error.code(), "lan_batch_retired");
+
+        let mut reopened = LanJournal::open(paths).expect("journal reopens");
+        assert!(reopened.batch(&batch()).is_none());
+        assert_eq!(
+            reopened
+                .store_batch(LanDurableBatch::pending(
+                    verified_plan(b"retire me"),
+                    session(),
+                    sender,
+                    name("Sender"),
+                ))
+                .expect_err("the retirement witness survives restart")
+                .code(),
+            "lan_batch_retired"
+        );
+    }
+
+    #[test]
+    fn retirement_refuses_a_batch_that_is_not_terminal() {
+        let root = tempfile::tempdir().expect("app-private root is creatable");
+        let paths = LanJournalPaths::new(root.path()).expect("paths build");
+        let mut journal = LanJournal::open(paths).expect("journal opens");
+        store_pending(&mut journal, &verified_plan(b"keep me"));
+
+        assert_eq!(
+            journal
+                .retire_batch(&batch(), i64::MAX)
+                .expect_err("a pending batch is never reclaimable")
+                .code(),
+            "lan_batch_not_retirable"
+        );
+        journal
+            .approve_batch(
+                &batch(),
+                LanApproval::granted(batch(), 1_000, 60_000),
+                ApprovedGeneration::capture("generation-1").expect("generation captures"),
+            )
+            .expect("approval stores");
+        assert_eq!(
+            journal
+                .retire_batch(&batch(), 61_000)
+                .expect_err("an approval still inside its window cannot retire")
+                .code(),
+            "lan_batch_not_retirable"
+        );
+        assert_eq!(
+            journal
+                .retire_batch(&batch(), 61_000 + lomo_lan::LAN_BATCH_RETIRE_DELAY_MS - 1)
+                .expect_err("the anti-replay window must close before reclamation")
+                .code(),
+            "lan_batch_not_retirable"
+        );
+        journal
+            .retire_batch(&batch(), 61_000 + lomo_lan::LAN_BATCH_RETIRE_DELAY_MS)
+            .expect("an expired approval past the replay window retires");
+    }
+
+    #[test]
+    fn session_witnesses_expire_past_the_replay_retention_window() {
+        let root = tempfile::tempdir().expect("app-private root is creatable");
+        let paths = LanJournalPaths::new(root.path()).expect("paths build");
+        let mut journal = LanJournal::open(paths).expect("journal opens");
+        journal
+            .accept_session(&session(), 1_000)
+            .expect("session accepted durably");
+        assert!(journal.has_session(&session()));
+
+        journal
+            .maintain(1_000 + lomo_lan::LAN_SESSION_WITNESS_RETENTION_MS - 1)
+            .expect("inside the window the witness stays");
+        assert!(journal.has_session(&session()));
+
+        journal
+            .maintain(1_000 + lomo_lan::LAN_SESSION_WITNESS_RETENTION_MS)
+            .expect("past the replay window the witness retires");
+        assert!(
+            !journal.has_session(&session()),
+            "a witness beyond its retention window is evicted, not kept forever"
+        );
+    }
+
+    #[test]
+    fn maintenance_retires_terminal_batches_and_keeps_live_bytes() {
+        let root = tempfile::tempdir().expect("app-private root is creatable");
+        let paths = LanJournalPaths::new(root.path()).expect("paths build");
+        let mut journal = LanJournal::open(paths.clone()).expect("journal opens");
+        let sender = DeviceId::derive(&device_key());
+        journal
+            .store_batch(LanDurableBatch::pending(
+                verified_plan(b"rejected soon"),
+                session(),
+                sender.clone(),
+                name("Sender"),
+            ))
+            .expect("rejected-soon batch stores");
+        journal
+            .stage_chunk(&chunk(0), b"rejected soon")
+            .expect("chunk stages");
+        journal.confirm_chunk(&chunk(0)).expect("chunk confirms");
+        journal
+            .reject_batch(&batch(), 1_000)
+            .expect("rejection stores");
+
+        let live_batch = LanBatchId::parse("batch-live").expect("fixture batch id is valid");
+        let live_chunk = ChunkBinding::new(&session(), "batch-live", 0, ATTACHMENT_SLOT_BODY, 0)
+            .expect("fixture binding is valid");
+        journal
+            .store_batch(LanDurableBatch::pending(
+                verified_plan_named("batch-live", b"still arriving"),
+                session(),
+                sender.clone(),
+                name("Sender"),
+            ))
+            .expect("live batch stores");
+        journal
+            .stage_chunk(&live_chunk, b"still arriving")
+            .expect("live chunk stages");
+        journal
+            .confirm_chunk(&live_chunk)
+            .expect("live chunk confirms");
+        let live_dir = paths.root().join("payloads").join("batch-live");
+
+        journal
+            .maintain(1_000 + lomo_lan::LAN_BATCH_RETIRE_DELAY_MS - 1)
+            .expect("inside the anti-replay window nothing retires");
+        assert!(journal.batch(&batch()).is_some());
+
+        journal
+            .maintain(1_000 + lomo_lan::LAN_BATCH_RETIRE_DELAY_MS)
+            .expect("past the window the terminal batch retires");
+        assert!(journal.batch(&batch()).is_none());
+        assert!(
+            !paths.root().join("payloads").join("batch-resume").exists(),
+            "retired payloads are reclaimed"
+        );
+        assert!(
+            journal.batch(&live_batch).is_some() && journal.is_chunk_confirmed(&live_chunk),
+            "maintenance never reclaims bytes a live batch still needs"
+        );
+        assert!(live_dir.exists(), "live staged payloads stay put");
+        assert_eq!(
+            journal
+                .store_batch(LanDurableBatch::pending(
+                    verified_plan(b"rejected soon"),
+                    session(),
+                    sender,
+                    name("Sender"),
+                ))
+                .expect_err("the retired witness still blocks resurrection")
+                .code(),
+            "lan_batch_retired"
+        );
+    }
+    #[test]
+    fn a_staged_chunk_must_match_the_planned_length_for_a_known_batch() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let paths = LanJournalPaths::new(temp.path()).expect("paths build");
+        let mut journal = LanJournal::open(paths).expect("journal opens");
+        store_pending(&mut journal, &verified_plan(b"planned bytes"));
+        let coordinate = chunk(0);
+        assert_eq!(
+            journal
+                .stage_chunk(&coordinate, b"short")
+                .expect_err("a short write must not land under a planned coordinate")
+                .code(),
+            "lan_chunk_plan_mismatch"
+        );
+        assert_eq!(
+            journal
+                .stage_chunk(&coordinate, b"planned bytes and then some")
+                .expect_err("an oversized write must not land under a planned coordinate")
+                .code(),
+            "lan_chunk_plan_mismatch"
+        );
+        journal
+            .stage_chunk(&coordinate, b"planned bytes")
+            .expect("the exact planned length stages");
+    }
+
+    #[test]
+    fn a_torn_confirmation_log_tail_replays_only_its_valid_prefix() {
+        let root = tempfile::tempdir().expect("app-private root is creatable");
+        let paths = LanJournalPaths::new(root.path()).expect("paths build");
+        let body = vec![0_u8; RUNTIME_CHUNK_PLAINTEXT_BYTES + 1];
+        {
+            let mut journal = LanJournal::open(paths.clone()).expect("journal opens");
+            store_pending(&mut journal, &verified_plan(&body));
+            journal
+                .stage_chunk(&chunk(0), &body[..RUNTIME_CHUNK_PLAINTEXT_BYTES])
+                .expect("chunk 0 stages");
+            journal
+                .stage_chunk(&chunk(1), &body[RUNTIME_CHUNK_PLAINTEXT_BYTES..])
+                .expect("chunk 1 stages");
             journal.confirm_chunk(&chunk(0)).expect("chunk 0 confirms");
             journal.confirm_chunk(&chunk(1)).expect("chunk 1 confirms");
         }
+        // A crash mid-append leaves a partial entry: the valid prefix must survive and the torn
+        // suffix must be ignored, not fail the whole open as corruption.
+        let log = paths.confirmed_log();
+        let mut bytes = std::fs::read(&log).expect("append log exists");
+        bytes.extend_from_slice(&[0xFF, 0xFF, 0x00]);
+        std::fs::write(&log, &bytes).expect("torn tail writes");
 
-        let reopened = LanJournal::open(paths).expect("journal reopens");
+        let reopened = LanJournal::open(paths).expect("journal reopens past the torn tail");
+        assert!(
+            reopened.is_chunk_confirmed(&chunk(0)),
+            "the valid prefix of the append log replays"
+        );
+        assert!(
+            reopened.is_chunk_confirmed(&chunk(1)),
+            "every entry before the torn suffix replays"
+        );
+        let mut reopened = reopened;
         assert_eq!(
             reopened
-                .read_confirmed_payload(&batch(), 0, ATTACHMENT_SLOT_BODY, 2)
-                .expect("payload reads"),
-            Some(b"first payload".to_vec())
+                .assemble_confirmed_payload(&batch(), 0, ATTACHMENT_SLOT_BODY, 2)
+                .expect("the recovered payload assembles")
+                .map(|payload| payload.digest().to_owned()),
+            Some(format!("{:x}", Sha256::digest(&body)))
         );
     }
 }

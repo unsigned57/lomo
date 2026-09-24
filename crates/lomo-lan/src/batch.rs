@@ -17,6 +17,7 @@ use crate::error::{conflict, permission, resource_limit, validation};
 use crate::identity::{DeviceId, DisplayName};
 use crate::limits::{
     MAX_ATTACHMENT_BYTES, MAX_BATCH_ITEMS, MAX_BATCH_TOTAL_BYTES, MAX_PREVIEW_TITLE_CHARS,
+    RUNTIME_CHUNK_PLAINTEXT_BYTES,
 };
 use crate::session::{ATTACHMENT_SLOT_BODY, LanSessionId};
 use lomo_core::LomoError;
@@ -870,4 +871,131 @@ impl LanDurableBatch {
     ) -> Result<LanItemOutcome, LomoError> {
         self.snapshot.record(item_id, outcome)
     }
+}
+
+/// The payload facts one `(item index, attachment slot)` coordinate transfers on the wire.
+pub struct PlannedPayload {
+    pub item_index: u16,
+    pub attachment_slot: u16,
+    pub size_bytes: u64,
+    pub digest: String,
+}
+
+impl PlannedPayload {
+    pub fn assert_wire_coordinate(
+        &self,
+        item_index: u16,
+        attachment_slot: u16,
+    ) -> Result<(), LomoError> {
+        if self.item_index != item_index || self.attachment_slot != attachment_slot {
+            return Err(validation(
+                "lan_attachment_transfer_coordinate_not_canonical",
+                "shared attachment bytes must use the batch's single canonical wire coordinate",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Every payload coordinate a plan transfers: each item body plus each canonical attachment
+/// transfer coordinate.
+pub fn planned_payload_coordinates(plan: &LanBatchPlan) -> Result<BTreeSet<(u16, u16)>, LomoError> {
+    let mut coordinates = BTreeSet::new();
+    for item in plan.items() {
+        coordinates.insert((item.index(), ATTACHMENT_SLOT_BODY));
+        for attachment in item.attachments() {
+            coordinates.insert(
+                plan.attachment_transfer_coordinate(attachment.digest())
+                    .ok_or_else(|| {
+                        validation(
+                            "lan_attachment_transfer_missing",
+                            "batch attachment has no canonical transfer coordinate",
+                        )
+                    })?,
+            );
+        }
+    }
+    Ok(coordinates)
+}
+
+/// Resolves a coordinate to the payload facts the plan declares for it.
+///
+/// Attachment coordinates map through the canonical transfer coordinate so a shared digest is
+/// verified against the same planned bytes everywhere.
+pub fn planned_payload(
+    plan: &LanBatchPlan,
+    item_index: u16,
+    attachment_slot: u16,
+) -> Result<PlannedPayload, LomoError> {
+    let item = plan
+        .items()
+        .get(usize::from(item_index))
+        .filter(|item| item.index() == item_index)
+        .ok_or_else(|| validation("lan_item_not_in_batch", "chunk item is not in the batch"))?;
+    if attachment_slot == ATTACHMENT_SLOT_BODY {
+        return Ok(PlannedPayload {
+            item_index,
+            attachment_slot,
+            size_bytes: item.content_bytes(),
+            digest: item.content_digest().to_owned(),
+        });
+    }
+    let attachment = item
+        .attachments()
+        .iter()
+        .find(|attachment| attachment.slot() == attachment_slot)
+        .ok_or_else(|| {
+            validation(
+                "lan_attachment_not_in_item",
+                "chunk attachment slot is not referenced by the planned item",
+            )
+        })?;
+    let (transfer_item_index, transfer) = plan
+        .attachment_transfer_reference(attachment.digest())
+        .ok_or_else(|| {
+        validation(
+            "lan_attachment_transfer_missing",
+            "attachment digest has no canonical batch transfer coordinate",
+        )
+    })?;
+    Ok(PlannedPayload {
+        item_index: transfer_item_index,
+        attachment_slot: transfer.slot(),
+        size_bytes: transfer.size_bytes(),
+        digest: transfer.digest().to_owned(),
+    })
+}
+
+/// Chunks a planned payload occupies on the wire.
+pub fn chunk_count(size_bytes: u64) -> Result<u32, LomoError> {
+    if size_bytes == 0 {
+        return Ok(0);
+    }
+    let chunks = size_bytes.div_ceil(RUNTIME_CHUNK_PLAINTEXT_BYTES as u64);
+    u32::try_from(chunks).map_err(|_error| {
+        resource_limit(
+            "lan_chunk_range_too_large",
+            "planned payload needs more chunks than the wire index can represent",
+        )
+    })
+}
+
+/// Exact plaintext length the plan expects for one chunk index.
+pub fn expected_chunk_length(size_bytes: u64, chunk_index: u32) -> Result<usize, LomoError> {
+    let count = chunk_count(size_bytes)?;
+    if chunk_index >= count {
+        return Err(validation(
+            "lan_chunk_index_invalid",
+            "chunk index is outside the planned payload range",
+        ));
+    }
+    let offset = u64::from(chunk_index).saturating_mul(RUNTIME_CHUNK_PLAINTEXT_BYTES as u64);
+    usize::try_from((size_bytes - offset).min(RUNTIME_CHUNK_PLAINTEXT_BYTES as u64)).map_err(
+        |_error| {
+            resource_limit(
+                "lan_chunk_length_invalid",
+                "planned chunk length does not fit this platform",
+            )
+        },
+    )
 }
