@@ -43,8 +43,6 @@ import com.lomo.ui.theme.TypographyScales
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.persistentListOf
-import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -58,10 +56,19 @@ class MainActivity : AppCompatActivity() {
 
     private val viewModel: MainViewModel by viewModel()
     private var currentUiMode by mutableIntStateOf(Configuration.UI_MODE_NIGHT_UNDEFINED)
-    private var nextPendingLaunchCommandId = 0L
-    private var pendingLaunchCommands by
-        mutableStateOf<ImmutableList<PendingLaunchCommand>>(persistentListOf())
+    private val pendingLaunchCommandQueue = PendingLaunchCommandQueue()
     private val shareServicesStarted = AtomicBoolean(false)
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(KEY_PENDING_LAUNCH_COMMANDS, pendingLaunchCommandQueue.snapshotJson())
+    }
+
+    private fun restorePendingLaunchCommands(savedInstanceState: Bundle?) {
+        pendingLaunchCommandQueue.restore(
+            savedInstanceState?.getString(KEY_PENDING_LAUNCH_COMMANDS),
+        )
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -70,6 +77,10 @@ class MainActivity : AppCompatActivity() {
 
         splashScreen.setKeepOnScreenCondition(::shouldKeepSplashScreenVisible)
         enableEdgeToEdge()
+        // The Activity is the explicit engine start requester: Application.onCreate never opens
+        // native, and tile/widget wakes resolve without mounting the workspace.
+        viewModel.requestEngineStart()
+        restorePendingLaunchCommands(savedInstanceState)
         handleInitialIntent(
             intent = intent,
             savedInstanceState = savedInstanceState,
@@ -106,7 +117,7 @@ class MainActivity : AppCompatActivity() {
             trustedLaunchIntents.extractTrustedExternalAppCommand(intent),
             externalAppCommandStore::enqueue,
         )
-        extractPendingLaunchActions(intent = intent).forEach(::enqueuePendingLaunchAction)
+        extractPendingLaunchActions(intent = intent).forEach(pendingLaunchCommandQueue::enqueue)
     }
 
     private fun handleInitialIntent(
@@ -128,23 +139,7 @@ class MainActivity : AppCompatActivity() {
         extractInitialPendingLaunchActions(
             activityInstanceState = activityInstanceState,
             intent = intent,
-        ).forEach(::enqueuePendingLaunchAction)
-    }
-
-    private fun enqueuePendingLaunchAction(action: PendingLaunchAction) {
-        val command =
-            PendingLaunchCommand(
-                id = nextPendingLaunchCommandId++,
-                action = action,
-            )
-        pendingLaunchCommands = (pendingLaunchCommands + command).toImmutableList()
-    }
-
-    private fun consumePendingLaunchCommands(commandIds: List<Long>) {
-        if (commandIds.isEmpty()) {
-            return
-        }
-        pendingLaunchCommands = pendingLaunchCommands.filterNot { it.id in commandIds.toSet() }.toImmutableList()
+        ).forEach(pendingLaunchCommandQueue::enqueue)
     }
 
     override fun onDestroy() {
@@ -175,8 +170,8 @@ class MainActivity : AppCompatActivity() {
                     }
                 },
                 securitySessionPolicy = securitySessionPolicy,
-                pendingLaunchCommands = pendingLaunchCommands,
-                onPendingLaunchCommandsConsumed = ::consumePendingLaunchCommands,
+                pendingLaunchCommands = pendingLaunchCommandQueue.commands,
+                onPendingLaunchCommandConsumed = pendingLaunchCommandQueue::consume,
             )
         }
     }
@@ -185,6 +180,7 @@ class MainActivity : AppCompatActivity() {
         const val ACTION_EXTERNAL_APP_COMMAND = "com.lomo.app.ACTION_EXTERNAL_APP_COMMAND"
         const val ACTION_OPEN_MEMO = "com.lomo.app.ACTION_OPEN_MEMO"
         const val EXTRA_MEMO_ID = "memo_id"
+        private const val KEY_PENDING_LAUNCH_COMMANDS = "lomo.pendingLaunchCommands"
     }
 }
 
@@ -198,7 +194,7 @@ private fun MainActivityScreen(
     onRefreshSession: () -> Unit,
     securitySessionPolicy: SecuritySessionPolicy,
     pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
-    onPendingLaunchCommandsConsumed: (List<Long>) -> Unit,
+    onPendingLaunchCommandConsumed: (Long) -> Unit,
     viewModel: MainViewModel = injectedKoinViewModel(),
 ) {
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
@@ -219,7 +215,7 @@ private fun MainActivityScreen(
         appLockUiState = appLockUiState,
         foregroundEntryId = foregroundEntryId,
         pendingLaunchCommands = pendingLaunchCommands,
-        onPendingLaunchCommandsConsumed = onPendingLaunchCommandsConsumed,
+        onPendingLaunchCommandConsumed = onPendingLaunchCommandConsumed,
         audioPlayerController = audioPlayerController,
         shareServiceManager = shareServiceManager,
         currentUiMode = currentUiMode,
@@ -256,7 +252,7 @@ private fun MainActivityRoot(
     appLockUiState: AppLockUiState,
     foregroundEntryId: Long,
     pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
-    onPendingLaunchCommandsConsumed: (List<Long>) -> Unit,
+    onPendingLaunchCommandConsumed: (Long) -> Unit,
     audioPlayerController: AudioPlayerController,
     shareServiceManager: LanShareService,
     currentUiMode: Int,
@@ -277,7 +273,7 @@ private fun MainActivityRoot(
     LomoTheme(
         themeMode = appPreferences.themeMode.value,
         colorSource = appPreferences.colorSource,
-        customFontPath = appPreferences.customFontPath,
+        fontFamily = appPreferences.customFontFamily,
         typographyScales = typographyScales,
         currentUiMode = currentUiMode,
     ) {
@@ -286,7 +282,7 @@ private fun MainActivityRoot(
             DispatchPendingLaunchCommands(
                 session = session,
                 pendingLaunchCommands = pendingLaunchCommands,
-                onPendingLaunchCommandsConsumed = onPendingLaunchCommandsConsumed,
+                onPendingLaunchCommandConsumed = onPendingLaunchCommandConsumed,
             )
             AnimatedContent(
                 targetState = appLockUiState.isGateVisible,
@@ -342,39 +338,41 @@ private fun UnlockedAppRoot(
 private fun DispatchPendingLaunchCommands(
     session: SecuritySessionState,
     pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
-    onPendingLaunchCommandsConsumed: (List<Long>) -> Unit,
+    onPendingLaunchCommandConsumed: (Long) -> Unit,
     viewModel: MainViewModel = activityKoinViewModel(),
 ) {
     if (pendingLaunchCommands.isEmpty()) {
         return
     }
-    val engineReadiness by viewModel.engineReadiness.collectAsStateWithLifecycle()
-    val (workspaceState, _) = entryWorkspaceStateFor(engineReadiness)
+    val mount by viewModel.mount.collectAsStateWithLifecycle()
+    val (workspaceState, _) = entryWorkspaceStateFor(mount)
     val appLock = entryAppLockStateFor(session)
-    LaunchedEffect(pendingLaunchCommands, workspaceState, appLock) {
-        val consumed = mutableListOf<Long>()
+    // Dispatch binds the security session, the mount epoch and the command id: an epoch change
+    // re-resolves every remaining command against the new workspace, and each command is
+    // acknowledged immediately after its own dispatch so a cancelled pass never re-fires it.
+    val mountEpoch = mount.location?.raw
+    LaunchedEffect(pendingLaunchCommands, workspaceState, appLock, mountEpoch) {
+        val readiness =
+            EntryFlowReadiness(
+                appLock = appLock,
+                configuredCapabilities = EntryCapability.entries.toSet(),
+                workspace = workspaceState,
+            )
         pendingLaunchCommands.forEach { command ->
-            val flowState =
-                resolvePendingLaunchCommandEntryFlowState(
+            val dispatched =
+                dispatchPendingLaunchCommand(
                     command = command,
-                    readiness =
-                        EntryFlowReadiness(
-                            appLock = appLock,
-                            configuredCapabilities = EntryCapability.entries.toSet(),
-                            workspace = workspaceState,
-                        ),
-                )
-            if (flowState is EntryFlowState.Ready) {
-                when (val action = command.action) {
-                    is PendingLaunchAction.SharedText -> viewModel.handleSharedText(action.text)
-                    is PendingLaunchAction.SharedImage -> viewModel.handleSharedImage(action.uri)
-                    is PendingLaunchAction.OpenMemo -> viewModel.requestOpenMemo(action.memoId)
+                    readiness = readiness,
+                ) { action ->
+                    when (action) {
+                        is PendingLaunchAction.SharedText -> viewModel.handleSharedText(action.text)
+                        is PendingLaunchAction.SharedImage -> viewModel.handleSharedImage(action.uri)
+                        is PendingLaunchAction.OpenMemo -> viewModel.requestOpenMemo(action.memoId)
+                    }
                 }
-                consumed += command.id
+            if (dispatched) {
+                onPendingLaunchCommandConsumed(command.id)
             }
-        }
-        if (consumed.isNotEmpty()) {
-            onPendingLaunchCommandsConsumed(consumed)
         }
     }
 }

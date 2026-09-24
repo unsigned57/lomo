@@ -14,7 +14,6 @@ import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.MemoStatisticsUseCase
 import com.lomo.domain.usecase.SyncAndRebuildUseCase
-import com.lomo.domain.usecase.SyncConflictResolutionUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import io.kotest.assertions.withClue
@@ -445,7 +444,6 @@ class MemoRepositoryBoundaryContractTest : AppFunSpec() {
                 DeleteMemoUseCase::class.java,
                 MemoStatisticsUseCase::class.java,
                 SyncAndRebuildUseCase::class.java,
-                SyncConflictResolutionUseCase::class.java,
                 ToggleMemoCheckboxUseCase::class.java,
                 UpdateMemoContentUseCase::class.java,
             )

@@ -2,10 +2,12 @@ package com.lomo.app.provider
 
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
+import com.lomo.domain.model.MediaImageDescriptor
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MediaRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 fun emptyImageMapProvider(
     repository: MediaRepository = FakeMediaRepository(),
@@ -23,6 +25,12 @@ fun emptyImageMapProvider(
 private data class FakeMediaRepository(
     val imageLocations: Flow<Map<MediaEntryId, StorageLocation>> = flowOf(emptyMap()),
 ) : MediaRepository {
+    private val descriptorLocations: Flow<Map<MediaEntryId, MediaImageDescriptor>> =
+        imageLocations.map { locations ->
+            locations.mapValues { (_, location) ->
+                MediaImageDescriptor(location = location, contentId = null)
+            }
+        }
     override suspend fun importImage(
         source: StorageLocation,
         draftId: com.lomo.domain.model.DraftId,
@@ -33,7 +41,8 @@ private data class FakeMediaRepository(
         draftId: com.lomo.domain.model.DraftId,
     ) = Unit
 
-    override fun observeImageLocations(): Flow<Map<MediaEntryId, StorageLocation>> = imageLocations
+    override fun observeImageLocations(): Flow<Map<MediaEntryId, MediaImageDescriptor>> =
+        descriptorLocations
 
     override suspend fun refreshImageLocations() = Unit
 

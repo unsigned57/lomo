@@ -249,7 +249,7 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
             val navigateToGalleryReel =
                 rememberGalleryReelNavigationAction(
                     navController = navController,
-                    galleryMemos = galleryMemos.itemSnapshotList.items.toImmutableList(),
+                    galleryMemos = galleryMemos.itemSnapshotList.items,
                 )
             ProvideSharedAnimationLocals(
                 sharedTransitionScope = this,

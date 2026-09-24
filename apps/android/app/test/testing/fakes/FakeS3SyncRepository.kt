@@ -69,15 +69,5 @@ class FakeS3SyncRepository : S3SyncRepository {
     override suspend fun getStatus(): com.lomo.domain.model.S3SyncStatus = com.lomo.domain.model.S3SyncStatus(0, 0, 0, null)
     override suspend fun testConnection(): com.lomo.domain.model.S3SyncResult = com.lomo.domain.model.S3SyncResult.Success("")
 
-    override suspend fun resolveConflicts(
-        resolution: com.lomo.domain.model.SyncConflictResolution,
-        conflictSet: com.lomo.domain.model.SyncConflictSet,
-    ): com.lomo.domain.model.S3SyncResult = com.lomo.domain.model.S3SyncResult.Success("")
-
-    override suspend fun resolveReview(
-        resolution: com.lomo.domain.model.SyncReviewResolution,
-        review: com.lomo.domain.model.SyncReviewSession,
-    ): com.lomo.domain.model.S3SyncResult = com.lomo.domain.model.S3SyncResult.Success("")
-
     override fun syncState(): Flow<com.lomo.domain.model.S3SyncState> = MutableStateFlow(com.lomo.domain.model.S3SyncState.Idle)
 }

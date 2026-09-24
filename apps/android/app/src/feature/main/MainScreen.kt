@@ -14,7 +14,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -66,7 +65,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.flow.filterNotNull
 import timber.log.Timber
 
 internal const val DRAFT_AUTOSAVE_DEBOUNCE_MILLIS = 500L
@@ -153,6 +151,8 @@ fun MainScreen(
         dependencies = dependencies,
         visibleUiMemos = displayedVisibleUiMemos,
         visibleUiMemoStartIndex = displayedVisibleUiMemoStartIndex,
+        searchQuery = screenState.searchQuery,
+        memoListFilter = screenState.memoListFilter,
         canResolveOffscreenMainListFocus =
             screenState.searchQuery.isBlank() &&
                 !screenState.memoListFilter.isActive &&
@@ -262,14 +262,15 @@ private fun MainScreenPendingNewMemoCreationEffect(
                     scrollListToAbsoluteTop = {
                         listState.animateScrollToItem(0)
                     },
-                    awaitTopBaseline = {
-                        snapshotFlow { pagedUiMemos.resolveHeadEnterBaseline() }
-                            .filterNotNull()
-                            .first()
+                    readTopBaseline = {
+                        pagedUiMemos.resolveHeadEnterBaseline()
                     },
                     prepareNewTopEnter = { baseline ->
                         latestDependencies.value.mainViewModel.enterAnimationRegistry
                             .beginPendingHeadEnter(baseline)
+                    },
+                    newHeadRank = { memoId ->
+                        latestDependencies.value.mainViewModel.rankInActiveMainListQuery(memoId)
                     },
                     createMemo = { event, _ ->
                         // The feed renders loaded rows from the paging snapshot and only calls
@@ -288,7 +289,7 @@ private fun MainScreenPendingNewMemoCreationEffect(
                                 event.payload.submissionId,
                                 IllegalStateException("Pending memo request was already consumed or cancelled"),
                             )
-                            false
+                            null
                         } else {
                             try {
                                 latestDependencies.value.editorViewModel.submissions.create(
@@ -296,9 +297,16 @@ private fun MainScreenPendingNewMemoCreationEffect(
                                     content = consumedRequest.content,
                                     timestampMillis = consumedRequest.timestampMillis,
                                 )
-                                latestDependencies.value.editorViewModel.submissions.await(
-                                    consumedRequest.submissionId,
-                                )
+                                if (
+                                    latestDependencies.value.editorViewModel.submissions.await(
+                                        consumedRequest.submissionId,
+                                    )
+                                ) {
+                                    latestDependencies.value.editorViewModel.submissions
+                                        .committedMemo(consumedRequest.submissionId)?.id
+                                } else {
+                                    null
+                                }
                             } catch (error: CancellationException) {
                                 throw error
                             } catch (error: Exception) {
@@ -307,8 +315,8 @@ private fun MainScreenPendingNewMemoCreationEffect(
                                     error,
                                 )
                                 // behavior-contract: silent-result-ok: create failure is published on
-                                // the editor submission machine; false only stops waiting for a new head
-                                false
+                                // the editor submission machine; null only stops waiting for a new head
+                                null
                             }
                         }
                     },
@@ -434,6 +442,8 @@ private fun MainScreenTransientEffects(
     dependencies: MainScreenDependencies,
     visibleUiMemos: List<MemoUiModel>,
     visibleUiMemoStartIndex: Int,
+    searchQuery: String,
+    memoListFilter: MemoListFilter,
     canResolveOffscreenMainListFocus: Boolean,
     listState: androidx.compose.foundation.lazy.LazyListState,
     editorController: MemoEditorController,
@@ -448,6 +458,7 @@ private fun MainScreenTransientEffects(
 ) {
     val errorMessage by dependencies.mainViewModel.errorMessage.collectAsStateWithLifecycle()
     val editorErrorMessage by dependencies.editorViewModel.errorMessage.collectAsStateWithLifecycle()
+    val recordingErrorMessage by dependencies.recordingViewModel.errorMessage.collectAsStateWithLifecycle()
     val uiState by dependencies.mainViewModel.uiState.collectAsStateWithLifecycle()
     val sharedContentEvents by dependencies.mainViewModel.sharedContentEvents.collectAsStateWithLifecycle()
     val pendingSharedImageEvents by dependencies.mainViewModel.pendingSharedImageEvents.collectAsStateWithLifecycle()
@@ -457,6 +468,7 @@ private fun MainScreenTransientEffects(
     val voiceDirectory by dependencies.mainViewModel.voiceDirectory.collectAsStateWithLifecycle()
     val draftText by dependencies.editorViewModel.draftText.collectAsStateWithLifecycle()
     val isRecording by dependencies.recordingViewModel.isRecording.collectAsStateWithLifecycle()
+    val recordingCaptureId by dependencies.recordingViewModel.recordingCaptureId.collectAsStateWithLifecycle()
 
     MainScreenForegroundAutoInputEffect(
         foregroundEntryId = foregroundEntryId,
@@ -480,6 +492,7 @@ private fun MainScreenTransientEffects(
         voiceDirectoryConfigured = voiceDirectory != null,
         canOpenCreateMemo = canOpenCreateMemo,
         isRecording = isRecording,
+        recordingCaptureId = recordingCaptureId,
         draftText = draftText,
         directoryGuideController = directoryGuideController,
         editorController = editorController,
@@ -492,6 +505,7 @@ private fun MainScreenTransientEffects(
         imageDirectory = imageDirectory,
         errorMessage = errorMessage,
         editorErrorMessage = editorErrorMessage,
+        recordingErrorMessage = recordingErrorMessage,
         snackbarHostState = snackbarHostState,
         unknownErrorMessage = unknownErrorMessage,
         memoNotFoundMessage = memoNotFoundMessage,
@@ -511,15 +525,25 @@ private fun MainScreenTransientEffects(
         },
         onMainListFocusConsumed = dependencies.mainViewModel::clearMainListFocusReanchor,
         focusRetryKey =
-            remember(visibleUiMemos, visibleUiMemoStartIndex, listState) {
-                derivedStateOf {
-                    Triple(
-                        visibleUiMemoStartIndex,
-                        visibleUiMemos.map { uiMemo -> uiMemo.memo.id },
-                        listState.firstVisibleItemIndex,
-                    )
-                }
-            }.value,
+            remember(
+                visibleUiMemos,
+                visibleUiMemoStartIndex,
+                searchQuery,
+                memoListFilter,
+                appActionEvents,
+            ) {
+                resolveMainListFocusRetryKey(
+                    searchQuery = searchQuery,
+                    filter = memoListFilter,
+                    windowStartIndex = visibleUiMemoStartIndex,
+                    visibleMemos = visibleUiMemos,
+                    pendingFocusMemoIds =
+                        appActionEvents
+                            .mapNotNullTo(mutableSetOf()) { event ->
+                                (event.payload as? MainViewModel.AppAction.FocusMemo)?.memoId
+                            },
+                )
+            },
         onResolveMemoById = dependencies.mainViewModel.resolveMemoById,
         onSaveImage = { uri, onResult, onError ->
             dependencies.editorViewModel.saveImage(uri = uri, onResult = onResult, onError = onError)
@@ -530,6 +554,7 @@ private fun MainScreenTransientEffects(
         onConsumePendingSharedImageEvent = dependencies.mainViewModel.consumePendingSharedImageEvent,
         onClearMainError = dependencies.mainViewModel.clearError,
         onClearEditorError = dependencies.editorViewModel::clearError,
+        onClearRecordingError = dependencies.recordingViewModel::clearError,
     )
 }
 

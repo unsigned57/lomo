@@ -1,5 +1,6 @@
 package com.lomo.app.feature.main
 
+import com.lomo.app.ExternalAppCommand
 import com.lomo.app.ExternalAppCommandAction
 import com.lomo.app.ExternalAppCommandStatus
 import com.lomo.app.ExternalAppCommandTerminalResult
@@ -11,6 +12,8 @@ internal data class ExternalAppCommandReadiness(
     val canOpenDraftEditor: Boolean,
     val hasRecordAudioPermission: Boolean,
     val isRecording: Boolean,
+    /** Identity of the live capture; a session-bound stop only acts when its payload matches. */
+    val recordingCaptureId: String? = null,
 )
 
 internal enum class ExternalAppCommandStep {
@@ -29,29 +32,28 @@ internal data class ExternalAppCommandExecutionPlan(
 )
 
 internal fun planExternalAppCommandExecution(
-    action: ExternalAppCommandAction,
-    status: ExternalAppCommandStatus,
+    command: ExternalAppCommand,
     readiness: ExternalAppCommandReadiness,
 ): ExternalAppCommandExecutionPlan {
     if (!readiness.appReady) {
-        return waitFor(ExternalAppCommandStatus.WaitingForRoot, status)
+        return waitFor(ExternalAppCommandStatus.WaitingForRoot, command.status)
     }
-    return when (action) {
+    return when (command.action) {
         ExternalAppCommandAction.CreateMemo ->
             planCreateMemoCommand(
-                status = status,
+                status = command.status,
                 readiness = readiness,
             )
 
         ExternalAppCommandAction.StartRecording ->
             planStartRecordingCommand(
-                status = status,
+                status = command.status,
                 readiness = readiness,
             )
 
         ExternalAppCommandAction.StopRecording ->
             planStopRecordingCommand(
-                status = status,
+                command = command,
                 readiness = readiness,
             )
     }
@@ -106,15 +108,21 @@ private fun planStartRecordingCommand(
 }
 
 private fun planStopRecordingCommand(
-    status: ExternalAppCommandStatus,
+    command: ExternalAppCommand,
     readiness: ExternalAppCommandReadiness,
 ): ExternalAppCommandExecutionPlan {
-    if (!readiness.isRecording) {
+    // A session-bound stop resolves ended for any capture it was not issued for — including a
+    // dead process where nothing is recording — and must never become a start.
+    val targetsOtherCapture =
+        command.payload != null && command.payload != readiness.recordingCaptureId
+    if (!readiness.isRecording || targetsOtherCapture) {
         return ExternalAppCommandExecutionPlan(
             terminalResult = ExternalAppCommandTerminalResult.AlreadySatisfied,
         )
     }
-    val editorStep = editorTargetStep(status = status, readiness = readiness) ?: return waitForEditor(status)
+    val editorStep =
+        editorTargetStep(status = command.status, readiness = readiness)
+            ?: return waitForEditor(command.status)
     return ExternalAppCommandExecutionPlan(
         steps =
             listOf(

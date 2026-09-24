@@ -107,8 +107,11 @@
     <string name="settings_font_empty_desc">导入自定义 TTF 或 OTF 字体文件，即可改变应用整体的排版风格，包括笔记和列表。</string>
     <string name="settings_font_import_success">字体导入成功</string>
     <string name="settings_font_import_invalid_type">无效的字体文件。仅支持 TTF 或 OTF 格式。</string>
-    <string name="settings_font_import_too_large">字体文件过大（最大限制 20 MB）。</string>
+    <string name="settings_font_import_too_large">字体文件过大（最大限制 200 MB）。</string>
     <string name="settings_font_import_failed">导入字体失败</string>
+    <string name="settings_font_import_invalid_font">该文件不是有效的字体。</string>
+    <string name="settings_font_selected_deleted">已删除所选字体，已切换回系统字体。</string>
+    <string name="settings_font_legacy_name_state">早于字体名保留功能导入</string>
     <string name="settings_typography_font_size">字体大小</string>
     <string name="settings_typography_line_height">行间距</string>
     <string name="settings_typography_letter_spacing">字间距</string>
@@ -269,6 +272,7 @@
     <string name="lan_batch_approval_title">收到局域网传输</string>
     <string name="lan_batch_approval_summary">%1$d 条备忘录，%2$d 个附件，共 %3$s</string>
     <string name="lan_batch_item_results">%1$d 条项目结果</string>
+    <string name="lan_batch_receive_progress">已接收 %1$s / %2$s</string>
     <string name="share_device_name_label">设备名称</string>
     <string name="share_device_name_placeholder">附近设备可见的名称</string>
     <string name="share_device_name_use_system">使用系统设备名</string>
@@ -276,6 +280,11 @@
     <string name="share_error_transfer_rejected">对方拒绝了分享</string>
     <string name="share_error_transfer_rejected_by">%1$s 拒绝了分享</string>
     <string name="share_error_transfer_failed">传输失败</string>
+    <string name="share_error_peer_revoked">对端已撤销本设备的配对</string>
+    <string name="share_error_authentication_failed">设备认证失败</string>
+    <string name="share_error_approval_expired">批准已过期，传输未完成</string>
+    <string name="share_error_storage_failed">传输过程中发生存储错误</string>
+    <string name="share_error_transfer_cancelled">传输已取消</string>
     <string name="share_error_unknown">未知错误</string>
     <string name="share_error_invalid_attachment_size">图片/音频大小无效</string>
     <string name="share_error_attachment_too_large">附件过大</string>
@@ -447,6 +456,7 @@
     <string name="action_close">关闭</string>
     <string name="action_retry">重试</string>
     <string name="memo_list_load_failed_title">无法加载备忘录</string>
+    <string name="memo_expand_load_failed_retry">无法加载完整备忘录，点按重试</string>
     <string name="memo_list_load_failed_description">工作区查询失败。工作区准备好后可以重试。</string>
     <string name="action_next">下一步</string>
     <string name="action_confirm">确认</string>
@@ -505,7 +515,10 @@
     <string name="settings_git_sync_enable_subtitle">将备忘录同步到 GitHub 仓库</string>
     <string name="settings_git_remote_url">仓库地址</string>
     <string name="settings_git_remote_url_hint">https://github.com/user/repo.git</string>
-    <string name="settings_git_remote_url_error_https_required">URL 必须以 https:// 开头</string>
+    <string name="settings_git_remote_url_error_https_required">URL 必须以 https:// 开头且不能内嵌凭据</string>
+    <string name="settings_git_branch">分支</string>
+    <string name="settings_git_branch_hint">main</string>
+    <string name="settings_git_branch_error">分支名无效</string>
     <string name="settings_git_pat">个人访问令牌</string>
     <string name="settings_git_pat_configured">已配置（点击更新）</string>
     <string name="settings_git_pat_not_set">未配置</string>
@@ -732,6 +745,7 @@
     <string name="engine_recovery_body">Rust 引擎无法以可写方式打开此工作区。请查看诊断、重试或另选工作区。不存在回退到旧 Kotlin 核心继续写入的路径。</string>
     <string name="engine_recovery_code_label">代码：%1$s</string>
     <string name="engine_recovery_retry">重试</string>
+    <string name="engine_recovery_retry_unavailable">没有可用于重试的工作区位置</string>
     <string name="engine_recovery_reselect">选择工作区</string>
     <string name="engine_recovery_rebuild_index">重建派生索引</string>
     <string name="engine_recovery_export_diagnostics">导出诊断</string>
@@ -795,4 +809,5 @@
     <string name="sync_center_settings_entry_subtitle">配置、会话、冲突与恢复（切换前为暗构建壳层）</string>
 
     <string name="widget_snapshot_unavailable">请打开 Lomo 刷新此小组件。</string>
+    <string name="widget_redacted_preview">解锁 Lomo 后查看此备忘。</string>
 </resources>

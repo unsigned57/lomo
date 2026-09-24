@@ -53,6 +53,8 @@ class FakeEngineReadinessRepository(
         private set
     var lastActivated: StorageLocation? = null
         private set
+    var engineStartRequests: Int = 0
+        private set
 
     fun publish(value: EngineReadiness) {
         _readiness.value = value
@@ -80,6 +82,11 @@ class FakeEngineReadinessRepository(
     }
 
     override fun resnapshot() = Unit
+
+    override suspend fun requestEngineStart(): EngineReadiness {
+        engineStartRequests += 1
+        return readiness.value
+    }
 
     override suspend fun createRecoveryDiagnosticReport(): RecoveryDiagnosticReport {
         diagnosticExportCount += 1

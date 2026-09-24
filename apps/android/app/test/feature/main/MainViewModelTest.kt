@@ -31,7 +31,7 @@ import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.EngineRetryDisposition
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.ProjectionFreshness
-import com.lomo.domain.usecase.FakeDispatcherProvider
+import com.lomo.domain.usecase.SingleDispatcherProvider
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoRevisionPage
 import com.lomo.domain.model.MemoSortOption
@@ -201,7 +201,7 @@ class MainViewModelTest : AppFunSpec() {
                     workspaceMutationLease = workspaceMutationLease,
                     engineReadinessRepository = engineReadinessRepository,
                 )
-            dispatcherProvider = FakeDispatcherProvider(testDispatcher)
+            dispatcherProvider = SingleDispatcherProvider(testDispatcher)
             reminderCoordinator = com.lomo.app.testing.fakes.FakeReminderCoordinator()
 
             appVersionRepository.lastAppVersion = ""
@@ -551,7 +551,7 @@ class MainViewModelTest : AppFunSpec() {
             }
         }
 
-        test("clearMemoListFilter resets sort and date range") {
+        test("clearAll resets sort and date range") {
             runTest(testDispatcher) {
                 val viewModel = createViewModel()
 
@@ -559,7 +559,7 @@ class MainViewModelTest : AppFunSpec() {
                 viewModel.updateMemoSortOption(MemoSortOption.UPDATED_TIME)
                 viewModel.updateMemoStartDate(LocalDate.of(2026, 3, 1))
                 viewModel.updateMemoEndDate(LocalDate.of(2026, 3, 10))
-                viewModel.clearMemoListFilter()
+                sidebarStateHolder.clearAll()
                 testDispatcher.scheduler.advanceUntilIdle()
 
                 (viewModel.memoListFilter.value.sortOption) shouldBe (MemoSortOption.CREATED_TIME)
@@ -800,7 +800,7 @@ class MainViewModelTest : AppFunSpec() {
                 testDispatcher.scheduler.advanceTimeBy(syncDebounceMillis)
                 testDispatcher.scheduler.advanceUntilIdle()
 
-                mediaRepository.verifyRefreshImageLocationsNotCalled()
+                mediaRepository.refreshImageLocationsCallCount shouldBe 0
             }
         }
 
@@ -1002,6 +1002,144 @@ class MainViewModelTest : AppFunSpec() {
                     EngineReadiness.Ready
             }
         }
+
+        test("given a reminder update failure when user marks reminder done then the failure is presented") {
+            runTest(testDispatcher) {
+                reminderCoordinator.markDoneFailure = IllegalStateException("alarm store offline")
+                val viewModel = createViewModel()
+
+                viewModel.markReminderDone("memo-id-1", "@2026-05-22-17:51x5")
+                advanceUntilIdle()
+
+                (viewModel.errorMessage.value) shouldBe
+                    "Failed to mark reminder done: alarm store offline"
+            }
+        }
+
+        test("given a recovery mount without a workspace location when retry is requested then an observable reason is presented") {
+            runTest(testDispatcher) {
+                engineReadinessRepository.publish(
+                    EngineReadiness.ReadOnlyRecovery(
+                        category = EngineFailureCategory.CORRUPTION,
+                        code = "sqlite_integrity_failed",
+                        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                        diagnostic = "integrity failed",
+                    ),
+                )
+                val viewModel = createViewModel()
+                advanceUntilIdle()
+
+                viewModel.retryEngineOpen()
+                advanceUntilIdle()
+
+                viewModel.errorMessage.value shouldBe
+                    "No workspace location is available to retry opening the engine"
+                engineReadinessRepository.activateCount shouldBe 0
+            }
+        }
+
+        test("given a recovery mount with a workspace location when retry is requested then the engine reopens at the mount location") {
+            runTest(testDispatcher) {
+                appConfigRepository.setLocation(
+                    com.lomo.domain.model.StorageArea.ROOT,
+                    StorageLocation("/workspace-a"),
+                )
+                engineReadinessRepository.activateWorkspace(StorageLocation("/workspace-a"))
+                engineReadinessRepository.publish(
+                    EngineReadiness.ReadOnlyRecovery(
+                        category = EngineFailureCategory.CORRUPTION,
+                        code = "sqlite_integrity_failed",
+                        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                        diagnostic = "integrity failed",
+                    ),
+                )
+                val viewModel = createViewModel()
+                advanceUntilIdle()
+
+                viewModel.retryEngineOpen()
+                advanceUntilIdle()
+
+                engineReadinessRepository.lastActivated shouldBe StorageLocation("/workspace-a")
+            }
+        }
+
+        test("read-only recovery state exposes whether the mount still has a recovery target") {
+            runTest(testDispatcher) {
+                engineReadinessRepository.publish(
+                    EngineReadiness.ReadOnlyRecovery(
+                        category = EngineFailureCategory.CORRUPTION,
+                        code = "sqlite_integrity_failed",
+                        retryDisposition = EngineRetryDisposition.AFTER_USER_ACTION,
+                        diagnostic = "integrity failed",
+                    ),
+                )
+                val viewModel = createViewModel()
+                advanceUntilIdle()
+
+                val recoveryWithoutTarget =
+                    viewModel.uiState.value as MainViewModel.MainScreenState.ReadOnlyRecovery
+                recoveryWithoutTarget.hasRecoveryTarget shouldBe false
+            }
+        }
+
+        test("gallery paging source is not rebuilt when only the image map changes") {
+            runTest(testDispatcher) {
+                repository.setActiveMemos(
+                    listOf(
+                        Memo(
+                            id = "memo-img",
+                            timestamp = 1L,
+                            content = "with image",
+                            rawContent = "with image",
+                            dateKey = "2026_03_24",
+                            imageUrls = listOf("image.png"),
+                        ),
+                    ),
+                )
+                engineReadinessRepository.activateWorkspace(StorageLocation("/workspace-a"))
+                val imageMapFlow =
+                    MutableStateFlow(
+                        mapOf("image.png" to mockk<android.net.Uri>(relaxed = true)),
+                    )
+                imageMapProvider = FakeImageMapProvider(mediaRepository, imageMapFlow)
+                val viewModel = createViewModel()
+                val pagingEmissions = mutableListOf<androidx.paging.PagingData<MemoUiModel>>()
+                val collectJob =
+                    backgroundScope.launch(testDispatcher) {
+                        viewModel.galleryPagedUiMemos.collect { pagingEmissions += it }
+                    }
+                advanceUntilIdle()
+
+                repository.galleryPagingSourceCallCount shouldBe 1
+
+                imageMapFlow.value =
+                    mapOf(
+                        "image.png" to mockk<android.net.Uri>(relaxed = true),
+                        "other.png" to mockk<android.net.Uri>(relaxed = true),
+                    )
+                runCurrent()
+                advanceUntilIdle()
+
+                repository.galleryPagingSourceCallCount shouldBe 1
+                pagingEmissions.size shouldBe 2
+                collectJob.cancel()
+            }
+        }
+
+        test("restoring a saved session publishes query and filter through the session owner") {
+            runTest(testDispatcher) {
+                val viewModel = createViewModel()
+
+                viewModel.restoreMainListSession(
+                    query = "design",
+                    filter = MemoListFilter(hasTodo = true),
+                )
+                advanceUntilIdle()
+
+                viewModel.searchQuery.value shouldBe "design"
+                viewModel.memoListFilter.value.hasTodo shouldBe true
+            }
+        }
     }
 
     private fun TestScope.createViewModel(): MainViewModel {
@@ -1108,6 +1246,8 @@ class MainViewModelTest : AppFunSpec() {
             appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             appPreferencesSnapshotRepository = appConfigRepository,
             customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+            customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(com.lomo.app.testing.fakes.FakeCustomFontStore()),
+            preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
             appScope = CoroutineScope(SupervisorJob() + testDispatcher),
         )
 

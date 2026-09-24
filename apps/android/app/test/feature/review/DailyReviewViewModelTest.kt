@@ -127,6 +127,8 @@ class DailyReviewViewModelTest : AppFunSpec() {
                         appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
                         appPreferencesSnapshotRepository = appConfigRepository,
                         customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                        customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(com.lomo.app.testing.fakes.FakeCustomFontStore()),
+                        preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
                         appScope = CoroutineScope(SupervisorJob() + testDispatcher),
                     ),
                 appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),

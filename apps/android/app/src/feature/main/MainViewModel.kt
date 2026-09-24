@@ -25,6 +25,7 @@ import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
+import com.lomo.domain.model.MemoQuerySpec
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.ReminderMarker
@@ -141,8 +142,8 @@ class MainViewModel(
                 .stateIn(viewModelScope, appWhileSubscribed(), false)
 
         val searchQuery: StateFlow<String> = sidebarStateHolder.searchQuery
-        val memoListFilterController = com.lomo.app.feature.common.MemoListFilterController()
-        val memoListFilter: StateFlow<MemoListFilter> = memoListFilterController.filter
+        val memoListFilterController = sidebarStateHolder.filterController
+        val memoListFilter: StateFlow<MemoListFilter> = sidebarStateHolder.memoListFilter
 
         sealed interface MainScreenState {
             data object Loading : MainScreenState
@@ -155,6 +156,7 @@ class MainViewModel(
                 val code: String,
                 val diagnostic: String,
                 val canRebuildDerivedIndex: Boolean,
+                val hasRecoveryTarget: Boolean,
             ) : MainScreenState
 
             data object Ready : MainScreenState
@@ -224,7 +226,17 @@ class MainViewModel(
                 ),
             )
 
-    val engineReadiness: StateFlow<EngineReadiness> = workspaceCoordinator.engineReadiness
+    val mount: StateFlow<com.lomo.domain.model.WorkspaceMount> = workspaceCoordinator.mount
+
+    /**
+     * The Activity's explicit engine start request. Native acquisition is only ever triggered by a
+     * workspace-needing host, never by Application.onCreate or a transient tile/widget wake.
+     */
+    fun requestEngineStart() {
+        viewModelScope.launch(dispatcherProvider.io) {
+            workspaceCoordinator.requestEngineStart()
+        }
+    }
     private val diagnosticExportQueue = UiEventQueueCoordinator<RecoveryDiagnosticReport>()
     val diagnosticExports: StateFlow<List<PendingUiEvent<RecoveryDiagnosticReport>>> =
         diagnosticExportQueue.events
@@ -245,6 +257,7 @@ class MainViewModel(
                             code = readiness.code,
                             diagnostic = readiness.diagnostic,
                             canRebuildDerivedIndex = readiness.canRebuildDerivedIndex(),
+                            hasRecoveryTarget = mount.location != null,
                         )
                     directory == null -> MainScreenState.NoDirectory
                     readiness is EngineReadiness.Opening ||
@@ -268,19 +281,23 @@ class MainViewModel(
 
         init {
             viewModelScope.launch {
-                combine(
-                    workspaceCoordinator.engineReadiness,
-                    workspaceCoordinator.activeWorkspaceLocation,
-                ) { readiness, location ->
-                    readiness to location
-                }.filter { (readiness, _) ->
-                    readiness !is EngineReadiness.Opening
-                }.collect { (_, location) ->
-                    updateRootDirectoryUiState(location?.raw)
-                }
+                workspaceCoordinator.mount
+                    .filter { it.readiness !is EngineReadiness.Opening }
+                    .collect { mount -> updateRootDirectoryUiState(mount.location?.raw) }
             }
             startupCoordinator.observeRootDirectoryChanges().launchIn(viewModelScope)
             startupCoordinator.observeVoiceDirectoryChanges().launchIn(viewModelScope)
+
+            viewModelScope.launch {
+                appConfigStateProvider.preferencesCorruptionNotice.collect { notice ->
+                    if (notice != null) {
+                        _errorMessage.value =
+                            "Settings storage was corrupted and rebuilt with defaults; " +
+                                "the original file was kept as ${notice.quarantinedFileName}"
+                        appConfigStateProvider.acknowledgeCorruptionNotice()
+                    }
+                }
+            }
 
             loadImageMap()
         }
@@ -330,10 +347,20 @@ class MainViewModel(
 
         val requestFocusMemoInDefaultMainList: (String) -> Unit = { memoId ->
             if (memoId.isNotBlank()) {
-                sidebarStateHolder.clearFilters()
-                memoListFilterController.clear()
+                sidebarStateHolder.clearAll()
                 enqueueUiCommand(appActionQueue, AppAction.FocusMemo(memoId))
             }
+        }
+
+        /**
+         * Restore a saved main-list session through the single session owner. Query and filter land
+         * before the caller applies the saved viewport anchor.
+         */
+        internal fun restoreMainListSession(
+            query: String,
+            filter: MemoListFilter,
+        ) {
+            sidebarStateHolder.restoreSession(query, filter)
         }
 
         val consumeAppActionEvent: (Long) -> Unit = { eventId ->
@@ -448,7 +475,6 @@ class MainViewModel(
         val filterMemosByDate: (LocalDate) -> Unit = memoListFilterController.filterByDate
         val clearMemoDateRange: () -> Unit = memoListFilterController.clearDateRange
         val clearMemoFilter: () -> Unit = memoListFilterController.clearFilter
-        val clearMemoListFilter: () -> Unit = memoListFilterController.clear
 
         val refresh: suspend () -> Unit = refresh@{
             if (!refreshMutex.tryLock()) return@refresh
@@ -491,6 +517,24 @@ class MainViewModel(
             lastFocusReanchorId.set(null)
         }
 
+        /**
+         * Engine-evaluated rank of a committed memo under the session's live query/filter.
+         * The new-memo reveal pipeline uses this to decide whether the created memo can ever be
+         * the visible head — a memo the active spec does not admit, or one that ranks behind
+         * pinned/older rows, must not trigger the bounded new-head wait.
+         */
+        internal suspend fun rankInActiveMainListQuery(memoId: String): Int? =
+            withContext(dispatcherProvider.io) {
+                mainMemoListQueryUseCase.rankInMainListQuery(
+                    spec =
+                        MemoQuerySpec.fromFilter(
+                            queryText = sidebarStateHolder.searchQuery.value,
+                            filter = sidebarStateHolder.memoListFilter.value,
+                        ),
+                    id = memoId,
+                )
+            }
+
         val deleteMemo: (Memo, String?) -> Unit = { memo, anchoredAfterKey ->
             collectionActionStateHolder.actions.delete(memo, anchoredAfterKey)
         }
@@ -508,7 +552,7 @@ class MainViewModel(
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
-                    Timber.w(error, "Failed to mark reminder done: memoId=$memoId, reminderId=$reminderId")
+                    _errorMessage.value = error.toUserMessage("Failed to mark reminder done")
                 }
             }
         }
@@ -655,8 +699,10 @@ class MainViewModel(
         val retryEngineOpen: () -> Unit = {
             viewModelScope.launch {
                 try {
-                    val location = _rootDirectory.value
-                    if (location != null) {
+                    val location = workspaceCoordinator.mount.value.location?.raw
+                    if (location == null) {
+                        _errorMessage.value = "No workspace location is available to retry opening the engine"
+                    } else {
                         workspaceCoordinator.retryEngineOpen(location)
                     }
                 } catch (error: CancellationException) {

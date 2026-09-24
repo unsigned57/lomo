@@ -36,7 +36,7 @@ fun LomoAppRoot(
 ) {
     val updateDialogState by appUpdateViewModel.dialogState.collectAsStateWithLifecycle()
     val progressDialogState by appUpdateViewModel.progressDialogState.collectAsStateWithLifecycle()
-    val incomingBatch by shareServiceManager.incomingBatch.collectAsStateWithLifecycle()
+    val incomingBatches by shareServiceManager.incomingBatches.collectAsStateWithLifecycle()
     val pendingPairing by shareServiceManager.pendingPairing.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
@@ -72,12 +72,14 @@ fun LomoAppRoot(
                 onDecline = shareServiceManager::declinePairing,
             )
         }
-        incomingBatch?.let { batch ->
-            LanBatchApprovalDialog(
-                batch = batch,
-                onApprove = shareServiceManager::approveIncoming,
-                onReject = shareServiceManager::rejectIncoming,
-            )
+        incomingBatches.forEach { batch ->
+            androidx.compose.runtime.key(batch.batchId) {
+                LanBatchApprovalDialog(
+                    batch = batch,
+                    onApprove = shareServiceManager::approveIncoming,
+                    onReject = shareServiceManager::rejectIncoming,
+                )
+            }
         }
     }
 }

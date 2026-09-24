@@ -83,7 +83,9 @@ class FakeCredentialRepository(
 
 private fun CredentialField.provider(): CredentialProvider =
     when (this) {
-        CredentialField.GIT_TOKEN -> CredentialProvider.GIT
+        CredentialField.GIT_TOKEN,
+        CredentialField.GIT_USERNAME,
+        -> CredentialProvider.GIT
         CredentialField.WEBDAV_USERNAME,
         CredentialField.WEBDAV_PASSWORD,
         -> CredentialProvider.WEBDAV

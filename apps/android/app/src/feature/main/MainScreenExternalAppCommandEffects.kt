@@ -34,8 +34,7 @@ internal fun ExternalAppCommandExecutionEffect(
                     command = command,
                     plan =
                         planExternalAppCommandExecution(
-                            action = command.action,
-                            status = command.status,
+                            command = command,
                             readiness = readiness,
                         ),
                     draftText = draftText,

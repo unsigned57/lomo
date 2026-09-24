@@ -73,7 +73,11 @@ val appModule = module {
     single { ThemeSideEffect(androidContext()) }
 
     // Feature coordinators/mappers/providers
-    single { AppConfigStateProvider(get(), get(), get(), get(named("AppScope"))) }
+    single<com.lomo.app.feature.preferences.FontFamilyLoader> {
+        com.lomo.app.feature.preferences.PlatformFontFamilyLoader()
+    }
+    single { com.lomo.app.feature.preferences.CustomFontHost(get(), get(), get()) }
+    single { AppConfigStateProvider(get(), get(), get(), get(), get(), get(named("AppScope"))) }
     single { AppConfigUiCoordinator(get()) }
     single { MemoCollectionProjectionMapper(get()) }
     single { WorkspaceProjectionStateProvider(get()) }
@@ -99,8 +103,9 @@ val appModule = module {
             switchRootStorageUseCase = get(),
             memoSnapshotPreferencesRepository = get(),
             customFontStore = get(),
+            customFontHost = get(),
             engineReadinessRepository = get(),
-            syncInboxRepository = getOrNull(),
+            syncInboxRepository = get(),
         )
     }
     single { SettingsCoordinatorFactory(get()) }
@@ -122,6 +127,8 @@ val appModule = module {
             listQueryRepository = get(),
             appWidgetRepository = get(),
             snapshotStore = get(),
+            engineReadiness = get(),
+            securitySession = get(),
         )
     }
 

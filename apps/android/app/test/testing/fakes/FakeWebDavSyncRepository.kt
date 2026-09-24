@@ -42,15 +42,5 @@ class FakeWebDavSyncRepository : WebDavSyncRepository {
     override suspend fun getStatus(): com.lomo.domain.model.WebDavSyncStatus = com.lomo.domain.model.WebDavSyncStatus(0, 0, 0, null)
     override suspend fun testConnection(): com.lomo.domain.model.WebDavSyncResult = com.lomo.domain.model.WebDavSyncResult.Success("")
 
-    override suspend fun resolveConflicts(
-        resolution: com.lomo.domain.model.SyncConflictResolution,
-        conflictSet: com.lomo.domain.model.SyncConflictSet,
-    ): com.lomo.domain.model.WebDavSyncResult = com.lomo.domain.model.WebDavSyncResult.Success("")
-
-    override suspend fun resolveReview(
-        resolution: com.lomo.domain.model.SyncReviewResolution,
-        review: com.lomo.domain.model.SyncReviewSession,
-    ): com.lomo.domain.model.WebDavSyncResult = com.lomo.domain.model.WebDavSyncResult.Success("")
-
     override fun syncState(): Flow<com.lomo.domain.model.WebDavSyncState> = MutableStateFlow(com.lomo.domain.model.WebDavSyncState.Idle)
 }

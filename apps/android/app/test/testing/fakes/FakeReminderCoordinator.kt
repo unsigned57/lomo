@@ -10,6 +10,7 @@ class FakeReminderCoordinator : ReminderCoordinator {
     var lastMarkedDoneMemoId: String? = null
     var lastMarkedDoneTokenRaw: String? = null
     var markDoneCalledCount = 0
+    var markDoneFailure: Throwable? = null
 
     override suspend fun setGlobalIntervalMillis(millis: Long) = Unit
 
@@ -31,6 +32,7 @@ class FakeReminderCoordinator : ReminderCoordinator {
         memoId: String,
         reminderId: String,
     ) {
+        markDoneFailure?.let { throw it }
         lastMarkedDoneMemoId = memoId
         lastMarkedDoneTokenRaw = reminderId
         markDoneCalledCount++

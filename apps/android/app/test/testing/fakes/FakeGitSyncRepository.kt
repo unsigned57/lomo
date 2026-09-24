@@ -3,8 +3,6 @@ package com.lomo.app.testing.fakes
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
 import com.lomo.domain.model.StoredCredentialStatus
-import com.lomo.domain.model.SyncConflictResolution
-import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.repository.GitSyncRepository
 import kotlinx.coroutines.flow.Flow
@@ -30,6 +28,8 @@ class FakeGitSyncRepository : GitSyncRepository {
 
     override fun getRemoteUrl(): Flow<String?> = MutableStateFlow(null)
     override suspend fun setRemoteUrl(url: String) {}
+    override fun getBranch(): Flow<String> = MutableStateFlow("main")
+    override suspend fun setBranch(branch: String) {}
     
     override suspend fun setToken(token: String) {}
     override suspend fun getTokenStatus(): StoredCredentialStatus = StoredCredentialStatus.Missing
@@ -52,13 +52,6 @@ class FakeGitSyncRepository : GitSyncRepository {
     override suspend fun getStatus(): GitSyncStatus = GitSyncStatus(false, 0, 0, null)
     override suspend fun testConnection(): GitSyncResult = testConnectionResult
     override suspend fun resetRepository(): GitSyncResult = GitSyncResult.Success("")
-    override suspend fun resetLocalBranchToRemote(): GitSyncResult = GitSyncResult.Success("")
-    override suspend fun forcePushLocalToRemote(): GitSyncResult = GitSyncResult.Success("")
-
-    override suspend fun resolveConflicts(
-        resolution: SyncConflictResolution,
-        conflictSet: SyncConflictSet,
-    ): GitSyncResult = GitSyncResult.Success("")
 
     override fun syncState(): Flow<UnifiedSyncState> = MutableStateFlow(UnifiedSyncState.Idle)
 }

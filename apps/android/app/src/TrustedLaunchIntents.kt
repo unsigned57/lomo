@@ -15,6 +15,8 @@ data class TrustedLaunchSignaturePayload(
     val source: ExternalAppCommandSource,
     val createdAtMillis: Long,
     val expiresAtMillis: Long,
+    /** Action-bound identity covered by the signature (e.g. the capture a stop may target). */
+    val payload: String? = null,
 )
 
 internal data class TrustedLaunchSignature(
@@ -57,6 +59,7 @@ internal class TrustedLaunchSignaturePolicy(
             createdAtMillis.toString(),
             expiresAtMillis.toString(),
             nonce,
+            payload.orEmpty(),
         ).joinToString(separator = "\n")
 }
 
@@ -91,10 +94,11 @@ class TrustedLaunchIntents(
                 source = ExternalAppCommandSource.QuickSettingsTile,
             )
 
-        fun trustedQuickSettingsStopRecordingIntent(): Intent =
+        fun trustedQuickSettingsStopRecordingIntent(captureId: String): Intent =
             trustedCommandIntent(
                 action = ExternalAppCommandAction.StopRecording,
                 source = ExternalAppCommandSource.QuickSettingsTile,
+                payload = captureId,
             )
 
         fun trustedWidgetCreateMemoIntent(): Intent =
@@ -135,37 +139,47 @@ class TrustedLaunchIntents(
                     status = ExternalAppCommandStatus.Pending,
                     createdAtMillis = payload.createdAtMillis,
                     expiresAtMillis = payload.expiresAtMillis,
+                    payload = payload.payload,
                 ),
             )
         }
 
+        // The signer owns command identity; each trusted intent mints one command id here.
+        private fun newCommandId(): String = UUID.randomUUID().toString()
+
         private fun trustedCommandIntent(
             action: ExternalAppCommandAction,
             source: ExternalAppCommandSource,
+            payload: String? = null,
         ): Intent {
             val nowMillis = System.currentTimeMillis()
-            val payload =
+            val signaturePayload =
                 TrustedLaunchSignaturePayload(
-                    commandId = UUID.randomUUID().toString(),
+                    commandId = newCommandId(),
                     action = action,
                     source = source,
                     createdAtMillis = nowMillis,
                     expiresAtMillis = nowMillis + EXTERNAL_APP_COMMAND_TTL_MILLIS,
+                    payload = payload,
                 )
             val signature =
-                signaturePolicy.sign(payload)
+                signaturePolicy.sign(signaturePayload)
             return Intent(context, MainActivity::class.java).apply {
                 this.action = MainActivity.ACTION_EXTERNAL_APP_COMMAND
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                putExtra(EXTRA_COMMAND_ID, payload.commandId)
-                putExtra(EXTRA_COMMAND_ACTION, payload.action.name)
-                putExtra(EXTRA_COMMAND_SOURCE, payload.source.name)
-                putExtra(EXTRA_CREATED_AT_MILLIS, payload.createdAtMillis)
-                putExtra(EXTRA_EXPIRES_AT_MILLIS, payload.expiresAtMillis)
+                putExtra(EXTRA_COMMAND_ID, signaturePayload.commandId)
+                putExtra(EXTRA_COMMAND_ACTION, signaturePayload.action.name)
+                putExtra(EXTRA_COMMAND_SOURCE, signaturePayload.source.name)
+                putExtra(EXTRA_CREATED_AT_MILLIS, signaturePayload.createdAtMillis)
+                putExtra(EXTRA_EXPIRES_AT_MILLIS, signaturePayload.expiresAtMillis)
                 putExtra(EXTRA_SIGNATURE_NONCE, signature.nonce)
                 putExtra(EXTRA_SIGNATURE_VALUE, signature.value)
+                val commandPayload = signaturePayload.payload
+                if (commandPayload != null) {
+                    putExtra(EXTRA_COMMAND_PAYLOAD, commandPayload)
+                }
                 data =
-                    "lomo://external-command/${Uri.encode(payload.source.name)}/${Uri.encode(payload.action.name)}/${payload.commandId}"
+                    "lomo://external-command/${Uri.encode(signaturePayload.source.name)}/${Uri.encode(signaturePayload.action.name)}/${signaturePayload.commandId}"
                         .toUri()
             }
         }
@@ -185,6 +199,7 @@ class TrustedLaunchIntents(
                 source = source,
                 createdAtMillis = createdAtMillis,
                 expiresAtMillis = expiresAtMillis,
+                payload = getStringExtra(EXTRA_COMMAND_PAYLOAD),
             )
         }
 
@@ -200,6 +215,7 @@ class TrustedLaunchIntents(
             internal const val EXTRA_COMMAND_SOURCE = "com.lomo.app.extra.EXTERNAL_COMMAND_SOURCE"
             internal const val EXTRA_CREATED_AT_MILLIS = "com.lomo.app.extra.EXTERNAL_COMMAND_CREATED_AT"
             internal const val EXTRA_EXPIRES_AT_MILLIS = "com.lomo.app.extra.EXTERNAL_COMMAND_EXPIRES_AT"
+            internal const val EXTRA_COMMAND_PAYLOAD = "com.lomo.app.extra.EXTERNAL_COMMAND_PAYLOAD"
             internal const val EXTRA_SIGNATURE_NONCE = "com.lomo.app.extra.TRUSTED_SIGNATURE_NONCE"
             internal const val EXTRA_SIGNATURE_VALUE = "com.lomo.app.extra.TRUSTED_SIGNATURE_VALUE"
             private const val INVALID_TIMESTAMP = Long.MIN_VALUE
@@ -220,10 +236,18 @@ internal sealed interface TrustedLaunchCommandExtraction {
 
 internal fun consumeTrustedLaunchExtraction(
     extraction: TrustedLaunchCommandExtraction,
-    enqueue: (ExternalAppCommand) -> Unit,
+    enqueue: (ExternalAppCommand) -> ExternalAppCommand?,
 ) {
     when (extraction) {
-        is TrustedLaunchCommandExtraction.Accepted -> enqueue(extraction.command)
+        is TrustedLaunchCommandExtraction.Accepted -> {
+            // The durable store refuses commands that arrive already expired; a null result is
+            // the rejection and must stay observable rather than silently swallowed.
+            val enqueued = enqueue(extraction.command)
+            if (enqueued == null) {
+                Timber.w("Trusted launch command %s was rejected by the command store", extraction.command.id)
+            }
+        }
+
         TrustedLaunchCommandExtraction.Ignored -> Unit
         is TrustedLaunchCommandExtraction.TrustRootUnavailable ->
             Timber.e(extraction.error, "Trusted launch HMAC trust root is unavailable")

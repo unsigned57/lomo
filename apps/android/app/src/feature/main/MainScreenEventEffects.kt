@@ -16,6 +16,7 @@ internal fun MainScreenEventEffectsHost(
     imageDirectory: String?,
     errorMessage: String?,
     editorErrorMessage: String?,
+    recordingErrorMessage: String?,
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
     memoNotFoundMessage: String,
@@ -34,6 +35,7 @@ internal fun MainScreenEventEffectsHost(
     onConsumePendingSharedImageEvent: (Long) -> Unit,
     onClearMainError: () -> Unit,
     onClearEditorError: () -> Unit,
+    onClearRecordingError: () -> Unit,
 ) {
     HandleSharedContentEvents(
         events = sharedContentEvents,
@@ -70,9 +72,11 @@ internal fun MainScreenEventEffectsHost(
     HandleErrorEffects(
         errorMessage = errorMessage,
         editorErrorMessage = editorErrorMessage,
+        recordingErrorMessage = recordingErrorMessage,
         snackbarHostState = snackbarHostState,
         clearMainError = onClearMainError,
         clearEditorError = onClearEditorError,
+        clearRecordingError = onClearRecordingError,
     )
 }
 
@@ -207,9 +211,11 @@ internal fun resolveSharedImageIntent(
 fun HandleErrorEffects(
     errorMessage: String?,
     editorErrorMessage: String?,
+    recordingErrorMessage: String?,
     snackbarHostState: SnackbarHostState,
     clearMainError: () -> Unit,
     clearEditorError: () -> Unit,
+    clearRecordingError: () -> Unit,
 ) {
     LaunchedEffect(errorMessage) {
         errorMessage?.let {
@@ -222,6 +228,13 @@ fun HandleErrorEffects(
         editorErrorMessage?.let {
             snackbarHostState.showSnackbar(it)
             clearEditorError()
+        }
+    }
+
+    LaunchedEffect(recordingErrorMessage) {
+        recordingErrorMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            clearRecordingError()
         }
     }
 }

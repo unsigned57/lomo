@@ -8,7 +8,6 @@ import com.lomo.domain.usecase.RemoteSyncCenterUseCase
 import com.lomo.domain.usecase.RemoteSyncConflictDialogUseCase
 import com.lomo.domain.usecase.RestoreMemoRevisionUseCase
 import com.lomo.domain.usecase.S3SyncSettingsUseCase
-import com.lomo.domain.usecase.SyncConflictResolutionUseCase
 import com.lomo.domain.usecase.SyncProviderRegistry
 import com.lomo.domain.usecase.SyncReviewResolutionUseCase
 import com.lomo.domain.usecase.WebDavSyncSettingsUseCase
@@ -22,8 +21,6 @@ val domainSyncModule = module {
     single { S3SyncSettingsUseCase(get(), get(), get()) }
     single { LoadMemoRevisionHistoryUseCase(get()) }
     single { RestoreMemoRevisionUseCase(get()) }
-    // Legacy registry-backed use case retained for non-UI callers; dialog resolve uses Rust port.
-    single { SyncConflictResolutionUseCase(get(), get()) }
     single { RemoteSyncConflictDialogUseCase(get(), get()) }
     single { SyncReviewResolutionUseCase(get()) }
     single { ObserveDirectWorkspaceRootUseCase(get()) }

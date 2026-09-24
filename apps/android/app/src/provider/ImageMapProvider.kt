@@ -3,6 +3,7 @@ package com.lomo.app.provider
 import android.net.Uri
 import androidx.core.net.toUri
 import com.lomo.app.feature.common.appWhileSubscribed
+import com.lomo.domain.model.MediaImageDescriptor
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
@@ -32,10 +33,23 @@ open class ImageMapProvider(
                 .map { locationMap ->
                     locationMap
                         .mapKeys { (entryId, _) -> entryId.raw }
-                        .mapValues { (_, location) -> location.raw.toUri() }
+                        .mapValues { (_, descriptor) -> descriptor.toContentKeyedUri() }
                 }.stateIn(
                     scope = scope,
                     started = appWhileSubscribed(),
                     initialValue = emptyMap(),
                 )
     }
+
+/**
+ * Content-keyed display URI: the fragment carries the Rust-witnessed digest so Coil, dimension
+ * and thumbnail caches key on content identity while URI path resolution ignores the fragment
+ * for file/content IO. Location alone is never treated as content identity.
+ */
+private const val CONTENT_ID_FRAGMENT_PREFIX = "lomo-cid="
+
+private fun MediaImageDescriptor.toContentKeyedUri(): Uri {
+    val base = location.raw.toUri()
+    val identity = contentId?.takeIf { it.isNotBlank() } ?: return base
+    return base.buildUpon().fragment("$CONTENT_ID_FRAGMENT_PREFIX$identity").build()
+}

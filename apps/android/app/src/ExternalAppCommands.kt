@@ -54,6 +54,8 @@ data class ExternalAppCommand(
     val status: ExternalAppCommandStatus,
     val createdAtMillis: Long,
     val expiresAtMillis: Long,
+    /** Action-bound identity — e.g. the capture a StopRecording command may only ever stop. */
+    val payload: String? = null,
 ) {
     val dedupeKey: String
         get() = "${source.name}:${action.name}"

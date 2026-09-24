@@ -215,6 +215,11 @@ class FakeMemoStore(
     internal suspend fun rankInDefaultMainList(id: String): Int? =
         activeMemos.value.indexOfFirst { memo -> memo.id == id }.takeIf { value -> value >= 0 }
 
+    internal suspend fun rankInMainListQuery(
+        spec: MemoQuerySpec,
+        id: String,
+    ): Int? = activeMemos.value.matching(spec).indexOfFirst { memo -> memo.id == id }.takeIf { it >= 0 }
+
     internal fun reanchorMainListToIdentity(id: String) {
         lastReanchoredMainListIdentity = id
     }
@@ -237,8 +242,13 @@ class FakeMemoStore(
         )
     }
 
-    internal fun galleryPagingSource(): PagingSource<String, Memo> =
-        InMemoryCursorMemoPagingSource(activeMemos.value.filter { it.imageUrls.isNotEmpty() })
+    var galleryPagingSourceCallCount = 0
+        private set
+
+    internal fun galleryPagingSource(): PagingSource<String, Memo> {
+        galleryPagingSourceCallCount += 1
+        return InMemoryCursorMemoPagingSource(activeMemos.value.filter { it.imageUrls.isNotEmpty() })
+    }
 
     internal fun observeMainListCount(spec: MemoQuerySpec): Flow<Int> {
         recordedQuery = spec.normalizedQueryText

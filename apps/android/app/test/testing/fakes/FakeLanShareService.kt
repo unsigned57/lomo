@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.flowOf
 class FakeLanShareService : LanShareService {
     override val discoveredDevices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
     override val pendingPairing = MutableStateFlow<LanPairingRequest?>(null)
-    override val incomingBatch = MutableStateFlow<LanIncomingBatch?>(null)
+    override val incomingBatches = MutableStateFlow<List<LanIncomingBatch>>(emptyList())
     override val trustedPeers = MutableStateFlow<List<LanTrustedPeer>>(emptyList())
     override val transferState = MutableStateFlow<ShareTransferState>(ShareTransferState.Idle)
     override val lanShareRuntimeState = MutableStateFlow(LanShareRuntimeState.Stopped)
