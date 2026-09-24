@@ -52,8 +52,8 @@ mod tests {
     use lomo_core::ErrorCategory;
     use lomo_lan::{
         AEAD_TAG_BYTES, ATTACHMENT_SLOT_BODY, ChunkBinding, ControlBinding, DevicePublicKey,
-        DeviceSigner, FrameKind, LanDirection, LanSessionId, ReplayLedger, SessionControlKind,
-        SessionKey, SessionTranscript,
+        DeviceSigner, FrameKind, LanDirection, LanSessionId, SessionControlKind, SessionKey,
+        SessionTranscript,
     };
 
     struct TestSigner {
@@ -359,54 +359,6 @@ mod tests {
                 .open_chunk(LanDirection::Forward, &second, sealed_second)
                 .expect("the peer opens batch-2 under its own key"),
             plaintext
-        );
-    }
-
-    #[test]
-    fn replayed_session_ids_are_rejected() {
-        let mut ledger = ReplayLedger::default();
-        let session = LanSessionId::parse("0123456789abcdef0123456789abcdef")
-            .expect("fixture session id is valid");
-
-        ledger
-            .accept_session(&session)
-            .expect("the first use of a session id is accepted");
-        let error = ledger
-            .accept_session(&session)
-            .expect_err("a replayed session id must be rejected");
-        assert_eq!(error.category(), ErrorCategory::Authentication);
-        assert_eq!(error.code(), "lan_session_replayed");
-    }
-
-    #[test]
-    fn replayed_chunks_are_rejected_and_leave_the_confirmed_range_unchanged() {
-        let mut ledger = ReplayLedger::default();
-        let session = LanSessionId::parse("0123456789abcdef0123456789abcdef")
-            .expect("fixture session id is valid");
-        ledger.accept_session(&session).expect("session accepted");
-
-        let bind = ChunkBinding::new(&session, "batch-1", 0, ATTACHMENT_SLOT_BODY, 0)
-            .expect("fixture binding is valid");
-        ledger.confirm_chunk(&bind).expect("first chunk confirmed");
-        assert_eq!(ledger.confirmed_chunk_count(), 1);
-
-        let error = ledger
-            .confirm_chunk(&bind)
-            .expect_err("a replayed chunk must be rejected");
-        assert_eq!(error.code(), "lan_chunk_replayed");
-        assert_eq!(
-            ledger.confirmed_chunk_count(),
-            1,
-            "a rejected replay must not grow the confirmed set"
-        );
-
-        let next = ChunkBinding::new(&session, "batch-1", 0, ATTACHMENT_SLOT_BODY, 1)
-            .expect("fixture binding is valid");
-        ledger.confirm_chunk(&next).expect("next chunk confirmed");
-        assert_eq!(ledger.confirmed_chunk_count(), 2);
-        assert!(
-            ledger.is_chunk_confirmed(&bind) && ledger.is_chunk_confirmed(&next),
-            "resume must be able to ask which chunks are already confirmed"
         );
     }
 

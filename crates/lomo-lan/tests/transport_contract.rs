@@ -46,16 +46,24 @@ mod tests {
     use lomo_lan::{
         ATTACHMENT_SLOT_BODY, ChunkBinding, DevicePublicKey, DeviceSigner, DisplayName, FrameKind,
         LAN_FRAME_MAGIC, LAN_PROTOCOL_VERSION, LanBatchId, LanBatchPlan, LanBatchSnapshot,
-        LanDeadlines, LanFrame, LanItemOutcome, LanItemPlan, LanJournal, LanJournalPaths,
-        LanSessionId, MAX_CONTROL_PAYLOAD_BYTES, PairingRole, PairingTranscript, SessionKey,
-        SessionTranscript, accept_peer, bind_listener, connect_peer, derive_pairing_code,
-        verify_pairing_confirmation,
+        LanDeadlines, LanDurableBatch, LanFrame, LanItemOutcome, LanItemPlan, LanJournal,
+        LanJournalPaths, LanSessionId, MAX_CONTROL_PAYLOAD_BYTES, PairingRole, PairingTranscript,
+        RUNTIME_CHUNK_PLAINTEXT_BYTES, SessionKey, SessionTranscript, accept_peer, bind_listener,
+        connect_peer, derive_pairing_code, verify_pairing_confirmation,
     };
     use sha2::{Digest, Sha256};
 
-    const BODY: &str = "# 跨设备 memo\n\n这是一段足够长的正文，用来切成多个 chunk。\n";
-    const CHUNK_BYTES: usize = 16;
     const SESSION_HEX: &str = "0123456789abcdef0123456789abcdef";
+
+    /// A deterministic body that spans several canonical planned chunks: confirmed coordinates
+    /// only survive recovery when the staged file matches the plan's exact chunk length.
+    fn body_bytes() -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(RUNTIME_CHUNK_PLAINTEXT_BYTES * 4 + 7);
+        for index in 0..(RUNTIME_CHUNK_PLAINTEXT_BYTES * 4 + 7) {
+            bytes.push(b'a' + u8::try_from(index % 26).expect("alphabet offset fits"));
+        }
+        bytes
+    }
 
     fn deadlines() -> LanDeadlines {
         LanDeadlines::new(Duration::from_secs(5), Duration::from_secs(5))
@@ -381,20 +389,28 @@ mod tests {
         let (sender_key, receiver_key) = authenticate_session(&initiator, &responder, &session_id);
 
         let batch_id = LanBatchId::parse("batch-wire").expect("batch id is valid");
+        let body = body_bytes();
         let item = LanItemPlan::new(
             &batch_id,
             0,
             1_700_000_000_000,
-            &digest_hex(BODY.as_bytes()),
-            BODY.len() as u64,
+            &digest_hex(&body),
+            body.len() as u64,
             "跨设备 memo",
             Vec::new(),
         )
         .expect("item plan is valid");
         let plan = LanBatchPlan::new(batch_id.clone(), vec![item]).expect("batch is in limits");
-        let chunks: Vec<Vec<u8>> = BODY
-            .as_bytes()
-            .chunks(CHUNK_BYTES)
+        journal
+            .store_batch(LanDurableBatch::pending(
+                plan.clone(),
+                session_id.clone(),
+                stored_peer.device_id().clone(),
+                name("Sender"),
+            ))
+            .expect("the owning batch stores before chunks confirm");
+        let chunks: Vec<Vec<u8>> = body
+            .chunks(RUNTIME_CHUNK_PLAINTEXT_BYTES)
             .map(<[u8]>::to_vec)
             .collect();
         let total_chunks = u32::try_from(chunks.len()).expect("chunk count fits u32");
@@ -403,6 +419,9 @@ mod tests {
         // Attempt 1 dies after two chunks.
         let delivered = transfer_chunks(&sender_key, &receiver_key, &session_id, &chunks, &[0, 1]);
         for index in [0_u32, 1] {
+            journal
+                .stage_chunk(&binding(&session_id, index), &chunks[index as usize])
+                .expect("a delivered chunk stages durably");
             journal
                 .confirm_chunk(&binding(&session_id, index))
                 .expect("a delivered chunk is confirmed durably");
