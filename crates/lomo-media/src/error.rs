@@ -24,6 +24,17 @@ pub fn storage(code: &str, diagnostic: &str) -> LomoError {
     )
 }
 
+/// Builds a resource-limit error (byte ceilings on durable media state).
+#[must_use]
+pub fn resource_limit(code: &str, diagnostic: &str) -> LomoError {
+    boundary(
+        ErrorCategory::ResourceLimit,
+        code,
+        RetryDisposition::Never,
+        diagnostic,
+    )
+}
+
 /// Builds a corruption error.
 #[must_use]
 pub fn corruption(code: &str, diagnostic: &str) -> LomoError {

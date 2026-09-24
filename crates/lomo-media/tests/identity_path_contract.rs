@@ -179,6 +179,52 @@ mod tests {
     }
 
     #[test]
+    fn mp4_family_container_is_not_collapsed_into_audio() {
+        // isom/mp41/mp42 brands are ISO-BMFF containers that may carry audio-only or video
+        // payloads; magic alone must not fold them into the audio lane the app treats as voice.
+        let mut ftyp = vec![0_u8; 16];
+        ftyp.get_mut(4..8)
+            .expect("ftyp brand")
+            .copy_from_slice(b"ftyp");
+
+        for brand in [b"isom", b"mp41", b"mp42"] {
+            ftyp.get_mut(8..12).expect("brand").copy_from_slice(brand);
+
+            // The .m4a extension is the audio-only proof an Android voice capture provides.
+            assert_eq!(
+                MediaMime::detect(&ftyp, Some("m4a")).expect("audio-only m4a"),
+                MediaMime::AudioM4a,
+                "brand {brand:?} with m4a hint must resolve to audio"
+            );
+
+            // A .mp4 extension marks a video payload the product does not support.
+            let video = MediaMime::detect(&ftyp, Some("mp4"))
+                .expect_err("video mp4 must reject instead of folding into audio");
+            assert_eq!(video.code(), "unsupported_media_mime", "brand {brand:?}");
+
+            // Without an extension witness the container cannot prove audio-only bytes.
+            let unknown = MediaMime::detect(&ftyp, None)
+                .expect_err("unproven mp4-family container must reject");
+            assert_eq!(unknown.code(), "unsupported_media_mime", "brand {brand:?}");
+
+            // An image/audio extension that disagrees with the container stays a conflict.
+            let conflict = MediaMime::detect(&ftyp, Some("png"))
+                .expect_err("png hint on mp4 container must conflict");
+            assert_eq!(conflict.code(), "media_magic_extension_conflict");
+        }
+
+        // The M4A brand is unambiguous audio; the video extension conflicts with that fact.
+        ftyp.get_mut(8..12).expect("brand").copy_from_slice(b"M4A ");
+        assert_eq!(
+            MediaMime::detect(&ftyp, Some("m4a")).expect("m4a brand"),
+            MediaMime::AudioM4a
+        );
+        let conflict =
+            MediaMime::detect(&ftyp, Some("mp4")).expect_err("mp4 hint on M4A audio must conflict");
+        assert_eq!(conflict.code(), "media_magic_extension_conflict");
+    }
+
+    #[test]
     fn digest_stream_from_path_matches_slice() {
         let root = tempfile::tempdir().expect("tmp");
         let path = root.path().join("x.png");

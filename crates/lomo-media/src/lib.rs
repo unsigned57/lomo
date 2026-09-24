@@ -1,10 +1,11 @@
-//! Media identity and lifecycle owner for stage-4 dark-build (`lomo-media`).
+//! Media identity and lifecycle owner (`lomo-media`).
 //!
-//! Owns content digest/mime/path policy, stage→verify→commit, reference/orphan models,
-//! media-trash, and recording allocate/finalize. Does not depend on store/native/Android.
+//! Owns content digest/mime/path policy, stage→verify→commit, durable stage-lease records,
+//! reference provenance, media-trash wire format, and recording allocate/finalize. Does not
+//! depend on store/native/Android.
 //!
-//! Production dual-stack with Kotlin media repositories is forbidden after Wave A cutover;
-//! dark-build until atomic P4-10A.
+//! Mutation is session-owned: `lomo-application` runs the two-phase orphan sweep and commits
+//! through verified platform actions; this crate keeps deterministic formats and records.
 
 #![deny(unsafe_code)]
 
@@ -17,7 +18,7 @@ mod path;
 mod reference;
 mod stage;
 
-pub use commit::{PromoteCrashPoint, PromotePlan, PromoteResult, promote_staged};
+pub use commit::PromotePlan;
 pub use error::{
     conflict as media_conflict, corruption as media_corruption, storage as media_storage,
     validation as media_validation,
@@ -31,11 +32,10 @@ pub use lease::{
 };
 pub use orphan::{
     DEFAULT_RECOVERY_WINDOW_MS, MEDIA_DELETE_INTENT_DIR_NAME, MEDIA_TRASH_DIR_NAME,
-    MediaDeleteIntent, MediaTrashEntry, OrphanSweepResult, list_trash_entries, restore_from_trash,
-    sweep_orphans, wall_clock_ms,
+    MediaDeleteIntent, MediaTrashEntry, parse_trash_entry_name, trash_entry_name, wall_clock_ms,
 };
 pub use path::{MediaRelativePath, suggest_human_relative_path};
-pub use reference::{AttachmentRef, DigestRefcount, ReferenceSource, build_refcounts};
+pub use reference::ReferenceSource;
 pub use stage::{
     MediaSource, MediaStaged, STAGE_DIR_NAME, allocate_recording_target, discard_staged,
     finalize_recording, resolve_received_final_relative_path, stage_media, stream_buffer_capacity,

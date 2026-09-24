@@ -16,13 +16,16 @@ use std::path::{Path, PathBuf};
 use lomo_core::LomoError;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{corruption, storage, validation};
+use crate::error::{corruption, resource_limit, storage, validation};
 use crate::identity::{ContentDigest, MediaMime};
 use crate::path::MediaRelativePath;
 use crate::stage::MediaStaged;
 
 /// Ledger file name inside a media stage directory.
 pub const STAGE_LEDGER_FILE: &str = "ledger.json";
+
+/// Durable byte ceiling for a stage ledger (artifact metadata only).
+const STAGE_LEDGER_BYTES: u64 = 1_048_576;
 
 /// Stable identity of immutable staged bytes.
 ///
@@ -159,12 +162,17 @@ impl StageLedger {
         if !path.is_file() {
             return Ok(Self::default());
         }
-        let bytes = fs::read(&path).map_err(|error| {
-            storage(
-                "media_stage_ledger_read_failed",
-                &format!("failed to read stage ledger: {error}"),
-            )
-        })?;
+        let bytes =
+            lomo_core::read_bounded(&path, STAGE_LEDGER_BYTES).map_err(|error| match error {
+                lomo_core::BoundedReadError::ExceedsLimit { .. } => resource_limit(
+                    "media_stage_ledger_too_large",
+                    "stage ledger exceeds the durable record byte bound",
+                ),
+                lomo_core::BoundedReadError::Io(error) => storage(
+                    "media_stage_ledger_read_failed",
+                    &format!("failed to read stage ledger: {error}"),
+                ),
+            })?;
         serde_json::from_slice(&bytes).map_err(|error| {
             corruption(
                 "media_stage_ledger_corrupt",
@@ -249,6 +257,51 @@ impl StageLedger {
         let record = record.clone();
         self.save(&stage_dir)?;
         Ok(record)
+    }
+
+    /// Adds `lease` to the artifact's durable record, creating the record from the staged
+    /// facts when the artifact is not yet known. Idempotent: re-acquiring the same lease is a
+    /// no-op, which keeps a retried transaction plan on one durable claim.
+    ///
+    /// Unlike [`Self::record`] this never resolves a fresh final path: the caller already owns
+    /// the promote destination and only needs durable ownership of the recoverable source.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation when the lease names another artifact or the staged path has no stage
+    /// directory, and storage when the ledger cannot be persisted.
+    pub fn acquire(&mut self, staged: &MediaStaged, lease: StageLease) -> Result<(), LomoError> {
+        let stage_dir = stage_directory_of(&staged.staging_path)?;
+        let artifact_id = ArtifactId::of_digest(&staged.digest);
+        if lease.artifact_id != artifact_id {
+            return Err(validation(
+                "media_stage_lease_mismatch",
+                "stage lease must name the staged artifact",
+            ));
+        }
+        if self
+            .records
+            .get(artifact_id.as_str())
+            .is_some_and(|record| record.leases.contains(&lease))
+        {
+            return Ok(());
+        }
+        MediaRelativePath::parse(&staged.suggested_final_relative_path)?;
+        self.records
+            .entry(artifact_id.as_str().to_owned())
+            .or_insert_with(|| StageRecord {
+                artifact_id,
+                digest: staged.digest.clone(),
+                size: staged.size,
+                mime: staged.mime,
+                staging_path: staged.staging_path.clone(),
+                human_name_hint: staged.human_name_hint.clone(),
+                suggested_final_relative_path: staged.suggested_final_relative_path.clone(),
+                leases: Vec::new(),
+            })
+            .leases
+            .push(lease);
+        self.save(&stage_dir)
     }
 
     /// Releases one lease. Staged bytes are deleted only when no lease remains.
@@ -345,6 +398,12 @@ impl StageLedger {
             remaining_leases: remaining,
             bytes_deleted: false,
         })
+    }
+
+    /// Every durable stage record, in artifact-identity order.
+    #[must_use]
+    pub fn records(&self) -> Vec<&StageRecord> {
+        self.records.values().collect()
     }
 
     /// Records leased by one exact holder.

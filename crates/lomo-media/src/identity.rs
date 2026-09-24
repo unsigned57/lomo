@@ -182,79 +182,120 @@ impl MediaMime {
 
     /// Resolves MIME from magic bytes; optional extension is a hint that must not conflict.
     ///
+    /// ISO-BMFF containers branded `isom`/`mp41`/`mp42` are ambiguous at magic level: the same
+    /// container carries audio-only `.m4a` captures and `.mp4` video. The extension witness
+    /// disambiguates — `.m4a` resolves to audio, `.mp4`/absent hints fail as unsupported video
+    /// or unproven containers instead of silently folding video into the audio lane.
+    ///
     /// # Errors
     ///
-    /// Returns validation when magic is unknown or extension conflicts with magic.
+    /// Returns validation when magic is unknown, the container type is unsupported, or the
+    /// extension conflicts with magic.
     pub fn detect(header: &[u8], extension_hint: Option<&str>) -> Result<Self, LomoError> {
-        let from_magic = detect_magic(header).ok_or_else(|| {
+        let magic = detect_magic(header).ok_or_else(|| {
             validation(
                 "unsupported_media_magic",
                 "media magic bytes are not a supported image or audio type",
             )
         })?;
-        if let Some(ext) = extension_hint {
-            let normalized = ext.trim_start_matches('.').to_ascii_lowercase();
-            if let Some(from_ext) = mime_from_extension(&normalized)
-                && from_ext != from_magic
-            {
-                return Err(validation(
+        let extension = extension_hint.map(|ext| ext.trim_start_matches('.').to_ascii_lowercase());
+        let from_ext = extension.as_deref().and_then(classify_extension);
+        match magic {
+            MagicClass::Mime(mime) => match from_ext {
+                None => Ok(mime),
+                Some(ExtensionClass::Mime(ext_mime)) if ext_mime == mime => Ok(mime),
+                Some(_) => Err(validation(
                     "media_magic_extension_conflict",
                     "file extension conflicts with magic-byte media type",
-                ));
-            }
+                )),
+            },
+            MagicClass::Mp4Container => match from_ext {
+                Some(ExtensionClass::Mime(Self::AudioM4a)) => Ok(Self::AudioM4a),
+                Some(ExtensionClass::Mime(_)) => Err(validation(
+                    "media_magic_extension_conflict",
+                    "file extension conflicts with magic-byte media type",
+                )),
+                Some(ExtensionClass::Video) => Err(validation(
+                    "unsupported_media_mime",
+                    "video mp4 container is not a supported media type",
+                )),
+                None => Err(validation(
+                    "unsupported_media_mime",
+                    "mp4-family container cannot be proven audio-only without an .m4a extension",
+                )),
+            },
         }
-        Ok(from_magic)
     }
 }
 
-fn mime_from_extension(ext: &str) -> Option<MediaMime> {
+/// Extension-side classification: supported media mime, a recognized video container the product
+/// does not support, or no opinion at all.
+enum ExtensionClass {
+    Mime(MediaMime),
+    Video,
+}
+
+/// Magic-side classification: a definite supported mime or an ambiguous ISO-BMFF container whose
+/// audio-only vs video nature requires an extension witness.
+enum MagicClass {
+    Mime(MediaMime),
+    Mp4Container,
+}
+
+fn classify_extension(ext: &str) -> Option<ExtensionClass> {
     match ext {
-        "png" => Some(MediaMime::ImagePng),
-        "jpg" | "jpeg" => Some(MediaMime::ImageJpeg),
-        "gif" => Some(MediaMime::ImageGif),
-        "webp" => Some(MediaMime::ImageWebp),
-        "bmp" => Some(MediaMime::ImageBmp),
-        "heic" => Some(MediaMime::ImageHeic),
-        "heif" => Some(MediaMime::ImageHeif),
-        "avif" => Some(MediaMime::ImageAvif),
-        "m4a" | "mp4" => Some(MediaMime::AudioM4a),
-        "mp3" => Some(MediaMime::AudioMp3),
-        "aac" => Some(MediaMime::AudioAac),
-        "wav" => Some(MediaMime::AudioWav),
-        "ogg" | "oga" => Some(MediaMime::AudioOgg),
+        "png" => Some(ExtensionClass::Mime(MediaMime::ImagePng)),
+        "jpg" | "jpeg" => Some(ExtensionClass::Mime(MediaMime::ImageJpeg)),
+        "gif" => Some(ExtensionClass::Mime(MediaMime::ImageGif)),
+        "webp" => Some(ExtensionClass::Mime(MediaMime::ImageWebp)),
+        "bmp" => Some(ExtensionClass::Mime(MediaMime::ImageBmp)),
+        "heic" => Some(ExtensionClass::Mime(MediaMime::ImageHeic)),
+        "heif" => Some(ExtensionClass::Mime(MediaMime::ImageHeif)),
+        "avif" => Some(ExtensionClass::Mime(MediaMime::ImageAvif)),
+        "m4a" => Some(ExtensionClass::Mime(MediaMime::AudioM4a)),
+        "mp3" => Some(ExtensionClass::Mime(MediaMime::AudioMp3)),
+        "aac" => Some(ExtensionClass::Mime(MediaMime::AudioAac)),
+        "wav" => Some(ExtensionClass::Mime(MediaMime::AudioWav)),
+        "ogg" | "oga" => Some(ExtensionClass::Mime(MediaMime::AudioOgg)),
+        "mp4" | "m4v" | "mov" => Some(ExtensionClass::Video),
         _ => None,
     }
 }
 
-fn detect_magic(header: &[u8]) -> Option<MediaMime> {
+fn detect_magic(header: &[u8]) -> Option<MagicClass> {
     if header.starts_with(&[0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n']) {
-        return Some(MediaMime::ImagePng);
+        return Some(MagicClass::Mime(MediaMime::ImagePng));
     }
     if header.starts_with(&[0xff, 0xd8, 0xff]) {
-        return Some(MediaMime::ImageJpeg);
+        return Some(MagicClass::Mime(MediaMime::ImageJpeg));
     }
     if header.starts_with(b"GIF87a") || header.starts_with(b"GIF89a") {
-        return Some(MediaMime::ImageGif);
+        return Some(MagicClass::Mime(MediaMime::ImageGif));
     }
     if header.len() >= 12 && header.starts_with(b"RIFF") && header.get(8..12) == Some(b"WEBP") {
-        return Some(MediaMime::ImageWebp);
+        return Some(MagicClass::Mime(MediaMime::ImageWebp));
     }
     if header.starts_with(b"BM") {
-        return Some(MediaMime::ImageBmp);
+        return Some(MagicClass::Mime(MediaMime::ImageBmp));
     }
     if header.len() >= 12 && header.get(4..8) == Some(b"ftyp") {
         let brand = header.get(8..12)?;
         if brand == b"heic" || brand == b"heix" || brand == b"hevc" || brand == b"hevx" {
-            return Some(MediaMime::ImageHeic);
+            return Some(MagicClass::Mime(MediaMime::ImageHeic));
         }
         if brand == b"mif1" || brand == b"msf1" {
-            return Some(MediaMime::ImageHeif);
+            return Some(MagicClass::Mime(MediaMime::ImageHeif));
         }
         if brand == b"avif" || brand == b"avis" {
-            return Some(MediaMime::ImageAvif);
+            return Some(MagicClass::Mime(MediaMime::ImageAvif));
         }
-        if brand == b"M4A " || brand == b"mp41" || brand == b"mp42" || brand == b"isom" {
-            return Some(MediaMime::AudioM4a);
+        // M4A is the audio-only brand; isom/mp41/mp42 are shared with video containers and
+        // must wait for the extension witness before claiming the audio lane.
+        if brand == b"M4A " {
+            return Some(MagicClass::Mime(MediaMime::AudioM4a));
+        }
+        if brand == b"mp41" || brand == b"mp42" || brand == b"isom" {
+            return Some(MagicClass::Mp4Container);
         }
     }
     if header.starts_with(&[0xff, 0xfb])
@@ -262,16 +303,16 @@ fn detect_magic(header: &[u8]) -> Option<MediaMime> {
         || header.starts_with(&[0xff, 0xf2])
         || header.starts_with(b"ID3")
     {
-        return Some(MediaMime::AudioMp3);
+        return Some(MagicClass::Mime(MediaMime::AudioMp3));
     }
     if header.starts_with(&[0xff, 0xf1]) || header.starts_with(&[0xff, 0xf9]) {
-        return Some(MediaMime::AudioAac);
+        return Some(MagicClass::Mime(MediaMime::AudioAac));
     }
     if header.starts_with(b"RIFF") && header.len() >= 12 && header.get(8..12) == Some(b"WAVE") {
-        return Some(MediaMime::AudioWav);
+        return Some(MagicClass::Mime(MediaMime::AudioWav));
     }
     if header.starts_with(b"OggS") {
-        return Some(MediaMime::AudioOgg);
+        return Some(MagicClass::Mime(MediaMime::AudioOgg));
     }
     None
 }
