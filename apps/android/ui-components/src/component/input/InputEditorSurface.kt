@@ -67,7 +67,8 @@ data class InputEditorCapabilities(
 data class InputEditorRecordingState(
     val isRecording: Boolean = false,
     val durationMillis: Long = 0L,
-    val amplitude: Int = 0,
+    /** Latest device sample; null while idle or when the device read is unavailable. */
+    val amplitude: Int? = null,
 )
 
 data class InputEditorSurfaceState(

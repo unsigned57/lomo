@@ -191,7 +191,7 @@ class LomoListExitState<T>(
 @Composable
 fun <T> rememberLomoListExitState(
     registry: ExitAnimationRegistry<T>,
-    allItems: ImmutableList<T>,
+    allItems: List<T>,
     itemKey: (T) -> String,
 ): LomoListExitState<T> {
     return rememberLomoListExitState(registry, allItems, itemKey, { it })
@@ -200,7 +200,7 @@ fun <T> rememberLomoListExitState(
 @Composable
 fun <T, R> rememberLomoListExitState(
     registry: ExitAnimationRegistry<R>,
-    allItems: ImmutableList<T>,
+    allItems: List<T>,
     itemKey: (T) -> String,
     mapExitToItem: (R) -> T,
 ): LomoListExitState<T> {

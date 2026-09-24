@@ -19,6 +19,7 @@
     <string name="cd_more_options">更多选项</string>
     <string name="cd_play_audio">播放音频</string>
     <string name="cd_pause_audio">暂停音频</string>
+    <string name="cd_audio_playback_failed">音频播放失败，点按重试。</string>
     <string name="cd_action_sheet_scroll_backward">向前滚动备忘录操作</string>
     <string name="cd_action_sheet_scroll_forward">向后滚动备忘录操作</string>
     <string name="markdown_image_content_description">图片</string>

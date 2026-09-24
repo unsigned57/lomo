@@ -65,7 +65,7 @@ private fun HeadEnterBaseline.isResolvedBy(headId: String): Boolean =
 @Composable
 fun <T> rememberLomoListEnterState(
     registry: EnterAnimationRegistry,
-    allItems: ImmutableList<T>,
+    allItems: List<T>,
     itemKey: (T) -> String,
 ): LomoListEnterState {
     val enterState by registry.enterState.collectAsStateWithLifecycle()

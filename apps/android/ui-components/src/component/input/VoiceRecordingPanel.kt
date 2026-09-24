@@ -39,7 +39,7 @@ private const val MIN_WAVEFORM_WIDTH = 50
 private const val WAVEFORM_WIDTH_RANGE = 200
 data class VoiceRecordingPanelState(
     val recordingDuration: Long = 0L,
-    val recordingAmplitude: Int = 0,
+    val recordingAmplitude: Int? = null,
 )
 
 data class VoiceRecordingPanelCallbacks(
@@ -56,7 +56,6 @@ fun VoiceRecordingPanel(
     val totalSeconds = state.recordingDuration / MILLIS_PER_SECOND
     val minutes = totalSeconds / SECONDS_PER_MINUTE
     val seconds = totalSeconds % SECONDS_PER_MINUTE
-    val waveformWidth = calculateWaveformWidth(state.recordingAmplitude)
     val locale = LocalLocale.current.platformLocale
 
     Column(
@@ -96,7 +95,9 @@ fun VoiceRecordingPanel(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
-            RecordingAmplitudeBar(width = waveformWidth)
+            state.recordingAmplitude?.let { amplitude ->
+                RecordingAmplitudeBar(width = calculateWaveformWidth(amplitude))
+            }
         }
 
         Spacer(modifier = Modifier.height(AppSpacing.Large))

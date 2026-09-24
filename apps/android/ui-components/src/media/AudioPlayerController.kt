@@ -8,6 +8,9 @@ interface AudioPlayerController {
     val playbackPosition: StateFlow<Long>
     val duration: StateFlow<Long>
 
+    /** Latest classified failure for the tapped source; null when the last attempt succeeded. */
+    val failure: StateFlow<AudioPlaybackFailure?>
+
     fun play(uri: String)
 
     fun seekTo(positionMs: Long)

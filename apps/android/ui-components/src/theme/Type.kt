@@ -4,7 +4,6 @@ import android.content.res.Configuration
 import android.graphics.Typeface as PlatformTypeface
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
@@ -91,18 +90,6 @@ private fun labelStyle(family: FontFamily, weight: Int, sp: Int, lh: Int, ls: Do
         lineHeight = lh.sp,
         letterSpacing = ls.sp,
     )
-
-/**
- * Resolves a custom-font absolute path (typically returned by `CustomFontStore.resolveFontPath`)
- * into a Compose [FontFamily]. Falls back to [FontFamily.SansSerif] when the path is null, blank,
- * or points to a missing file — matching the documented "missing font = system default" contract.
- */
-fun resolveAppFontFamily(customFontPath: String?): FontFamily {
-    if (customFontPath.isNullOrBlank()) return FontFamily.SansSerif
-    val file = File(customFontPath)
-    if (!file.exists()) return FontFamily.SansSerif
-    return FontFamily(Font(file = file))
-}
 
 /**
  * Resolves a custom-font path to a raw Android [PlatformTypeface] for non-Compose render surfaces

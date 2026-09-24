@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
@@ -36,6 +37,7 @@ import org.jetbrains.compose.resources.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.ui.generated.resources.Res
+import com.lomo.ui.generated.resources.cd_audio_playback_failed
 import com.lomo.ui.generated.resources.cd_pause_audio
 import com.lomo.ui.generated.resources.cd_play_audio
 import com.lomo.ui.media.AudioPlayerController
@@ -60,10 +62,12 @@ fun AudioPlayerCard(
     val playerManager = LocalAudioPlayerManager.current
     val playDescription = stringResource(Res.string.cd_play_audio)
     val pauseDescription = stringResource(Res.string.cd_pause_audio)
+    val failedDescription = stringResource(Res.string.cd_audio_playback_failed)
     val playbackState = rememberAudioPlaybackState(playerManager, relativeFilePath)
 
     val isCurrentItem = playbackState.isCurrentItem
     val isPlaying = playbackState.isPlaying
+    val failed = playbackState.failed
     val progress = playbackState.progress
     val durationMs = playbackState.durationMs
     val animatedProgress by
@@ -88,8 +92,10 @@ fun AudioPlayerCard(
         ) {
             PlaybackControlButton(
                 isPlaying = isCurrentItem && isPlaying,
+                failed = failed,
                 playDescription = playDescription,
                 pauseDescription = pauseDescription,
+                failedDescription = failedDescription,
                 onClick = { playerManager.play(relativeFilePath) },
             )
 
@@ -117,9 +123,16 @@ private fun rememberAudioPlaybackState(
 ): AudioPlaybackState {
     val playbackState by
         remember(playerManager, relativeFilePath) {
-            playerManager.currentPlayingUri
-                .flatMapLatest { currentUri ->
-                    if (currentUri == relativeFilePath) {
+            combine(
+                playerManager.currentPlayingUri,
+                playerManager.failure,
+            ) { currentUri, failure ->
+                currentUri to failure
+            }.flatMapLatest { (currentUri, failure) ->
+                when {
+                    failure?.source == relativeFilePath ->
+                        flowOf(AudioPlaybackState(failed = true))
+                    currentUri == relativeFilePath ->
                         combine(
                             playerManager.isPlaying,
                             playerManager.playbackPosition,
@@ -132,10 +145,9 @@ private fun rememberAudioPlaybackState(
                                 durationMs = duration,
                             )
                         }
-                    } else {
-                        flowOf(AudioPlaybackState())
-                    }
-                }.distinctUntilChanged()
+                    else -> flowOf(AudioPlaybackState())
+                }
+            }.distinctUntilChanged()
         }.collectAsStateWithLifecycle(initialValue = AudioPlaybackState())
     return playbackState
 }
@@ -143,8 +155,10 @@ private fun rememberAudioPlaybackState(
 @Composable
 private fun PlaybackControlButton(
     isPlaying: Boolean,
+    failed: Boolean,
     playDescription: String,
     pauseDescription: String,
+    failedDescription: String,
     onClick: () -> Unit,
 ) {
     IconButton(
@@ -155,13 +169,31 @@ private fun PlaybackControlButton(
             modifier =
                 Modifier
                     .size(AudioPlayerCardTokens.ControlContainerSize)
-                    .background(MaterialTheme.colorScheme.secondary, AudioPlayerCardTokens.ControlContainerShape),
+                    .background(
+                        if (failed) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondary,
+                        AudioPlayerCardTokens.ControlContainerShape,
+                    ),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                contentDescription = if (isPlaying) pauseDescription else playDescription,
-                tint = MaterialTheme.colorScheme.onSecondary,
+                imageVector =
+                    when {
+                        failed -> Icons.Rounded.ErrorOutline
+                        isPlaying -> Icons.Rounded.Pause
+                        else -> Icons.Rounded.PlayArrow
+                    },
+                contentDescription =
+                    when {
+                        failed -> failedDescription
+                        isPlaying -> pauseDescription
+                        else -> playDescription
+                    },
+                tint =
+                    if (failed) {
+                        MaterialTheme.colorScheme.onErrorContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSecondary
+                    },
                 modifier = Modifier.size(AudioPlayerCardTokens.ControlIconSize),
             )
         }
@@ -233,6 +265,7 @@ private fun formatAudioTimestamp(
 private data class AudioPlaybackState(
     val isCurrentItem: Boolean = false,
     val isPlaying: Boolean = false,
+    val failed: Boolean = false,
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
 ) {

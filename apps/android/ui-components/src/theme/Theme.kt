@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import org.jetbrains.compose.resources.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
@@ -114,7 +115,7 @@ private data class AnimatedFixedColors(
 fun LomoTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     colorSource: ColorSource = ColorSource.default(),
-    customFontPath: String? = null,
+    fontFamily: FontFamily = FontFamily.SansSerif,
     typographyScales: TypographyScales = TypographyScales(),
     currentUiMode: Int? = null,
     content: @Composable () -> Unit,
@@ -142,7 +143,6 @@ fun LomoTheme(
         } else {
             FONT_WEIGHT_ADJUSTMENT_FALLBACK
         }
-    val fontFamily = remember(customFontPath) { resolveAppFontFamily(customFontPath) }
     val typography =
         remember(systemFontWeightAdjustment, fontFamily) {
             buildAppTypography(fontFamily).withSystemFontWeightAdjustment(systemFontWeightAdjustment)
@@ -185,7 +185,7 @@ fun LomoTheme(
 fun LomoTheme(
     themeMode: String,
     colorSource: ColorSource = ColorSource.default(),
-    customFontPath: String? = null,
+    fontFamily: FontFamily = FontFamily.SansSerif,
     typographyScales: TypographyScales = TypographyScales(),
     currentUiMode: Int? = null,
     content: @Composable () -> Unit,
@@ -193,7 +193,7 @@ fun LomoTheme(
     LomoTheme(
         themeMode = ThemeMode.fromStorageValue(themeMode),
         colorSource = colorSource,
-        customFontPath = customFontPath,
+        fontFamily = fontFamily,
         typographyScales = typographyScales,
         currentUiMode = currentUiMode,
         content = content,
