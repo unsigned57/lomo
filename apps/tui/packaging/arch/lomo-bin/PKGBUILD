@@ -1,0 +1,25 @@
+# AUR-ready lomo-bin package: repackages the TUI Release workflow tarball.
+# Cut a release with `git tag tui-v<semver> && git push origin tui-v<semver>`, then
+# bump pkgver and run `updpkgsums` (pacman-contrib) against the published asset.
+pkgname=lomo-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Terminal-first markdown notes app (TUI)"
+arch=('x86_64')
+url="https://github.com/unsigned57/lomo"
+license=('GPL-3.0-only')
+depends=('glibc' 'gcc-libs')
+optdepends=('mpv: external player for audio/video attachments')
+provides=('lomo')
+conflicts=('lomo')
+source=("lomo-${pkgver}-x86_64-unknown-linux-gnu.tar.gz::${url}/releases/download/tui-v${pkgver}/lomo-${pkgver}-x86_64-unknown-linux-gnu.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+    cd "lomo-${pkgver}-x86_64-unknown-linux-gnu"
+    install -Dm755 lomo "$pkgdir/usr/bin/lomo"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    install -Dm644 completions/lomo.bash "$pkgdir/usr/share/bash-completion/completions/lomo"
+    install -Dm644 completions/_lomo "$pkgdir/usr/share/zsh/site-functions/_lomo"
+    install -Dm644 completions/lomo.fish "$pkgdir/usr/share/fish/vendor_completions.d/lomo.fish"
+}

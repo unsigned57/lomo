@@ -1,0 +1,34 @@
+# Local iteration package: wraps the workspace build, no network fetch.
+# Loop: cargo build -p lomo-tui --release --locked && (cd apps/tui/packaging/arch/lomo-local && makepkg -efi)
+pkgname=lomo-local
+pkgver=0.1.0.r561.gb7b01b38
+pkgrel=1
+pkgdesc="Terminal-first markdown notes app (TUI) — local worktree build"
+arch=('x86_64')
+url="https://github.com/unsigned57/lomo"
+license=('GPL-3.0-only')
+depends=('glibc' 'gcc-libs')
+optdepends=('mpv: external player for audio/video attachments')
+provides=('lomo')
+conflicts=('lomo' 'lomo-bin')
+source=()
+
+_repo_root="$startdir/../../../../.."
+
+pkgver() {
+    printf '0.1.0.r%s.g%s' \
+        "$(git -C "$_repo_root" rev-list --count HEAD)" \
+        "$(git -C "$_repo_root" rev-parse --short HEAD)"
+}
+
+package() {
+    local bin="$_repo_root/target/release/lomo"
+    install -Dm755 "$bin" "$pkgdir/usr/bin/lomo"
+    install -Dm644 "$_repo_root/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    "$bin" --generate-completions bash > "$srcdir/lomo.bash"
+    "$bin" --generate-completions zsh > "$srcdir/_lomo"
+    "$bin" --generate-completions fish > "$srcdir/lomo.fish"
+    install -Dm644 "$srcdir/lomo.bash" "$pkgdir/usr/share/bash-completion/completions/lomo"
+    install -Dm644 "$srcdir/_lomo" "$pkgdir/usr/share/zsh/site-functions/_lomo"
+    install -Dm644 "$srcdir/lomo.fish" "$pkgdir/usr/share/fish/vendor_completions.d/lomo.fish"
+}

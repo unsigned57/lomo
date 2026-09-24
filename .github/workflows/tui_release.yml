@@ -1,0 +1,180 @@
+name: TUI Release
+
+on:
+  push:
+    tags:
+      - 'tui-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-tui-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_HOME: ${{ github.workspace }}/.cache/cargo-home
+  HOME: ${{ github.workspace }}/.home
+
+jobs:
+  # Resolve the release version once: tag name wins, Cargo.toml is the manual-dispatch fallback.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Resolve version
+        id: resolve
+        run: |
+          set -euo pipefail
+          version="${{ github.ref_name }}"
+          version="${version#tui-v}"
+          if [ "$version" = "${{ github.ref_name }}" ]; then
+            version="$(python3 -c 'import tomllib; print(tomllib.load(open("apps/tui/Cargo.toml","rb"))["package"]["version"])')"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  # Full quality gate runs once on Linux, then produces the Linux artifact.
+  gate:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Cache pinned Rust tools and host build
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            .cache/cargo-home
+            .cache/cargo-tools
+            target
+          key: tui-release-1.98-${{ hashFiles('Cargo.lock', 'tools.toml', 'rust-toolchain.toml') }}
+      - name: Bootstrap pinned Rust tools
+        run: RUSTUP_TOOLCHAIN=1.98 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- bootstrap-rust
+      - name: Run Rust host gate (no coverage)
+        run: RUSTUP_TOOLCHAIN=1.98 cargo run --manifest-path Cargo.toml --locked -p lomo-xtask -- ci-rust fast
+      - name: Build release binary
+        run: RUSTUP_TOOLCHAIN=1.98 cargo build --manifest-path Cargo.toml --locked -p lomo-tui --release
+      - name: Package tarball
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          dist="lomo-${VERSION}-x86_64-unknown-linux-gnu"
+          mkdir -p "$dist/completions" target/lomo/dist
+          cp target/release/lomo LICENSE "$dist/"
+          strip "$dist/lomo"
+          "./$dist/lomo" --generate-completions bash > "$dist/completions/lomo.bash"
+          "./$dist/lomo" --generate-completions zsh > "$dist/completions/_lomo"
+          "./$dist/lomo" --generate-completions fish > "$dist/completions/lomo.fish"
+          tar -czf "target/lomo/dist/${dist}.tar.gz" "$dist"
+          (cd target/lomo/dist && sha256sum "${dist}.tar.gz" > "${dist}.tar.gz.sha256")
+      - name: Upload tarball artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: lomo-tui-x86_64-unknown-linux-gnu
+          path: target/lomo/dist/*
+          if-no-files-found: error
+
+  # Per-OS native builds: each backend must compile and pass its platform
+  # contract suite on the real kernel/filesystem, then package natively.
+  package:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-13
+            target: x86_64-apple-darwin
+            shell_kind: unix
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            shell_kind: unix
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            shell_kind: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Cache pinned Rust tools and host build
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            .cache/cargo-home
+            .cache/cargo-tools
+            target
+          key: tui-release-1.98-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'tools.toml', 'rust-toolchain.toml') }}
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98 --profile minimal
+      - name: Verify platform filesystem contract
+        run: RUSTUP_TOOLCHAIN=1.98 cargo test --manifest-path Cargo.toml --locked -p lomo-platform-fs
+      - name: Build release binary
+        run: RUSTUP_TOOLCHAIN=1.98 cargo build --manifest-path Cargo.toml --locked -p lomo-tui --release
+      - name: Package tarball (Unix)
+        if: matrix.shell_kind == 'unix'
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          dist="lomo-${VERSION}-${TARGET}"
+          mkdir -p "$dist/completions" target/lomo/dist
+          cp target/release/lomo LICENSE "$dist/"
+          strip "$dist/lomo"
+          "./$dist/lomo" --generate-completions bash > "$dist/completions/lomo.bash"
+          "./$dist/lomo" --generate-completions zsh > "$dist/completions/_lomo"
+          "./$dist/lomo" --generate-completions fish > "$dist/completions/lomo.fish"
+          tar -czf "target/lomo/dist/${dist}.tar.gz" "$dist"
+          (cd target/lomo/dist && shasum -a 256 "${dist}.tar.gz" > "${dist}.tar.gz.sha256")
+      - name: Package zip (Windows)
+        if: matrix.shell_kind == 'windows'
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dist = "lomo-$env:VERSION-$env:TARGET"
+          New-Item -ItemType Directory -Force "$dist/completions", "target/lomo/dist" | Out-Null
+          Copy-Item target/release/lomo.exe, LICENSE $dist/
+          & "./$dist/lomo.exe" --generate-completions powershell > "$dist/completions/lomo.ps1"
+          & "./$dist/lomo.exe" --generate-completions bash > "$dist/completions/lomo.bash"
+          & "./$dist/lomo.exe" --generate-completions zsh > "$dist/completions/_lomo"
+          & "./$dist/lomo.exe" --generate-completions fish > "$dist/completions/lomo.fish"
+          Compress-Archive -Path "$dist" -DestinationPath "target/lomo/dist/$dist.zip"
+          Push-Location target/lomo/dist
+          $hash = (Get-FileHash -Algorithm SHA256 "$dist.zip").Hash.ToLower()
+          "$hash  $dist.zip" | Out-File -Encoding ascii -NoNewline "$dist.zip.sha256"
+          Pop-Location
+      - name: Upload package artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: lomo-tui-${{ matrix.target }}
+          path: target/lomo/dist/*
+          if-no-files-found: error
+
+  # One release row per tag: every platform archive plus its checksum.
+  publish:
+    needs: [version, gate, package]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all package artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: lomo-tui-*
+          path: release-files
+          merge-multiple: true
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
+        with:
+          files: release-files/*
+          generate_release_notes: true
