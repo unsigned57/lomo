@@ -14,6 +14,8 @@
 //!   engine rejects the unknown session identity instead of returning an empty sentinel.
 //! - Given no Ready workspace, when prepare or approve is requested, then the native boundary
 //!   fails before LAN I/O; preview/reject still fail against their own missing session/batch state.
+//! - Given an inbox wait whose generation did not advance, when it completes, then the DTO carries
+//!   no snapshot, so a caller never refetches identical state through a second call.
 //!
 //! Observable outcomes: `LanServiceSnapshotDto`, discovered endpoint DTOs and `EngineError.code`.
 //!
@@ -160,14 +162,12 @@ mod tests {
     #[test]
     fn engine_keeps_pairing_identity_and_trust_queries_on_the_same_handle() {
         let (_root, engine) = engine();
-        let inbox = engine.lan_runtime_inbox().test_ok("runtime inbox queries");
-        assert!(inbox.pairing_challenges.is_empty());
-        assert!(inbox.session_challenges.is_empty());
-        assert!(inbox.active_sessions.is_empty());
-        assert!(inbox.pending_batches.is_empty());
-        assert!(inbox.batch_recoveries.is_empty());
-        assert!(inbox.committable_items.is_empty());
-        assert!(inbox.outgoing_batches.is_empty());
+        let wait = engine.await_lan_inbox(0, 0).test_ok("inbox wait queries");
+        assert_eq!(wait.generation, 0);
+        assert!(
+            wait.inbox.is_none(),
+            "a fresh engine publishes no inbox work"
+        );
 
         let key = EcdsaKeyPair::generate(&ECDSA_P256_SHA256_ASN1_SIGNING)
             .test_ok("Keystore fixture generates");
@@ -195,10 +195,6 @@ mod tests {
             .test_err("unknown decline fails closed");
         assert_eq!(unknown_decline.code(), "lan_pairing_unknown");
 
-        let unknown_session = engine
-            .lan_session_challenge("0".repeat(32))
-            .test_err("unknown session challenge fails closed");
-        assert_eq!(unknown_session.code(), "lan_session_unknown");
         let unknown_snapshot = engine
             .lan_session_snapshot("0".repeat(32))
             .test_err("unknown authenticated session fails closed");
@@ -219,11 +215,6 @@ mod tests {
             .test_err("prepare requires an authenticated session");
         assert_eq!(unknown_prepare.code(), "lan_workspace_not_ready");
 
-        let unknown_batch = engine
-            .lan_batch_preview("batch-native-runtime".to_owned())
-            .test_err("preview requires a prepared batch");
-        assert_eq!(unknown_batch.code(), "lan_batch_unknown");
-
         let unknown_approve = engine
             .approve_lan_batch(
                 "0".repeat(32),
@@ -238,5 +229,207 @@ mod tests {
             .reject_lan_batch("0".repeat(32), "batch-native-runtime".to_owned(), 1_000)
             .test_err("rejection requires an authenticated session");
         assert_eq!(unknown_reject.code(), "lan_session_not_authenticated");
+    }
+
+    fn lan_engine(name: &str) -> (tempfile::TempDir, LomoEngine, EcdsaKeyPair, String) {
+        let (root, engine) = engine();
+        let key = EcdsaKeyPair::generate(&ECDSA_P256_SHA256_ASN1_SIGNING)
+            .test_ok("Keystore fixture generates");
+        let encoded: aws_lc_rs::encoding::EcPublicKeyUncompressedBin<'_> =
+            key.public_key().as_be_bytes().test_ok("public key exports");
+        let local = engine
+            .configure_lan_identity(LanDeviceIdentityDto {
+                public_key: encoded.as_ref().to_vec(),
+                display_name: name.to_owned(),
+            })
+            .test_ok("public identity configures");
+        engine
+            .update_lan_network_snapshot(LanNetworkSnapshotDto {
+                revision: 1,
+                local_network_permission_granted: true,
+                candidates: vec![LanBindCandidateDto {
+                    host: "127.0.0.1".to_owned(),
+                    port: 0,
+                }],
+            })
+            .test_ok("network facts publish");
+        (root, engine, key, local.device_id)
+    }
+
+    fn sign_transcript(key: &EcdsaKeyPair, transcript: &[u8]) -> Vec<u8> {
+        key.sign(&aws_lc_rs::rand::SystemRandom::new(), transcript)
+            .test_ok("transcript signs")
+            .as_ref()
+            .to_vec()
+    }
+
+    fn now_ms() -> i64 {
+        i64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .test_ok("system clock is past the epoch")
+                .as_millis(),
+        )
+        .test_ok("millis fit i64")
+    }
+
+    fn peer_of(device_id: &str, name: &str, address: SocketAddr) -> LanDiscoveredPeerDto {
+        LanDiscoveredPeerDto {
+            device_id: device_id.to_owned(),
+            display_name: name.to_owned(),
+            host: "127.0.0.1".to_owned(),
+            port: u32::from(address.port()),
+            protocol_version: u32::from(LAN_PROTOCOL_VERSION),
+        }
+    }
+
+    #[test]
+    fn a_rejected_inbound_connection_is_counted_and_the_service_stays_alive() {
+        let (_root_a, engine_a, _key_a, _id_a) = lan_engine("Phone");
+        let (_root_b, engine_b, _key_b, id_b) = lan_engine("Tablet");
+        let _start_a = engine_a.start_lan_service().test_ok("phone listens");
+        let address_b: SocketAddr = engine_b
+            .start_lan_service()
+            .test_ok("tablet listens")
+            .listen_address
+            .test_ok("tablet address")
+            .parse()
+            .test_ok("tablet address parses");
+
+        let baseline = engine_b
+            .await_lan_inbox(0, 10_000)
+            .test_ok("the first inbox wait only reports the startup generation")
+            .generation;
+
+        let mut junk = std::net::TcpStream::connect(address_b).test_ok("junk connection opens");
+        std::io::Write::write_all(&mut junk, &[0xFF; 64]).test_ok("junk bytes write");
+        drop(junk);
+        let first = engine_b
+            .await_lan_inbox(baseline, 10_000)
+            .test_ok("a malformed connection is connection-scoped, not a pump failure");
+        assert_eq!(first.rejected_connection_count, 1);
+        assert!(first.last_rejection_diagnostic.is_some());
+
+        let mut junk =
+            std::net::TcpStream::connect(address_b).test_ok("second junk connection opens");
+        std::io::Write::write_all(&mut junk, &[0x00; 4]).test_ok("second junk bytes write");
+        drop(junk);
+        let second = engine_b
+            .await_lan_inbox(first.generation, 10_000)
+            .test_ok("a second rejection is counted without killing the pump");
+        assert_eq!(second.rejected_connection_count, 2);
+
+        engine_a
+            .update_lan_discovery_snapshot(LanDiscoverySnapshotDto {
+                revision: 1,
+                peers: vec![peer_of(&id_b, "Tablet", address_b)],
+            })
+            .test_ok("phone discovers tablet");
+        let challenge = engine_a
+            .begin_lan_pairing(id_b, now_ms(), PAIRING_TTL_MS)
+            .test_ok("a valid hello still exchanges after rejected input");
+        assert!(!challenge.pairing_id.is_empty());
+        let observed = engine_b
+            .await_lan_inbox(second.generation, 10_000)
+            .test_ok("the tablet inbox surfaces the valid pairing work");
+        assert_eq!(
+            observed
+                .inbox
+                .test_ok("an advanced generation carries its snapshot")
+                .pairing_challenges
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn an_inbound_storage_fault_is_a_sticky_failure_for_every_waiter() {
+        let (_root_a, engine_a, key_a, _id_a) = lan_engine("Phone");
+        let (root_b, engine_b, key_b, id_b) = lan_engine("Tablet");
+        engine_a
+            .start_lan_service()
+            .test_ok("phone listens")
+            .listen_address
+            .test_ok("phone address")
+            .parse::<SocketAddr>()
+            .test_ok("phone address parses");
+        let address_b: SocketAddr = engine_b
+            .start_lan_service()
+            .test_ok("tablet listens")
+            .listen_address
+            .test_ok("tablet address")
+            .parse()
+            .test_ok("tablet address parses");
+
+        engine_a
+            .update_lan_discovery_snapshot(LanDiscoverySnapshotDto {
+                revision: 1,
+                peers: vec![peer_of(&id_b, "Tablet", address_b)],
+            })
+            .test_ok("phone discovers tablet");
+        let now = now_ms();
+        let challenge_a = engine_a
+            .begin_lan_pairing(id_b, now, PAIRING_TTL_MS)
+            .test_ok("pairing hello exchanges");
+        let inbox_b = engine_b
+            .await_lan_inbox(0, 10_000)
+            .test_ok("tablet wakes for the hello");
+        let challenge_b = inbox_b
+            .inbox
+            .test_ok("an advanced generation carries its snapshot")
+            .pairing_challenges
+            .first()
+            .test_ok("responder challenge exists")
+            .clone();
+        engine_b
+            .confirm_lan_pairing(
+                challenge_b.pairing_id.clone(),
+                sign_transcript(&key_b, &challenge_b.transcript_to_sign),
+                now,
+            )
+            .test_ok("tablet confirms locally and awaits the initiator signature");
+
+        fs::remove_dir_all(root_b.path().join("control"))
+            .test_ok("the responder journal root is deleted");
+        engine_a
+            .confirm_lan_pairing(
+                challenge_a.pairing_id,
+                sign_transcript(&key_a, &challenge_a.transcript_to_sign),
+                now,
+            )
+            .test_ok("the initiator confirm still sends");
+
+        // The responder's own confirm advanced its generation before the inbound confirm hit the
+        // deleted journal: drain that legitimate observation, then every waiter sees the fault.
+        let settled = engine_b
+            .await_lan_inbox(inbox_b.generation, 10_000)
+            .test_ok("the local confirm observation settles");
+        let first = engine_b
+            .await_lan_inbox(settled.generation, 10_000)
+            .test_err("the storage fault is a pump failure");
+        let second = engine_b
+            .await_lan_inbox(0, 10_000)
+            .test_err("a second waiter observes the same failure");
+        assert_eq!(first.code(), second.code());
+    }
+
+    #[test]
+    fn an_unchanged_generation_returns_no_snapshot_and_no_side_channel_fetch() {
+        let (_root, engine) = engine();
+        let settled = engine
+            .await_lan_inbox(0, 200)
+            .test_ok("the first wait reports the current generation");
+
+        let idle = engine
+            .await_lan_inbox(settled.generation, 200)
+            .test_ok("an unchanged generation still completes the wait");
+        assert_eq!(
+            idle.generation, settled.generation,
+            "nothing advanced while the engine was idle"
+        );
+        assert!(
+            idle.inbox.is_none(),
+            "an unchanged generation must not rebuild the inbox snapshot"
+        );
     }
 }

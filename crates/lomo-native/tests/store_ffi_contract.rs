@@ -1,7 +1,7 @@
 //! Behavior Contract — P3-09 store `BoltFFI` dark-build surface
 //!
-//! - Unit under test: `LomoEngine::{query_memos,get_memo,apply_memo_command,query_reminder_plan,
-//!   session_reminder_plan,session_record_reminder_fired,start_rebuild}`
+//! - Unit under test: `LomoEngine::{query_memos,get_memo,session_reminder_plan,
+//!   session_snooze_reminder,start_rebuild}`
 //! - Owning layer: `lomo-native` (conversion only); rules in `lomo-store`
 //! - Priority tier: P0
 //! - Capability: expose store/reminder/rebuild through the unique `BoltFFI` facade without wiring
@@ -10,20 +10,14 @@
 //! Scenarios:
 //! - Given a `Direct` workspace engine, when Markdown is seeded and rebuild runs, then
 //!   `query_memos` lists the memo and `get_memo` returns it.
-//! - Given `apply_memo_command` Create, when called, then `session_owns_document_writes` fails
-//!   closed and no host identity is minted.
 //! - Given `get_memo` for a missing id, when called, then [`None`] is returned.
 //! - Given a dated memo with a past daily reminder token, when `query_reminder_plan` runs through
-//!   the session, then at most one catch-up alarm is planned.
-//! - Given that same memo, when `session_record_reminder_fired` runs, then the session write
-//!   commits without a `StoreHandle` snooze database.
-//! - Given engine open without a session, when `apply_memo_command` is refused, then no
+//!   the session, then at most one catch-up alarm is planned and `session_snooze_reminder` commits.
+//! - Given engine open without a session, when `session_create_memo` is refused, then no
 //!   `.lomo-sqlite`, `control_root/store`, or `reminder_snooze` directory is created.
 //! - Given `start_rebuild` on an empty workspace, when fingerprints already match, then the
 //!   result reports `rewritten = false`. Given a seeded memo, when rebuild runs twice, then
 //!   the first result rewrites and the second reconciles without advancing high-water.
-//! - Given Direct create/update/restore/history-restore/pin/delete via FFI, when applied, then
-//!   `session_owns_document_writes` fails closed.
 //! - Given multi-memo pages with `page_size=1`, when the next cursor is reused, then the second
 //!   page is disjoint; given a malformed cursor, when decoded, then `invalid_page_cursor`.
 //! - Given a memo identity start, when `query_memos` runs, then the page is inclusive at that id
@@ -54,7 +48,7 @@
 //! TDD proof: RED on 2026-09-16 because `query_memos`/`get_memo` fell back to `StoreHandle`
 //! when no workspace session was open, so a second SQLite could answer reads.
 //! TDD proof: RED on 2026-09-16 because `LomoEngine::open` constructed `StoreHandle` (snooze dir)
-//! and `apply_memo_command` called `ensure_store_open`, creating workspace `.lomo-sqlite`.
+//! and the direct write command called `ensure_store_open`, creating workspace `.lomo-sqlite`.
 //! Excludes: production DI cutover (P3-10), Room deletion.
 
 #[cfg(test)]
@@ -75,15 +69,15 @@ mod tests {
     use lomo_core::{CapabilityToken, PlatformActionExecutor};
     use lomo_native::{
         EngineConfig, EngineError, LomoEngine, PlatformActionBatch, PlatformBatchHost,
-        PlatformBatchResult, SessionDeleteMemoRequest, SessionFireReminderRequest,
-        SessionUpdateMemoRequest, StoreInvalidationScope, StoreMemoCommand, StoreMemoCommandKind,
-        StoreMemoFilters, StoreMemoQuery, StoreMemoSort, StorePageCursor, WorkspaceDescriptor,
+        PlatformBatchResult, SessionCreateMemoRequest, SessionDeleteMemoRequest,
+        SessionUpdateMemoRequest, StoreInvalidationScope, StoreMemoFilters, StoreMemoQuery,
+        StoreMemoSort, StorePageCursor, WorkspaceDescriptor,
     };
-    use lomo_platform_fs::PosixPlatformActionExecutor;
+    use lomo_platform_fs::FsPlatformActionExecutor;
     use tempfile::tempdir;
 
     struct PosixBatchHost {
-        executor: PosixPlatformActionExecutor,
+        executor: FsPlatformActionExecutor,
     }
 
     impl PlatformBatchHost for PosixBatchHost {
@@ -120,7 +114,7 @@ mod tests {
     }
 
     fn bind_session(engine: &LomoEngine, workspace: &Path, exchange: &Path, token: &str) {
-        let executor = PosixPlatformActionExecutor::new(exchange).test_ok("executor");
+        let executor = FsPlatformActionExecutor::new(exchange).test_ok("executor");
         executor
             .bind_root(
                 CapabilityToken::parse(token).test_ok("capability"),
@@ -128,7 +122,11 @@ mod tests {
             )
             .test_ok("bind root");
         engine
-            .open_workspace_session(Box::new(PosixBatchHost { executor }), "UTC".to_owned())
+            .open_workspace_session(
+                Box::new(PosixBatchHost { executor }),
+                "UTC".to_owned(),
+                workspace.to_string_lossy().into_owned(),
+            )
             .test_ok("open session");
     }
 
@@ -145,21 +143,6 @@ mod tests {
 
     fn index_workspace(engine: &LomoEngine) {
         engine.start_rebuild(16).test_ok("rebuild seed");
-    }
-
-    fn create_command(operation_id: &str, memo_id: &str, content: &str) -> StoreMemoCommand {
-        StoreMemoCommand {
-            operation_id: operation_id.to_owned(),
-            kind: StoreMemoCommandKind::Create,
-            memo_id: memo_id.to_owned(),
-            expected_revision: 0,
-            expected_fingerprint: None,
-            content: Some(content.to_owned()),
-            tags: vec![],
-            pin: None,
-            pending_promotes: vec![],
-            chronology_epoch_ms: None,
-        }
     }
 
     fn open_saf_engine(
@@ -208,13 +191,18 @@ mod tests {
             "engine open must not open a workspace projection sqlite"
         );
         let error = engine
-            .apply_memo_command(create_command(
-                "op-no-second-store",
-                "",
-                "must not open sqlite",
-            ))
+            .session_create_memo(SessionCreateMemoRequest {
+                operation_id: "op-no-second-store".to_owned(),
+                relative_path: None,
+                time_token: None,
+                content: "must not open sqlite".to_owned(),
+                expected_document_fingerprint: None,
+                pinned: false,
+                pending_promotes: vec![],
+                chronology_epoch_ms: None,
+            })
             .test_err("refused write");
-        assert_eq!(error.code(), "session_owns_document_writes");
+        assert_eq!(error.code(), "workspace_session_unavailable");
         assert!(
             !workspace.join(".lomo-sqlite").exists(),
             "refusing Direct writes must not lazy-open a second sqlite"
@@ -280,18 +268,6 @@ mod tests {
     }
 
     #[test]
-    fn direct_create_fails_closed_because_session_owns_document_writes() {
-        let (_tmp, _workspace, engine) = open_engine();
-        let command = create_command(
-            "op-ffi-direct-identity",
-            "",
-            "created through the native facade",
-        );
-        let error = engine.apply_memo_command(command).test_err("direct create");
-        assert_eq!(error.code(), "session_owns_document_writes");
-    }
-
-    #[test]
     fn saf_scan_projection_is_queryable_without_a_direct_workspace_path() {
         let body = "readable body from SAF #device";
         let (_tmp, engine) = open_saf_engine(
@@ -309,12 +285,6 @@ mod tests {
             .test_ok("get SAF memo")
             .test_ok("SAF memo snapshot");
         assert_eq!(memo.body, body);
-        assert_eq!(
-            engine
-                .source_document_fingerprint("2026_08_02.md".to_owned())
-                .test_ok("source document fingerprint"),
-            Some(lomo_store::fingerprint_content(body))
-        );
     }
 
     #[test]
@@ -530,125 +500,6 @@ mod tests {
         let second = engine.start_rebuild(16).test_ok("reconcile");
         assert!(!second.rewritten);
         assert_eq!(second.high_water_revision, first.high_water_revision);
-    }
-
-    #[test]
-    fn memo_command_kinds_and_filters_round_trip_via_ffi() {
-        let (_tmp, workspace, engine) = open_engine();
-        let create_error = engine
-            .apply_memo_command(create_command(
-                "op-ffi-create",
-                "m-kind",
-                "seed\n- [ ] task\nhttps://lomo.example #k #u",
-            ))
-            .test_err("direct create");
-        assert_eq!(create_error.code(), "session_owns_document_writes");
-
-        seed_markdown(
-            &workspace,
-            "2026_08_08",
-            "seed\n- [ ] task\nhttps://lomo.example #k #u",
-        );
-        index_workspace(&engine);
-        let seeded_id = engine
-            .query_memos(StoreMemoQuery::default(), None, 8, None, false)
-            .test_ok("seeded page")
-            .items
-            .into_iter()
-            .next()
-            .test_ok("seeded memo")
-            .memo_id;
-        let seeded = engine
-            .get_memo(seeded_id.clone())
-            .test_ok("get seed")
-            .test_ok("present");
-
-        let update_error = engine
-            .apply_memo_command(StoreMemoCommand {
-                operation_id: "op-ffi-update".to_owned(),
-                kind: StoreMemoCommandKind::Update,
-                memo_id: seeded_id.clone(),
-                expected_revision: seeded.summary.content_revision,
-                expected_fingerprint: Some(seeded.summary.file_fingerprint.clone()),
-                content: Some("updated body".to_owned()),
-                tags: vec![],
-                pin: None,
-                pending_promotes: vec![],
-                chronology_epoch_ms: None,
-            })
-            .test_err("direct update");
-        assert_eq!(update_error.code(), "session_owns_document_writes");
-
-        let history_error = engine
-            .apply_memo_command(StoreMemoCommand {
-                operation_id: "op-ffi-hist".to_owned(),
-                kind: StoreMemoCommandKind::HistoryRestore,
-                memo_id: seeded_id.clone(),
-                expected_revision: seeded.summary.content_revision,
-                expected_fingerprint: Some(seeded.summary.file_fingerprint.clone()),
-                content: Some("history via ffi".to_owned()),
-                tags: vec![],
-                pin: None,
-                pending_promotes: vec![],
-                chronology_epoch_ms: None,
-            })
-            .test_err("direct history restore");
-        assert_eq!(history_error.code(), "session_owns_document_writes");
-
-        let pin_error = engine
-            .apply_memo_command(StoreMemoCommand {
-                operation_id: "op-ffi-pin".to_owned(),
-                kind: StoreMemoCommandKind::Pin,
-                memo_id: seeded_id.clone(),
-                expected_revision: seeded.summary.content_revision,
-                expected_fingerprint: None,
-                content: None,
-                tags: vec![],
-                pin: Some(true),
-                pending_promotes: vec![],
-                chronology_epoch_ms: None,
-            })
-            .test_err("direct pin");
-        assert_eq!(pin_error.code(), "session_owns_document_writes");
-
-        let deleted = engine
-            .apply_memo_command(StoreMemoCommand {
-                operation_id: "op-ffi-del".to_owned(),
-                kind: StoreMemoCommandKind::Delete,
-                memo_id: seeded_id.clone(),
-                expected_revision: seeded.summary.content_revision,
-                expected_fingerprint: None,
-                content: None,
-                tags: vec![],
-                pin: None,
-                pending_promotes: vec![],
-                chronology_epoch_ms: None,
-            })
-            .test_err("direct delete");
-        assert_eq!(deleted.code(), "session_owns_document_writes");
-
-        let live = engine
-            .get_memo(seeded_id.clone())
-            .test_ok("get after refused delete")
-            .test_ok("still present");
-        assert!(!live.summary.is_trashed);
-        assert!(!live.summary.is_pinned);
-
-        let restore_error = engine
-            .apply_memo_command(StoreMemoCommand {
-                operation_id: "op-ffi-restore".to_owned(),
-                kind: StoreMemoCommandKind::Restore,
-                memo_id: seeded_id,
-                expected_revision: seeded.summary.content_revision,
-                expected_fingerprint: None,
-                content: None,
-                tags: vec![],
-                pin: None,
-                pending_promotes: vec![],
-                chronology_epoch_ms: None,
-            })
-            .test_err("direct restore");
-        assert_eq!(restore_error.code(), "session_owns_document_writes");
     }
 
     #[test]
@@ -919,20 +770,8 @@ mod tests {
             .test_ok("session plan");
         assert!(!plan.alarms.is_empty());
         let alarm = plan.alarms.first().cloned().test_ok("planned alarm");
-        let memo_id = engine
-            .query_memos(StoreMemoQuery::default(), None, 8, None, false)
-            .test_ok("seeded")
-            .items
-            .into_iter()
-            .next()
-            .test_ok("memo")
-            .memo_id;
         engine
-            .session_record_reminder_fired(SessionFireReminderRequest {
-                operation_id: "ffi-fire-1".to_owned(),
-                memo_id,
-                opaque_id: alarm.opaque_id,
-            })
-            .test_ok("record fired through session");
+            .session_snooze_reminder(alarm.opaque_id, 60_000)
+            .test_ok("snooze through session");
     }
 }

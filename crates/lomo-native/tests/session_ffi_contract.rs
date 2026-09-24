@@ -51,11 +51,11 @@ mod tests {
         PlatformBatchResult, SessionCreateMemoRequest, SessionSearchMode, SessionSearchOutcome,
         SessionSearchRequest, WorkspaceDescriptor,
     };
-    use lomo_platform_fs::PosixPlatformActionExecutor;
+    use lomo_platform_fs::FsPlatformActionExecutor;
     use tempfile::tempdir;
 
     struct PosixBatchHost {
-        executor: PosixPlatformActionExecutor,
+        executor: FsPlatformActionExecutor,
     }
 
     impl PlatformBatchHost for PosixBatchHost {
@@ -70,7 +70,7 @@ mod tests {
     }
 
     struct PausedBatchHost {
-        executor: PosixPlatformActionExecutor,
+        executor: FsPlatformActionExecutor,
         armed: Arc<AtomicBool>,
         entered: mpsc::Sender<()>,
         resume: Mutex<mpsc::Receiver<()>>,
@@ -93,7 +93,7 @@ mod tests {
     #[test]
     fn session_reads_do_not_queue_behind_a_paused_platform_write() {
         let session = open_direct_engine();
-        let executor = PosixPlatformActionExecutor::new(&session.exchange).test_ok("executor");
+        let executor = FsPlatformActionExecutor::new(&session.exchange).test_ok("executor");
         executor
             .bind_root(
                 CapabilityToken::parse("notes-root").test_ok("direct capability"),
@@ -113,6 +113,7 @@ mod tests {
                     resume: Mutex::new(resume_rx),
                 }),
                 "UTC".to_owned(),
+                session.workspace.to_string_lossy().into_owned(),
             )
             .test_ok("open session");
         let created = session
@@ -202,15 +203,18 @@ mod tests {
     }
 
     fn attach_posix_session(session: &DirectSession) {
-        let executor =
-            PosixPlatformActionExecutor::new(&session.exchange).test_ok("posix executor");
+        let executor = FsPlatformActionExecutor::new(&session.exchange).test_ok("posix executor");
         let capability = CapabilityToken::parse("notes-root").test_ok("direct capability");
         executor
             .bind_root(capability, &session.workspace)
             .test_ok("bind workspace");
         session
             .engine
-            .open_workspace_session(Box::new(PosixBatchHost { executor }), "UTC".to_owned())
+            .open_workspace_session(
+                Box::new(PosixBatchHost { executor }),
+                "UTC".to_owned(),
+                session.workspace.to_string_lossy().into_owned(),
+            )
             .test_ok("open session");
     }
 
@@ -295,18 +299,18 @@ mod tests {
         );
         let loaded = session
             .engine
-            .session_get_memo(commit.memo_id.clone())
+            .get_memo(commit.memo_id.clone())
             .test_ok("get memo")
             .test_ok("created memo");
-        assert_eq!(loaded.memo_id, commit.memo_id);
+        assert_eq!(loaded.summary.memo_id, commit.memo_id);
         assert_eq!(loaded.body, "八达岭长城");
         assert!(
-            Path::new(&loaded.source_path)
+            Path::new(&loaded.summary.source_path)
                 .extension()
                 .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
-                && !loaded.source_path.starts_with("memos/"),
+                && !loaded.summary.source_path.starts_with("memos/"),
             "projection source must be the dated document, got {}",
-            loaded.source_path
+            loaded.summary.source_path
         );
         let page = session
             .engine

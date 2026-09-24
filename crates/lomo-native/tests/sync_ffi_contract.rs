@@ -21,11 +21,6 @@
 //!   when free-functions run, then `validation` / `resource_limit` codes fire.
 //! - Given secret lease issue→probe→revoke, when inspected, then only lease ids appear and
 //!   plaintext secret bytes never appear in lease id wire form.
-//! - Given retry disposition names, when mapped, then `Never` / `AfterUserAction` / `Transient`
-//!   (no fixed three-retry policy in the DTO).
-//! - Given a durable sync session, when `sync_inspect_cycle_plan` runs, then session identity +
-//!   disposition round-trip without planner re-implementation in native.
-//! - Given no durable session / empty workspace root, when inspect runs, then fail-closed codes.
 //! - Given a store-backed workspace + hermetic backend, when `sync_run_cycle` runs, then real local
 //!   store port composition yields a non-empty `ensure_present` plan (not empty-port inspect).
 //! - Given blank workspace / invalid backend / missing `WebDAV` secret lease, when `sync_run_cycle`
@@ -57,11 +52,11 @@ mod support;
 mod tests {
     use super::support::ResultTestExt;
     use lomo_native::{
-        SyncConflictPathStatusDto, SyncConflictResolutionDto, SyncConflictSessionStateDto,
-        SyncRetryDispositionDto, looks_like_lease_id, sync_inspect_cycle_plan,
-        sync_issue_secret_lease, sync_list_conflicts, sync_probe_secret_lease,
-        sync_read_conflict_artifact, sync_reset_control_tree, sync_resolve_conflicts,
-        sync_retry_disposition_from_name, sync_revoke_secret_lease, sync_run_cycle,
+        SyncBackendConfigDto, SyncConflictPathStatusDto, SyncConflictResolutionDto,
+        SyncConflictSessionStateDto, looks_like_lease_id, sync_cycle_status,
+        sync_issue_secret_lease, sync_list_conflicts, sync_probe_backend, sync_probe_secret_lease,
+        sync_read_conflict_artifact, sync_request_cancel, sync_reset_control_tree,
+        sync_resolve_conflicts, sync_revoke_secret_lease, sync_run_cycle,
         sync_workspace_generation,
     };
     use lomo_store::{Store, run_rebuild};
@@ -75,6 +70,14 @@ mod tests {
 
     fn dig(seed: u8) -> ContentDigest {
         ContentDigest::parse(&format!("{seed:02x}").repeat(32)).test_ok("digest")
+    }
+
+    fn config_dto(kind: &str, dataset: &str) -> SyncBackendConfigDto {
+        SyncBackendConfigDto {
+            backend_kind: kind.to_owned(),
+            remote_dataset_id: dataset.to_owned(),
+            ..SyncBackendConfigDto::default()
+        }
     }
 
     fn path(raw: &str) -> SyncPath {
@@ -324,26 +327,6 @@ mod tests {
     }
 
     #[test]
-    fn retry_disposition_mapping_has_no_fixed_three_retry() {
-        let never = sync_retry_disposition_from_name("never".to_owned()).test_ok("never");
-        assert_eq!(never.disposition, SyncRetryDispositionDto::Never);
-        assert!(never.retry_after_millis.is_none());
-
-        let user = sync_retry_disposition_from_name("after_user_action".to_owned()).test_ok("user");
-        assert_eq!(user.disposition, SyncRetryDispositionDto::AfterUserAction);
-
-        let transient =
-            sync_retry_disposition_from_name("transient".to_owned()).test_ok("transient");
-        assert_eq!(transient.disposition, SyncRetryDispositionDto::Transient);
-        // Dark slice maps disposition only; concrete delay is host scheduler policy.
-        assert!(transient.retry_after_millis.is_none());
-
-        let err = sync_retry_disposition_from_name("retry_three_times".to_owned())
-            .test_err("fixed three-retry is not a disposition");
-        assert_eq!(err.code(), "sync_ffi_retry_disposition_invalid");
-    }
-
-    #[test]
     fn read_conflict_artifact_returns_seeded_markdown_body() {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");
@@ -373,64 +356,6 @@ mod tests {
     }
 
     #[test]
-    fn inspect_cycle_plan_round_trips_session_and_disposition() {
-        let temporary = tempdir().expect("temp");
-        let workspace = temporary.path().join("ws");
-        std::fs::create_dir_all(&workspace).expect("ws");
-        let paths = SyncPaths::for_workspace(&workspace);
-        let session =
-            SyncSession::new(fence(), SessionKind::Incremental, "ffi-cycle-1").test_ok("session");
-        write_session(&paths, &session).test_ok("write session");
-
-        let summary =
-            sync_inspect_cycle_plan(workspace.to_string_lossy().into_owned()).test_ok("inspect");
-        assert_eq!(summary.session_id, "ffi-cycle-1");
-        assert_eq!(summary.session_kind, "incremental");
-        assert_eq!(summary.session_revision, 1);
-        assert!(!summary.baseline_established);
-        assert_eq!(summary.ensure_present_count, 0);
-        assert_eq!(summary.ensure_absent_count, 0);
-        assert_eq!(summary.pull_present_count, 0);
-        assert_eq!(summary.open_conflict_count, 0);
-        assert_eq!(summary.open_conflict_paths, 0);
-        assert!(summary.conflict_revision.is_none());
-        assert_eq!(summary.retry_disposition, "after_user_action");
-    }
-
-    #[test]
-    fn inspect_cycle_plan_surfaces_open_conflict_paths() {
-        let temporary = tempdir().expect("temp");
-        let workspace = temporary.path().join("ws");
-        std::fs::create_dir_all(&workspace).expect("ws");
-        seed_markdown_conflict(&workspace);
-        let paths = SyncPaths::for_workspace(&workspace);
-        let session = SyncSession::new(fence(), SessionKind::Incremental, "ffi-cycle-conflict")
-            .test_ok("session");
-        write_session(&paths, &session).test_ok("write session");
-
-        let summary =
-            sync_inspect_cycle_plan(workspace.to_string_lossy().into_owned()).test_ok("inspect");
-        assert_eq!(summary.session_id, "ffi-cycle-conflict");
-        assert_eq!(summary.open_conflict_paths, 1);
-        assert_eq!(summary.conflict_revision, Some(1));
-        assert_eq!(summary.retry_disposition, "after_user_action");
-    }
-
-    #[test]
-    fn inspect_cycle_plan_missing_session_and_empty_root_fail_closed() {
-        let temporary = tempdir().expect("temp");
-        let workspace = temporary.path().join("ws-empty");
-        std::fs::create_dir_all(&workspace).expect("ws");
-
-        let err = sync_inspect_cycle_plan(workspace.to_string_lossy().into_owned())
-            .test_err("missing session");
-        assert_eq!(err.code(), "sync_session_missing");
-
-        let err = sync_inspect_cycle_plan(String::new()).test_err("empty root");
-        assert_eq!(err.code(), "sync_ffi_workspace_root_invalid");
-    }
-
-    #[test]
     fn run_cycle_hermetic_uses_store_local_port_not_empty_inspect() {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws-composed");
@@ -445,13 +370,7 @@ mod tests {
         let root = workspace.to_string_lossy().into_owned();
         let summary = sync_run_cycle(
             root,
-            "hermetic_fake".to_owned(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            "ds-composed".to_owned(),
+            config_dto("hermetic_fake", "ds-composed"),
             String::new(),
             false,
         )
@@ -473,13 +392,7 @@ mod tests {
     fn run_cycle_fail_closed_blank_workspace_and_invalid_backend() {
         let err = sync_run_cycle(
             String::new(),
-            "hermetic_fake".to_owned(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            "ds".to_owned(),
+            config_dto("hermetic_fake", "ds"),
             String::new(),
             false,
         )
@@ -493,33 +406,43 @@ mod tests {
 
         let err = sync_run_cycle(
             root.clone(),
-            "not-a-backend".to_owned(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            "ds".to_owned(),
+            config_dto("not-a-backend", "ds"),
             String::new(),
             false,
         )
         .test_err("invalid backend");
         assert_eq!(err.code(), "sync_ffi_backend_kind_invalid");
 
+        let err = sync_run_cycle(root.clone(), config_dto("git", "ds"), String::new(), false)
+            .test_err("git incomplete");
+        assert_eq!(err.code(), "git_config_incomplete");
+
+        // Git remote URL with embedded userinfo is rejected at the FFI edge (before adapter).
         let err = sync_run_cycle(
-            root,
-            "git".to_owned(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            "ds".to_owned(),
+            root.clone(),
+            SyncBackendConfigDto {
+                endpoint_url: "https://alice:s3cr3t@example.com/repo.git".to_owned(),
+                git_branch: "main".to_owned(),
+                ..config_dto("git", "ds")
+            },
             String::new(),
             false,
         )
-        .test_err("git incomplete");
-        assert_eq!(err.code(), "git_config_incomplete");
+        .test_err("git userinfo");
+        assert_eq!(err.code(), "git_url_userinfo_rejected");
+
+        // Fields belonging to another backend kind are a wire violation, not a silent borrow.
+        let err = sync_run_cycle(
+            root,
+            SyncBackendConfigDto {
+                s3_bucket: "leaked".to_owned(),
+                ..config_dto("git", "ds")
+            },
+            String::new(),
+            false,
+        )
+        .test_err("mixed shape");
+        assert_eq!(err.code(), "sync_ffi_config_field_mismatch");
     }
 
     #[test]
@@ -546,13 +469,13 @@ mod tests {
         let bare_url = bare.to_string_lossy().into_owned();
         let summary = sync_run_cycle(
             root,
-            "git".to_owned(),
-            bare_url,
-            String::new(),
-            "main".to_owned(),
-            "Lomo".to_owned(),
-            "git@lomo.local".to_owned(),
-            "ds-git-compose".to_owned(),
+            SyncBackendConfigDto {
+                endpoint_url: bare_url,
+                git_branch: "main".to_owned(),
+                git_author_name: "Lomo".to_owned(),
+                git_author_email: "git@lomo.local".to_owned(),
+                ..config_dto("git", "ds-git-compose")
+            },
             String::new(),
             false,
         )
@@ -578,13 +501,11 @@ mod tests {
 
         let err = sync_run_cycle(
             root,
-            "webdav".to_owned(),
-            "https://dav.example/remote.php/dav".to_owned(),
-            "alice".to_owned(),
-            String::new(),
-            String::new(),
-            String::new(),
-            "ds-webdav".to_owned(),
+            SyncBackendConfigDto {
+                endpoint_url: "https://dav.example/remote.php/dav".to_owned(),
+                identity: "alice".to_owned(),
+                ..config_dto("webdav", "ds-webdav")
+            },
             String::new(),
             true,
         )
@@ -603,13 +524,7 @@ mod tests {
 
         let err = sync_run_cycle(
             workspace.to_string_lossy().into_owned(),
-            "hermetic_fake".to_owned(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            "ds-lock".to_owned(),
+            config_dto("hermetic_fake", "ds-lock"),
             String::new(),
             false,
         )
@@ -666,5 +581,125 @@ mod tests {
         let loaded = sync_workspace_generation(workspace.to_string_lossy().into_owned())
             .test_ok("load generation");
         assert_eq!(loaded, minted.as_str());
+    }
+
+    #[test]
+    fn cycle_status_reads_durable_record_and_survives_result_writes() {
+        let temporary = tempdir().expect("temp");
+        let workspace = temporary.path().join("ws-status");
+        std::fs::create_dir_all(&workspace).expect("ws");
+        let memos = workspace.join("memos");
+        std::fs::create_dir_all(&memos).expect("memos");
+        std::fs::write(memos.join("status.md"), "status-body").expect("seed markdown");
+        lomo_workspace::load_or_mint_workspace_generation(&workspace)
+            .expect("workspace generation");
+        run_rebuild(&workspace, 8).expect("index seed");
+
+        let root = workspace.to_string_lossy().into_owned();
+
+        // No durable cycle yet: honest idle, not a fabricated zero-count record.
+        let idle = sync_cycle_status(root.clone()).test_ok("empty status");
+        assert!(!idle.has_record);
+        assert_eq!(idle.phase, "idle");
+        assert_eq!(idle.cycle_seq, 0);
+
+        let summary = sync_run_cycle(
+            root.clone(),
+            config_dto("hermetic_fake", "ds-status"),
+            String::new(),
+            false,
+        )
+        .test_ok("run composed hermetic");
+        assert!(summary.ensure_present_count >= 1);
+
+        // Durable record is the authority: cycle facts round-trip without Kotlin-side state.
+        let status = sync_cycle_status(root.clone()).test_ok("status after cycle");
+        assert!(status.has_record);
+        assert_eq!(status.phase, "completed");
+        assert_eq!(status.stage, "finished");
+        assert_eq!(status.cycle_seq, 1);
+        assert_eq!(status.cycle_id, "cycle-000001");
+        assert_eq!(status.backend_kind, "hermetic_fake");
+        assert_eq!(status.ensure_present_count, summary.ensure_present_count);
+        assert!(status.state_stamp >= 2, "begin+finish bumps the stamp");
+        // Plan-only cycle must not claim a successful sync timestamp.
+        assert_eq!(status.last_successful_at_ms, None);
+        assert!(status.finished_at_ms.is_some());
+
+        // Second read observes the same durable fact — no memory-only state.
+        let again = sync_cycle_status(root).test_ok("status re-read");
+        assert_eq!(again.cycle_id, status.cycle_id);
+        assert_eq!(again.state_stamp, status.state_stamp);
+    }
+
+    #[test]
+    fn request_cancel_rejects_when_no_cycle_running() {
+        let temporary = tempdir().expect("temp");
+        let workspace = temporary.path().join("ws-cancel");
+        std::fs::create_dir_all(&workspace).expect("ws");
+        lomo_workspace::load_or_mint_workspace_generation(&workspace)
+            .expect("workspace generation");
+        run_rebuild(&workspace, 8).expect("index seed");
+        let root = workspace.to_string_lossy().into_owned();
+
+        let err = sync_request_cancel(root.clone()).test_err("no running cycle");
+        assert_eq!(err.code(), "sync_cycle_not_running");
+
+        // A completed cycle is not running — cancel must not rewrite a terminal record.
+        sync_run_cycle(
+            root.clone(),
+            config_dto("hermetic_fake", "ds-cancel"),
+            String::new(),
+            false,
+        )
+        .test_ok("completed cycle");
+        let err = sync_request_cancel(root.clone()).test_err("terminal cycle");
+        assert_eq!(err.code(), "sync_cycle_not_running");
+        let status = sync_cycle_status(root).test_ok("status preserved");
+        assert_eq!(status.phase, "completed");
+        assert!(!status.cancel_requested);
+    }
+
+    #[test]
+    fn probe_backend_runs_real_adapter_round_trip() {
+        let temporary = tempdir().expect("temp");
+        let workspace = temporary.path().join("ws-probe");
+        std::fs::create_dir_all(&workspace).expect("ws");
+        lomo_workspace::load_or_mint_workspace_generation(&workspace)
+            .expect("workspace generation");
+        run_rebuild(&workspace, 8).expect("index seed");
+        let root = workspace.to_string_lossy().into_owned();
+
+        // Hermetic probe: real port construction + listing round-trip (empty remote).
+        let probe = sync_probe_backend(
+            root.clone(),
+            config_dto("hermetic_fake", "ds-probe"),
+            String::new(),
+        )
+        .test_ok("hermetic probe");
+        assert_eq!(probe.backend_kind, "hermetic_fake");
+        assert_eq!(probe.listed_entry_count, 0);
+        assert!(probe.conditional_write);
+        assert!(probe.conditional_delete);
+        assert!(probe.probed_at_ms > 0);
+        // Probe must not invent a cycle record — status stays idle.
+        let status = sync_cycle_status(root.clone()).test_ok("post-probe status");
+        assert!(!status.has_record);
+
+        let err = sync_probe_backend(
+            String::new(),
+            config_dto("hermetic_fake", "ds-probe"),
+            String::new(),
+        )
+        .test_err("blank workspace");
+        assert_eq!(err.code(), "sync_ffi_workspace_root_invalid");
+
+        // A held cycle lock refuses the probe — remote mutation observation must not race.
+        let paths = SyncPaths::for_workspace(&workspace);
+        let _held = lomo_platform_fs::ProcessFileLock::try_acquire(&paths.cycle_lock)
+            .test_ok("hold cycle lock");
+        let err = sync_probe_backend(root, config_dto("hermetic_fake", "ds-probe"), String::new())
+            .test_err("probe under held lock");
+        assert_eq!(err.code(), "sync_cycle_lock_held");
     }
 }

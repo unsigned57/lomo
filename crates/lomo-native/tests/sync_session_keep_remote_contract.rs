@@ -36,9 +36,10 @@ mod tests {
     use lomo_core::{CapabilityToken, PlatformActionExecutor};
     use lomo_native::{
         EngineConfig, EngineError, LomoEngine, PlatformActionBatch, PlatformBatchHost,
-        PlatformBatchResult, SessionCreateMemoRequest, WorkspaceDescriptor, sync_run_cycle,
+        PlatformBatchResult, SessionCreateMemoRequest, SyncBackendConfigDto, WorkspaceDescriptor,
+        sync_run_cycle,
     };
-    use lomo_platform_fs::PosixPlatformActionExecutor;
+    use lomo_platform_fs::FsPlatformActionExecutor;
     use lomo_sync::{
         ConflictPathStatus, ContentDigest, SyncIdentityFence, SyncPath, SyncPaths,
         conflict_path_from_open, write_conflict_artifact, write_conflict_session,
@@ -47,7 +48,7 @@ mod tests {
     use tempfile::tempdir;
 
     struct PosixBatchHost {
-        executor: PosixPlatformActionExecutor,
+        executor: FsPlatformActionExecutor,
     }
 
     impl PlatformBatchHost for PosixBatchHost {
@@ -95,15 +96,18 @@ mod tests {
     }
 
     fn attach_posix_session(session: &DirectSession) {
-        let executor =
-            PosixPlatformActionExecutor::new(&session.exchange).test_ok("posix executor");
+        let executor = FsPlatformActionExecutor::new(&session.exchange).test_ok("posix executor");
         let capability = CapabilityToken::parse("notes-root").test_ok("direct capability");
         executor
             .bind_root(capability, &session.workspace)
             .test_ok("bind workspace");
         session
             .engine
-            .open_workspace_session(Box::new(PosixBatchHost { executor }), "UTC".to_owned())
+            .open_workspace_session(
+                Box::new(PosixBatchHost { executor }),
+                "UTC".to_owned(),
+                session.workspace.to_string_lossy().into_owned(),
+            )
             .test_ok("open session");
     }
 
@@ -135,10 +139,10 @@ mod tests {
             .test_ok("create memo");
         let view = session
             .engine
-            .session_get_memo(commit.memo_id.clone())
+            .get_memo(commit.memo_id.clone())
             .test_ok("get created")
             .test_ok("created present");
-        let source_path = view.source_path;
+        let source_path = view.summary.source_path;
         let local_bytes = fs::read(session.workspace.join(&source_path)).test_ok("read local file");
         let local_markdown = String::from_utf8(local_bytes.clone()).test_ok("local utf8");
         assert!(
@@ -192,13 +196,11 @@ mod tests {
 
         let error = sync_run_cycle(
             session.workspace.display().to_string(),
-            "hermetic_fake".to_owned(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            "ds-keep-remote".to_owned(),
+            SyncBackendConfigDto {
+                backend_kind: "hermetic_fake".to_owned(),
+                remote_dataset_id: "ds-keep-remote".to_owned(),
+                ..SyncBackendConfigDto::default()
+            },
             String::new(),
             true,
         )
@@ -207,7 +209,7 @@ mod tests {
 
         let after = session
             .engine
-            .session_get_memo(memo_id)
+            .get_memo(memo_id)
             .test_ok("get after refused cycle")
             .test_ok("memo still present");
         assert_eq!(
@@ -227,13 +229,11 @@ mod tests {
             .engine
             .sync_run_cycle(
                 session.workspace.display().to_string(),
-                "hermetic_fake".to_owned(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                "ds-keep-remote".to_owned(),
+                SyncBackendConfigDto {
+                    backend_kind: "hermetic_fake".to_owned(),
+                    remote_dataset_id: "ds-keep-remote".to_owned(),
+                    ..SyncBackendConfigDto::default()
+                },
                 String::new(),
                 true,
             )
@@ -241,7 +241,7 @@ mod tests {
 
         let after = session
             .engine
-            .session_get_memo(memo_id)
+            .get_memo(memo_id)
             .test_ok("get after engine apply")
             .test_ok("memo still present");
         assert_eq!(

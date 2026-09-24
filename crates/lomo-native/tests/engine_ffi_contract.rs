@@ -27,10 +27,10 @@ mod tests {
     use std::fs;
 
     use lomo_native::{
-        ActionEvidence, ActionOutcome, ActionResult, CancelOutcome, ContentDigest, DocumentKind,
-        DocumentMetadata, EngineConfig, EngineState, ExchangeArtifact, LomoEngine, MetadataPage,
-        PlatformAction, PlatformActionOutput, PlatformBatchResult, ShutdownOutcome,
-        VerifiedAbsence, WorkspaceDescriptor, WorkspaceTarget,
+        ActionEvidence, ActionOutcome, ActionResult, ContentDigest, DocumentKind, DocumentMetadata,
+        EngineConfig, EngineState, ExchangeArtifact, LomoEngine, MetadataPage, PlatformAction,
+        PlatformActionOutput, PlatformBatchResult, ShutdownOutcome, VerifiedAbsence,
+        WorkspaceDescriptor, WorkspaceTarget,
     };
     use tempfile::tempdir;
 
@@ -60,15 +60,11 @@ mod tests {
                 panic!("SAF FFI engine must be opening, got {other:?}")
             }
         };
-        let step = engine.poll_job(job_id.clone()).test_ok("poll bootstrap");
+        let step = engine.poll_job(job_id).test_ok("poll bootstrap");
         assert!(matches!(
             step,
             lomo_native::JobStep::NeedsPlatformBatch { .. }
         ));
-        assert_eq!(
-            engine.cancel_job(job_id).test_ok("cancel bootstrap"),
-            CancelOutcome::Accepted
-        );
         assert_eq!(
             engine.shutdown(5_000).test_ok("shutdown"),
             ShutdownOutcome::Completed
@@ -160,7 +156,7 @@ mod tests {
             .collect();
         let step = engine
             .submit_platform_result(
-                job_id.clone(),
+                job_id,
                 PlatformBatchResult {
                     schema_version: batch.schema_version,
                     job_id: batch.job_id,
@@ -172,10 +168,6 @@ mod tests {
             .test_ok("submit complete result");
         assert!(matches!(step, lomo_native::JobStep::Completed));
         assert!(matches!(engine.state(), EngineState::Ready { .. }));
-        assert_eq!(
-            engine.cancel_job(job_id).test_ok("cancel completed job"),
-            CancelOutcome::AlreadyCompleted
-        );
     }
 
     #[test]
@@ -193,6 +185,7 @@ mod tests {
             | PlatformAction::EnsureDirectory { action_id, .. }
             | PlatformAction::ReadToExchange { action_id, .. }
             | PlatformAction::WriteFromExchange { action_id, .. }
+            | PlatformAction::ArtifactWrite { action_id, .. }
             | PlatformAction::Move { action_id, .. }
             | PlatformAction::Delete { action_id, .. } => action_id,
         }
@@ -255,6 +248,23 @@ mod tests {
                             length: artifact.length,
                             digest: ContentDigest::Verified {
                                 hex: artifact.digest.clone(),
+                            },
+                            fingerprint: "ffi-root-fingerprint".to_owned(),
+                        },
+                    },
+                }
+            }
+            PlatformAction::ArtifactWrite { source, path, .. } => {
+                PlatformActionOutput::WriteComplete {
+                    metadata: DocumentMetadata {
+                        target: WorkspaceTarget::Relative { path: path.clone() },
+                        document_handle: path.clone(),
+                        kind: DocumentKind::File,
+                        mime_type: None,
+                        evidence: ActionEvidence {
+                            length: source.length,
+                            digest: ContentDigest::Verified {
+                                hex: source.digest.clone(),
                             },
                             fingerprint: "ffi-root-fingerprint".to_owned(),
                         },
