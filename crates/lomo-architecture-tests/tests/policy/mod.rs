@@ -1,16 +1,20 @@
 //! Executable ownership policies. Inputs are parsed facts; malformed or unowned input is an error.
 
+mod authority;
 mod config;
 pub mod ffi;
 mod inventory;
 mod kotlin;
 mod rust_graph;
+mod rust_invariants;
 mod rust_source;
 
+pub use authority::kotlin_authority_violations;
 pub use config::detekt_config_violations;
 pub use inventory::{owned_kotlin_module, source_files};
 pub use kotlin::{internal_module_dependencies, kotlin_dependency_violations};
 pub use rust_graph::{rust_dependency_violations, rust_manifest_violations};
+pub use rust_invariants::rust_invariant_violations;
 pub use rust_source::rust_source_violations;
 
 #[derive(Debug, Eq, PartialEq)]

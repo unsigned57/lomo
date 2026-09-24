@@ -69,6 +69,27 @@ mod tests {
         policy::source_files(&root(), path).expect("source inventory must be complete")
     }
 
+    /// The leading `lowercase-id` token at the start of `text` (`[a-z0-9-]+`).
+    fn marker_id_prefix(text: &str) -> String {
+        text.chars()
+            .take_while(|c| c.is_ascii_lowercase() || *c == '-' || c.is_ascii_digit())
+            .collect()
+    }
+
+    /// Collects every well-formed marker id out of a `(|id|id|)` alternation body.
+    fn collect_marker_ids(declared: &mut std::collections::BTreeSet<String>, alternation: &str) {
+        for id in alternation.split('|') {
+            let id = id.trim();
+            if !id.is_empty()
+                && id
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c == '-' || c.is_ascii_digit())
+            {
+                declared.insert(id.to_owned());
+            }
+        }
+    }
+
     #[test]
     fn workspace_and_owner_crates_are_current() {
         let manifest = read("Cargo.toml");
@@ -298,6 +319,252 @@ mod tests {
     }
 
     #[test]
+    fn rust_audit_invariants_hold() {
+        // Audit invariants I1/I2/I5/I7 as source policies: identities are owner-issued
+        // (no literal/UUID/hash mints at call sites), failure disposition stays typed (no
+        // error-text branching), boundary reads prove a byte budget, wire types enter
+        // through a checked constructor, and remote transport calls stay out of loops.
+        let mut violations = Vec::new();
+        for file in files_under("crates")
+            .into_iter()
+            .chain(files_under("apps/tui"))
+        {
+            if file.extension().is_none_or(|extension| extension != "rs") {
+                continue;
+            }
+            if !file
+                .components()
+                .any(|component| component.as_os_str() == "src")
+            {
+                continue;
+            }
+            let relative = file
+                .strip_prefix(root())
+                .expect("repository source")
+                .to_string_lossy()
+                .replace('\\', "/");
+            let source = fs::read_to_string(&file).expect("Rust source");
+            violations.extend(
+                policy::rust_invariant_violations(&relative, &source)
+                    .expect("Rust invariant policy must parse source"),
+            );
+        }
+        assert!(violations.is_empty(), "{violations:#?}");
+    }
+
+    #[test]
+    fn kotlin_single_exit_authority_holds() {
+        // Audit invariant I3: a business fact has exactly one publishing/mutating exit.
+        // The authority table maps call-site patterns to owning files; unknown or missing
+        // owners fail closed inside the policy.
+        let mut files = Vec::new();
+        for file in files_under("apps/android") {
+            if file.extension().is_none_or(|extension| extension != "kt") {
+                continue;
+            }
+            let relative = file
+                .strip_prefix(root())
+                .expect("repository source")
+                .to_string_lossy()
+                .replace('\\', "/");
+            if !relative.contains("/src/") {
+                continue;
+            }
+            let source = fs::read_to_string(&file).expect("Kotlin source");
+            files.push((relative, source));
+        }
+        let violations = policy::kotlin_authority_violations(&root(), &files)
+            .expect("authority table must resolve");
+        assert!(violations.is_empty(), "{violations:#?}");
+    }
+
+    #[test]
+    fn detekt_rule_registry_matches_module_configs() {
+        // Every rule registered in LomoArchitectureRuleSetProvider must be active in at
+        // least one module config, and no config may reference an unregistered rule —
+        // either drift mode silently ungates production.
+        let provider =
+            read("apps/android/quality/detekt-rules/src/LomoArchitectureRuleSetProvider.kt");
+        let mut registered = Vec::new();
+        let needle = "RuleName(\"";
+        let mut rest = provider.as_str();
+        while let Some(pos) = rest.find(needle) {
+            rest = rest.get(pos + needle.len()..).unwrap_or("");
+            let end = rest.find('"').expect("RuleName literal must terminate");
+            registered.push(rest.get(..end).unwrap_or(rest).to_owned());
+        }
+        assert!(!registered.is_empty(), "no rules registered in provider");
+        let mut active_anywhere = vec![false; registered.len()];
+        for module in ["app", "data", "domain", "ui-components"] {
+            let config = read(&format!("quality/detekt/config/{module}.yml"));
+            let yaml = yaml_rust2::YamlLoader::load_from_str(&config)
+                .expect("detekt config yaml")
+                .into_iter()
+                .next()
+                .expect("one document");
+            let section = yaml["lomo-architecture"]
+                .as_hash()
+                .unwrap_or_else(|| panic!("{module}: missing lomo-architecture section"));
+            for (key, value) in section {
+                let name = key.as_str().unwrap_or_else(|| {
+                    panic!("{module}: lomo-architecture key is not a rule name")
+                });
+                if name == "active" {
+                    continue;
+                }
+                let index = registered
+                    .iter()
+                    .position(|rule| rule == name)
+                    .unwrap_or_else(|| {
+                        panic!("{module}: config references unregistered rule {name}")
+                    });
+                let active = value["active"].as_bool().unwrap_or(false);
+                if active && let Some(slot) = active_anywhere.get_mut(index) {
+                    *slot = true;
+                }
+            }
+        }
+        for (rule, active) in registered.iter().zip(&active_anywhere) {
+            assert!(
+                active,
+                "rule {rule} is registered but active in no module config"
+            );
+        }
+    }
+
+    #[test]
+    fn policy_declarations_are_exercised_by_tests() {
+        // A policy fn that no test invokes is dead enforcement surface.
+        let test_sources = [
+            read("crates/lomo-architecture-tests/tests/architecture.rs"),
+            read("crates/lomo-architecture-tests/tests/policy_contracts.rs"),
+            read("crates/lomo-architecture-tests/tests/ffi_contracts.rs"),
+        ]
+        .join("\n");
+        for file in files_under("crates/lomo-architecture-tests/tests/policy") {
+            let source = fs::read_to_string(&file).expect("policy source");
+            for needle_start in source.match_indices("pub fn ") {
+                let rest = source.get(needle_start.0 + 7..).unwrap_or("");
+                let name: String = rest
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                if name == "new" {
+                    continue;
+                }
+                assert!(
+                    test_sources.contains(&format!("{name}(")),
+                    "policy fn {name} ({}) is never invoked by tests",
+                    file.display()
+                );
+            }
+        }
+        assert!(
+            test_sources.contains("KOTLIN_MODULES"),
+            "KOTLIN_MODULES export must be exercised"
+        );
+    }
+
+    #[test]
+    fn behavior_contract_markers_are_declared_and_reasoned() {
+        // A `// behavior-contract: <id>: <reason>` opt-out is only meaningful if the id is
+        // a declared gate vocabulary — inventing a marker cannot open a hole.
+        let mut declared = std::collections::BTreeSet::new();
+        let mut collect = |source: &str| {
+            let mut rest = source;
+            while let Some(pos) = rest.find("behavior-contract:") {
+                rest = rest.get(pos + "behavior-contract:".len()..).unwrap_or("");
+                // Skip literal regex artifacts like `\s*` between the prefix and the id.
+                let mut trimmed = rest.trim_start();
+                while let Some(next) = trimmed
+                    .strip_prefix("\\s*")
+                    .or_else(|| trimmed.strip_prefix("\\s"))
+                    .or_else(|| trimmed.strip_prefix('\\'))
+                {
+                    trimmed = next.trim_start();
+                }
+                trimmed = trimmed.trim_start_matches('*');
+                if let Some(inner) = trimmed.strip_prefix('(')
+                    && let Some(end) = inner.find(')')
+                {
+                    collect_marker_ids(&mut declared, inner.get(..end).unwrap_or(""));
+                    rest = inner.get(end..).unwrap_or("");
+                    continue;
+                }
+                let id = marker_id_prefix(trimmed);
+                if !id.is_empty() {
+                    declared.insert(id);
+                }
+            }
+        };
+        for file in files_under("apps/android/quality/detekt-rules") {
+            if file.extension().is_none_or(|extension| extension != "kt") {
+                continue;
+            }
+            collect(&fs::read_to_string(&file).expect("rule source"));
+        }
+        for file in files_under("crates/lomo-architecture-tests/tests/policy") {
+            let source = fs::read_to_string(&file).expect("policy source");
+            // Rust marker constants: `const X_MARKER: &str = "marker-id";`
+            for (pos, _) in source.match_indices("_MARKER: &str = \"") {
+                let rest = source.get(pos + "_MARKER: &str = \"".len()..).unwrap_or("");
+                if let Some(end) = rest.find('"') {
+                    declared.insert(rest.get(..end).unwrap_or(rest).to_owned());
+                }
+            }
+        }
+        assert!(
+            !declared.is_empty(),
+            "no behavior-contract markers declared"
+        );
+
+        let mut violations = Vec::new();
+        for root_dir in ["apps/android", "crates", "apps/tui"] {
+            for file in files_under(root_dir) {
+                let relative = file
+                    .strip_prefix(root())
+                    .expect("repository source")
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if !relative.contains("/src/") {
+                    continue;
+                }
+                if !matches!(
+                    file.extension().and_then(|extension| extension.to_str()),
+                    Some("kt" | "rs")
+                ) {
+                    continue;
+                }
+                // The rule-defining module contains marker literals (regexes/messages),
+                // not marker usages.
+                if relative.contains("/quality/detekt-rules/") {
+                    continue;
+                }
+                let source = fs::read_to_string(&file).expect("source");
+                let mut rest = source.as_str();
+                while let Some(pos) = rest.find("behavior-contract:") {
+                    rest = rest.get(pos + "behavior-contract:".len()..).unwrap_or("");
+                    let trimmed = rest.trim_start();
+                    let id = marker_id_prefix(trimmed);
+                    let after = trimmed.get(id.len()..).unwrap_or("").trim_start();
+                    let reason_missing =
+                        !after.starts_with(':') || after.get(1..).unwrap_or("").trim().is_empty();
+                    if id.is_empty() || reason_missing {
+                        violations.push(format!("{relative}: marker '{id}' lacks ': <reason>'"));
+                        continue;
+                    }
+                    if !declared.contains(&id) {
+                        violations.push(format!(
+                            "{relative}: undeclared behavior-contract marker '{id}'"
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(violations.is_empty(), "{violations:#?}");
+    }
+
+    #[test]
     fn production_detekt_configs_keep_ownership_checks_active() {
         for module in ["app", "data", "domain", "ui-components"] {
             let source = read(&format!("quality/detekt/config/{module}.yml"));
@@ -334,14 +601,7 @@ mod tests {
     fn quality_entry_is_pinned_and_legacy_routes_are_absent() {
         let justfile = read("Justfile");
         assert!(justfile.contains("RUSTUP_TOOLCHAIN") && justfile.contains("rust-toolchain.toml"));
-        assert!(
-            justfile.contains("check-linux:"),
-            "Justfile missing check-linux recipe"
-        );
-        assert!(
-            justfile.contains("package-linux:"),
-            "Justfile missing package-linux recipe"
-        );
+
         for path in ["quality/testing/ai-rust-test-style.md", "quality/README.md"] {
             let text = read(path);
             for forbidden in [

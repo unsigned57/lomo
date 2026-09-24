@@ -246,7 +246,7 @@ impl<'ast> Visit<'ast> for SourcePolicy<'_> {
     }
 }
 
-fn meta_arguments(meta: &Meta) -> Result<Punctuated<Meta, Token![,]>, String> {
+pub(super) fn meta_arguments(meta: &Meta) -> Result<Punctuated<Meta, Token![,]>, String> {
     let Meta::List(list) = meta else {
         return Err("expected policy attribute arguments".to_owned());
     };

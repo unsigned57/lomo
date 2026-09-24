@@ -14,6 +14,23 @@ const REQUIRED_RULES: &[&str] = &[
     "NoSwallowedCancellationInSuspend",
     "NoSwallowedCancellationInPagingSource",
     "ViewModelSingleStateFlow",
+    // Audit-derived first-principles invariants (audit I1-I8, C09): these gates convert
+    // recurring audit findings into non-excludable source policy.
+    "NoMintedIdentity",
+    "NoErrorMessageControlFlow",
+    "NoPlaceholderCollaborator",
+    "NoCapabilitySeam",
+    "NoSecretInWorkPayload",
+    "NoNamePredicateDelete",
+    "NoCorruptionEmptyReset",
+    "NoDomainClock",
+    "NoConstantStatusValue",
+    // UDF payload immutability and read-path purity (quality/udf-contract.md): a state payload
+    // reaching the UI is an immutable snapshot, and a flow-producing derivation cannot hide a
+    // state write behind downstream observation.
+    "NoMutableStatePayload",
+    "NoWriteInFlowDerivation",
+    "NoInferredMutableStatePayload",
 ];
 
 pub fn detekt_config_violations(module: &str, source: &str) -> Result<Vec<Violation>, String> {

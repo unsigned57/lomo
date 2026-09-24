@@ -42,6 +42,7 @@ const OWNERS: &[Owner] = &[
             "sha2",
             "zip",
             "tempfile",
+            "getrandom",
         ],
     },
     Owner {
@@ -58,12 +59,13 @@ const OWNERS: &[Owner] = &[
             "serde_json",
             "sha2",
             "pinyin",
+            "getrandom",
         ],
     },
     Owner {
         name: "lomo-platform-fs",
         directory: "crates/lomo-platform-fs",
-        dependencies: &["lomo-core", "rustix", "sha2"],
+        dependencies: &["lomo-core", "rustix", "sha2", "getrandom"],
     },
     Owner {
         name: "lomo-sync",
@@ -168,6 +170,12 @@ const OWNERS: &[Owner] = &[
             "toml",
             "arboard",
             "image",
+            "clap",
+            "clap_complete",
+            "thiserror",
+            "tracing",
+            "tracing-appender",
+            "tracing-subscriber",
         ],
     },
 ];

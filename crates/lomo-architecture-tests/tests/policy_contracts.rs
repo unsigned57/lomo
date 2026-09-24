@@ -400,4 +400,221 @@ mod tests {
             .unwrap_or_else(|error| panic!("generated fixture: {error}"));
         assert_eq!(checked(policy::source_files(root, "crates")), vec![source]);
     }
+
+    fn invariant_rules(path: &str, source: &str) -> Vec<Violation> {
+        checked(policy::rust_invariant_violations(path, source))
+    }
+
+    fn has_rule(violations: &[Violation], rule: &str) -> bool {
+        violations.iter().any(|violation| violation.rule == rule)
+    }
+
+    // Behavior Contract: a public wire-shaped type deriving Deserialize admits unchecked
+    // construction unless it names a checked entry (audit I7).
+    #[test]
+    fn wire_types_must_enter_through_a_checked_constructor() {
+        let app = "crates/lomo-application/src/fixture.rs";
+        for source in [
+            "#[derive(Deserialize)]\npub struct ToggleTaskRequest { pub memo_id: String }",
+            "#[derive(Serialize, Deserialize)]\npub enum RemoteEnvelope { A }",
+            "#[derive(Deserialize)]\n#[serde(deny_unknown_fields)]\npub struct DeleteIntent { pub id: String }",
+        ] {
+            assert!(
+                has_rule(&invariant_rules(app, source), "rust-checked-wire"),
+                "{source}"
+            );
+        }
+        for source in [
+            "#[derive(Deserialize)]\n#[serde(try_from = \"ToggleTaskRequestJson\")]\npub struct ToggleTaskRequest { pub memo_id: String }",
+            "#[derive(Deserialize)]\n#[serde(from = \"WireEnvelope\")]\npub struct RemoteEnvelope { pub inner: String }",
+            "#[derive(Clone, Debug)]\npub struct SessionToggleTaskRequest { pub memo_id: String }",
+            "#[derive(Deserialize)]\npub struct PayloadRef { pub digest: String }",
+            "#[derive(Deserialize)]\nstruct HiddenRequest { memo_id: String }",
+        ] {
+            assert!(invariant_rules(app, source).is_empty(), "{source}");
+        }
+    }
+
+    // Behavior Contract: identities, generations, fences and validators are owner-issued;
+    // call-site literals, UUIDs, hashes and wall clocks are forgeries (audit I1).
+    #[test]
+    fn identity_fields_cannot_be_minted_at_call_sites() {
+        let path = "crates/lomo-core/src/fixture.rs";
+        for source in [
+            "fn apply() { let operation_id = Uuid::new_v4().to_string(); }",
+            "fn apply() { let engine_generation = 0; }",
+            "fn apply() { Request { validator: Default::default() }; }",
+            "fn apply() { Request { lease_id: String::new() }; }",
+            "fn apply() { self.fence = 0; }",
+            "fn apply() { let stamp = Utc::now(); }",
+            "fn apply() { let session_id = sha256::digest(root); }",
+            "fn apply() { let batch_id = fastrand::u64(..); }",
+        ] {
+            assert!(
+                has_rule(&invariant_rules(path, source), "rust-identity-sentinel"),
+                "{source}"
+            );
+        }
+        for source in [
+            "impl S { fn new() -> Self { Self { engine_generation: 0 } } }",
+            "impl S { fn initial() -> Self { Self { epoch: 0 } } }",
+            "impl Default for S { fn default() -> Self { Self { session_id: String::new() } } }",
+            "fn apply() { let operation_id = owner.next_operation_id(); }",
+            "fn apply() { Request { validator: observed.etag.clone() }; }",
+            "fn apply() { let lease_id = lease.id.clone(); }",
+            "fn apply() { let count = 0; }",
+            "fn apply() { let line_index = 0; }",
+            "fn apply() {\n    // behavior-contract: identity-mint-ok: conflict session id derives from the owner-issued parent session id\n    let session_id = format!(\"{}-conflict\", parent_id);\n}",
+        ] {
+            assert!(invariant_rules(path, source).is_empty(), "{source}");
+        }
+    }
+
+    // Behavior Contract: failure disposition stays typed; message text never enters
+    // control flow (audit I2).
+    #[test]
+    fn error_disposition_cannot_be_decoded_from_message_text() {
+        let path = "crates/lomo-sync/src/fixture.rs";
+        for source in [
+            "fn f(error: E) { if error.to_string().contains(\"conflict_session_missing\") {} }",
+            "fn f(e: E) { let x = e.to_string() == \"locked\"; }",
+            "fn f(failure: F) { match failure.to_string().as_str() { _ => {} } }",
+            "fn code_from_message(msg: &str) -> bool { let _ = msg; true }",
+            "fn f(e: E) { let bad = \"x\".starts_with(&e.to_string()); }",
+        ] {
+            assert!(
+                has_rule(&invariant_rules(path, source), "rust-error-sniff"),
+                "{source}"
+            );
+        }
+        for source in [
+            "fn f(e: E) { log(e.to_string()); }",
+            "fn f(e: E) { if e.code() == Code::Locked {} }",
+            "fn f(title: T) { if title.to_string().contains(\"x\") {} }",
+            "fn from_message_body() {}",
+        ] {
+            assert!(invariant_rules(path, source).is_empty(), "{source}");
+        }
+    }
+
+    // Behavior Contract: boundary crates prove a byte budget before materializing bytes
+    // (audit I5); the budget may be a `take` adapter, a `read_bounded` owner or a
+    // declared `bounded-io-ok` contract.
+    #[test]
+    fn boundary_crates_must_prove_the_byte_budget() {
+        let path = "crates/lomo-sync/src/s3/adapter.rs";
+        for source in [
+            "fn f() { let _bytes = std::fs::read(path).unwrap(); }",
+            "fn f() { let _bytes = fs::read(&temp_path).unwrap(); }",
+            "fn f() { file.read_to_end(&mut bytes).unwrap(); }",
+            "fn f() { file.read_to_string(&mut text).unwrap(); }",
+        ] {
+            assert!(
+                has_rule(&invariant_rules(path, source), "rust-bounded-io"),
+                "{source}"
+            );
+        }
+        for source in [
+            "fn read_bounded() { file.read_to_end(&mut bytes).unwrap(); }",
+            "fn f() { file.take(limit).read_to_end(&mut bytes).unwrap(); }",
+            "fn f() {\n    // behavior-contract: bounded-io-ok: durable record <= 1MiB schema cap\n    let _b = fs::read(&path).unwrap();\n}",
+        ] {
+            assert!(invariant_rules(path, source).is_empty(), "{source}");
+        }
+        // Non-boundary crates keep ordinary bounded-record reads.
+        assert!(
+            invariant_rules(
+                "crates/lomo-application/src/fixture.rs",
+                "fn f() { let _b = fs::read(&path).unwrap(); }"
+            )
+            .is_empty()
+        );
+    }
+
+    // Behavior Contract: remote transport calls stay out of loops and collection
+    // iteration in the sync/git/lan boundary crates (audit I5, N+1 amplification).
+    #[test]
+    fn remote_transport_calls_cannot_hide_in_loops() {
+        let path = "crates/lomo-git/src/endpoint.rs";
+        for source in [
+            "fn f() { for path in paths { transport.get_to_temp(&path).unwrap(); } }",
+            "fn f() { paths.iter().map(|p| self.fetch_object(p)).collect::<Vec<_>>(); }",
+            "fn f() { while has_more { self.load_object(key).unwrap(); } }",
+            "fn f() { loop { self.put_object(k, v).unwrap(); } }",
+        ] {
+            assert!(
+                has_rule(&invariant_rules(path, source), "rust-loop-boundary-io"),
+                "{source}"
+            );
+        }
+        for source in [
+            "fn f() { for path in paths { let _ = fs::metadata(&path).unwrap(); } }",
+            "fn f() { let _ = self.fetch_object(key).unwrap(); }",
+            "fn f() {\n    for p in paths {\n        // behavior-contract: loop-io-ok: single resumable page\n        self.get_object(p).unwrap();\n    }\n}",
+        ] {
+            assert!(invariant_rules(path, source).is_empty(), "{source}");
+        }
+        // The rule is scoped to remote boundary crates only.
+        assert!(
+            invariant_rules(
+                "crates/lomo-application/src/fixture.rs",
+                "fn f() { for p in paths { self.load_object(p).unwrap(); } }"
+            )
+            .is_empty()
+        );
+    }
+
+    // Behavior Contract: single-exit authority rows fail closed — a missing owner is a
+    // policy error, comments/strings cannot carry a call site, and only owner files may
+    // perform the call (audit I3).
+    #[test]
+    fn authority_rows_are_enforced_and_fail_closed() {
+        let directory = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+        let foreign_root = directory.path();
+        // A root without the owner files rejects the table instead of passing vacuously.
+        assert!(
+            rejected(policy::kotlin_authority_violations(foreign_root, &[]))
+                .contains("owner does not exist")
+        );
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap_or_else(|error| panic!("root: {error}"));
+        let violating = vec![(
+            "apps/android/app/src/feature/memos/Rogue.kt".to_owned(),
+            "package x\nclass R { fun f() { session.publishMount(state) } }".to_owned(),
+        )];
+        let violations = checked(policy::kotlin_authority_violations(&root, &violating));
+        assert_eq!(violations.len(), 1);
+        assert_eq!(
+            violations.first().map(|v| v.rule),
+            Some("kotlin-single-exit-authority")
+        );
+
+        for source in [
+            // Owner file performing the call.
+            (
+                "apps/android/data/src/engine/ManagedEngineSession.kt",
+                "class M { fun f() { publishMount(state) } }",
+            ),
+            // A comment or string literal cannot carry a call site.
+            (
+                "apps/android/app/src/feature/memos/Rogue.kt",
+                "class R { // publishMount(state)\n val doc = \"invalidation.setSyncing(true)\" }",
+            ),
+            // Non-authority calls elsewhere are fine.
+            (
+                "apps/android/app/src/feature/memos/Rogue.kt",
+                "class R { fun f() { repo.refresh() } }",
+            ),
+        ] {
+            let files = vec![(source.0.to_owned(), source.1.to_owned())];
+            assert!(
+                checked(policy::kotlin_authority_violations(&root, &files)).is_empty(),
+                "{}",
+                source.1
+            );
+        }
+    }
 }

@@ -142,8 +142,8 @@ pub struct ResolvedGraph {
 /// Production `LomoApplication.onCreate` reflectively installs data Koin modules.
 pub const APP_RUNTIME_DATA_KOIN_INSTALLER: &str = "com.lomo.app.LomoApplication.onCreate";
 
-/// Kotlin getter for `val dataModules` in `com.lomo.data.di.DataModules`.
-pub const APP_RUNTIME_DATA_KOIN_INSTALLED: &str = "com.lomo.data.di.DataModulesKt.getDataModules";
+/// Resolved callable id of `val dataModules` in `com.lomo.data.di.DataModules`.
+pub const APP_RUNTIME_DATA_KOIN_INSTALLED: &str = "com.lomo.data.di.dataModules";
 
 /// One module-level contract edge for the app→data reflection install (not a symbol allowlist).
 pub fn install_app_data_koin_runtime_edge(graph: &mut ResolvedGraph) {
