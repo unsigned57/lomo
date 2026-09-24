@@ -3,7 +3,7 @@
 //! Conversion-only mapping between `BoltFFI` DTOs and `lomo-store`. Business rules stay in
 //! `lomo-store`.
 
-use std::{collections::BTreeMap, fs, io::Write, path::Path};
+use std::{collections::BTreeMap, fs, path::Path};
 
 use boltffi::data;
 use lomo_core::{ErrorCategory, LomoError, OperationId, RetryDisposition};
@@ -17,17 +17,14 @@ use crate::{EngineError, media_ffi::MediaPromotePlanDto};
 ///
 /// The media owner deliberately accepts paths, not full byte buffers. This conversion edge is the
 /// only place where the verified LAN payload crosses into the filesystem-backed media pipeline.
+/// The LAN assembled artifact stays durable until batch retirement: the payload streams into the
+/// incoming scratch by `fs::copy`, so `StagedTemp` consumption can never delete journal state.
 fn stage_received_attachment(
     workspace_root: &Path,
     attachment: &lomo_lan::AuthorizedReceivedAttachment,
 ) -> Result<lomo_media::MediaStaged, LomoError> {
     let digest = lomo_media::ContentDigest::parse(attachment.digest())?;
-    let expected_size = u64::try_from(attachment.bytes().len()).map_err(|_error| {
-        lomo_media::media_validation(
-            "media_stage_received_size_invalid",
-            "received media size does not fit the durable size width",
-        )
-    })?;
+    let expected_size = attachment.size_bytes();
     let incoming_dir = workspace_root
         .join(lomo_media::STAGE_DIR_NAME)
         .join("incoming");
@@ -48,28 +45,20 @@ fn stage_received_attachment(
             ));
         }
     } else {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&incoming_path)
-            .map_err(|error| {
-                lomo_media::media_storage(
-                    "media_stage_incoming_create_failed",
-                    &format!("failed to create received media scratch: {error}"),
-                )
-            })?;
-        file.write_all(attachment.bytes()).map_err(|error| {
+        fs::copy(attachment.payload_path(), &incoming_path).map_err(|error| {
             lomo_media::media_storage(
                 "media_stage_incoming_write_failed",
-                &format!("failed to write received media scratch: {error}"),
+                &format!("failed to stream received media scratch: {error}"),
             )
         })?;
-        file.sync_all().map_err(|error| {
-            lomo_media::media_storage(
-                "media_stage_incoming_sync_failed",
-                &format!("failed to sync received media scratch: {error}"),
-            )
-        })?;
+        let (copied_digest, copied_size) =
+            lomo_media::ContentDigest::stream_from_path(&incoming_path)?;
+        if copied_digest != digest || copied_size != expected_size {
+            return Err(lomo_media::media_corruption(
+                "media_stage_incoming_payload_mismatch",
+                "received payload bytes drifted from the authorized LAN digest",
+            ));
+        }
     }
     let staged = lomo_media::stage_media(
         workspace_root,
@@ -151,24 +140,6 @@ pub fn prepare_received_lan_create(
         .map(|(plan, _final_relative_path)| plan)
         .collect();
     Ok((content, pending_promotes))
-}
-
-/// Resolves staged media candidates referenced by one Markdown body without a store handle.
-///
-/// # Errors
-///
-/// Returns a typed validation or Markdown-projection error when a candidate is malformed or the
-/// body contains an ambiguous staged destination.
-pub fn select_memo_promote_plans_for_ffi(
-    content: &str,
-    candidates: Vec<MediaPromotePlanDto>,
-) -> Result<Vec<MediaPromotePlanDto>, EngineError> {
-    let plans = crate::media_ffi::pending_promotes_from_ffi(&candidates)?;
-    let selected = store::select_pending_promotes(content, &plans).map_err(EngineError::from)?;
-    Ok(candidates
-        .into_iter()
-        .filter(|candidate| crate::media_ffi::pending_promote_is_selected(candidate, &selected))
-        .collect())
 }
 
 /// Opaque page cursor for Kotlin (pipe-encoded store cursor; not SQL).
@@ -309,16 +280,6 @@ pub struct StoreMemoSnapshot {
     pub body: String,
 }
 
-/// Attachment path still referenced by a durable history revision (D6 orphan keep-set).
-#[data]
-#[derive(Clone, Debug)]
-pub struct StoreHistoryAttachmentRef {
-    pub memo_id: String,
-    pub revision: u64,
-    pub relative_path: String,
-    pub owner_key: String,
-}
-
 #[data]
 #[derive(Clone, Debug)]
 pub struct StoreMemoHistoryRevision {
@@ -417,8 +378,7 @@ pub struct StoreMemoCommit {
 
 /// One CAS target for an atomic permanent-delete batch.
 ///
-/// `source_path` and the expected fingerprint come from the Rust-owned projection. SAF uses the
-/// same facts to fence each platform document action before the final projection commit.
+/// `source_path` and the expected fingerprint come from the Rust-owned projection walk.
 #[data]
 #[derive(Clone, Debug)]
 pub struct StoreMemoDeleteTarget {
@@ -426,8 +386,6 @@ pub struct StoreMemoDeleteTarget {
     pub source_path: String,
     pub expected_revision: u64,
     pub expected_fingerprint: String,
-    /// SAF fills this after its verified platform action.  Direct batches leave it `None`.
-    pub result_fingerprint: Option<String>,
 }
 
 #[data]
@@ -632,6 +590,7 @@ pub fn workspace_document_facts_mutation(
         expected_fingerprint: command.expected_fingerprint,
         projection: Some(facts),
         trashed_at_ms: None,
+        batch_targets: Vec::new(),
     })
 }
 

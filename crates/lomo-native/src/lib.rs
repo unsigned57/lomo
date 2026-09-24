@@ -27,48 +27,49 @@ pub use lan_ffi::{
     LanAttachmentDto, LanBatchPreviewDto, LanBatchRecoveryDto, LanBindCandidateDto,
     LanCommittableItemDto, LanCommittedReceivedItemDto, LanDeviceIdentityDto, LanDiscoveredPeerDto,
     LanDiscoverySnapshotDto, LanFailedReceivedItemDto, LanInboxWaitDto, LanLocalIdentityDto,
-    LanNetworkSnapshotDto, LanOutgoingBatchDto, LanOutgoingBatchPhaseDto, LanPairingChallengeDto,
+    LanNetworkSnapshotDto, LanOutgoingBatchDriveDto, LanOutgoingBatchDto, LanPairingChallengeDto,
     LanPairingTranscriptDto, LanPeerDto, LanPeerPageDto, LanPendingBatchDto,
     LanPendingReceivedItemDto, LanProtocolLimitsDto, LanReceivedBatchDecisionDto,
-    LanRuntimeInboxDto, LanSendItemDto, LanServicePhaseDto, LanServiceSnapshotDto,
-    LanSessionChallengeDto, LanSessionPhaseDto, LanSessionSnapshotDto, LanTransferShapeDto,
-    lan_approval_is_valid, lan_approve_receive, lan_confirm_pairing, lan_list_peers,
-    lan_pairing_short_code, lan_prepare_send, lan_revoke_peer, lan_unconfirmed_chunks,
+    LanReceivedBatchDriveDto, LanRuntimeInboxDto, LanSendItemDto, LanServicePhaseDto,
+    LanServiceSnapshotDto, LanSessionChallengeDto, LanSessionPhaseDto, LanSessionSnapshotDto,
+    LanTransferShapeDto,
 };
 pub use media_ffi::{
-    ArchiveExportResultDto, ArchiveInspectResultDto, MediaAttachmentRefDto, MediaCommittedEntryDto,
-    MediaManifestDto, MediaOrphanSweepResultDto, MediaPromotePlanDto, MediaPromoteResultDto,
-    MediaSourceKind, MediaStageLeaseDto, MediaStageOwnerKindDto, MediaStageRecordDto,
-    MediaStageReleaseDto, MediaStagedDto, MediaTrashEntryDto, pending_promotes_from_ffi,
+    ArchiveExportResultDto, ArchiveInspectResultDto, MediaCommittedEntryDto, MediaManifestDto,
+    MediaPromotePlanDto, MediaSourceKind, MediaStageLeaseDto, MediaStageOwnerKindDto,
+    MediaStageRecordDto, MediaStageReleaseDto, MediaStagedDto, MediaTrashEntryDto,
+    pending_promotes_from_ffi,
 };
 pub use session_ffi::{
     SessionCivilDate, SessionCivilTime, SessionCreateMemoRequest, SessionDateCount,
-    SessionDeleteMemoRequest, SessionFireReminderRequest, SessionHourCount, SessionMemoView,
-    SessionPinMemoRequest, SessionRestoreRequest, SessionRestoreRevisionRequest,
-    SessionReviewCandidate, SessionSearchHit, SessionSearchMode, SessionSearchOutcome,
-    SessionSearchPage, SessionSearchRequest, SessionStatistics, SessionStatisticsSnapshot,
-    SessionTagCount, SessionTaskItem, SessionToggleTaskRequest, SessionUpdateMemoRequest,
-    SessionWeeklyHourCount, batch_from_ffi, result_to_ffi,
+    SessionDeleteMemoRequest, SessionFireReminderRequest, SessionHourCount, SessionMediaFailureDto,
+    SessionMediaProtectionDto, SessionMediaSweepReportDto, SessionMemoView, SessionPinMemoRequest,
+    SessionRestoreRequest, SessionRestoreRevisionRequest, SessionReviewCandidate, SessionSearchHit,
+    SessionSearchMode, SessionSearchOutcome, SessionSearchPage, SessionSearchRequest,
+    SessionStatistics, SessionStatisticsSnapshot, SessionTagCount, SessionTaskItem,
+    SessionToggleTaskRequest, SessionUpdateMemoRequest, SessionWeeklyHourCount, batch_from_ffi,
+    result_to_ffi,
 };
 pub use store_ffi::{
-    StoreHistoryAttachmentRef, StoreInvalidationScope, StoreMemoBatchCommit, StoreMemoBatchDelete,
-    StoreMemoCommand, StoreMemoCommandKind, StoreMemoCommit, StoreMemoDeleteTarget,
-    StoreMemoDeletedMemo, StoreMemoFilters, StoreMemoHistoryPage, StoreMemoHistoryRevision,
-    StoreMemoPage, StoreMemoQuery, StoreMemoQueryBoundary, StoreMemoSnapshot, StoreMemoSort,
-    StoreMemoSortField, StoreMemoStatisticsRow, StoreMemoSummary, StorePageCursor,
-    StorePlannedAlarm, StoreRebuildResult, StoreReminderPlan, StoreSafHistoryProjectionReference,
+    StoreInvalidationScope, StoreMemoBatchCommit, StoreMemoBatchDelete, StoreMemoCommand,
+    StoreMemoCommandKind, StoreMemoCommit, StoreMemoDeleteTarget, StoreMemoDeletedMemo,
+    StoreMemoFilters, StoreMemoHistoryPage, StoreMemoHistoryRevision, StoreMemoPage,
+    StoreMemoQuery, StoreMemoQueryBoundary, StoreMemoSnapshot, StoreMemoSort, StoreMemoSortField,
+    StoreMemoStatisticsRow, StoreMemoSummary, StorePageCursor, StorePlannedAlarm,
+    StoreRebuildResult, StoreReminderPlan, StoreSafHistoryProjectionReference,
     StoreSafMemoCreateBegin, StoreSafMemoCreateBeginResult, StoreSafMemoProjection,
     StoreSafMemoProjectionReference, StoreSafMemoRollbackResult, StoreSafTrashProjectionReference,
     StoreSidebarDateCount, StoreSidebarProjection, StoreSidebarTagCount, StoreSortDirection,
 };
 pub use sync_ffi::{
-    SyncConflictPageDto, SyncConflictPathDto, SyncConflictPathStatusDto, SyncConflictResolutionDto,
-    SyncConflictResolveResultDto, SyncConflictSessionStateDto, SyncConflictSuggestionDto,
-    SyncCyclePlanSummaryDto, SyncRetryDispositionDto, SyncRetryHintDto, SyncSecretLeaseDto,
-    looks_like_lease_id, sync_inspect_cycle_plan, sync_issue_secret_lease, sync_list_conflicts,
-    sync_probe_secret_lease, sync_read_conflict_artifact, sync_reset_control_tree,
-    sync_resolve_conflicts, sync_retry_disposition_from_name, sync_revoke_secret_lease,
-    sync_run_cycle, sync_suggest_conflict_resolution, sync_workspace_generation,
+    SyncBackendConfigDto, SyncBackendProbeDto, SyncConflictPageDto, SyncConflictPathDto,
+    SyncConflictPathStatusDto, SyncConflictResolutionDto, SyncConflictResolveResultDto,
+    SyncConflictSessionStateDto, SyncConflictSuggestionDto, SyncCyclePlanSummaryDto,
+    SyncCycleStatusDto, SyncRetryDispositionDto, SyncRetryHintDto, SyncSecretLeaseDto,
+    looks_like_lease_id, sync_cycle_status, sync_issue_secret_lease, sync_list_conflicts,
+    sync_probe_backend, sync_probe_secret_lease, sync_read_conflict_artifact, sync_request_cancel,
+    sync_reset_control_tree, sync_resolve_conflicts, sync_revoke_secret_lease, sync_run_cycle,
+    sync_suggest_conflict_resolution, sync_workspace_generation,
 };
 
 #[data]
@@ -450,6 +451,16 @@ pub struct ExchangeArtifact {
     pub digest: String,
 }
 
+/// A durable staged artifact the host streams without routing its bytes through a plan.
+/// `path` names host-private staging; `digest` and `length` are re-verified while streaming.
+#[data]
+#[derive(Clone, Debug)]
+pub struct StagedArtifactSource {
+    pub path: String,
+    pub length: u64,
+    pub digest: String,
+}
+
 #[data]
 #[derive(Clone, Copy, Debug)]
 pub enum WriteMode {
@@ -498,6 +509,15 @@ pub enum PlatformAction {
         artifact: ExchangeArtifact,
         path: String,
         mode: WriteMode,
+        expected_target: ExpectedFingerprint,
+    },
+    /// Streams a retained staged artifact to `path`, re-verifying digest and length during the
+    /// transfer. A target already holding the declared digest is satisfaction, not conflict.
+    ArtifactWrite {
+        action_id: String,
+        capability_token: String,
+        source: StagedArtifactSource,
+        path: String,
         expected_target: ExpectedFingerprint,
     },
     Move {
@@ -703,6 +723,8 @@ impl std::error::Error for EngineError {}
 pub struct LomoEngine {
     pub(crate) core: Arc<core::LomoEngine>,
     lan: Arc<Mutex<lomo_lan::LanServiceManager>>,
+    /// Reusable outbound session channels; socket waits live here, never under `lan`.
+    lan_pool: lomo_lan::LanConnectionPool,
     lan_pump: lan_pump::LanInboxPump,
     pub(crate) control_root: PathBuf,
     pub(crate) workspace: Option<core::WorkspaceDescriptor>,
@@ -759,6 +781,7 @@ impl LomoEngine {
         Ok(Self {
             core,
             lan,
+            lan_pool: lomo_lan::LanConnectionPool::default(),
             lan_pump,
             control_root,
             workspace,
@@ -842,6 +865,7 @@ impl LomoEngine {
     /// Internal when the lifecycle lock was poisoned by a prior panic.
     pub fn stop_lan_service(&self) -> Result<LanServiceSnapshotDto, EngineError> {
         self.lan_pump.stop();
+        self.lan_pool.close_all();
         let snapshot = self.lan_manager()?.stop();
         Ok(lan_ffi::service_snapshot_to_ffi(&snapshot))
     }
@@ -929,17 +953,6 @@ impl LomoEngine {
             .map_err(EngineError::from)
     }
 
-    /// Returns the current LAN inbox. Accept/work is owned by the listener pump started with the
-    /// service; this method does not wait on the socket.
-    ///
-    /// # Errors
-    ///
-    /// Lifecycle, network, validation or authentication errors from the Rust receive state.
-    pub fn poll_lan_listener(&self, now_ms: i64) -> Result<LanRuntimeInboxDto, EngineError> {
-        let _: i64 = now_ms;
-        self.lan_runtime_inbox()
-    }
-
     /// Waits until the listener pump advances the inbox generation or `timeout_ms` elapses.
     ///
     /// # Errors
@@ -953,21 +966,23 @@ impl LomoEngine {
         let generation = self
             .lan_pump
             .await_generation(last_generation, Duration::from_millis(timeout_ms))?;
-        let inbox = self.lan_manager()?.inbox().map_err(EngineError::from)?;
+        let inbox = if generation > last_generation {
+            let inbox = self
+                .lan_manager()?
+                .inbox(lan_pump::unix_now_ms())
+                .map_err(EngineError::from)?;
+            Some(lan_ffi::runtime_inbox_to_ffi(&inbox))
+        } else {
+            None
+        };
+        let (rejected_connection_count, last_rejection_diagnostic) =
+            self.lan_pump.rejection_stats();
         Ok(LanInboxWaitDto {
             generation,
-            inbox: lan_ffi::runtime_inbox_to_ffi(&inbox),
+            inbox,
+            rejected_connection_count,
+            last_rejection_diagnostic,
         })
-    }
-
-    /// Returns bounded live and durable LAN work without waiting for a socket connection.
-    ///
-    /// # Errors
-    ///
-    /// Internal when the lifecycle lock was poisoned by a prior panic.
-    pub fn lan_runtime_inbox(&self) -> Result<LanRuntimeInboxDto, EngineError> {
-        let inbox = self.lan_manager()?.inbox().map_err(EngineError::from)?;
-        Ok(lan_ffi::runtime_inbox_to_ffi(&inbox))
     }
 
     /// Returns the challenge that awaits the platform Keystore signature.
@@ -1014,7 +1029,9 @@ impl LomoEngine {
         let parsed = lan_ffi::pairing_id_from_ffi(&pairing_id).map_err(EngineError::from)?;
         self.lan_manager()?
             .confirm_pairing(&parsed, &signature, now_ms)
-            .map_err(EngineError::from)
+            .map_err(EngineError::from)?;
+        self.lan_pump.bump();
+        Ok(())
     }
 
     /// Discards one pending pairing after the user rejects the short code.
@@ -1030,7 +1047,9 @@ impl LomoEngine {
         let parsed = lan_ffi::pairing_id_from_ffi(&pairing_id).map_err(EngineError::from)?;
         self.lan_manager()?
             .decline_pairing(&parsed)
-            .map_err(EngineError::from)
+            .map_err(EngineError::from)?;
+        self.lan_pump.bump();
+        Ok(())
     }
 
     /// Opens a fresh mutually authenticated session with a trusted discovered peer.
@@ -1074,31 +1093,6 @@ impl LomoEngine {
             .map_err(EngineError::from)
     }
 
-    /// Returns the pending Rust-owned session transcript that Android Keystore must sign.
-    ///
-    /// # Errors
-    ///
-    /// Validation for a malformed or non-pending session id.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires owned strings for foreign callers"
-    )]
-    pub fn lan_session_challenge(
-        &self,
-        session_id: String,
-    ) -> Result<LanSessionChallengeDto, EngineError> {
-        let parsed = lan_ffi::session_id_from_ffi(&session_id).map_err(EngineError::from)?;
-        self.lan_manager()?
-            .session_challenge(&parsed)
-            .map(|challenge| lan_ffi::session_challenge_to_ffi(&challenge))
-            .ok_or_else(|| {
-                EngineError::from(lomo_lan::lan_validation(
-                    "lan_session_unknown",
-                    "session is not pending",
-                ))
-            })
-    }
-
     /// Submits only the platform signature over the Rust-owned session transcript.
     ///
     /// # Errors
@@ -1118,7 +1112,9 @@ impl LomoEngine {
         let parsed = lan_ffi::session_id_from_ffi(&session_id).map_err(EngineError::from)?;
         self.lan_manager()?
             .confirm_session(&parsed, &signature, now_ms)
-            .map_err(EngineError::from)
+            .map_err(EngineError::from)?;
+        self.lan_pump.bump();
+        Ok(())
     }
 
     /// Returns public state for an authenticated session; pending state is not invented.
@@ -1167,30 +1163,10 @@ impl LomoEngine {
             lan_ffi::session_id_from_ffi(&session_id).map_err(EngineError::from)?;
         let plan = lan_ffi::batch_plan_from_ffi(&batch_id, &items).map_err(EngineError::from)?;
         self.lan_manager()?
-            .prepare_batch(&parsed_session, plan)
-            .map_err(EngineError::from)
-    }
-
-    /// Returns the bounded approval preview rebuilt from durable runtime state.
-    ///
-    /// # Errors
-    ///
-    /// Validation for a malformed or unknown batch id.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires owned strings for foreign callers"
-    )]
-    pub fn lan_batch_preview(&self, batch_id: String) -> Result<LanBatchPreviewDto, EngineError> {
-        let parsed = lomo_lan::LanBatchId::parse(&batch_id).map_err(EngineError::from)?;
-        self.lan_manager()?
-            .batch_preview(&parsed)
-            .map(|preview| lan_ffi::batch_preview_to_ffi(&preview))
-            .ok_or_else(|| {
-                EngineError::from(lomo_lan::lan_validation(
-                    "lan_batch_unknown",
-                    "batch is not present in durable recovery state",
-                ))
-            })
+            .prepare_batch(&parsed_session, plan, lan_pump::unix_now_ms())
+            .map_err(EngineError::from)?;
+        self.lan_pump.bump();
+        Ok(())
     }
 
     /// Captures the active Rust workspace generation and notifies the sender.
@@ -1232,7 +1208,9 @@ impl LomoEngine {
                 now_ms,
                 lomo_lan::APPROVAL_TTL_MS,
             )
-            .map_err(EngineError::from)
+            .map_err(EngineError::from)?;
+        self.lan_pump.bump();
+        Ok(())
     }
 
     /// Persists and sends one terminal batch rejection.
@@ -1256,54 +1234,60 @@ impl LomoEngine {
         let parsed_batch = lomo_lan::LanBatchId::parse(&batch_id).map_err(EngineError::from)?;
         self.lan_manager()?
             .reject_batch(&parsed_session, &parsed_batch, rejected_at_ms)
-            .map_err(EngineError::from)
+            .map_err(EngineError::from)?;
+        self.lan_pump.bump();
+        Ok(())
     }
 
-    /// Sends one approved plaintext chunk through the Rust-owned AEAD/wire/ACK state machine.
+    /// Sends up to `lan_transfer_shape().max_inflight_chunks` approved plaintext chunks through
+    /// the Rust-owned AEAD/wire/ACK state machine.
+    ///
+    /// Phases: validate+seal plans under the manager lock, drive the pooled session channel's
+    /// sliding window off-lock, then apply every drained acknowledgement under the lock again.
+    /// A refusal applies durable outgoing state before the error surfaces; undrained chunks
+    /// stay unconfirmed and are retried by the caller.
     ///
     /// # Errors
     ///
     /// Permission when the workspace/session/batch is not writable and approved; validation for
-    /// foreign coordinates; crypto/network errors or a mismatched acknowledgement.
+    /// foreign coordinates or an empty batch; crypto/network errors or a mismatched
+    /// acknowledgement.
     #[expect(
         clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires owned strings and chunk bytes"
+        reason = "BoltFFI boundary requires owned chunk batch DTOs"
     )]
-    pub fn send_lan_batch_chunk(
+    pub fn send_lan_batch_chunks(
         &self,
-        session_id: String,
-        batch_id: String,
-        item_index: u32,
-        attachment_slot: u32,
-        chunk_index: u32,
-        plaintext: Vec<u8>,
+        chunks: Vec<lan_ffi::LanChunkSendDto>,
     ) -> Result<(), EngineError> {
         self.lan_workspace_root()?;
-        let parsed_session =
-            lan_ffi::session_id_from_ffi(&session_id).map_err(EngineError::from)?;
-        let parsed_batch = lomo_lan::LanBatchId::parse(&batch_id).map_err(EngineError::from)?;
-        let item_index = u16::try_from(item_index).map_err(|_error| {
-            EngineError::from(lomo_lan::lan_validation(
-                "lan_ffi_item_index_invalid",
-                "batch item index does not fit the wire index width",
-            ))
-        })?;
-        let attachment_slot = u16::try_from(attachment_slot).map_err(|_error| {
-            EngineError::from(lomo_lan::lan_validation(
-                "lan_ffi_attachment_slot_invalid",
-                "attachment slot does not fit the wire slot width",
-            ))
-        })?;
-        self.lan_manager()?
-            .send_batch_chunk(
-                &parsed_session,
-                &parsed_batch,
-                item_index,
-                attachment_slot,
-                chunk_index,
-                &plaintext,
-            )
-            .map_err(EngineError::from)
+        let plans = {
+            let mut manager = self.lan_manager()?;
+            chunks
+                .iter()
+                .map(|chunk| {
+                    let binding = lan_chunk_binding(chunk)?;
+                    manager
+                        .plan_batch_chunk(&binding, &chunk.plaintext)
+                        .map_err(EngineError::from)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let drained = self
+            .lan_pool
+            .send_chunks(&plans)
+            .map_err(EngineError::from)?;
+        let now_ms = lan_pump::unix_now_ms();
+        let mut manager = self.lan_manager()?;
+        for (confirmed, response) in &drained {
+            manager
+                .apply_chunk_receipt(confirmed, response, now_ms)
+                .map_err(EngineError::from)?;
+        }
+        drop(manager);
+        // Receipts advanced durable confirmed state: observers must see the progress fact.
+        self.lan_pump.bump();
+        Ok(())
     }
 
     /// Returns only the durable missing chunk indices for one received payload.
@@ -1438,7 +1422,62 @@ impl LomoEngine {
         self.lan_manager()?
             .record_received_item_committed(&parsed_batch, command.item_id(), &memo_id)
             .map_err(EngineError::from)?;
+        self.lan_pump.bump();
         Ok(session_ffi::commit_to_ffi(&memo_id, created.commit_result))
+    }
+
+    /// Durably records a commit failure for one received item so it leaves the automatic
+    /// committable queue with an explicit failure disposition.
+    ///
+    /// # Errors
+    ///
+    /// Validation for a malformed batch id, out-of-range item index or unknown batch; storage for
+    /// journal persistence failures.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned identifiers for foreign callers"
+    )]
+    pub fn fail_received_lan_item(
+        &self,
+        batch_id: String,
+        item_index: u32,
+        code: String,
+    ) -> Result<(), EngineError> {
+        let parsed_batch = lomo_lan::LanBatchId::parse(&batch_id).map_err(EngineError::from)?;
+        let item_index = u16::try_from(item_index).map_err(|_error| {
+            EngineError::from(lomo_lan::lan_validation(
+                "lan_ffi_item_index_invalid",
+                "batch item index does not fit the wire index width",
+            ))
+        })?;
+        let item_id = {
+            let manager = self.lan_manager()?;
+            let batch = manager.batch_recovery(&parsed_batch).ok_or_else(|| {
+                EngineError::from(lomo_lan::lan_validation(
+                    "lan_batch_unknown",
+                    "batch is not present in durable recovery state",
+                ))
+            })?;
+            let item_id = batch
+                .plan()
+                .items()
+                .get(usize::from(item_index))
+                .ok_or_else(|| {
+                    EngineError::from(lomo_lan::lan_validation(
+                        "lan_item_not_in_batch",
+                        "received item index does not belong to the batch",
+                    ))
+                })?
+                .item_id()
+                .clone();
+            drop(manager);
+            item_id
+        };
+        self.lan_manager()?
+            .record_received_item_failed(&parsed_batch, &item_id, &code)
+            .map_err(EngineError::from)?;
+        self.lan_pump.bump();
+        Ok(())
     }
 
     /// Lists the installation-level trusted peer registry owned by Rust.
@@ -1468,11 +1507,25 @@ impl LomoEngine {
     ) -> Result<LanPeerPageDto, EngineError> {
         let parsed = lomo_lan::DeviceId::parse(&device_id).map_err(EngineError::from)?;
         let mut manager = self.lan_manager()?;
+        // Revocation must also release the revoked peer's pooled channels, so a blocked
+        // outbound wait cannot outlive the trust it rode on.
+        let evicted_sessions: Vec<lomo_lan::LanSessionId> = manager
+            .inbox(revoked_at_ms)
+            .map_err(EngineError::from)?
+            .active_sessions()
+            .iter()
+            .filter(|session| session.peer_device_id() == &parsed)
+            .map(|session| session.session_id().clone())
+            .collect();
         manager
             .revoke_peer(&parsed, revoked_at_ms)
             .map_err(EngineError::from)?;
         let page = lan_ffi::peer_page_from_manager(&manager);
         drop(manager);
+        for session_id in &evicted_sessions {
+            self.lan_pool.evict_session(session_id);
+        }
+        self.lan_pump.bump();
         Ok(page)
     }
 
@@ -1509,20 +1562,6 @@ impl LomoEngine {
             .map_err(EngineError::from)
     }
 
-    /// Durably cancels a job.
-    ///
-    /// # Errors
-    ///
-    /// Returns validation, journal, or engine lifecycle errors.
-    pub fn cancel_job(&self, job_id: String) -> Result<CancelOutcome, EngineError> {
-        let parsed_job_id = core::JobId::parse(&job_id).map_err(EngineError::from)?;
-        drop(job_id);
-        self.core
-            .cancel_job(&parsed_job_id)
-            .map(cancel_to_ffi)
-            .map_err(EngineError::from)
-    }
-
     /// Renders constrained inline Markdown into a conversion-only `RenderDocument` DTO.
     ///
     /// Facade performs no Markdown rule interpretation beyond calling `lomo-workspace`.
@@ -1541,294 +1580,6 @@ impl LomoEngine {
         let source = workspace::SourceBytes::try_from_str(&content).map_err(EngineError::from)?;
         let document = workspace::render_markdown(&source).map_err(EngineError::from)?;
         render_document_to_ffi(&document)
-    }
-
-    /// Starts a workspace scan job. Platform batches must still be driven by the host.
-    ///
-    /// # Errors
-    ///
-    /// Returns structured engine/driver validation errors.
-    pub fn start_workspace_scan(
-        &self,
-        request: WorkspaceScanRequest,
-        deadline_millis: u64,
-    ) -> Result<String, EngineError> {
-        let payload = workspace::WorkspaceScanRequest {
-            page_size: request.page_size,
-            cursor: request.cursor,
-            root_path: request.root_path,
-        };
-        let request_json = serde_json::to_string(&payload).map_err(|_error| {
-            EngineError::from(static_boundary_error(
-                core::ErrorCategory::Validation,
-                "invalid_workspace_scan_request",
-                core::RetryDisposition::Never,
-                None,
-                "workspace scan request cannot be serialized",
-            ))
-        })?;
-        let job_id = self
-            .core
-            .start_user_job(
-                workspace::SCAN_DRIVER_KIND,
-                &request_json,
-                Duration::from_millis(deadline_millis),
-            )
-            .map_err(EngineError::from)?;
-        Ok(job_id.as_str().to_owned())
-    }
-
-    /// Reads the durable scan page published by a scan job (available on completion / page publish).
-    ///
-    /// # Errors
-    ///
-    /// Returns unknown-job or decode errors.
-    pub fn read_workspace_scan_page(
-        &self,
-        job_id: String,
-    ) -> Result<WorkspaceScanPage, EngineError> {
-        let parsed = core::JobId::parse(&job_id).map_err(EngineError::from)?;
-        drop(job_id);
-        let payload = self
-            .core
-            .take_job_result(&parsed)
-            .map_err(EngineError::from)?
-            .ok_or_else(|| {
-                EngineError::from(static_boundary_error(
-                    core::ErrorCategory::Validation,
-                    "workspace_scan_page_unavailable",
-                    core::RetryDisposition::Transient,
-                    Some(parsed.as_str()),
-                    "workspace scan page has not been published yet",
-                ))
-            })?;
-        let page: workspace::WorkspaceScanPage =
-            serde_json::from_str(&payload).map_err(|_error| {
-                EngineError::from(static_boundary_error(
-                    core::ErrorCategory::Corruption,
-                    "workspace_scan_page_corrupt",
-                    core::RetryDisposition::AfterUserAction,
-                    Some(parsed.as_str()),
-                    "workspace scan page payload cannot be decoded",
-                ))
-            })?;
-        Ok(WorkspaceScanPage {
-            items: page
-                .items
-                .into_iter()
-                .map(|item| WorkspaceMemoSummary {
-                    path: item.path,
-                    identity: item.identity,
-                    time_part: item.time_part,
-                    fingerprint: item.fingerprint,
-                    tags: item.tags,
-                    attachments: item.attachments,
-                    reminders: item
-                        .reminders
-                        .into_iter()
-                        .map(workspace_reminder_to_ffi)
-                        .collect(),
-                    has_todo: item.has_todo,
-                    has_url: item.has_url,
-                    content: WorkspaceMemoContentReference {
-                        exchange_token: item.content.exchange_token,
-                        length: item.content.length,
-                        digest: item.content.digest,
-                    },
-                    body_start: item.body_start,
-                    body_end: item.body_end,
-                    start_line: item.start_line,
-                    end_line: item.end_line,
-                })
-                .collect(),
-            next_cursor: page.next_cursor,
-        })
-    }
-
-    /// Starts a bounded scan of durable workspace trash records.
-    ///
-    /// # Errors
-    ///
-    /// Returns structured engine/driver validation errors.
-    pub fn start_workspace_trash_scan(
-        &self,
-        request: WorkspaceTrashScanRequest,
-        deadline_millis: u64,
-    ) -> Result<String, EngineError> {
-        let payload = workspace::TrashScanRequest {
-            page_size: request.page_size,
-            cursor: request.cursor,
-        };
-        let request_json = serde_json::to_string(&payload).map_err(|_error| {
-            EngineError::from(static_boundary_error(
-                core::ErrorCategory::Validation,
-                "invalid_workspace_trash_scan_request",
-                core::RetryDisposition::Never,
-                None,
-                "workspace trash scan request cannot be serialized",
-            ))
-        })?;
-        let job_id = self
-            .core
-            .start_user_job(
-                workspace::TRASH_SCAN_DRIVER_KIND,
-                &request_json,
-                Duration::from_millis(deadline_millis),
-            )
-            .map_err(EngineError::from)?;
-        Ok(job_id.as_str().to_owned())
-    }
-
-    /// Reads the durable page published by a completed workspace trash scan.
-    ///
-    /// # Errors
-    ///
-    /// Returns unknown-job or decode errors.
-    pub fn read_workspace_trash_scan_page(
-        &self,
-        job_id: String,
-    ) -> Result<WorkspaceTrashScanPage, EngineError> {
-        let parsed = core::JobId::parse(&job_id).map_err(EngineError::from)?;
-        drop(job_id);
-        let payload = self
-            .core
-            .take_job_result(&parsed)
-            .map_err(EngineError::from)?
-            .ok_or_else(|| {
-                EngineError::from(static_boundary_error(
-                    core::ErrorCategory::Validation,
-                    "workspace_trash_scan_page_unavailable",
-                    core::RetryDisposition::Transient,
-                    Some(parsed.as_str()),
-                    "workspace trash scan page has not been published yet",
-                ))
-            })?;
-        let page: workspace::TrashScanPage = serde_json::from_str(&payload).map_err(|_error| {
-            EngineError::from(static_boundary_error(
-                core::ErrorCategory::Corruption,
-                "workspace_trash_scan_page_corrupt",
-                core::RetryDisposition::AfterUserAction,
-                Some(parsed.as_str()),
-                "workspace trash scan page payload cannot be decoded",
-            ))
-        })?;
-        Ok(WorkspaceTrashScanPage {
-            items: page
-                .items
-                .into_iter()
-                .map(|item| WorkspaceTrashMemoSummary {
-                    memo_id: item.memo_id,
-                    source_path: item.source_path,
-                    time_part: item.time_part,
-                    source_fingerprint: item.source_fingerprint,
-                    chronology_epoch_ms: item.chronology_epoch_ms,
-                    trashed_at_ms: item.trashed_at_ms,
-                    tags: item.tags,
-                    attachments: item.attachments,
-                    reminders: item
-                        .reminders
-                        .into_iter()
-                        .map(workspace_reminder_to_ffi)
-                        .collect(),
-                    has_todo: item.has_todo,
-                    has_url: item.has_url,
-                    content: WorkspaceMemoContentReference {
-                        exchange_token: item.content.exchange_token,
-                        length: item.content.length,
-                        digest: item.content.digest,
-                    },
-                })
-                .collect(),
-            next_cursor: page.next_cursor,
-        })
-    }
-
-    /// Starts a bounded scan of durable workspace history records.
-    ///
-    /// # Errors
-    ///
-    /// Returns structured engine/driver validation errors.
-    pub fn start_workspace_history_scan(
-        &self,
-        request: WorkspaceHistoryScanRequest,
-        deadline_millis: u64,
-    ) -> Result<String, EngineError> {
-        let payload = workspace::HistoryScanRequest {
-            page_size: request.page_size,
-            cursor: request.cursor,
-        };
-        let request_json = serde_json::to_string(&payload).map_err(|_error| {
-            EngineError::from(static_boundary_error(
-                core::ErrorCategory::Validation,
-                "invalid_workspace_history_scan_request",
-                core::RetryDisposition::Never,
-                None,
-                "workspace history scan request cannot be serialized",
-            ))
-        })?;
-        let job_id = self
-            .core
-            .start_user_job(
-                workspace::HISTORY_SCAN_DRIVER_KIND,
-                &request_json,
-                Duration::from_millis(deadline_millis),
-            )
-            .map_err(EngineError::from)?;
-        Ok(job_id.as_str().to_owned())
-    }
-
-    /// Reads the durable page published by a completed workspace history scan.
-    ///
-    /// # Errors
-    ///
-    /// Returns unknown-job or decode errors.
-    pub fn read_workspace_history_scan_page(
-        &self,
-        job_id: String,
-    ) -> Result<WorkspaceHistoryScanPage, EngineError> {
-        let parsed = core::JobId::parse(&job_id).map_err(EngineError::from)?;
-        drop(job_id);
-        let payload = self
-            .core
-            .take_job_result(&parsed)
-            .map_err(EngineError::from)?
-            .ok_or_else(|| {
-                EngineError::from(static_boundary_error(
-                    core::ErrorCategory::Validation,
-                    "workspace_history_scan_page_unavailable",
-                    core::RetryDisposition::Transient,
-                    Some(parsed.as_str()),
-                    "workspace history scan page has not been published yet",
-                ))
-            })?;
-        let page: workspace::HistoryScanPage =
-            serde_json::from_str(&payload).map_err(|_error| {
-                EngineError::from(static_boundary_error(
-                    core::ErrorCategory::Corruption,
-                    "workspace_history_scan_page_corrupt",
-                    core::RetryDisposition::AfterUserAction,
-                    Some(parsed.as_str()),
-                    "workspace history scan page payload cannot be decoded",
-                ))
-            })?;
-        Ok(WorkspaceHistoryScanPage {
-            items: page
-                .items
-                .into_iter()
-                .map(|item| WorkspaceHistoryRevisionSummary {
-                    memo_id: item.memo_id,
-                    revision: item.revision,
-                    created_at_ms: item.created_at_ms,
-                    file_fingerprint: item.file_fingerprint,
-                    content: WorkspaceMemoContentReference {
-                        exchange_token: item.content.exchange_token,
-                        length: item.content.length,
-                        digest: item.content.digest,
-                    },
-                })
-                .collect(),
-            next_cursor: page.next_cursor,
-        })
     }
 
     /// Starts a workspace document command job.
@@ -1963,113 +1714,6 @@ impl LomoEngine {
         })
     }
 
-    /// Starts a durable provider-backed trash command job.
-    ///
-    /// # Errors
-    ///
-    /// Returns structured engine/driver validation errors.
-    pub fn start_workspace_trash_command(
-        &self,
-        command: WorkspaceTrashCommand,
-        deadline_millis: u64,
-    ) -> Result<String, EngineError> {
-        let payload = workspace::TrashCommandRequest {
-            path: command.path,
-            expected_fingerprint: command.expected_fingerprint,
-            command: match command.command {
-                WorkspaceTrashCommandKind::Trash {
-                    identity,
-                    chronology_epoch_ms,
-                } => workspace::TrashCommandKind::Trash {
-                    identity,
-                    chronology_epoch_ms,
-                },
-                WorkspaceTrashCommandKind::Restore { identity } => {
-                    workspace::TrashCommandKind::Restore { identity }
-                }
-                WorkspaceTrashCommandKind::PermanentDelete { identity } => {
-                    workspace::TrashCommandKind::PermanentDelete { identity }
-                }
-            },
-        };
-        let request_json = serde_json::to_string(&payload).map_err(|_error| {
-            EngineError::from(static_boundary_error(
-                core::ErrorCategory::Validation,
-                "invalid_workspace_trash_command_request",
-                core::RetryDisposition::Never,
-                None,
-                "workspace trash command request cannot be serialized",
-            ))
-        })?;
-        let job_id = self
-            .core
-            .start_user_job(
-                workspace::TRASH_COMMAND_DRIVER_KIND,
-                &request_json,
-                Duration::from_millis(deadline_millis),
-            )
-            .map_err(EngineError::from)?;
-        Ok(job_id.as_str().to_owned())
-    }
-
-    /// Reads a completed durable trash-command result.
-    ///
-    /// # Errors
-    ///
-    /// Returns unknown-job or decode errors.
-    pub fn read_workspace_trash_command_result(
-        &self,
-        job_id: String,
-    ) -> Result<WorkspaceTrashCommandResult, EngineError> {
-        let parsed = core::JobId::parse(&job_id).map_err(EngineError::from)?;
-        drop(job_id);
-        let payload = self
-            .core
-            .take_job_result(&parsed)
-            .map_err(EngineError::from)?
-            .ok_or_else(|| {
-                EngineError::from(static_boundary_error(
-                    core::ErrorCategory::Validation,
-                    "workspace_trash_command_result_unavailable",
-                    core::RetryDisposition::Transient,
-                    Some(parsed.as_str()),
-                    "workspace trash command result has not been published yet",
-                ))
-            })?;
-        let result: workspace::TrashCommandResult =
-            serde_json::from_str(&payload).map_err(|_error| {
-                EngineError::from(static_boundary_error(
-                    core::ErrorCategory::Corruption,
-                    "workspace_trash_command_result_corrupt",
-                    core::RetryDisposition::AfterUserAction,
-                    Some(parsed.as_str()),
-                    "workspace trash command result payload cannot be decoded",
-                ))
-            })?;
-        Ok(WorkspaceTrashCommandResult {
-            path: result.path,
-            result_fingerprint: result.result_fingerprint,
-            affected_memo: WorkspaceDocumentMemoFacts {
-                path: result.affected_memo.path,
-                identity: result.affected_memo.identity,
-                time_part: result.affected_memo.time_part,
-                fingerprint: result.affected_memo.fingerprint,
-                tags: result.affected_memo.tags,
-                attachments: result.affected_memo.attachments,
-                reminders: result
-                    .affected_memo
-                    .reminders
-                    .into_iter()
-                    .map(workspace_reminder_to_ffi)
-                    .collect(),
-                has_todo: result.affected_memo.has_todo,
-                has_url: result.affected_memo.has_url,
-                content: result.affected_memo.content,
-            },
-            trashed_at_ms: result.trashed_at_ms,
-        })
-    }
-
     /// Explicitly shuts down the engine within a bounded deadline.
     ///
     /// # Errors
@@ -2077,6 +1721,7 @@ impl LomoEngine {
     /// Returns validation, journal, or engine lifecycle errors.
     pub fn shutdown(&self, deadline_millis: u64) -> Result<ShutdownOutcome, EngineError> {
         self.lan_pump.stop();
+        self.lan_pool.close_all();
         // Closing the engine retires the operation epoch behind a durable witness, so a stale
         // retry after reopen fails with `operation_expired` instead of re-executing.
         if session_ffi::session_is_open(self)? {
@@ -2189,35 +1834,6 @@ impl LomoEngine {
         session_ffi::session_query_count(self, query)
     }
 
-    /// Resolves memo-bound staged media with the Rust Markdown owner before platform execution.
-    ///
-    /// The returned plans are still path-only DTOs; the host is an executor, never the selector.
-    ///
-    /// # Errors
-    ///
-    /// Returns a typed validation or Markdown-projection error when a candidate is malformed or
-    /// the body contains an ambiguous staged destination.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires owned body and candidate DTOs"
-    )]
-    pub fn select_memo_promote_plans(
-        &self,
-        content: String,
-        candidates: Vec<MediaPromotePlanDto>,
-    ) -> Result<Vec<MediaPromotePlanDto>, EngineError> {
-        store_ffi::select_memo_promote_plans_for_ffi(&content, candidates)
-    }
-
-    /// Reads compact materialized memo statistics without crossing full memo bodies.
-    ///
-    /// # Errors
-    ///
-    /// No active workspace store, or store projection errors.
-    pub fn memo_statistics_rows(&self) -> Result<Vec<StoreMemoStatisticsRow>, EngineError> {
-        session_ffi::session_memo_statistics_rows(self)
-    }
-
     /// Complete active sidebar aggregate without memo pagination.
     ///
     /// # Errors
@@ -2238,59 +1854,6 @@ impl LomoEngine {
     )]
     pub fn get_memo(&self, memo_id: String) -> Result<Option<StoreMemoSnapshot>, EngineError> {
         session_ffi::session_projected_memo(self, &memo_id)
-    }
-
-    /// Canonical source-document fingerprint for O(1) SAF create/append planning.
-    ///
-    /// # Errors
-    ///
-    /// No active workspace store, invalid path, inconsistent sibling projection, or store errors.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires owned String for foreign callers"
-    )]
-    pub fn source_document_fingerprint(
-        &self,
-        source_path: String,
-    ) -> Result<Option<String>, EngineError> {
-        session_ffi::session_source_document_fingerprint(self, &source_path)
-    }
-
-    /// Dark-build history attachment paths for D6 orphan keep-set.
-    ///
-    /// # Errors
-    ///
-    /// No active workspace store, or store history list errors.
-    pub fn list_history_attachment_refs(
-        &self,
-    ) -> Result<Vec<StoreHistoryAttachmentRef>, EngineError> {
-        session_ffi::session_list_history_attachment_refs(self)
-    }
-
-    /// Dark-build bounded memo history page.
-    ///
-    /// # Errors
-    ///
-    /// No active workspace store, or store history list errors.
-    pub fn list_memo_history(
-        &self,
-        memo_id: String,
-        cursor: Option<String>,
-        limit: u32,
-    ) -> Result<StoreMemoHistoryPage, EngineError> {
-        self.session_list_history(memo_id, cursor, limit)
-    }
-
-    /// Dark-build `apply_memo_command` (synchronous commit facts + invalidation scopes).
-    ///
-    /// # Errors
-    ///
-    /// Session owns document writes; this foreign surface fails closed without opening a store.
-    pub fn apply_memo_command(
-        &self,
-        _command: StoreMemoCommand,
-    ) -> Result<StoreMemoCommit, EngineError> {
-        Err(session_ffi::session_owns_document_writes())
     }
 
     /// Commits Rust-parsed facts from a completed workspace document command into the projection.
@@ -2443,23 +2006,6 @@ impl LomoEngine {
         media_ffi::ffi_release_stage_lease(&media_root, lease)
     }
 
-    /// Dark-build promote staged media to final relative path (path-only).
-    ///
-    /// # Errors
-    ///
-    /// Media validation/storage errors.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires owned String for foreign callers"
-    )]
-    pub fn promote_media(
-        &self,
-        workspace_root: String,
-        plan: MediaPromotePlanDto,
-    ) -> Result<MediaPromoteResultDto, EngineError> {
-        media_ffi::ffi_promote_media(&workspace_root, plan)
-    }
-
     /// Dark-build media manifest listing (paths + digests only).
     ///
     /// # Errors
@@ -2472,36 +2018,9 @@ impl LomoEngine {
     pub fn query_media_manifest(
         &self,
         workspace_root: String,
+        verified_entries: Vec<MediaCommittedEntryDto>,
     ) -> Result<MediaManifestDto, EngineError> {
-        media_ffi::ffi_query_media_manifest(&workspace_root)
-    }
-
-    /// Dark-build media orphan sweep (path-only host maps).
-    ///
-    /// # Errors
-    ///
-    /// Media storage/validation errors.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires owned String for foreign callers"
-    )]
-    pub fn media_orphan_sweep(
-        &self,
-        media_root: String,
-        committed: Vec<MediaCommittedEntryDto>,
-        refs: Vec<MediaAttachmentRefDto>,
-        existing_trash: Vec<MediaTrashEntryDto>,
-        now_ms: Option<u64>,
-        recovery_window_ms: u64,
-    ) -> Result<MediaOrphanSweepResultDto, EngineError> {
-        media_ffi::ffi_media_orphan_sweep(
-            &media_root,
-            committed,
-            refs,
-            existing_trash,
-            now_ms,
-            recovery_window_ms,
-        )
+        media_ffi::ffi_query_media_manifest(&workspace_root, verified_entries)
     }
 
     /// Dark-build archive v2 export (path-only).
@@ -2521,82 +2040,22 @@ impl LomoEngine {
         media_ffi::ffi_archive_export(&workspace_root, &archive_path)
     }
 
-    /// Dark-build archive inspect into staging (does not touch live).
+    /// Imports an archive through the session-owned switch: stage, activate, migrate, rebuild.
     ///
     /// # Errors
     ///
-    /// Archive inspect errors.
+    /// No active workspace session, or archive/migration/rebuild errors.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "BoltFFI boundary requires owned String for foreign callers"
     )]
-    pub fn archive_inspect(
+    pub fn session_import_archive(
         &self,
+        workspace_root: String,
         archive_path: String,
         staging_root: String,
-    ) -> Result<ArchiveInspectResultDto, EngineError> {
-        media_ffi::ffi_archive_inspect(&archive_path, &staging_root)
-    }
-
-    /// Dark-build archive import (inspect alias) into staging.
-    ///
-    /// # Errors
-    ///
-    /// Archive import errors.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires owned String for foreign callers"
-    )]
-    pub fn archive_import(
-        &self,
-        archive_path: String,
-        staging_root: String,
-    ) -> Result<ArchiveInspectResultDto, EngineError> {
-        media_ffi::ffi_archive_import(&archive_path, &staging_root)
-    }
-
-    /// Dark-build atomic archive activate.
-    ///
-    /// # Errors
-    ///
-    /// Activate validation/storage errors.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires owned String for foreign callers"
-    )]
-    pub fn archive_activate(
-        &self,
-        staging_root: String,
-        live_root: String,
-        backup_root: String,
-    ) -> Result<(), EngineError> {
-        media_ffi::ffi_archive_activate(&staging_root, &live_root, &backup_root)
-    }
-
-    /// Dark-build import → activate → rebuild on activated live root.
-    ///
-    /// # Errors
-    ///
-    /// Import, activate, or rebuild errors.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "BoltFFI boundary requires owned String for foreign callers"
-    )]
-    pub fn archive_import_activate_rebuild(
-        &self,
-        archive_path: String,
-        staging_root: String,
-        live_root: String,
-        backup_root: String,
-        batch_size: u32,
     ) -> Result<StoreRebuildResult, EngineError> {
-        media_ffi::ffi_archive_import_activate_rebuild(
-            &archive_path,
-            &staging_root,
-            &live_root,
-            &backup_root,
-            batch_size,
-        )
+        session_ffi::session_import_archive(self, &workspace_root, &archive_path, &staging_root)
     }
 }
 
@@ -2966,17 +2425,14 @@ pub fn action_to_ffi(value: &core::PlatformAction) -> PlatformAction {
             locator,
             exchange_token,
             expected_source,
-        } => PlatformAction::ReadToExchange {
-            action_id: action_id.as_str().to_owned(),
-            capability_token: capability.as_str().to_owned(),
-            path: path.as_str().to_owned(),
-            document_handle: match locator {
-                core::DocumentLocator::Path(_) => None,
-                core::DocumentLocator::Opaque(handle) => Some(handle.as_str().to_owned()),
-            },
-            exchange_token: exchange_token.as_str().to_owned(),
-            expected_source: expected_to_ffi(expected_source),
-        },
+        } => read_to_exchange_to_ffi(
+            action_id,
+            capability,
+            path,
+            locator,
+            exchange_token,
+            expected_source,
+        ),
         core::PlatformAction::WriteFromExchange {
             action_id,
             capability,
@@ -2995,6 +2451,13 @@ pub fn action_to_ffi(value: &core::PlatformAction) -> PlatformAction {
             },
             expected_target: expected_to_ffi(expected_target),
         },
+        core::PlatformAction::ArtifactWrite {
+            action_id,
+            capability,
+            source,
+            path,
+            expected_target,
+        } => artifact_write_to_ffi(action_id, capability, source, path, expected_target),
         core::PlatformAction::Move {
             action_id,
             capability,
@@ -3043,6 +2506,53 @@ pub fn expected_to_ffi(value: &core::ExpectedFingerprint) -> ExpectedFingerprint
         core::ExpectedFingerprint::Match(evidence) => ExpectedFingerprint::Match {
             evidence: evidence_to_ffi(evidence),
         },
+    }
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn artifact_source_to_ffi(value: &core::StagedArtifactSource) -> StagedArtifactSource {
+    StagedArtifactSource {
+        path: value.path().to_owned(),
+        length: value.length(),
+        digest: value.digest().as_str().to_owned(),
+    }
+}
+
+fn read_to_exchange_to_ffi(
+    action_id: &core::ActionId,
+    capability: &core::CapabilityToken,
+    path: &core::RelativeWorkspacePath,
+    locator: &core::DocumentLocator,
+    exchange_token: &core::ExchangeToken,
+    expected_source: &core::ExpectedFingerprint,
+) -> PlatformAction {
+    PlatformAction::ReadToExchange {
+        action_id: action_id.as_str().to_owned(),
+        capability_token: capability.as_str().to_owned(),
+        path: path.as_str().to_owned(),
+        document_handle: match locator {
+            core::DocumentLocator::Path(_) => None,
+            core::DocumentLocator::Opaque(handle) => Some(handle.as_str().to_owned()),
+        },
+        exchange_token: exchange_token.as_str().to_owned(),
+        expected_source: expected_to_ffi(expected_source),
+    }
+}
+
+fn artifact_write_to_ffi(
+    action_id: &core::ActionId,
+    capability: &core::CapabilityToken,
+    source: &core::StagedArtifactSource,
+    path: &core::RelativeWorkspacePath,
+    expected_target: &core::ExpectedFingerprint,
+) -> PlatformAction {
+    PlatformAction::ArtifactWrite {
+        action_id: action_id.as_str().to_owned(),
+        capability_token: capability.as_str().to_owned(),
+        source: artifact_source_to_ffi(source),
+        path: path.as_str().to_owned(),
+        expected_target: expected_to_ffi(expected_target),
     }
 }
 
@@ -3458,6 +2968,35 @@ fn static_boundary_error(
     }
 }
 
+/// Converts one chunk-send DTO into a validated wire binding at the FFI edge.
+fn lan_chunk_binding(
+    chunk: &lan_ffi::LanChunkSendDto,
+) -> Result<lomo_lan::ChunkBinding, EngineError> {
+    let parsed_session =
+        lan_ffi::session_id_from_ffi(&chunk.session_id).map_err(EngineError::from)?;
+    let parsed_batch = lomo_lan::LanBatchId::parse(&chunk.batch_id).map_err(EngineError::from)?;
+    let item_index = u16::try_from(chunk.item_index).map_err(|_error| {
+        EngineError::from(lomo_lan::lan_validation(
+            "lan_ffi_item_index_invalid",
+            "batch item index does not fit the wire index width",
+        ))
+    })?;
+    let attachment_slot = u16::try_from(chunk.attachment_slot).map_err(|_error| {
+        EngineError::from(lomo_lan::lan_validation(
+            "lan_ffi_attachment_slot_invalid",
+            "attachment slot does not fit the wire slot width",
+        ))
+    })?;
+    lomo_lan::ChunkBinding::new(
+        &parsed_session,
+        parsed_batch.as_str(),
+        item_index,
+        attachment_slot,
+        chunk.chunk_index,
+    )
+    .map_err(EngineError::from)
+}
+
 pub(crate) fn lan_pump_boundary_error(code: &'static str, diagnostic: &'static str) -> EngineError {
     EngineError::from(static_boundary_error(
         core::ErrorCategory::Internal,
@@ -3473,27 +3012,6 @@ pub(crate) fn lan_pump_boundary_error(code: &'static str, diagnostic: &'static s
 pub struct AttachmentNameMapping {
     pub original: String,
     pub stored: String,
-}
-
-#[export]
-/// Remaps attachment destinations in free-content Markdown via the workspace owner.
-///
-/// # Errors
-///
-/// Returns structured engine validation errors when spans cannot be verified.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "BoltFFI free-function boundary requires owned String / Vec wire types"
-)]
-pub fn remap_markdown_attachment_destinations(
-    content: String,
-    mappings: Vec<AttachmentNameMapping>,
-) -> Result<String, EngineError> {
-    let mut map = std::collections::BTreeMap::new();
-    for mapping in mappings {
-        map.insert(mapping.original, mapping.stored);
-    }
-    workspace::remap_attachment_destinations(&content, &map).map_err(EngineError::from)
 }
 
 #[data]
@@ -3558,18 +3076,4 @@ pub fn plan_reminder_token_mutation(
         ReminderTokenMutationKind::RecordFired => workspace::ReminderTokenMutation::RecordFired,
     };
     workspace::plan_reminder_token_mutation(&current_token, kind).map_err(EngineError::from)
-}
-
-#[export]
-/// Projects memo body text from raw header+body bytes via the workspace owner.
-///
-/// # Errors
-///
-/// Returns validation when the raw block is empty or not a unique single-memo projection.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "BoltFFI free-function boundary requires owned String wire types"
-)]
-pub fn extract_memo_body_from_raw(raw: String) -> Result<String, EngineError> {
-    workspace::extract_memo_body_from_raw(&raw).map_err(EngineError::from)
 }
