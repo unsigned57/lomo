@@ -2,6 +2,7 @@ package com.lomo.data.engine.sync
 
 import com.lomo.data.engine.SessionNativeBridge
 import com.lomo.nativebridge.EngineError
+import com.lomo.nativebridge.SyncBackendConfigDto as BridgeBackendConfig
 import com.lomo.nativebridge.SyncConflictPageDto as BridgeConflictPage
 import com.lomo.nativebridge.SyncConflictPathDto as BridgeConflictPath
 import com.lomo.nativebridge.SyncConflictPathStatusDto as BridgePathStatus
@@ -9,7 +10,8 @@ import com.lomo.nativebridge.SyncConflictResolutionDto as BridgeResolution
 import com.lomo.nativebridge.SyncConflictResolveResultDto as BridgeResolveResult
 import com.lomo.nativebridge.SyncConflictSessionStateDto as BridgeConflictSession
 import com.lomo.nativebridge.SyncCyclePlanSummaryDto as BridgeCyclePlan
-import com.lomo.nativebridge.SyncRetryHintDto as BridgeRetryHint
+import com.lomo.nativebridge.SyncCycleStatusDto as BridgeCycleStatus
+import com.lomo.nativebridge.SyncBackendProbeDto as BridgeBackendProbe
 import com.lomo.nativebridge.SyncSecretLeaseDto as BridgeSecretLease
 
 /**
@@ -84,13 +86,6 @@ class BoltFfiRemoteSyncRepository(
         }
     }
 
-    override fun inspectCyclePlan(workspaceRoot: String): RemoteSyncCyclePlanSummary {
-        require(workspaceRoot.isNotBlank()) { "workspace root must be non-blank" }
-        return mapBoundary {
-            bridge.inspectCyclePlan(workspaceRoot = workspaceRoot).toFacts()
-        }
-    }
-
     override fun runCycle(request: RemoteSyncCycleRequest): RemoteSyncCyclePlanSummary {
         require(request.workspaceRoot.isNotBlank()) { "workspace root must be non-blank" }
         require(request.backendKind.isNotBlank()) { "backend kind must be non-blank" }
@@ -98,13 +93,7 @@ class BoltFfiRemoteSyncRepository(
             bridge
                 .runCycle(
                     workspaceRoot = request.workspaceRoot.trim(),
-                    backendKind = request.backendKind.trim(),
-                    endpointUrl = request.endpointUrl,
-                    usernameOrAccessKey = request.usernameOrAccessKey,
-                    bucket = request.bucket,
-                    prefix = request.prefix,
-                    region = request.region,
-                    remoteDatasetId = request.remoteDatasetId,
+                    config = request.toBridgeConfig(),
                     secretLeaseId = request.secretLeaseId.orEmpty(),
                     applyRemote = request.applyRemote,
                 ).toFacts()
@@ -122,6 +111,33 @@ class BoltFfiRemoteSyncRepository(
         require(workspaceRoot.isNotBlank()) { "workspace root must be non-blank" }
         mapBoundary {
             bridge.resetControlTree(workspaceRoot = workspaceRoot.trim())
+        }
+    }
+
+    override fun cycleStatus(workspaceRoot: String): RemoteSyncCycleStatus {
+        require(workspaceRoot.isNotBlank()) { "workspace root must be non-blank" }
+        return mapBoundary {
+            bridge.cycleStatus(workspaceRoot = workspaceRoot.trim()).toFacts()
+        }
+    }
+
+    override fun requestCancel(workspaceRoot: String): RemoteSyncCycleStatus {
+        require(workspaceRoot.isNotBlank()) { "workspace root must be non-blank" }
+        return mapBoundary {
+            bridge.requestCancel(workspaceRoot = workspaceRoot.trim()).toFacts()
+        }
+    }
+
+    override fun probeBackend(request: RemoteSyncCycleRequest): RemoteSyncBackendProbe {
+        require(request.workspaceRoot.isNotBlank()) { "workspace root must be non-blank" }
+        require(request.backendKind.isNotBlank()) { "backend kind must be non-blank" }
+        return mapBoundary {
+            bridge
+                .probeBackend(
+                    workspaceRoot = request.workspaceRoot.trim(),
+                    config = request.toBridgeConfig(),
+                    secretLeaseId = request.secretLeaseId.orEmpty(),
+                ).toFacts()
         }
     }
 }
@@ -158,38 +174,20 @@ class FreeFunctionSyncNativeBridge : SyncNativeBridge {
         com.lomo.nativebridge.syncRevokeSecretLease(leaseId)
     }
 
-    override fun retryDispositionFromName(name: String): BridgeRetryHint =
-        com.lomo.nativebridge.syncRetryDispositionFromName(name)
-
     override fun readConflictArtifact(
         workspaceRoot: String,
         artifactRef: String,
     ): ByteArray = com.lomo.nativebridge.syncReadConflictArtifact(workspaceRoot, artifactRef)
 
-    override fun inspectCyclePlan(workspaceRoot: String): BridgeCyclePlan =
-        com.lomo.nativebridge.syncInspectCyclePlan(workspaceRoot)
-
     override fun runCycle(
         workspaceRoot: String,
-        backendKind: String,
-        endpointUrl: String,
-        usernameOrAccessKey: String,
-        bucket: String,
-        prefix: String,
-        region: String,
-        remoteDatasetId: String,
+        config: BridgeBackendConfig,
         secretLeaseId: String,
         applyRemote: Boolean,
     ): BridgeCyclePlan =
         com.lomo.nativebridge.syncRunCycle(
             workspaceRoot,
-            backendKind,
-            endpointUrl,
-            usernameOrAccessKey,
-            bucket,
-            prefix,
-            region,
-            remoteDatasetId,
+            config,
             secretLeaseId,
             applyRemote,
         )
@@ -200,6 +198,19 @@ class FreeFunctionSyncNativeBridge : SyncNativeBridge {
     override fun resetControlTree(workspaceRoot: String) {
         com.lomo.nativebridge.syncResetControlTree(workspaceRoot)
     }
+
+    override fun cycleStatus(workspaceRoot: String): BridgeCycleStatus =
+        com.lomo.nativebridge.syncCycleStatus(workspaceRoot)
+
+    override fun requestCancel(workspaceRoot: String): BridgeCycleStatus =
+        com.lomo.nativebridge.syncRequestCancel(workspaceRoot)
+
+    override fun probeBackend(
+        workspaceRoot: String,
+        config: BridgeBackendConfig,
+        secretLeaseId: String,
+    ): BridgeBackendProbe =
+        com.lomo.nativebridge.syncProbeBackend(workspaceRoot, config, secretLeaseId)
 }
 
 /**
@@ -212,25 +223,13 @@ internal class EngineOwnedSyncNativeBridge(
 ) : SyncNativeBridge by freeFunctions {
     override fun runCycle(
         workspaceRoot: String,
-        backendKind: String,
-        endpointUrl: String,
-        usernameOrAccessKey: String,
-        bucket: String,
-        prefix: String,
-        region: String,
-        remoteDatasetId: String,
+        config: BridgeBackendConfig,
         secretLeaseId: String,
         applyRemote: Boolean,
     ): BridgeCyclePlan =
         engine.syncRunCycle(
             workspaceRoot = workspaceRoot,
-            backendKind = backendKind,
-            endpointUrl = endpointUrl,
-            usernameOrAccessKey = usernameOrAccessKey,
-            bucket = bucket,
-            prefix = prefix,
-            region = region,
-            remoteDatasetId = remoteDatasetId,
+            config = config,
             secretLeaseId = secretLeaseId,
             applyRemote = applyRemote,
         )
@@ -305,19 +304,3 @@ private fun BridgeResolveResult.toFacts(): RemoteSyncConflictResolveResult =
 
 private fun BridgeSecretLease.toFacts(): RemoteSyncSecretLease =
     RemoteSyncSecretLease(leaseId = leaseId)
-
-private fun BridgeCyclePlan.toFacts(): RemoteSyncCyclePlanSummary =
-    RemoteSyncCyclePlanSummary(
-        sessionId = sessionId,
-        sessionKind = sessionKind,
-        sessionRevision = sessionRevision.toLong(),
-        baselineEstablished = baselineEstablished,
-        ensurePresentCount = ensurePresentCount.toInt(),
-        ensureAbsentCount = ensureAbsentCount.toInt(),
-        pullPresentCount = pullPresentCount.toInt(),
-        openConflictCount = openConflictCount.toInt(),
-        holdCount = holdCount.toInt(),
-        openConflictPaths = openConflictPaths.toInt(),
-        conflictRevision = conflictRevision?.toLong(),
-        retryDisposition = retryDisposition,
-    )

@@ -1,6 +1,7 @@
 package com.lomo.data.engine.sync
 
 import com.lomo.domain.model.RemoteSyncBackendLabel
+import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.RemoteSyncBinaryConflictFacts
 import com.lomo.domain.model.RemoteSyncCenterFailure
 import com.lomo.domain.model.RemoteSyncConfigSummary
@@ -11,9 +12,10 @@ import com.lomo.domain.model.RemoteSyncConflictResolution
 import com.lomo.domain.model.RemoteSyncConflictResolveResult
 import com.lomo.domain.model.RemoteSyncConflictSessionState
 import com.lomo.domain.model.RemoteSyncMarkdownConflictFacts
-import com.lomo.domain.model.RemoteSyncSessionPhase
 import com.lomo.domain.model.RemoteSyncSessionProgress
+import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.repository.RemoteSyncCenterRepository
+import kotlinx.coroutines.flow.first
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
@@ -26,41 +28,36 @@ import com.lomo.data.sync.SyncConflictSuggestionPort
 import com.lomo.data.engine.sync.RemoteSyncConflictSessionState as DataConflictSession
 
 /**
- * Stage-5 dark adapter: [RemoteSyncRepository] / BoltFFI facts → domain
- * [RemoteSyncCenterRepository] (Wave-4 / P5-10 residual close).
+ * Production adapter: [RemoteSyncRepository] / BoltFFI facts → domain
+ * [RemoteSyncCenterRepository].
  *
- * Mapping + optional durable artifact body load for markdown detail. Registered in
- * [com.lomo.data.di.SyncDataModule] / navigation / presentation DI post P5-13.
- *
- * Config/session are presentation stubs until production scheduler cutover (honest null/idle
- * shells when no owner is injected).
+ * `configSummary`/`sessionProgress`/`requestCancel` project the durable Rust cycle record
+ * (`cycle_state.rec`/`cancel_request.rec`) — the sole status authority. Config label fields
+ * come from persisted settings via [LomoDataStore]. Mapping + optional durable artifact body
+ * load for markdown detail.
  */
 class RemoteSyncCenterRepositoryAdapter(
     private val remoteSync: RemoteSyncRepository,
     private val artifactSource: ConflictArtifactSource,
     private val suggestionPort: SyncConflictSuggestionPort,
-    private val configSummaryProvider: (String) -> RemoteSyncConfigSummary = {
-        RemoteSyncConfigSummary(
-            backend = RemoteSyncBackendLabel.None,
-            attentionCount = 0,
-            lastVerifiedAtEpochMillis = null,
-            schedulePolicyLabel = null,
-        )
-    },
-    private val sessionProgressProvider: (String) -> RemoteSyncSessionProgress = {
-        RemoteSyncSessionProgress(
-            phase = RemoteSyncSessionPhase.Idle,
-            completedActions = 0,
-            totalActions = null,
-            canCancel = false,
-        )
-    },
+    private val configSource: RemoteSyncConfigSource,
 ) : RemoteSyncCenterRepository {
-    override fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary =
-        configSummaryProvider(workspaceRoot)
+    override suspend fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary {
+        val status = mapBoundary { remoteSync.cycleStatus(workspaceRoot) }
+        val backend = configSource.backendType()
+        return RemoteSyncConfigSummary(
+            backend = backend.toRemoteSyncBackendLabel(),
+            attentionCount = status.openConflictCount,
+            lastVerifiedAtEpochMillis = status.lastSuccessfulAtMs?.takeIf { it > 0L },
+            schedulePolicyLabel = configSource.schedulePolicyLabel(backend),
+        )
+    }
 
-    override fun sessionProgress(workspaceRoot: String): RemoteSyncSessionProgress =
-        sessionProgressProvider(workspaceRoot)
+    override suspend fun sessionProgress(workspaceRoot: String): RemoteSyncSessionProgress =
+        mapBoundary { remoteSync.cycleStatus(workspaceRoot).toSessionProgress() }
+
+    override suspend fun requestCancel(workspaceRoot: String): RemoteSyncSessionProgress =
+        mapBoundary { remoteSync.requestCancel(workspaceRoot).toSessionProgress() }
 
     override fun listConflicts(
         workspaceRoot: String,
@@ -278,3 +275,53 @@ private fun DataConflictResolveResult.toDomain(): RemoteSyncConflictResolveResul
         conflictRevision = conflictRevision,
         appliedPaths = appliedPaths,
     )
+
+private fun SyncBackendType.toRemoteSyncBackendLabel(): RemoteSyncBackendLabel =
+    when (this) {
+        SyncBackendType.GIT -> RemoteSyncBackendLabel.Git
+        SyncBackendType.WEBDAV -> RemoteSyncBackendLabel.WebDav
+        SyncBackendType.S3 -> RemoteSyncBackendLabel.S3
+        SyncBackendType.NONE,
+        SyncBackendType.INBOX,
+        -> RemoteSyncBackendLabel.None
+        SyncBackendType.UNKNOWN -> RemoteSyncBackendLabel.Unknown
+    }
+
+/**
+ * Persisted remote-sync config read surface for the Sync Center projection.
+ *
+ * Production impl reads [LomoDataStore]; the adapter itself only consumes it — status facts
+ * stay owned by the durable Rust cycle record.
+ */
+interface RemoteSyncConfigSource {
+    suspend fun backendType(): SyncBackendType
+
+    /** `auto:<interval>` / `manual` for a configured remote backend; `null` for none/inbox. */
+    suspend fun schedulePolicyLabel(backend: SyncBackendType): String?
+}
+
+class DataStoreRemoteSyncConfigSource(
+    private val dataStore: LomoDataStore,
+) : RemoteSyncConfigSource {
+    override suspend fun backendType(): SyncBackendType =
+        SyncBackendType.fromStorageValue(dataStore.syncBackendType.first())
+
+    override suspend fun schedulePolicyLabel(backend: SyncBackendType): String? =
+        when (backend) {
+            SyncBackendType.GIT ->
+                scheduleLabel(dataStore.gitAutoSyncEnabled.first(), dataStore.gitAutoSyncInterval.first())
+            SyncBackendType.WEBDAV ->
+                scheduleLabel(dataStore.webDavAutoSyncEnabled.first(), dataStore.webDavAutoSyncInterval.first())
+            SyncBackendType.S3 ->
+                scheduleLabel(dataStore.s3AutoSyncEnabled.first(), dataStore.s3AutoSyncInterval.first())
+            SyncBackendType.NONE,
+            SyncBackendType.INBOX,
+            SyncBackendType.UNKNOWN,
+            -> null
+        }
+
+    private fun scheduleLabel(
+        autoEnabled: Boolean,
+        interval: String,
+    ): String = if (autoEnabled) "auto:$interval" else "manual"
+}

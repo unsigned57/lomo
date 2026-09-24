@@ -1,11 +1,11 @@
 package com.lomo.data.engine.sync
 
 /**
- * Stage-5 dark (P5-09) host-facing sync conflict / lease / retry facts.
+ * Host-facing sync conflict / lease / retry / cycle facts.
  *
  * Mapping-only surface for Sync Center / WorkManager runners. Business rules stay in Rust
- * (`lomo-sync` / `lomo-core` via dark free-function FFI). **Not** registered in production DI,
- * navigation, or WorkManager until P5-13.
+ * (`lomo-sync` / `lomo-core` via free-function FFI); Kotlin never re-plans or fabricates
+ * status.
  *
  * Wire invariants:
  * - digests / artifact refs only (no body bytes on list)
@@ -97,7 +97,7 @@ enum class RemoteSyncRetryDisposition {
 /**
  * WorkManager-facing retry hint from Rust disposition mapping.
  *
- * [retryAfterMillis] is optional host policy input; dark free-function mapping may leave it null
+ * [retryAfterMillis] is optional host policy input; free-function mapping may leave it null
  * (scheduler owns concrete delay).
  */
 data class RemoteSyncRetryHint(
@@ -126,6 +126,80 @@ data class RemoteSyncCyclePlanSummary(
     val conflictRevision: Long?,
     /** `never` | `after_user_action` | `transient` */
     val retryDisposition: String,
+)
+
+/**
+ * Durable cycle record (`cycle_state.rec`) — the sole authority for remote sync status.
+ *
+ * `hasRecord=false` means the workspace never ran a cycle (`phase`=`idle`, all other fields are
+ * wire defaults — honest "never synced", not fabricated zeros). `stateStamp` is the monotonic
+ * freshness marker; a stale `running` record left by process death is repaired by the next
+ * cycle start inside Rust, so readers always see the last durable fact.
+ */
+data class RemoteSyncCycleStatus(
+    val hasRecord: Boolean,
+    val cycleSeq: Long,
+    val cycleId: String,
+    /** Identity fence the cycle ran under (`generation|dataset|remote-identity`). */
+    val fenceKey: String,
+    /** `hermetic_fake` | `webdav` | `s3` | `git` (empty when no record). */
+    val backendKind: String,
+    val sessionId: String,
+    val applyRemote: Boolean,
+    /** `idle` | `running` | `completed` | `failed` | `cancelled`. */
+    val phase: String,
+    /** `planning` | `applying` | `finished` | `failed` | `cancelled` | `interrupted`. */
+    val stage: String,
+    val ensurePresentCount: Int,
+    val ensureAbsentCount: Int,
+    val pullPresentCount: Int,
+    val openConflictCount: Int,
+    val holdCount: Int,
+    val localEntryCount: Int,
+    val remoteListedCount: Int,
+    val baselineEntryCount: Int,
+    /** Intent pages published before terminal; on `cancelled` this is the cancellation point. */
+    val pagesApplied: Int,
+    val baselineAdvanced: Boolean,
+    /** `never` | `after_user_action` | `transient` (empty while running). */
+    val retryDisposition: String,
+    val failureCode: String?,
+    val failureMessage: String?,
+    val cancelRequested: Boolean,
+    val startedAtMs: Long,
+    val updatedAtMs: Long,
+    val finishedAtMs: Long?,
+    /** Sticky: last apply cycle that completed without a transient/failure outcome. */
+    val lastSuccessfulAtMs: Long?,
+    /** Monotonic freshness marker (epoch for late-result rejection). */
+    val stateStamp: Long,
+) {
+    companion object {
+        const val PHASE_IDLE: String = "idle"
+        const val PHASE_RUNNING: String = "running"
+        const val PHASE_COMPLETED: String = "completed"
+        const val PHASE_FAILED: String = "failed"
+        const val PHASE_CANCELLED: String = "cancelled"
+        const val STAGE_PLANNING: String = "planning"
+        const val STAGE_APPLYING: String = "applying"
+        const val STAGE_FINISHED: String = "finished"
+        const val STAGE_FAILED: String = "failed"
+        const val STAGE_CANCELLED: String = "cancelled"
+        const val STAGE_INTERRUPTED: String = "interrupted"
+    }
+}
+
+/**
+ * Real backend probe round-trip facts (`sync_probe_backend`): same adapter construction as a
+ * real cycle + capabilities + listing — never an enqueue acceptance.
+ */
+data class RemoteSyncBackendProbe(
+    val backendKind: String,
+    val listedEntryCount: Int,
+    val snapshotRevisionPresent: Boolean,
+    val conditionalWrite: Boolean,
+    val conditionalDelete: Boolean,
+    val probedAtMs: Long,
 )
 
 /**

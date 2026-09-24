@@ -8,85 +8,100 @@ import com.lomo.data.engine.media.WorkspaceFilesystemRoot
 import com.lomo.data.engine.sync.SecretMaterialSource
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.sync.RustSyncWorkPolicyPlanner
-import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.identityField
-import com.lomo.domain.model.secretField
 import kotlinx.coroutines.flow.first
 import timber.log.Timber
-import java.util.Locale
 
 /**
  * Post P5-13 single remote-sync enqueue path for WorkManager [RustSyncWorker].
  *
  * Non-secret backend fields travel in WorkManager input; credential fields travel only as
- * [CredentialField] names. Identity and secrets are read at the worker execution boundary.
+ * [com.lomo.domain.model.CredentialField] names. Identity and secrets are read at the worker
+ * execution boundary. Cycle-input derivation lives in [RustSyncCycleInputFactory] so the
+ * config→input rules stay host-testable without WorkManager.
  */
 class RustSyncScheduler(
     private val context: Context,
     private val dataStore: LomoDataStore,
     private val workspaceRoot: WorkspaceFilesystemRoot,
     private val policyPlanner: RustSyncWorkPolicyPlanner = RustSyncWorkPolicyPlanner(),
-    private val identityMaterial: SecretMaterialSource? = null,
+    identityMaterial: SecretMaterialSource,
 ) {
+    private val inputFactory = RustSyncCycleInputFactory(dataStore, identityMaterial)
+
     suspend fun reschedule() {
-        val backend = syncBackendFromPreference(dataStore.syncBackendType.first())
-        when (backend) {
+        val plan = resolveAutoSchedulePlan() ?: return
+        val workManager = WorkManager.getInstance(context)
+        val decision = policyPlanner.planAutoSchedule(plan.interval)
+        decision.scheduledWork.forEach { scheduled ->
+            workManager.enqueueSyncScheduledWork<RustSyncWorker>(
+                scheduledWork = scheduled,
+                inputData = plan.cycleInput,
+            )
+        }
+        Timber.d("Rust remote sync scheduled backend=%s interval=%s", plan.backend, plan.interval)
+    }
+
+    private suspend fun resolveAutoSchedulePlan(): AutoSchedulePlan? {
+        val backend = SyncBackendType.fromStorageValue(dataStore.syncBackendType.first())
+        return when (backend) {
             SyncBackendType.NONE,
             SyncBackendType.INBOX,
             -> {
                 cancel()
-                return
+                null
             }
-            else -> Unit
+            SyncBackendType.UNKNOWN -> {
+                // Unparseable selection: neither schedule nor destroy existing work.
+                Timber.w("RustSyncScheduler skip reschedule: unrecognized stored backend")
+                null
+            }
+            else -> remoteSchedulePlan(backend)
         }
+    }
 
-        val enabledAuto =
+    private suspend fun remoteSchedulePlan(backend: SyncBackendType): AutoSchedulePlan? {
+        val autoSync =
             when (backend) {
                 SyncBackendType.GIT ->
-                    dataStore.gitSyncEnabled.first() to
-                        (dataStore.gitAutoSyncEnabled.first() to dataStore.gitAutoSyncInterval.first())
+                    dataStore.gitAutoSyncEnabled.first() to dataStore.gitAutoSyncInterval.first()
                 SyncBackendType.WEBDAV ->
-                    dataStore.webDavSyncEnabled.first() to
-                        (dataStore.webDavAutoSyncEnabled.first() to dataStore.webDavAutoSyncInterval.first())
+                    dataStore.webDavAutoSyncEnabled.first() to dataStore.webDavAutoSyncInterval.first()
                 SyncBackendType.S3 ->
-                    dataStore.s3SyncEnabled.first() to
-                        (dataStore.s3AutoSyncEnabled.first() to dataStore.s3AutoSyncInterval.first())
+                    dataStore.s3AutoSyncEnabled.first() to dataStore.s3AutoSyncInterval.first()
                 SyncBackendType.NONE,
                 SyncBackendType.INBOX,
+                SyncBackendType.UNKNOWN,
                 -> error("unreachable")
             }
-        val enabled = enabledAuto.first
-        val autoEnabled = enabledAuto.second.first
-        val interval = enabledAuto.second.second
-        if (!enabled || !autoEnabled) {
+        val autoEnabled = autoSync.first
+        val interval = autoSync.second
+        if (!autoEnabled) {
             cancel()
-            return
+            return null
         }
 
         val root = workspaceRoot.absolutePathOrNull().orEmpty()
         if (root.isBlank()) {
             Timber.w("RustSyncScheduler skip schedule: no Direct workspace root")
             cancel()
-            return
+            return null
         }
 
-        val cycleInput = resolveCycleInput(backend, root) ?: run {
+        val cycleInput = inputFactory.resolveCycleInput(backend, root)
+        if (cycleInput == null) {
             Timber.w("RustSyncScheduler skip schedule: incomplete backend config backend=%s", backend)
             cancel()
-            return
+            return null
         }
-
-        val workManager = WorkManager.getInstance(context)
-        val decision = policyPlanner.planAutoSchedule(interval)
-        decision.scheduledWork.forEach { scheduled ->
-            workManager.enqueueSyncScheduledWork<RustSyncWorker>(
-                scheduledWork = scheduled,
-                inputData = cycleInput,
-            )
-        }
-        Timber.d("Rust remote sync scheduled backend=%s interval=%s", backend, interval)
+        return AutoSchedulePlan(backend = backend, interval = interval, cycleInput = cycleInput)
     }
+
+    private data class AutoSchedulePlan(
+        val backend: SyncBackendType,
+        val interval: String,
+        val cycleInput: androidx.work.Data,
+    )
 
     fun cancel() {
         val workManager = WorkManager.getInstance(context)
@@ -108,21 +123,32 @@ class RustSyncScheduler(
             )
     }
 
-    suspend fun enqueueOneShot(secretFieldKey: String?) {
+    /**
+     * Enqueues a one-shot Rust sync cycle.
+     *
+     * The returned outcome only proves WorkManager **acceptance** — completion is owned by the
+     * durable cycle record (`cycle_state.rec`), read via
+     * [com.lomo.data.engine.sync.RustSyncCycleStatusStore]. Rejections carry the real skip
+     * reason instead of silently returning.
+     */
+    suspend fun enqueueOneShot(secretFieldKey: String?): RustSyncEnqueueOutcome {
         val root = workspaceRoot.absolutePathOrNull().orEmpty()
         if (root.isBlank()) {
             Timber.w("RustSyncScheduler one-shot skipped: no Direct workspace root")
-            return
+            return RustSyncEnqueueOutcome.Rejected(RustSyncEnqueueRejection.NO_DIRECT_ROOT)
         }
-        val backend = syncBackendFromPreference(dataStore.syncBackendType.first())
-        if (backend == SyncBackendType.NONE || backend == SyncBackendType.INBOX) {
+        val backend = SyncBackendType.fromStorageValue(dataStore.syncBackendType.first())
+        if (backend == SyncBackendType.NONE ||
+            backend == SyncBackendType.INBOX ||
+            backend == SyncBackendType.UNKNOWN
+        ) {
             Timber.w("RustSyncScheduler one-shot skipped: no active remote backend")
-            return
+            return RustSyncEnqueueOutcome.Rejected(RustSyncEnqueueRejection.NO_ACTIVE_BACKEND)
         }
         val cycleInput =
-            resolveCycleInput(backend, root, secretFieldKeyOverride = secretFieldKey) ?: run {
+            inputFactory.resolveCycleInput(backend, root, secretFieldKeyOverride = secretFieldKey) ?: run {
                 Timber.w("RustSyncScheduler one-shot skipped: incomplete backend config")
-                return
+                return RustSyncEnqueueOutcome.Rejected(RustSyncEnqueueRejection.INCOMPLETE_CONFIG)
             }
         val request =
             OneTimeWorkRequestBuilder<RustSyncWorker>()
@@ -135,104 +161,28 @@ class RustSyncScheduler(
                 ExistingWorkPolicy.REPLACE,
                 request,
             )
-    }
-
-    private suspend fun resolveCycleInput(
-        backend: SyncBackendType,
-        root: String,
-        secretFieldKeyOverride: String? = null,
-    ): androidx.work.Data? {
-        return when (backend) {
-            SyncBackendType.WEBDAV -> {
-                val endpoint =
-                    dataStore.webDavEndpointUrl.first()?.trim().orEmpty().ifBlank {
-                        dataStore.webDavBaseUrl.first()?.trim().orEmpty()
-                    }
-                val provider = CredentialProvider.WEBDAV
-                val identityField = provider.identityField()
-                if (endpoint.isBlank() ||
-                    identityField == null ||
-                    identityMaterial?.hasMaterial(identityField.name) != true
-                ) {
-                    return null
-                }
-                RustSyncWorker.inputData(
-                    workspaceRoot = root,
-                    backendKind = "webdav",
-                    endpointUrl = endpoint,
-                    identityFieldKey = identityField.name,
-                    remoteDatasetId = datasetId("webdav", endpoint, ""),
-                    secretFieldKey = secretFieldKeyOverride ?: provider.secretField().name,
-                    applyRemote = true,
-                )
-            }
-            SyncBackendType.S3 -> {
-                val endpoint = dataStore.s3EndpointUrl.first()?.trim().orEmpty()
-                val region = dataStore.s3Region.first()?.trim().orEmpty()
-                val bucket = dataStore.s3Bucket.first()?.trim().orEmpty()
-                val prefix = dataStore.s3Prefix.first()?.trim().orEmpty()
-                val provider = CredentialProvider.S3
-                val identityField = provider.identityField()
-                val identityReady =
-                    identityField != null && identityMaterial?.hasMaterial(identityField.name) == true
-                if (endpoint.isBlank() || region.isBlank() || bucket.isBlank() || !identityReady) {
-                    return null
-                }
-                RustSyncWorker.inputData(
-                    workspaceRoot = root,
-                    backendKind = "s3",
-                    endpointUrl = endpoint,
-                    bucket = bucket,
-                    prefix = prefix,
-                    region = region,
-                    identityFieldKey = identityField.name,
-                    remoteDatasetId = datasetId("s3", endpoint, bucket),
-                    secretFieldKey = secretFieldKeyOverride ?: provider.secretField().name,
-                    applyRemote = true,
-                )
-            }
-            SyncBackendType.GIT -> {
-                val remote = dataStore.gitRemoteUrl.first()?.trim().orEmpty()
-                if (remote.isBlank()) {
-                    return null
-                }
-                val authorName = dataStore.gitAuthorName.first().trim().ifBlank { "Lomo" }
-                val authorEmail =
-                    dataStore.gitAuthorEmail
-                        .first()
-                        .trim()
-                        .ifBlank { "git@lomo.local" }
-                RustSyncWorker.inputData(
-                    workspaceRoot = root,
-                    backendKind = "git",
-                    endpointUrl = remote,
-                    bucket = "main",
-                    prefix = authorName,
-                    region = authorEmail,
-                    remoteDatasetId = datasetId("git", remote, ""),
-                    secretFieldKey = secretFieldKeyOverride ?: CredentialProvider.GIT.secretField().name,
-                    applyRemote = true,
-                )
-            }
-            SyncBackendType.NONE,
-            SyncBackendType.INBOX,
-            -> null
-        }
+        return RustSyncEnqueueOutcome.Accepted(RustSyncWorker.ONESHOT_WORK_NAME)
     }
 }
 
-private const val DATASET_ID_MAX_LEN: Int = 128
+/**
+ * WorkManager enqueue outcome — acceptance only, never cycle completion.
+ *
+ * [Accepted.workName] is the unique-work name observers can correlate with the durable record.
+ */
+sealed interface RustSyncEnqueueOutcome {
+    data class Accepted(
+        val workName: String,
+    ) : RustSyncEnqueueOutcome
 
-private fun datasetId(
-    backend: String,
-    endpoint: String,
-    bucket: String,
-): String {
-    val raw = "$backend|$endpoint|$bucket"
-    return raw.take(DATASET_ID_MAX_LEN).ifBlank { backend }
+    data class Rejected(
+        val reason: RustSyncEnqueueRejection,
+    ) : RustSyncEnqueueOutcome
 }
 
-private fun syncBackendFromPreference(value: String): SyncBackendType =
-    SyncBackendType.entries.firstOrNull {
-        it.name.lowercase(Locale.ROOT) == value.lowercase(Locale.ROOT)
-    } ?: SyncBackendType.NONE
+/** Real skip reasons for a rejected one-shot enqueue (no silent returns). */
+enum class RustSyncEnqueueRejection {
+    NO_DIRECT_ROOT,
+    NO_ACTIVE_BACKEND,
+    INCOMPLETE_CONFIG,
+}

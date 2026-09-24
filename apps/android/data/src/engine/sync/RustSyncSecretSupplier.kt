@@ -1,14 +1,13 @@
 package com.lomo.data.engine.sync
 
 /**
- * Keystore-shaped secret edge for Stage-5 dark sync (P5-09).
+ * Keystore-shaped secret edge for Rust sync.
  *
  * Reads plaintext secret material from a durable Keystore-backed store, immediately issues a
  * process-local lease via [RemoteSyncRepository], and returns **lease ids only**. Journals,
  * WorkManager inputs, and Sync Center state must never hold plaintext.
  *
- * Not production-wired until P5-13. Process death drops leases (re-issue credentials — not
- * journal restore of secret bytes).
+ * Process death drops leases (re-issue credentials — not journal restore of secret bytes).
  */
 interface SecretMaterialSource {
     /**

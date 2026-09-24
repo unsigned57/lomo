@@ -1,9 +1,9 @@
 package com.lomo.data.repository
 
 import android.content.Context
+import com.lomo.data.engine.media.PendingMediaStageRegistry
+import com.lomo.data.engine.media.WorkspaceFilesystemRoot
 import com.lomo.data.sync.SyncConflictSuggestionPort
-import com.lomo.data.source.MarkdownStorageDataSource
-import com.lomo.data.source.MemoDirectoryType
 import com.lomo.domain.model.SyncReviewItem
 import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.usecase.DefaultDispatcherProvider
@@ -11,7 +11,8 @@ import com.lomo.domain.usecase.DispatcherProvider
 
 internal class SyncInboxPendingReviewRestorer(
     private val context: Context,
-    private val markdownStorageDataSource: MarkdownStorageDataSource,
+    private val pendingStages: PendingMediaStageRegistry,
+    private val workspaceRoot: WorkspaceFilesystemRoot,
     private val contentProjector: com.lomo.data.util.MarkdownWorkspaceContentProjector,
     private val suggestionPort: SyncConflictSuggestionPort,
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
@@ -60,81 +61,78 @@ internal class SyncInboxPendingReviewRestorer(
         return when {
             inboxContent == null || inboxMetadata == null ->
                 InboxReviewItemRestore.Invalidated(PendingSyncInvalidationReason.MISSING_REMOTE)
-            else -> restoreExistingItem(item, inboxRelativePath, inboxContent, inboxMetadata)
+            else -> restoreExistingItem(item, inboxRoot, inboxRelativePath, inboxContent, inboxMetadata)
         }
     }
 
     private suspend fun restoreExistingItem(
         item: PendingSyncReviewItemDescriptor,
+        inboxRoot: String,
         inboxRelativePath: String,
         inboxContent: String,
         inboxMetadata: InboxMarkdownFileMetadata,
     ): InboxReviewItemRestore {
-        val imported =
-            previewInboxMediaReferences(
+        // Re-derive the staged rewrite: the same durable stage ledger and owner-resolved
+        // destinations make a restart byte-identical, so any mismatch is a stale capture.
+        val staged =
+            stageInboxMediaReferences(
+                environment =
+                    InboxStagingEnvironment(
+                        context = context,
+                        inboxRoot = inboxRoot,
+                        pendingStages = pendingStages,
+                        workspaceRoot = workspaceRoot,
+                        contentProjector = contentProjector,
+                        dispatcherProvider = dispatcherProvider,
+                    ),
+                relativePath = inboxRelativePath,
                 markdown = inboxContent,
-                contentProjector = contentProjector,
             )
-        val incomingBytes = imported.rewrittenMarkdown.toByteArray(Charsets.UTF_8)
+        val incomingBytes = staged.rewrittenMarkdown.toByteArray(Charsets.UTF_8)
         return when {
             !item.incoming.matchesRemote(
                 actualEtag = incomingBytes.md5Hex(),
                 actualLastModified = inboxMetadata.lastModified,
                 actualSize = incomingBytes.size.toLong(),
             ) -> InboxReviewItemRestore.Invalidated(PendingSyncInvalidationReason.STALE_REMOTE)
-            !item.incoming.matchesContent(imported.rewrittenMarkdown) ->
+            !item.incoming.matchesContent(staged.rewrittenMarkdown) ->
                 InboxReviewItemRestore.Invalidated(PendingSyncInvalidationReason.STALE_REMOTE)
-            else -> restoreLocalItem(item, inboxRelativePath, imported.rewrittenMarkdown, inboxMetadata.lastModified)
+            else -> restoreLocalItem(item, staged.rewrittenMarkdown, inboxMetadata.lastModified)
         }
     }
 
-    private suspend fun restoreLocalItem(
+    private fun restoreLocalItem(
         item: PendingSyncReviewItemDescriptor,
-        inboxRelativePath: String,
         incomingContent: String,
         incomingLastModified: Long,
-    ): InboxReviewItemRestore {
-        val targetFilename = inboxRelativePath.substringAfterLast('/')
-        val localContent = markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, targetFilename)
-        val localLastModified =
-            markdownStorageDataSource
-                .getFileMetadataIn(MemoDirectoryType.MAIN, targetFilename)
-                ?.lastModified
-        val localBytes = localContent?.toByteArray(Charsets.UTF_8)
-        return when {
-            item.local.wasAbsentWhenCaptured() && localContent != null ->
-                InboxReviewItemRestore.Invalidated(PendingSyncInvalidationReason.STALE_LOCAL)
-            !item.local.wasAbsentWhenCaptured() &&
-                !item.local.matchesRemote(
-                    actualEtag = localBytes?.md5Hex(),
-                    actualLastModified = localLastModified,
-                    actualSize = localBytes?.run { size.toLong() },
-                ) -> InboxReviewItemRestore.Invalidated(PendingSyncInvalidationReason.STALE_LOCAL)
-            !item.local.wasAbsentWhenCaptured() && !item.local.matchesContent(localContent) ->
-                InboxReviewItemRestore.Invalidated(PendingSyncInvalidationReason.STALE_LOCAL)
-            else ->
-                InboxReviewItemRestore.Restored(
-                    SyncReviewItem(
-                        relativePath = item.relativePath,
-                        localContent = localContent,
-                        incomingContent = incomingContent,
-                        isBinary = item.isBinary,
-                        localLastModified = localLastModified,
-                        incomingLastModified = incomingLastModified,
-                        state = item.state,
-                        message = item.message,
-                        suggestion =
-                            suggestionPort.suggest(
-                                localBody = localContent,
-                                remoteBody = incomingContent,
-                                localLastModifiedMs = localLastModified,
-                                remoteLastModifiedMs = incomingLastModified,
-                                isBinary = item.isBinary,
-                            ),
-                    ),
-                )
+    ): InboxReviewItemRestore =
+        // Inbox imports carry no local counterpart: the local side must have been captured absent.
+        // A descriptor captured with a local file predates the session-command import law and is
+        // rebuilt rather than resolved against a stale verbatim document.
+        if (!item.local.wasAbsentWhenCaptured()) {
+            InboxReviewItemRestore.Invalidated(PendingSyncInvalidationReason.STALE_LOCAL)
+        } else {
+            InboxReviewItemRestore.Restored(
+                SyncReviewItem(
+                    relativePath = item.relativePath,
+                    localContent = null,
+                    incomingContent = incomingContent,
+                    isBinary = item.isBinary,
+                    localLastModified = null,
+                    incomingLastModified = incomingLastModified,
+                    state = item.state,
+                    message = item.message,
+                    suggestion =
+                        suggestionPort.suggest(
+                            localBody = null,
+                            remoteBody = incomingContent,
+                            localLastModifiedMs = null,
+                            remoteLastModifiedMs = incomingLastModified,
+                            isBinary = item.isBinary,
+                        ),
+                ),
+            )
         }
-    }
 }
 
 private fun PendingSyncSideMetadata.wasAbsentWhenCaptured(): Boolean =

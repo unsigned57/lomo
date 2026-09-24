@@ -2,7 +2,7 @@ package com.lomo.data.engine.sync
 
 /*
  * Behavior Contract:
- * - Unit under test: RemoteSyncCenterRepositoryAdapter (Wave-4 dark host adapter)
+ * - Unit under test: RemoteSyncCenterRepositoryAdapter (production adapter)
  * - Owning layer: data
  * - Priority tier: P0
  * - Capability: map RemoteSyncRepository BoltFFI facts → domain RemoteSyncCenterRepository;
@@ -146,9 +146,6 @@ private class FakeRemoteSyncRepository : RemoteSyncRepository {
 
     override fun revokeSecretLease(leaseId: String) = error("not used")
 
-    override fun inspectCyclePlan(workspaceRoot: String): RemoteSyncCyclePlanSummary =
-        error("not used by Sync Center adapter")
-
     override fun runCycle(request: RemoteSyncCycleRequest): RemoteSyncCyclePlanSummary =
         error("not used by Sync Center adapter")
 
@@ -158,6 +155,63 @@ private class FakeRemoteSyncRepository : RemoteSyncRepository {
     override fun resetControlTree(workspaceRoot: String) {
         error("not used by Sync Center adapter")
     }
+
+    var cycleStatusResult: RemoteSyncCycleStatus = noRecordStatus()
+    var cancelRequestCount = 0
+        private set
+
+    override fun cycleStatus(workspaceRoot: String): RemoteSyncCycleStatus = cycleStatusResult
+
+    override fun requestCancel(workspaceRoot: String): RemoteSyncCycleStatus {
+        cancelRequestCount += 1
+        return cycleStatusResult
+    }
+
+    override fun probeBackend(request: RemoteSyncCycleRequest): RemoteSyncBackendProbe =
+        error("not used by Sync Center adapter")
+}
+
+private fun noRecordStatus(): RemoteSyncCycleStatus =
+    RemoteSyncCycleStatus(
+        hasRecord = false,
+        cycleSeq = 0L,
+        cycleId = "",
+        fenceKey = "",
+        backendKind = "",
+        sessionId = "",
+        applyRemote = false,
+        phase = RemoteSyncCycleStatus.PHASE_IDLE,
+        stage = RemoteSyncCycleStatus.STAGE_FINISHED,
+        ensurePresentCount = 0,
+        ensureAbsentCount = 0,
+        pullPresentCount = 0,
+        openConflictCount = 0,
+        holdCount = 0,
+        localEntryCount = 0,
+        remoteListedCount = 0,
+        baselineEntryCount = 0,
+        pagesApplied = 0,
+        baselineAdvanced = false,
+        retryDisposition = "never",
+        failureCode = null,
+        failureMessage = null,
+        cancelRequested = false,
+        startedAtMs = 0L,
+        updatedAtMs = 0L,
+        finishedAtMs = null,
+        lastSuccessfulAtMs = null,
+        stateStamp = 0L,
+    )
+
+private class FakeRemoteSyncConfigSource(
+    val backend: com.lomo.domain.model.SyncBackendType = com.lomo.domain.model.SyncBackendType.GIT,
+    val scheduleLabel: String? = "auto:1h",
+) : com.lomo.data.engine.sync.RemoteSyncConfigSource {
+    override suspend fun backendType(): com.lomo.domain.model.SyncBackendType = backend
+
+    override suspend fun schedulePolicyLabel(
+        backend: com.lomo.domain.model.SyncBackendType,
+    ): String? = scheduleLabel
 }
 
 private class MapConflictArtifactSource(
@@ -222,7 +276,7 @@ class RemoteSyncCenterRepositoryAdapterTest : FunSpec({
     test("listConflicts maps digests refs and status without inventing body bytes") {
         val remote = FakeRemoteSyncRepository()
         val artifacts = MapConflictArtifactSource()
-        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, FakeSyncConflictSuggestionPort())
+        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, FakeSyncConflictSuggestionPort(), FakeRemoteSyncConfigSource())
 
         val page = adapter.listConflicts(workspaceRoot = "/ws", cursor = 0, limit = 10)
 
@@ -247,7 +301,7 @@ class RemoteSyncCenterRepositoryAdapterTest : FunSpec({
     test("resolveConflicts maps keep_local and advances domain revision") {
         val remote = FakeRemoteSyncRepository()
         val artifacts = MapConflictArtifactSource()
-        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, FakeSyncConflictSuggestionPort())
+        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, FakeSyncConflictSuggestionPort(), FakeRemoteSyncConfigSource())
 
         val result =
             adapter.resolveConflicts(
@@ -277,7 +331,7 @@ class RemoteSyncCenterRepositoryAdapterTest : FunSpec({
                 retryDisposition = "after_user_action",
                 diagnostic = "expected conflict revision is stale",
             )
-        val adapter = RemoteSyncCenterRepositoryAdapter(remote, MapConflictArtifactSource(), FakeSyncConflictSuggestionPort())
+        val adapter = RemoteSyncCenterRepositoryAdapter(remote, MapConflictArtifactSource(), FakeSyncConflictSuggestionPort(), FakeRemoteSyncConfigSource())
 
         val failure =
             shouldThrow<RemoteSyncCenterFailure> {
@@ -306,7 +360,7 @@ class RemoteSyncCenterRepositoryAdapterTest : FunSpec({
         artifacts.put("art-local", "# local side\n")
         artifacts.put("art-remote", "# remote side\n")
         val suggestionPort = FakeSyncConflictSuggestionPort()
-        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, suggestionPort)
+        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, suggestionPort, FakeRemoteSyncConfigSource())
         val path =
             DomainConflictPath(
                 path = "memo/a.md",
@@ -344,7 +398,7 @@ class RemoteSyncCenterRepositoryAdapterTest : FunSpec({
     test("markdownConflictFacts leaves body null when artifact ref absent") {
         val remote = FakeRemoteSyncRepository()
         val artifacts = MapConflictArtifactSource()
-        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, FakeSyncConflictSuggestionPort())
+        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, FakeSyncConflictSuggestionPort(), FakeRemoteSyncConfigSource())
         val path =
             DomainConflictPath(
                 path = "memo/a.md",
@@ -371,7 +425,7 @@ class RemoteSyncCenterRepositoryAdapterTest : FunSpec({
         val remote = FakeRemoteSyncRepository()
         val artifacts = MapConflictArtifactSource()
         artifacts.putBytes("bin-local", byteArrayOf(0x00, 0x01, 0xFF.toByte()))
-        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, FakeSyncConflictSuggestionPort())
+        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, FakeSyncConflictSuggestionPort(), FakeRemoteSyncConfigSource())
         val path =
             DomainConflictPath(
                 path = "media/x.bin",
@@ -405,7 +459,7 @@ class RemoteSyncCenterRepositoryAdapterTest : FunSpec({
         val remote = FakeRemoteSyncRepository()
         val artifacts = MapConflictArtifactSource()
         artifacts.putBytes("art-local", byteArrayOf(0xFF.toByte(), 0xFE.toByte()))
-        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, FakeSyncConflictSuggestionPort())
+        val adapter = RemoteSyncCenterRepositoryAdapter(remote, artifacts, FakeSyncConflictSuggestionPort(), FakeRemoteSyncConfigSource())
         val path =
             DomainConflictPath(
                 path = "memo/a.md",
@@ -428,33 +482,60 @@ class RemoteSyncCenterRepositoryAdapterTest : FunSpec({
         failure.category shouldBe "validation"
     }
 
-    test("config and session presentation shells use injected providers") {
-        val remote = FakeRemoteSyncRepository()
-        val artifacts = MapConflictArtifactSource()
-        val adapter =
-            RemoteSyncCenterRepositoryAdapter(
-                remoteSync = remote,
-                artifactSource = artifacts,
-                suggestionPort = FakeSyncConflictSuggestionPort(),
-                configSummaryProvider = {
-                    com.lomo.domain.model.RemoteSyncConfigSummary(
-                        backend = RemoteSyncBackendLabel.Git,
-                        attentionCount = 2,
-                        lastVerifiedAtEpochMillis = 99L,
-                        schedulePolicyLabel = "interval_1h",
-                    )
-                },
-                sessionProgressProvider = {
-                    com.lomo.domain.model.RemoteSyncSessionProgress(
-                        phase = RemoteSyncSessionPhase.ConflictOpen,
-                        completedActions = 1,
-                        totalActions = 5,
-                        canCancel = true,
-                    )
-                },
-            )
+    test("config and session project durable record and persisted config") {
+        kotlinx.coroutines.test.runTest {
+            val remote = FakeRemoteSyncRepository()
+            remote.cycleStatusResult =
+                noRecordStatus().copy(
+                    hasRecord = true,
+                    cycleId = "cycle-000007",
+                    backendKind = "git",
+                    phase = RemoteSyncCycleStatus.PHASE_COMPLETED,
+                    openConflictCount = 2,
+                    pagesApplied = 1,
+                    lastSuccessfulAtMs = 99L,
+                )
+            val adapter =
+                RemoteSyncCenterRepositoryAdapter(
+                    remoteSync = remote,
+                    artifactSource = MapConflictArtifactSource(),
+                    suggestionPort = FakeSyncConflictSuggestionPort(),
+                    configSource = FakeRemoteSyncConfigSource(),
+                )
 
-        adapter.configSummary("/ws").backend shouldBe RemoteSyncBackendLabel.Git
-        adapter.sessionProgress("/ws").phase shouldBe RemoteSyncSessionPhase.ConflictOpen
+            val config = adapter.configSummary("/ws")
+            config.backend shouldBe RemoteSyncBackendLabel.Git
+            config.attentionCount shouldBe 2
+            config.lastVerifiedAtEpochMillis shouldBe 99L
+            config.schedulePolicyLabel shouldBe "auto:1h"
+
+            adapter.sessionProgress("/ws").phase shouldBe RemoteSyncSessionPhase.ConflictOpen
+        }
+    }
+
+    test("requestCancel forwards the durable cancel request and projects post-write record") {
+        kotlinx.coroutines.test.runTest {
+            val remote = FakeRemoteSyncRepository()
+            remote.cycleStatusResult =
+                noRecordStatus().copy(
+                    hasRecord = true,
+                    cycleId = "cycle-000009",
+                    phase = RemoteSyncCycleStatus.PHASE_RUNNING,
+                    cancelRequested = true,
+                )
+            val adapter =
+                RemoteSyncCenterRepositoryAdapter(
+                    remoteSync = remote,
+                    artifactSource = MapConflictArtifactSource(),
+                    suggestionPort = FakeSyncConflictSuggestionPort(),
+                    configSource = FakeRemoteSyncConfigSource(),
+                )
+
+            val progress = adapter.requestCancel("/ws")
+
+            remote.cancelRequestCount shouldBe 1
+            progress.phase shouldBe RemoteSyncSessionPhase.Cancelling
+            progress.canCancel shouldBe false
+        }
     }
 })

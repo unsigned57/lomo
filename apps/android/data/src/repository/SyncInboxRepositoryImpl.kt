@@ -1,10 +1,11 @@
 package com.lomo.data.repository
 
-import com.lomo.domain.repository.MemoMutationRepository
-
 import android.content.Context
-import com.lomo.data.source.MarkdownStorageDataSource
-import com.lomo.data.source.MemoDirectoryType
+import com.lomo.data.engine.media.PendingMediaStageRegistry
+import com.lomo.data.engine.media.WorkspaceFilesystemRoot
+import com.lomo.data.engine.store.StoreMemoCommand
+import com.lomo.data.engine.store.StoreMemoCommandKind
+import com.lomo.data.engine.store.StorePort
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
 import com.lomo.domain.model.SyncBackendType
@@ -20,7 +21,7 @@ import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.model.UnifiedSyncPhase
 import com.lomo.domain.model.UnifiedSyncResult
 import com.lomo.domain.model.UnifiedSyncState
-import com.lomo.domain.repository.PreferencesRepository
+import com.lomo.domain.repository.SyncInboxPreferencesRepository
 import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.WorkspaceMutationLease
 import com.lomo.domain.usecase.DefaultDispatcherProvider
@@ -40,12 +41,13 @@ internal const val WORKSPACE_WRITES_UNAVAILABLE_MESSAGE =
 
 data class SyncInboxRepositoryDependencies(
     val context: Context,
-    val preferencesRepository: PreferencesRepository,
+    val preferencesRepository: SyncInboxPreferencesRepository,
     val workspaceConfigSource: WorkspaceConfigSource,
-    val markdownStorageDataSource: MarkdownStorageDataSource,
-    val workspaceMediaAccess: WorkspaceMediaAccess,
-    val memoMutationRepository: MemoMutationRepository,
     val pendingReviewStore: PendingSyncReviewStore,
+    val storePort: StorePort,
+    val pendingStages: PendingMediaStageRegistry,
+    val workspaceRoot: WorkspaceFilesystemRoot,
+    val committedMediaSink: CommittedMediaLocationSink,
 )
 
 class SyncInboxRepositoryImpl(
@@ -56,18 +58,20 @@ class SyncInboxRepositoryImpl(
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : SyncInboxRepository {
     private val context: Context = dependencies.context
-    private val preferencesRepository: PreferencesRepository = dependencies.preferencesRepository
+    private val preferencesRepository: SyncInboxPreferencesRepository = dependencies.preferencesRepository
     private val workspaceConfigSource: WorkspaceConfigSource = dependencies.workspaceConfigSource
-    private val markdownStorageDataSource: MarkdownStorageDataSource = dependencies.markdownStorageDataSource
-    private val workspaceMediaAccess: WorkspaceMediaAccess = dependencies.workspaceMediaAccess
-    private val memoMutationRepository: MemoMutationRepository = dependencies.memoMutationRepository
     private val pendingReviewStore: PendingSyncReviewStore = dependencies.pendingReviewStore
+    private val storePort: StorePort = dependencies.storePort
+    private val pendingStages: PendingMediaStageRegistry = dependencies.pendingStages
+    private val workspaceRoot: WorkspaceFilesystemRoot = dependencies.workspaceRoot
+    private val committedMediaSink: CommittedMediaLocationSink = dependencies.committedMediaSink
 
     private val state = MutableStateFlow<UnifiedSyncState>(UnifiedSyncState.Idle)
     private val pendingReviewRestorer =
         SyncInboxPendingReviewRestorer(
             context = context,
-            markdownStorageDataSource = markdownStorageDataSource,
+            pendingStages = pendingStages,
+            workspaceRoot = workspaceRoot,
             contentProjector = contentProjector,
             suggestionPort = suggestionPort,
             dispatcherProvider = dispatcherProvider,
@@ -350,70 +354,38 @@ class SyncInboxRepositoryImpl(
                 lastModified = inboxFile.lastModified,
                 message = "Missing inbox markdown file",
             )
-        val imported =
-            previewInboxMediaReferences(
+        val staged =
+            stageInboxMediaReferences(
+                environment = inboxStagingEnvironment(inboxRoot),
+                relativePath = relativePath,
                 markdown = markdown,
-                contentProjector = contentProjector,
             )
-        val missingAttachments =
-            missingInboxMediaReferences(
-                context = context,
-                inboxRoot = inboxRoot,
-                markdown = markdown,
-                contentProjector = contentProjector,
-                dispatcherProvider = dispatcherProvider,
-            )
-        val targetFilename = relativePath.substringAfterLast('/')
-        val localContent = markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, targetFilename)
-        val localLastModified =
-            markdownStorageDataSource
-                .getFileMetadataIn(MemoDirectoryType.MAIN, targetFilename)
-                ?.lastModified
-        val reviewState =
-            when {
-                missingAttachments.isNotEmpty() -> SyncReviewItemState.BLOCKED
-                localContent == null -> SyncReviewItemState.READY_TO_IMPORT
-                localContent == imported.rewrittenMarkdown -> SyncReviewItemState.READY_TO_IMPORT
-                else -> SyncReviewItemState.CONTENT_DIFFERENCE
-            }
+        // An inbox drop has no local counterpart: the import is a new memo through the session
+        // command, so the review's local side stays absent rather than reading a workspace file.
         return SyncReviewItem(
             relativePath = INBOX_PREFIX + relativePath,
-            localContent = localContent,
-            incomingContent = imported.rewrittenMarkdown,
+            localContent = null,
+            incomingContent = staged.rewrittenMarkdown,
             isBinary = false,
-            localLastModified = localLastModified,
+            localLastModified = null,
             incomingLastModified = inboxFile.lastModified,
-            state = reviewState,
-            message = missingAttachments.reviewMessageOrNull(),
+            state =
+                if (staged.missingAttachments.isNotEmpty()) {
+                    SyncReviewItemState.BLOCKED
+                } else {
+                    SyncReviewItemState.READY_TO_IMPORT
+                },
+            message = staged.missingAttachments.reviewMessageOrNull(),
             suggestion =
                 suggestionPort.suggest(
-                    localBody = localContent,
-                    remoteBody = imported.rewrittenMarkdown,
-                    localLastModifiedMs = localLastModified,
+                    localBody = null,
+                    remoteBody = staged.rewrittenMarkdown,
+                    localLastModifiedMs = null,
                     remoteLastModifiedMs = inboxFile.lastModified,
                     isBinary = false,
                 ),
         )
     }
-
-    private fun blockedInboxReviewFile(
-        relativePath: String,
-        lastModified: Long,
-        message: String,
-    ): SyncReviewItem =
-        SyncReviewItem(
-            relativePath = INBOX_PREFIX + relativePath,
-            localContent = null,
-            incomingContent = null,
-            isBinary = false,
-            incomingLastModified = lastModified,
-            state = SyncReviewItemState.BLOCKED,
-            message = message,
-        )
-
-    private fun List<String>.reviewMessageOrNull(): String? =
-        takeIf { it.isNotEmpty() }
-            ?.joinToString(prefix = "Missing attachments: ")
 
     private suspend fun applyInboxReviewResolution(
         inboxRoot: String,
@@ -430,6 +402,7 @@ class SyncInboxRepositoryImpl(
             }
             val relativePath = item.relativePath.removePrefix(INBOX_PREFIX)
             if (choice == SyncReviewResolutionChoice.KEEP_LOCAL) {
+                pendingStages.releaseIncoming(inboxStageOwnerId(relativePath))
                 deleteInboxFile(
                     context = context,
                     inboxRoot = inboxRoot,
@@ -455,47 +428,84 @@ class SyncInboxRepositoryImpl(
                 unresolvedItems += item
                 return@forEach
             }
-            val committedFile = commitImportedFile(inboxRoot, relativePath, inboxContent, targetContent)
+            val committedFile = commitImportedFile(inboxRoot, item, relativePath, inboxContent, targetContent)
             if (committedFile != null) {
                 committedFiles += committedFile
             } else {
                 unresolvedItems += item
             }
         }
-        if (committedFiles.isNotEmpty()) {
-            memoMutationRepository.refreshMemos()
-        }
         cleanupImportedAttachments(inboxRoot, committedFiles)
         return unresolvedItems
     }
 
+    /**
+     * Commits one approved inbox file through the same session command a draft save uses: the
+     * staged claims transfer to the frozen operation, [StoreMemoCommandKind.Create] publishes the
+     * document and its artifact writes atomically, and the inbox source is deleted only after the
+     * durable commit returns.
+     */
+    private fun inboxStagingEnvironment(inboxRoot: String): InboxStagingEnvironment =
+        InboxStagingEnvironment(
+            context = context,
+            inboxRoot = inboxRoot,
+            pendingStages = pendingStages,
+            workspaceRoot = workspaceRoot,
+            contentProjector = contentProjector,
+            dispatcherProvider = dispatcherProvider,
+        )
+
     private suspend fun commitImportedFile(
         inboxRoot: String,
+        item: SyncReviewItem,
         relativePath: String,
         originalMarkdown: String,
         targetContent: String,
     ): CommittedInboxFile? {
-        val importResult =
-            importInboxMediaReferences(
-                context = context,
-                workspaceMediaAccess = workspaceMediaAccess,
-                inboxRoot = inboxRoot,
-                markdown = originalMarkdown,
-                contentProjector = contentProjector,
-                dispatcherProvider = dispatcherProvider,
-            )
-        val imported =
-            when (importResult) {
-                is InboxMediaImportResult.Success -> importResult.preview
-                is InboxMediaImportResult.MissingAttachments -> return null
+        val staged =
+            try {
+                stageInboxMediaReferences(
+                    environment = inboxStagingEnvironment(inboxRoot),
+                    relativePath = relativePath,
+                    markdown = originalMarkdown,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                // behavior-contract: silent-result-ok: staging failure keeps the inbox item
+                // pending so the next sync pass retries with the same operation identity.
+                Timber.w(error, "Sync inbox staging failed for %s", relativePath)
+                return null
             }
-        val targetFilename = relativePath.substringAfterLast('/')
-        markdownStorageDataSource.saveFileIn(
-            directory = MemoDirectoryType.MAIN,
-            filename = targetFilename,
-            content = targetContent,
-            append = false,
-        )
+        // Fail closed on drift: the approved incoming content was frozen at preview; a changed or
+        // newly unresolved file stays in the review instead of committing a different payload.
+        if (staged.missingAttachments.isNotEmpty() || staged.rewrittenMarkdown != item.incomingContent) {
+            return null
+        }
+        val operationId = inboxImportOperationId(relativePath, targetContent)
+        val promotes = pendingStages.plansForIncomingOperation(operationId, inboxStageOwnerId(relativePath))
+        try {
+            storePort.applyMemoCommand(
+                StoreMemoCommand(
+                    operationId = operationId,
+                    kind = StoreMemoCommandKind.Create,
+                    memoId = "",
+                    expectedRevision = 0L,
+                    content = targetContent,
+                    pendingPromotes = promotes,
+                    chronologyEpochMs = item.incomingLastModified?.takeIf { it > 0 },
+                ),
+                onPublication = {},
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            // behavior-contract: silent-result-ok: a failed session commit leaves the staged
+            // leases and the inbox item intact so retry replays the same operation.
+            Timber.w(error, "Sync inbox session commit failed for %s", relativePath)
+            return null
+        }
+        committedMediaSink.publishCommittedMedia(promotes)
         deleteInboxFile(
             context = context,
             inboxRoot = inboxRoot,
@@ -503,7 +513,7 @@ class SyncInboxRepositoryImpl(
             dispatcherProvider = dispatcherProvider,
         )
         return CommittedInboxFile(
-            importedAttachmentsToDelete = imported.importedAttachments,
+            importedAttachmentsToDelete = staged.importedAttachments,
         )
     }
 }

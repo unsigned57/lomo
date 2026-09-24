@@ -3,6 +3,7 @@ package com.lomo.data.repository
 import android.content.Context
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
+import com.lomo.data.source.isContentStorageUri
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.withContext
@@ -13,7 +14,7 @@ internal suspend fun ensureInboxDirectoryStructure(
     inboxRoot: String,
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) {
-    if (isContentUriRoot(inboxRoot)) {
+    if (isContentStorageUri(inboxRoot)) {
         ensureSafInboxDirectoryStructure(context, inboxRoot, dispatcherProvider)
     } else {
         ensureDirectInboxDirectoryStructure(inboxRoot, dispatcherProvider)

@@ -10,6 +10,7 @@ import com.lomo.data.engine.sync.EngineOwnedSyncNativeBridge
 import com.lomo.data.engine.sync.KeystoreRustSyncSecretSupplier
 import com.lomo.data.engine.sync.RemoteSyncCenterRepositoryAdapter
 import com.lomo.data.engine.sync.RemoteSyncRepository
+import com.lomo.data.engine.sync.RustSyncCycleStatusStore
 import com.lomo.data.engine.sync.RustSyncSecretSupplier
 import com.lomo.data.engine.sync.SecretMaterialSource
 import com.lomo.data.engine.sync.SyncNativeBridge
@@ -29,8 +30,10 @@ import com.lomo.data.repository.WebDavRemoteSyncFacade
 import com.lomo.data.repository.WebDavSyncConfigurationMutationRepositoryImpl
 import com.lomo.data.repository.WebDavSyncConfigurationRepositoryImpl
 import com.lomo.data.repository.WebDavSyncStateRepositoryImpl
+import com.lomo.data.sync.GitEndpointSecurityMigration
 import com.lomo.data.sync.RustSyncWorkPolicyPlanner
 import com.lomo.data.sync.SyncConflictBackupManager
+import com.lomo.data.worker.CoreSyncScheduler
 import com.lomo.data.worker.DeferredLockAuthorizedWorkResume
 import com.lomo.data.worker.DeferredLockWorkStore
 import com.lomo.data.worker.FileDeferredLockWorkStore
@@ -98,12 +101,22 @@ val syncDataModule = module {
     }
     single<RustSyncWorkExecutor> { RemoteSyncRustWorkExecutor(remoteSync = get()) }
     single<SyncConflictSuggestionPort> { BoltFfiSyncConflictSuggestionPort() }
+    single {
+        RustSyncCycleStatusStore(
+            remoteSync = get(),
+            workspaceRoot = get(),
+        )
+    }
     single<RemoteSyncCenterRepository> {
         RemoteSyncCenterRepositoryAdapter(
             remoteSync = get(),
             artifactSource = get(),
             suggestionPort = get(),
+            configSource = get(),
         )
+    }
+    single<com.lomo.data.engine.sync.RemoteSyncConfigSource> {
+        com.lomo.data.engine.sync.DataStoreRemoteSyncConfigSource(dataStore = get())
     }
 
     // Config facades (DataStore + Keystore only)
@@ -123,6 +136,7 @@ val syncDataModule = module {
     singleOf(::S3SyncStateRepositoryImpl) bind S3SyncStateRepository::class
 
     single { RustSyncWorkPolicyPlanner() }
+    single { CoreSyncScheduler(androidContext()) }
     single {
         RustSyncScheduler(
             context = androidContext(),
@@ -151,6 +165,9 @@ val syncDataModule = module {
             configurationMutation = get(),
             state = get(),
             rustSyncScheduler = get(),
+            remoteSync = get(),
+            secretSupplier = get(),
+            cycleStatus = get(),
         )
     } bind GitSyncRepository::class
     single {
@@ -159,6 +176,9 @@ val syncDataModule = module {
             configurationMutation = get(),
             state = get(),
             rustSyncScheduler = get(),
+            remoteSync = get(),
+            secretSupplier = get(),
+            cycleStatus = get(),
         )
     } bind WebDavSyncRepository::class
     single {
@@ -167,15 +187,29 @@ val syncDataModule = module {
             configurationMutation = get(),
             state = get(),
             rustSyncScheduler = get(),
+            remoteSync = get(),
+            secretSupplier = get(),
+            cycleStatus = get(),
         )
     } bind S3SyncRepository::class
 
     single {
-        SyncPolicyRepositoryImpl(
-            context = androidContext(),
+        GitEndpointSecurityMigration(
             dataStore = get(),
+            credentialRepository = get(),
+            scheduler = get(),
+            deferredLockStore = get(),
+            syncStateReset = get(),
+            workspaceRoot = get(),
+        )
+    }
+    single {
+        SyncPolicyRepositoryImpl(
+            dataStore = get(),
+            coreSyncScheduler = get(),
             rustSyncScheduler = get(),
             syncStateReset = get(),
+            gitEndpointSecurityMigration = get(),
         )
     } bind SyncPolicyRepository::class
 

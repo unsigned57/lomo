@@ -18,10 +18,17 @@ package com.lomo.data.engine.sync
  * TDD proof: RED EngineOwnedSyncNativeBridge was absent so SyncDataModule bound
  * FreeFunctionSyncNativeBridge.runCycle; GREEN this type routes apply through the session port.
  * Excludes: JNI, LomoEngine, WorkManager process start, SAF session.
+ * Test Change Justification:
+ * - Reason category: production API signature changed.
+ * - Old behavior/assertion being replaced: runCycle accepted flat endpoint fields.
+ * - Why old assertion is no longer correct: backend configuration is now a single typed SyncBackendConfigDto.
+ * - Coverage preserved by: the same cycle assertions expressed through the config object.
+ * - Why this is not fitting the test to the implementation: it tracks the DTO-shaped bridge contract.
  */
 
 import com.lomo.data.engine.SessionNativeBridge
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.nativebridge.SyncBackendConfigDto as BridgeBackendConfig
 import com.lomo.nativebridge.SyncCyclePlanSummaryDto as BridgeCyclePlan
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
@@ -36,13 +43,19 @@ class EngineOwnedSyncNativeBridgeTest : DataFunSpec() {
             val summary =
                 bridge.runCycle(
                     workspaceRoot = "/ws",
-                    backendKind = "hermetic_fake",
-                    endpointUrl = "",
-                    usernameOrAccessKey = "",
-                    bucket = "",
-                    prefix = "",
-                    region = "",
-                    remoteDatasetId = "ds",
+                    config =
+                        BridgeBackendConfig(
+                            backendKind = "hermetic_fake",
+                            endpointUrl = "",
+                            identity = "",
+                            s3Bucket = "",
+                            s3Prefix = "",
+                            s3Region = "",
+                            gitBranch = "",
+                            gitAuthorName = "",
+                            gitAuthorEmail = "",
+                            remoteDatasetId = "ds",
+                        ),
                     secretLeaseId = "",
                     applyRemote = true,
                 )
@@ -54,17 +67,6 @@ class EngineOwnedSyncNativeBridgeTest : DataFunSpec() {
             summary.ensurePresentCount shouldBe 2u
         }
 
-        test("inspectCyclePlan stays on the free-function bridge") {
-            val session = RecordingSessionCycleBridge()
-            val free = RecordingFreeFunctionCycleBridge()
-            val bridge = EngineOwnedSyncNativeBridge(engine = session, freeFunctions = free)
-
-            val summary = bridge.inspectCyclePlan(workspaceRoot = "/ws")
-
-            session.lastWorkspaceRoot.shouldBeNull()
-            free.lastInspectWorkspaceRoot shouldBe "/ws"
-            summary.sessionId shouldBe "session-inspect"
-        }
     }
 }
 
@@ -74,13 +76,7 @@ private class RecordingSessionCycleBridge : SessionNativeBridge {
 
     override fun syncRunCycle(
         workspaceRoot: String,
-        backendKind: String,
-        endpointUrl: String,
-        usernameOrAccessKey: String,
-        bucket: String,
-        prefix: String,
-        region: String,
-        remoteDatasetId: String,
+        config: BridgeBackendConfig,
         secretLeaseId: String,
         applyRemote: Boolean,
     ): BridgeCyclePlan {
@@ -99,13 +95,17 @@ private class RecordingSessionCycleBridge : SessionNativeBridge {
             openConflictPaths = 0u,
             conflictRevision = null,
             retryDisposition = "after_user_action",
+            pagesApplied = 0u,
+            baselineAdvanced = false,
+            localEntryCount = 0u,
+            remoteListedCount = 0u,
+            baselineEntryCount = 0u,
         )
     }
 }
 
 private class RecordingFreeFunctionCycleBridge : SyncNativeBridge {
     var lastRunWorkspaceRoot: String? = null
-    var lastInspectWorkspaceRoot: String? = null
 
     override fun listConflicts(
         workspaceRoot: String,
@@ -128,41 +128,15 @@ private class RecordingFreeFunctionCycleBridge : SyncNativeBridge {
 
     override fun revokeSecretLease(leaseId: String) = error("unused")
 
-    override fun retryDispositionFromName(name: String): com.lomo.nativebridge.SyncRetryHintDto =
-        error("unused")
-
     override fun readConflictArtifact(
         workspaceRoot: String,
         artifactRef: String,
     ): ByteArray = error("unused")
 
-    override fun inspectCyclePlan(workspaceRoot: String): BridgeCyclePlan {
-        lastInspectWorkspaceRoot = workspaceRoot
-        return BridgeCyclePlan(
-            sessionId = "session-inspect",
-            sessionKind = "incremental",
-            sessionRevision = 1uL,
-            baselineEstablished = false,
-            ensurePresentCount = 0u,
-            ensureAbsentCount = 0u,
-            pullPresentCount = 0u,
-            openConflictCount = 0u,
-            holdCount = 0u,
-            openConflictPaths = 0u,
-            conflictRevision = null,
-            retryDisposition = "after_user_action",
-        )
-    }
 
     override fun runCycle(
         workspaceRoot: String,
-        backendKind: String,
-        endpointUrl: String,
-        usernameOrAccessKey: String,
-        bucket: String,
-        prefix: String,
-        region: String,
-        remoteDatasetId: String,
+        config: BridgeBackendConfig,
         secretLeaseId: String,
         applyRemote: Boolean,
     ): BridgeCyclePlan {
@@ -173,4 +147,16 @@ private class RecordingFreeFunctionCycleBridge : SyncNativeBridge {
     override fun loadWorkspaceGeneration(workspaceRoot: String): String = error("unused")
 
     override fun resetControlTree(workspaceRoot: String) = error("unused")
+
+    override fun cycleStatus(workspaceRoot: String): com.lomo.nativebridge.SyncCycleStatusDto =
+        error("unused")
+
+    override fun requestCancel(workspaceRoot: String): com.lomo.nativebridge.SyncCycleStatusDto =
+        error("unused")
+
+    override fun probeBackend(
+        workspaceRoot: String,
+        config: BridgeBackendConfig,
+        secretLeaseId: String,
+    ): com.lomo.nativebridge.SyncBackendProbeDto = error("unused")
 }

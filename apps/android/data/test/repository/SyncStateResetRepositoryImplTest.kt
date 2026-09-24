@@ -21,6 +21,12 @@ package com.lomo.data.repository
  * - RED: impl only called pendingReviewTable.clearAll().
  *
  * Excludes: JNI / control-tree file removal (native sync_ffi_contract).
+ * Test Change Justification:
+ * - Reason category: product/domain contract changed.
+ * - Old behavior/assertion being replaced: reset behavior asserted against the prior sync control surface.
+ * - Why old assertion is no longer correct: the reset path now runs through the surviving sync-session bridge.
+ * - Coverage preserved by: the same reset assertions plus the new control-tree cases.
+ * - Why this is not fitting the test to the implementation: it pins the live reset contract after dead-surface deletion.
  */
 
 import com.lomo.data.engine.media.WorkspaceFilesystemRoot
@@ -29,6 +35,8 @@ import com.lomo.data.engine.sync.RemoteSyncConflictResolveResult
 import com.lomo.data.engine.sync.RemoteSyncConflictResolution
 import com.lomo.data.engine.sync.RemoteSyncCyclePlanSummary
 import com.lomo.data.engine.sync.RemoteSyncCycleRequest
+import com.lomo.data.engine.sync.RemoteSyncBackendProbe
+import com.lomo.data.engine.sync.RemoteSyncCycleStatus
 import com.lomo.data.engine.sync.RemoteSyncRepository
 import com.lomo.data.engine.sync.RemoteSyncSecretLease
 import com.lomo.data.sync.pendingreview.PendingReviewTable
@@ -87,8 +95,6 @@ private class RecordingResetRemoteSync : RemoteSyncRepository {
 
     override fun revokeSecretLease(leaseId: String) = error("unused")
 
-    override fun inspectCyclePlan(workspaceRoot: String): RemoteSyncCyclePlanSummary = error("unused")
-
     override fun runCycle(request: RemoteSyncCycleRequest): RemoteSyncCyclePlanSummary = error("unused")
 
     override fun loadWorkspaceGeneration(workspaceRoot: String): String = error("unused")
@@ -97,6 +103,15 @@ private class RecordingResetRemoteSync : RemoteSyncRepository {
         lastResetRoot = workspaceRoot
         resetCount += 1
     }
+    var nextCycleStatus: RemoteSyncCycleStatus = noRecordCycleStatus()
+
+    override fun cycleStatus(workspaceRoot: String): RemoteSyncCycleStatus = nextCycleStatus
+
+    override fun requestCancel(workspaceRoot: String): RemoteSyncCycleStatus = nextCycleStatus
+
+    override fun probeBackend(request: RemoteSyncCycleRequest): RemoteSyncBackendProbe =
+        error("probe not used by this unit")
+
 }
 
 class SyncStateResetRepositoryImplTest : FunSpec({
@@ -156,3 +171,35 @@ class SyncStateResetRepositoryImplTest : FunSpec({
         }
     }
 })
+
+private fun noRecordCycleStatus(): RemoteSyncCycleStatus =
+    RemoteSyncCycleStatus(
+        hasRecord = false,
+        cycleSeq = 0L,
+        cycleId = "",
+        fenceKey = "",
+        backendKind = "",
+        sessionId = "",
+        applyRemote = false,
+        phase = RemoteSyncCycleStatus.PHASE_IDLE,
+        stage = RemoteSyncCycleStatus.STAGE_FINISHED,
+        ensurePresentCount = 0,
+        ensureAbsentCount = 0,
+        pullPresentCount = 0,
+        openConflictCount = 0,
+        holdCount = 0,
+        localEntryCount = 0,
+        remoteListedCount = 0,
+        baselineEntryCount = 0,
+        pagesApplied = 0,
+        baselineAdvanced = false,
+        retryDisposition = "never",
+        failureCode = null,
+        failureMessage = null,
+        cancelRequested = false,
+        startedAtMs = 0L,
+        updatedAtMs = 0L,
+        finishedAtMs = null,
+        lastSuccessfulAtMs = null,
+        stateStamp = 0L,
+    )

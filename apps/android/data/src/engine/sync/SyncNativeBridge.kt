@@ -1,21 +1,19 @@
 package com.lomo.data.engine.sync
 
+import com.lomo.nativebridge.SyncBackendConfigDto as BridgeBackendConfig
+import com.lomo.nativebridge.SyncBackendProbeDto as BridgeBackendProbe
 import com.lomo.nativebridge.SyncConflictPageDto as BridgeConflictPage
 import com.lomo.nativebridge.SyncConflictResolutionDto as BridgeResolution
 import com.lomo.nativebridge.SyncConflictResolveResultDto as BridgeResolveResult
 import com.lomo.nativebridge.SyncCyclePlanSummaryDto as BridgeCyclePlan
-import com.lomo.nativebridge.SyncRetryHintDto as BridgeRetryHint
+import com.lomo.nativebridge.SyncCycleStatusDto as BridgeCycleStatus
 import com.lomo.nativebridge.SyncSecretLeaseDto as BridgeSecretLease
 
 /**
- * True FFI edge for Stage-5 dark sync free-functions (P5-09).
+ * True FFI edge for the `com.lomo.nativebridge.sync*` free-functions.
  *
- * Production (post P5-13): top-level `com.lomo.nativebridge.sync*` free-functions.
  * Host tests inject fakes so [BoltFfiRemoteSyncRepository] / [RustSyncRetryDispositionMapper]
  * mapping is exercised without JNI.
- *
- * Dual-stack Kotlin sync business owners remain production until P5-13; this bridge must not be
- * registered in [com.lomo.data.di.SyncDataModule] before cutover.
  */
 interface SyncNativeBridge {
     fun listConflicts(
@@ -39,24 +37,14 @@ interface SyncNativeBridge {
 
     fun revokeSecretLease(leaseId: String)
 
-    fun retryDispositionFromName(name: String): BridgeRetryHint
-
     fun readConflictArtifact(
         workspaceRoot: String,
         artifactRef: String,
     ): ByteArray
 
-    fun inspectCyclePlan(workspaceRoot: String): BridgeCyclePlan
-
     fun runCycle(
         workspaceRoot: String,
-        backendKind: String,
-        endpointUrl: String,
-        usernameOrAccessKey: String,
-        bucket: String,
-        prefix: String,
-        region: String = "",
-        remoteDatasetId: String = "",
+        config: BridgeBackendConfig,
         secretLeaseId: String = "",
         applyRemote: Boolean = false,
     ): BridgeCyclePlan
@@ -64,4 +52,17 @@ interface SyncNativeBridge {
     fun loadWorkspaceGeneration(workspaceRoot: String): String
 
     fun resetControlTree(workspaceRoot: String)
+
+    /** Durable cycle record read (`cycle_state.rec`) — sole authority for sync status. */
+    fun cycleStatus(workspaceRoot: String): BridgeCycleStatus
+
+    /** Durable cancel request bound to the running cycle's fence; returns post-write record. */
+    fun requestCancel(workspaceRoot: String): BridgeCycleStatus
+
+    /** Real adapter construction + capabilities + listing round-trip (`testConnection`). */
+    fun probeBackend(
+        workspaceRoot: String,
+        config: BridgeBackendConfig,
+        secretLeaseId: String = "",
+    ): BridgeBackendProbe
 }

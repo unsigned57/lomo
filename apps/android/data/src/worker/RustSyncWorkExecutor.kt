@@ -26,16 +26,21 @@ fun interface RustSyncWorkExecutor {
  *
  * [secretFieldKey] null means no credential lease is required (public / hermetic / already-auth).
  * When non-null, missing material / issue failure is fail-closed ([RemoteSyncRetryDisposition.Never]).
- * Non-secret backend fields construct the remote port in Rust; secrets only via [secretLeaseId].
+ * Non-secret backend fields are explicit per kind (`s3*`, `git*`); they construct the remote port
+ * in Rust. Fields outside the selected kind stay empty — the FFI boundary rejects mixed shapes.
+ * Secrets only via [secretLeaseId].
  */
 data class RustSyncWorkRequest(
     val workspaceRoot: String,
     val backendKind: String,
     val endpointUrl: String = "",
-    val usernameOrAccessKey: String = "",
-    val bucket: String = "",
-    val prefix: String = "",
-    val region: String = "",
+    val identity: String = "",
+    val s3Bucket: String = "",
+    val s3Prefix: String = "",
+    val s3Region: String = "",
+    val gitBranch: String = "",
+    val gitAuthorName: String = "",
+    val gitAuthorEmail: String = "",
     val remoteDatasetId: String = "",
     val identityFieldKey: String? = null,
     val secretFieldKey: String? = null,
@@ -49,9 +54,12 @@ data class RustSyncWorkRequest(
         const val INPUT_BACKEND_KIND: String = "rust_sync_backend_kind"
         const val INPUT_ENDPOINT_URL: String = "rust_sync_endpoint_url"
         const val INPUT_IDENTITY_FIELD_KEY: String = "rust_sync_identity_field_key"
-        const val INPUT_BUCKET: String = "rust_sync_bucket"
-        const val INPUT_PREFIX: String = "rust_sync_prefix"
-        const val INPUT_REGION: String = "rust_sync_region"
+        const val INPUT_S3_BUCKET: String = "rust_sync_s3_bucket"
+        const val INPUT_S3_PREFIX: String = "rust_sync_s3_prefix"
+        const val INPUT_S3_REGION: String = "rust_sync_s3_region"
+        const val INPUT_GIT_BRANCH: String = "rust_sync_git_branch"
+        const val INPUT_GIT_AUTHOR_NAME: String = "rust_sync_git_author_name"
+        const val INPUT_GIT_AUTHOR_EMAIL: String = "rust_sync_git_author_email"
         const val INPUT_REMOTE_DATASET_ID: String = "rust_sync_remote_dataset_id"
         const val INPUT_SECRET_FIELD_KEY: String = "rust_sync_secret_field_key"
         const val INPUT_LEASE_TTL_MILLIS: String = "rust_sync_lease_ttl_millis"

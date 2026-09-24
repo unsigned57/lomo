@@ -21,6 +21,12 @@ package com.lomo.data.repository
  * - RED: DataStoreWorkspaceSyncGenerationProvider returned "sha256:" + path digest.
  *
  * Excludes: JNI / generation.rec codec (native sync_ffi_contract).
+ * Test Change Justification:
+ * - Reason category: production API surface changed.
+ * - Old behavior/assertion being replaced: generation provider calls through the retired sync bridge methods.
+ * - Why old assertion is no longer correct: generation facts now flow through the surviving sync-session surface.
+ * - Coverage preserved by: the same generation assertions on the live bridge path.
+ * - Why this is not fitting the test to the implementation: it tracks the surviving native contract.
  */
 
 import com.lomo.data.engine.media.WorkspaceFilesystemRoot
@@ -29,6 +35,8 @@ import com.lomo.data.engine.sync.RemoteSyncConflictResolveResult
 import com.lomo.data.engine.sync.RemoteSyncConflictResolution
 import com.lomo.data.engine.sync.RemoteSyncCyclePlanSummary
 import com.lomo.data.engine.sync.RemoteSyncCycleRequest
+import com.lomo.data.engine.sync.RemoteSyncBackendProbe
+import com.lomo.data.engine.sync.RemoteSyncCycleStatus
 import com.lomo.data.engine.sync.RemoteSyncRepository
 import com.lomo.data.engine.sync.RemoteSyncSecretLease
 import io.kotest.assertions.throwables.shouldThrow
@@ -62,8 +70,6 @@ private class RecordingGenerationRemoteSync : RemoteSyncRepository {
 
     override fun revokeSecretLease(leaseId: String) = error("unused")
 
-    override fun inspectCyclePlan(workspaceRoot: String): RemoteSyncCyclePlanSummary = error("unused")
-
     override fun runCycle(request: RemoteSyncCycleRequest): RemoteSyncCyclePlanSummary = error("unused")
 
     override fun loadWorkspaceGeneration(workspaceRoot: String): String {
@@ -72,6 +78,12 @@ private class RecordingGenerationRemoteSync : RemoteSyncRepository {
     }
 
     override fun resetControlTree(workspaceRoot: String) = error("unused")
+
+    override fun cycleStatus(workspaceRoot: String): RemoteSyncCycleStatus = error("unused")
+
+    override fun requestCancel(workspaceRoot: String): RemoteSyncCycleStatus = error("unused")
+
+    override fun probeBackend(request: RemoteSyncCycleRequest): RemoteSyncBackendProbe = error("unused")
 }
 
 class NativeWorkspaceSyncGenerationProviderTest : FunSpec({

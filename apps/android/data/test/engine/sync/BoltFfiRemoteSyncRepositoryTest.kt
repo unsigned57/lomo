@@ -50,8 +50,11 @@ package com.lomo.data.engine.sync
  * - Sync Center Compose UI (P5-10).
  */
 
+import com.lomo.data.testing.fakes.MemorySecretMaterialSource
 import com.lomo.nativebridge.EngineError
 import com.lomo.nativebridge.EngineFailure
+import com.lomo.nativebridge.SyncBackendConfigDto as BridgeBackendConfig
+import com.lomo.nativebridge.SyncBackendProbeDto as BridgeBackendProbe
 import com.lomo.nativebridge.SyncConflictPageDto as BridgeConflictPage
 import com.lomo.nativebridge.SyncConflictPathDto as BridgeConflictPath
 import com.lomo.nativebridge.SyncConflictPathStatusDto as BridgePathStatus
@@ -59,6 +62,7 @@ import com.lomo.nativebridge.SyncConflictResolutionDto as BridgeResolution
 import com.lomo.nativebridge.SyncConflictResolveResultDto as BridgeResolveResult
 import com.lomo.nativebridge.SyncConflictSessionStateDto as BridgeConflictSession
 import com.lomo.nativebridge.SyncCyclePlanSummaryDto as BridgeCyclePlan
+import com.lomo.nativebridge.SyncCycleStatusDto as BridgeCycleStatus
 import com.lomo.nativebridge.SyncRetryDispositionDto as BridgeRetryDisposition
 import com.lomo.nativebridge.SyncRetryHintDto as BridgeRetryHint
 import com.lomo.nativebridge.SyncSecretLeaseDto as BridgeSecretLease
@@ -114,10 +118,9 @@ private class RecordingSyncNativeBridge : SyncNativeBridge {
     var listError: EngineError? = null
     var resolveError: EngineError? = null
     var issueError: EngineError? = null
-    var inspectError: EngineError? = null
     var nextLeaseId: String = "lease-dark-test-001"
     var probeLength: UInt = 5u
-    var lastInspectWorkspaceRoot: String? = null
+    var lastRunCycleWorkspaceRoot: String? = null
     var cyclePlan: BridgeCyclePlan =
         BridgeCyclePlan(
             sessionId = "session-cycle",
@@ -132,6 +135,11 @@ private class RecordingSyncNativeBridge : SyncNativeBridge {
             openConflictPaths = 0u,
             conflictRevision = null,
             retryDisposition = "after_user_action",
+            pagesApplied = 0u,
+            baselineAdvanced = false,
+            localEntryCount = 0u,
+            remoteListedCount = 0u,
+            baselineEntryCount = 0u,
         )
 
     override fun listConflicts(
@@ -185,33 +193,7 @@ private class RecordingSyncNativeBridge : SyncNativeBridge {
         return ByteArray(0)
     }
 
-    override fun retryDispositionFromName(name: String): BridgeRetryHint {
-        lastDispositionName = name
-        val disposition =
-            when (name) {
-                "never" -> BridgeRetryDisposition.NEVER
-                "after_user_action" -> BridgeRetryDisposition.AFTER_USER_ACTION
-                "transient" -> BridgeRetryDisposition.TRANSIENT
-                else ->
-                    throw EngineError.Failure(
-                        EngineFailure(
-                            category = "validation",
-                            code = "sync_ffi_retry_disposition_invalid",
-                            retryDisposition = "never",
-                            operationId = null,
-                            jobId = null,
-                            diagnostic = "retry disposition must be never|after_user_action|transient",
-                        ),
-                    )
-            }
-        return BridgeRetryHint(disposition = disposition, retryAfterMillis = null)
-    }
 
-    override fun inspectCyclePlan(workspaceRoot: String): BridgeCyclePlan {
-        lastInspectWorkspaceRoot = workspaceRoot
-        inspectError?.let { throw it }
-        return cyclePlan
-    }
 
     var lastRunCycleBackendKind: String? = null
     var lastRunCycleLeaseId: String? = null
@@ -219,18 +201,12 @@ private class RecordingSyncNativeBridge : SyncNativeBridge {
 
     override fun runCycle(
         workspaceRoot: String,
-        backendKind: String,
-        endpointUrl: String,
-        usernameOrAccessKey: String,
-        bucket: String,
-        prefix: String,
-        region: String,
-        remoteDatasetId: String,
+        config: BridgeBackendConfig,
         secretLeaseId: String,
         applyRemote: Boolean,
     ): BridgeCyclePlan {
-        lastInspectWorkspaceRoot = workspaceRoot
-        lastRunCycleBackendKind = backendKind
+        lastRunCycleWorkspaceRoot = workspaceRoot
+        lastRunCycleBackendKind = config.backendKind
         lastRunCycleLeaseId = secretLeaseId
         runCycleError?.let { throw it }
         return cyclePlan
@@ -248,22 +224,49 @@ private class RecordingSyncNativeBridge : SyncNativeBridge {
     override fun resetControlTree(workspaceRoot: String) {
         lastResetWorkspaceRoot = workspaceRoot
     }
-}
 
-private class MemorySecretMaterialSource(
-    private val secrets: MutableMap<String, ByteArray> = mutableMapOf(),
-) : SecretMaterialSource {
-    override fun readSecretBytes(fieldKey: String): ByteArray? = secrets[fieldKey]?.copyOf()
+    var cycleStatusResult: BridgeCycleStatus = noRecordCycleStatus()
+    var cycleStatusError: EngineError? = null
+    var requestCancelResult: BridgeCycleStatus = noRecordCycleStatus()
+    var requestCancelError: EngineError? = null
+    var lastCancelWorkspaceRoot: String? = null
+    var backendProbeResult: BridgeBackendProbe =
+        BridgeBackendProbe(
+            backendKind = "hermetic_fake",
+            listedEntryCount = 0u,
+            snapshotRevisionPresent = false,
+            conditionalWrite = false,
+            conditionalDelete = false,
+            probedAtMs = 0L,
+        )
+    var probeError: EngineError? = null
+    var lastProbeConfig: BridgeBackendConfig? = null
 
-    override fun hasMaterial(fieldKey: String): Boolean = secrets[fieldKey]?.isNotEmpty() == true
+    override fun cycleStatus(workspaceRoot: String): BridgeCycleStatus {
+        lastWorkspaceRoot = workspaceRoot
+        cycleStatusError?.let { throw it }
+        return cycleStatusResult
+    }
 
-    fun put(
-        fieldKey: String,
-        value: ByteArray,
-    ) {
-        secrets[fieldKey] = value.copyOf()
+    override fun requestCancel(workspaceRoot: String): BridgeCycleStatus {
+        lastCancelWorkspaceRoot = workspaceRoot
+        requestCancelError?.let { throw it }
+        return requestCancelResult
+    }
+
+    override fun probeBackend(
+        workspaceRoot: String,
+        config: BridgeBackendConfig,
+        secretLeaseId: String,
+    ): BridgeBackendProbe {
+        lastWorkspaceRoot = workspaceRoot
+        lastProbeConfig = config
+        probeError?.let { throw it }
+        return backendProbeResult
     }
 }
+
+
 
 class BoltFfiRemoteSyncRepositoryTest : FunSpec({
     test("listConflicts maps digests status and token presence without body bytes") {
@@ -482,6 +485,11 @@ class BoltFfiRemoteSyncRepositoryTest : FunSpec({
                 openConflictPaths = 0u,
                 conflictRevision = null,
                 retryDisposition = "after_user_action",
+                pagesApplied = 0u,
+                baselineAdvanced = false,
+                localEntryCount = 0u,
+                remoteListedCount = 0u,
+                baselineEntryCount = 0u,
             )
         val repository = BoltFfiRemoteSyncRepository(bridge)
 
@@ -499,7 +507,7 @@ class BoltFfiRemoteSyncRepositoryTest : FunSpec({
         summary.ensurePresentCount shouldBe 3
         summary.retryDisposition shouldBe "after_user_action"
         bridge.lastRunCycleBackendKind shouldBe "hermetic_fake"
-        bridge.lastInspectWorkspaceRoot shouldBe "/ws"
+        bridge.lastRunCycleWorkspaceRoot shouldBe "/ws"
     }
 
     test("runCycle blank workspace fail-closed before bridge") {
@@ -514,76 +522,6 @@ class BoltFfiRemoteSyncRepositoryTest : FunSpec({
                 ),
             )
         }
-    }
-
-    test("inspectCyclePlan maps Rust-owned cycle summary without inventing planner counts") {
-        val bridge = RecordingSyncNativeBridge()
-        bridge.cyclePlan =
-            BridgeCyclePlan(
-                sessionId = "session-cycle",
-                sessionKind = "incremental",
-                sessionRevision = 2uL,
-                baselineEstablished = true,
-                ensurePresentCount = 1u,
-                ensureAbsentCount = 0u,
-                pullPresentCount = 2u,
-                openConflictCount = 0u,
-                openConflictPaths = 1u,
-                holdCount = 2u,
-                conflictRevision = 3uL,
-                retryDisposition = "after_user_action",
-            )
-        val repository = BoltFfiRemoteSyncRepository(bridge)
-
-        val summary = repository.inspectCyclePlan(workspaceRoot = "/ws")
-
-        bridge.lastInspectWorkspaceRoot shouldBe "/ws"
-        summary.sessionId shouldBe "session-cycle"
-        summary.sessionKind shouldBe "incremental"
-        summary.sessionRevision shouldBe 2L
-        summary.baselineEstablished shouldBe true
-        summary.ensurePresentCount shouldBe 1
-        summary.ensureAbsentCount shouldBe 0
-        summary.pullPresentCount shouldBe 2
-        summary.openConflictCount shouldBe 0
-        summary.openConflictPaths shouldBe 1
-        summary.holdCount shouldBe 2
-        summary.conflictRevision shouldBe 3L
-        summary.retryDisposition shouldBe "after_user_action"
-    }
-
-    test("inspectCyclePlan blank workspace fail-closed before bridge") {
-        val bridge = RecordingSyncNativeBridge()
-        val repository = BoltFfiRemoteSyncRepository(bridge)
-
-        shouldThrow<IllegalArgumentException> {
-            repository.inspectCyclePlan(workspaceRoot = "  ")
-        }
-        bridge.lastInspectWorkspaceRoot.shouldBeNull()
-    }
-
-    test("inspectCyclePlan boundary failure maps category code disposition") {
-        val bridge = RecordingSyncNativeBridge()
-        bridge.inspectError =
-            EngineError.Failure(
-                EngineFailure(
-                    category = "validation",
-                    code = "sync_session_missing",
-                    retryDisposition = "never",
-                    operationId = null,
-                    jobId = null,
-                    diagnostic = "durable sync session is required",
-                ),
-            )
-        val repository = BoltFfiRemoteSyncRepository(bridge)
-
-        val failure =
-            shouldThrow<RemoteSyncBoundaryFailure> {
-                repository.inspectCyclePlan(workspaceRoot = "/ws")
-            }
-        failure.category shouldBe "validation"
-        failure.code shouldBe "sync_session_missing"
-        failure.retryDisposition shouldBe "never"
     }
 
     test("loadWorkspaceGeneration maps fence id and rejects blank root") {
@@ -613,3 +551,35 @@ class BoltFfiRemoteSyncRepositoryTest : FunSpec({
         bridge.lastResetWorkspaceRoot shouldBe "/ws"
     }
 })
+
+private fun noRecordCycleStatus(): BridgeCycleStatus =
+    BridgeCycleStatus(
+        hasRecord = false,
+        cycleSeq = 0uL,
+        cycleId = "",
+        fenceKey = "",
+        backendKind = "",
+        sessionId = "",
+        applyRemote = false,
+        phase = "idle",
+        stage = "finished",
+        ensurePresentCount = 0u,
+        ensureAbsentCount = 0u,
+        pullPresentCount = 0u,
+        openConflictCount = 0u,
+        holdCount = 0u,
+        localEntryCount = 0u,
+        remoteListedCount = 0u,
+        baselineEntryCount = 0u,
+        pagesApplied = 0u,
+        baselineAdvanced = false,
+        retryDisposition = "never",
+        failureCode = null,
+        failureMessage = null,
+        cancelRequested = false,
+        startedAtMs = 0L,
+        updatedAtMs = 0L,
+        finishedAtMs = null,
+        lastSuccessfulAtMs = null,
+        stateStamp = 0uL,
+    )

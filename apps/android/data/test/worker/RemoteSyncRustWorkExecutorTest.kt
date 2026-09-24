@@ -56,6 +56,8 @@ import com.lomo.data.engine.sync.RemoteSyncConflictResolveResult
 import com.lomo.data.engine.sync.RemoteSyncConflictResolution
 import com.lomo.data.engine.sync.RemoteSyncCyclePlanSummary
 import com.lomo.data.engine.sync.RemoteSyncCycleRequest
+import com.lomo.data.engine.sync.RemoteSyncBackendProbe
+import com.lomo.data.engine.sync.RemoteSyncCycleStatus
 import com.lomo.data.engine.sync.RemoteSyncRepository
 import com.lomo.data.engine.sync.RemoteSyncRetryDisposition
 import com.lomo.data.engine.sync.RemoteSyncRetryHint
@@ -123,10 +125,6 @@ private class FakeRemoteSyncRepository : RemoteSyncRepository {
         error("revoke is owned by worker lease lifecycle, not work executor")
     }
 
-    override fun inspectCyclePlan(workspaceRoot: String): RemoteSyncCyclePlanSummary {
-        inspectCount += 1
-        error("inspectCyclePlan is readiness-only; production work unit must call runCycle")
-    }
 
     override fun runCycle(request: RemoteSyncCycleRequest): RemoteSyncCyclePlanSummary {
         runCycleCount += 1
@@ -141,7 +139,54 @@ private class FakeRemoteSyncRepository : RemoteSyncRepository {
     override fun resetControlTree(workspaceRoot: String) {
         error("reset not used by work executor unit")
     }
+
+    var nextCycleStatus: RemoteSyncCycleStatus = noRecordCycleStatus()
+    var cycleStatusError: RemoteSyncBoundaryFailure? = null
+
+    override fun cycleStatus(workspaceRoot: String): RemoteSyncCycleStatus {
+        cycleStatusError?.let { throw it }
+        return nextCycleStatus
+    }
+
+    override fun requestCancel(workspaceRoot: String): RemoteSyncCycleStatus =
+        error("cancel not used by work executor unit")
+
+    override fun probeBackend(request: RemoteSyncCycleRequest): RemoteSyncBackendProbe =
+        error("probe not used by work executor unit")
 }
+
+private fun noRecordCycleStatus(): RemoteSyncCycleStatus =
+    RemoteSyncCycleStatus(
+        hasRecord = false,
+        cycleSeq = 0L,
+        cycleId = "",
+        fenceKey = "",
+        backendKind = "",
+        sessionId = "",
+        applyRemote = false,
+        phase = RemoteSyncCycleStatus.PHASE_IDLE,
+        stage = RemoteSyncCycleStatus.STAGE_FINISHED,
+        ensurePresentCount = 0,
+        ensureAbsentCount = 0,
+        pullPresentCount = 0,
+        openConflictCount = 0,
+        holdCount = 0,
+        localEntryCount = 0,
+        remoteListedCount = 0,
+        baselineEntryCount = 0,
+        pagesApplied = 0,
+        baselineAdvanced = false,
+        retryDisposition = "never",
+        failureCode = null,
+        failureMessage = null,
+        cancelRequested = false,
+        startedAtMs = 0L,
+        updatedAtMs = 0L,
+        finishedAtMs = null,
+        lastSuccessfulAtMs = null,
+        stateStamp = 0L,
+    )
+
 
 private fun hermeticRequest(
     workspaceRoot: String = "/ws",

@@ -8,6 +8,9 @@ interface DeferredLockWorkStore {
     fun save(input: Data)
 
     fun take(): Data?
+
+    /** Drops any pending deferred work without consuming it (stale-input purge). */
+    fun clear()
 }
 
 class FileDeferredLockWorkStore(
@@ -45,5 +48,9 @@ class FileDeferredLockWorkStore(
         }
         file.delete()
         return Data.fromByteArray(bytes)
+    }
+
+    override fun clear() {
+        file.delete()
     }
 }

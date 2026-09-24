@@ -3,6 +3,7 @@ package com.lomo.data.repository
 import android.content.Context
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
+import com.lomo.data.source.isContentStorageUri
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.withContext
@@ -16,7 +17,7 @@ internal suspend fun deleteInboxFile(
     relativePath: String,
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) {
-    if (isContentUriRoot(inboxRoot)) {
+    if (isContentStorageUri(inboxRoot)) {
         deleteSafInboxFile(context, inboxRoot, relativePath, dispatcherProvider)
     } else {
         withContext(dispatcherProvider.io) {
@@ -33,7 +34,7 @@ internal suspend fun listInboxMarkdownFiles(
     inboxRoot: String,
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): List<InboxMarkdownFileMetadata> =
-    if (isContentUriRoot(inboxRoot)) {
+    if (isContentStorageUri(inboxRoot)) {
         listSafInboxMarkdownFiles(context, inboxRoot, dispatcherProvider)
     } else {
         listDirectInboxMarkdownFiles(inboxRoot, dispatcherProvider)
@@ -105,7 +106,7 @@ internal suspend fun readInboxTextFile(
     relativePath: String,
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): String? =
-    if (isContentUriRoot(inboxRoot)) {
+    if (isContentStorageUri(inboxRoot)) {
         readSafInboxFileBytes(context, inboxRoot, relativePath, dispatcherProvider)?.toString(Charsets.UTF_8)
     } else {
         withContext(dispatcherProvider.io) {
@@ -120,7 +121,7 @@ internal suspend fun readInboxBinaryFile(
     relativePath: String,
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): ByteArray? =
-    if (isContentUriRoot(inboxRoot)) {
+    if (isContentStorageUri(inboxRoot)) {
         readSafInboxFileBytes(context, inboxRoot, relativePath, dispatcherProvider)
     } else {
         withContext(dispatcherProvider.io) {
@@ -140,7 +141,7 @@ internal suspend fun inboxBinaryFileExists(
     relativePath: String,
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): Boolean =
-    if (isContentUriRoot(inboxRoot)) {
+    if (isContentStorageUri(inboxRoot)) {
         withContext(dispatcherProvider.io) {
             resolveSafInboxFile(context, inboxRoot, relativePath)
                 ?.isFile == true
@@ -159,7 +160,7 @@ internal suspend fun copyInboxBinaryFileTo(
     output: OutputStream,
     dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ): Boolean =
-    if (isContentUriRoot(inboxRoot)) {
+    if (isContentStorageUri(inboxRoot)) {
         withContext(dispatcherProvider.io) {
             val target =
                 resolveSafInboxFile(context, inboxRoot, relativePath)
