@@ -12,7 +12,7 @@ internal sealed interface GalleryScreenDisplayState {
     data object Empty : GalleryScreenDisplayState
 
     data class Grid(
-        val memos: ImmutableList<MemoUiModel>,
+        val memos: List<MemoUiModel>,
         val aspectByMemoId: ImmutableMap<String, Float>,
     ) : GalleryScreenDisplayState
 }
@@ -33,7 +33,7 @@ internal fun resolveGalleryScreenDisplayState(
                 aspectByMemoId == null || !aspectsReady || !initialImagesReady -> GalleryScreenDisplayState.Loading
                 else ->
                     GalleryScreenDisplayState.Grid(
-                        memos = galleryState.memos.toImmutableList(),
+                        memos = galleryState.memos,
                         aspectByMemoId = aspectByMemoId,
                     )
             }

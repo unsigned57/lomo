@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
@@ -127,7 +128,13 @@ internal class MainMemoListStateHolder(
             memoPagingData.filterNotNull(),
         ) { currentMappingInput, pagingData ->
             pagingData.map { memo ->
-                withContext(dispatcherProvider.default) {
+                memoUiMapper.peekCachedUiModel(
+                    memo = memo,
+                    rootPath = currentMappingInput.rootDirectory,
+                    imagePath = currentMappingInput.imageDirectory,
+                    imageMap = currentMappingInput.imageMap,
+                    reminders = memo.reminders,
+                ) ?: withContext(dispatcherProvider.default) {
                     memoUiMapper.mapToCachedUiModel(
                         memo = memo,
                         rootPath = currentMappingInput.rootDirectory,
@@ -140,49 +147,59 @@ internal class MainMemoListStateHolder(
         }.cachedIn(scope)
 
     @OptIn(ExperimentalCoroutinesApi::class)
+    // behavior-contract: uncached-paging-ok: private intermediate; public surfaces use cachedIn
+    private val galleryPagingData: StateFlow<PagingData<Memo>?> =
+        mount
+            .map { it.admittedAuthority }
+            .distinctUntilChanged()
+            .flatMapLatest { authority ->
+                if (authority == null) {
+                    flowOf(null)
+                } else {
+                    Pager(
+                        PagingConfig(
+                            pageSize = DEFAULT_MAIN_LIST_PAGE_SIZE,
+                            initialLoadSize = DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE,
+                            prefetchDistance = DEFAULT_MAIN_LIST_PREFETCH_DISTANCE,
+                            enablePlaceholders = false,
+                        ),
+                    ) { mainMemoListQueryUseCase.getGalleryMemosPagingSource() }.flow
+                        .map { pagingData ->
+                            pagingData.filter { memo ->
+                                memo.imageUrls.any { path -> !isAudioAttachmentPath(path) }
+                            }
+                        }
+                }
+            }.stateIn(scope, appWhileSubscribed(), null)
+
+    /**
+     * Gallery rows re-map in place when media dependencies move: the pager's identity is the
+     * admitted workspace authority alone, while the per-row image-map signature in
+     * [UiMemoMappingInput] decides which cached rows invalidate.
+     */
     val galleryPagedUiMemos: Flow<PagingData<MemoUiModel>> =
         combine(
-            mount,
-            rootDirectory,
-            imageDirectory,
-            imageMap,
-        ) { session, rootDir, imageDir, currentImageMap ->
-            if (session.admittedAuthority == null) {
-                null
-            } else {
-                GalleryPagingInput(
-                    rootDirectory = rootDir,
-                    imageDirectory = imageDir,
-                    imageMap = currentImageMap,
-                )
+            mappingInput,
+            galleryPagingData.filterNotNull(),
+        ) { currentMappingInput, pagingData ->
+            pagingData.map { memo ->
+                memoUiMapper.peekCachedUiModel(
+                    memo = memo,
+                    rootPath = currentMappingInput.rootDirectory,
+                    imagePath = currentMappingInput.imageDirectory,
+                    imageMap = currentMappingInput.imageMap,
+                    reminders = memo.reminders,
+                ) ?: withContext(dispatcherProvider.default) {
+                    memoUiMapper.mapToCachedUiModel(
+                        memo = memo,
+                        rootPath = currentMappingInput.rootDirectory,
+                        imagePath = currentMappingInput.imageDirectory,
+                        imageMap = currentMappingInput.imageMap,
+                        reminders = memo.reminders,
+                    )
+                }
             }
-        }.filterNotNull()
-            .flatMapLatest { input ->
-                Pager(
-                    PagingConfig(
-                        pageSize = DEFAULT_MAIN_LIST_PAGE_SIZE,
-                        initialLoadSize = DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE,
-                        prefetchDistance = DEFAULT_MAIN_LIST_PREFETCH_DISTANCE,
-                        enablePlaceholders = false,
-                    ),
-                ) { mainMemoListQueryUseCase.getGalleryMemosPagingSource() }.flow
-                    .map { pagingData ->
-                        pagingData
-                            .filter { memo -> memo.imageUrls.any { path -> !isAudioAttachmentPath(path) } }
-                            .map { memo ->
-                                withContext(dispatcherProvider.default) {
-                                    memoUiMapper.mapToCachedUiModel(
-                                        memo = memo,
-                                        rootPath = input.rootDirectory,
-                                        imagePath = input.imageDirectory,
-                                        imageMap = input.imageMap,
-                                        reminders = memo.reminders,
-                                    )
-                                }
-                            }
-                    }
-            }.cachedIn(scope)
-
+        }.cachedIn(scope)
 }
 
 private data class MemoQueryInput(
@@ -193,10 +210,4 @@ private data class MemoQueryInput(
 private data class AuthorizedMemoQueryInput(
     val authority: WorkspaceAuthority,
     val query: MemoQueryInput,
-)
-
-private data class GalleryPagingInput(
-    val rootDirectory: String?,
-    val imageDirectory: String?,
-    val imageMap: Map<String, android.net.Uri>,
 )

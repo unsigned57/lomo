@@ -185,6 +185,8 @@ class StatisticsViewModelTest : AppFunSpec() {
             appConfigUiCoordinator = com.lomo.app.feature.common.AppConfigUiCoordinator(appConfigRepository),
             appPreferencesSnapshotRepository = appConfigRepository,
             customFontStore = FakeCustomFontStore(),
+            customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(FakeCustomFontStore()),
+            preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
             appScope = CoroutineScope(SupervisorJob() + testDispatcher),
         )
     }

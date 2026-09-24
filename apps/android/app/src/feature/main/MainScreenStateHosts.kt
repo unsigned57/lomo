@@ -12,6 +12,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -300,6 +301,16 @@ private fun MainScreenNavigationContent(
     val clearMainFilters = rememberClearMainFiltersAction(dependencies)
     val onHeatmapDateLongPress = rememberMainScreenHeatmapLongPressAction(dependencies, hostState)
     val onScrollToTop = rememberMainScreenScrollToTopAction(hostState)
+    val sessionSnapshot =
+        rememberSaveable(stateSaver = mainListSessionSnapshotSaver) {
+            mutableStateOf(MainListSessionSnapshot.Empty)
+        }
+
+    MainScreenSessionRestoreEffect(
+        dependencies = dependencies,
+        listState = hostState.listState,
+        sessionSnapshot = sessionSnapshot,
+    )
 
     MainScreenFilterScrollEffect(
         searchQuery = screenState.searchQuery,
@@ -356,14 +367,91 @@ private fun MainScreenNavigationContent(
     }
 }
 
+/**
+ * Applies the saved main-list session once the mounted workspace publishes its location, then keeps
+ * the durable snapshot in sync with the live session owner and viewport.
+ *
+ * Restore order is query and structural filter first — through the single session owner — and the
+ * viewport anchor second, so the list never composes a restored position under a stale query.
+ * A snapshot bound to a different workspace resets instead of showing the stale page.
+ */
+@Composable
+internal fun MainScreenSessionRestoreEffect(
+    dependencies: MainScreenDependencies,
+    listState: LazyListState,
+    sessionSnapshot: MutableState<MainListSessionSnapshot>,
+) {
+    val mount by dependencies.mainViewModel.mount.collectAsStateWithLifecycle()
+    val workspacePath = mount.location?.raw
+    val searchQuery by dependencies.mainViewModel.searchQuery.collectAsStateWithLifecycle()
+    val memoListFilter by dependencies.mainViewModel.memoListFilter.collectAsStateWithLifecycle()
+    var restoreSettled by remember { mutableStateOf(false) }
+
+    LaunchedEffect(workspacePath) {
+        val path = workspacePath ?: return@LaunchedEffect
+        when (val action = resolveMainListSessionRestore(sessionSnapshot.value, path)) {
+            is MainListSessionRestoreAction.Apply -> {
+                dependencies.mainViewModel.restoreMainListSession(
+                    query = action.snapshot.searchQuery,
+                    filter = action.snapshot.filter,
+                )
+                if (action.snapshot.anchorIndex != 0 || action.snapshot.anchorOffset != 0) {
+                    listState.scrollToItem(
+                        action.snapshot.anchorIndex,
+                        action.snapshot.anchorOffset,
+                    )
+                }
+            }
+            MainListSessionRestoreAction.Reset -> {
+                listState.scrollToItem(0)
+                sessionSnapshot.value =
+                    MainListSessionSnapshot.Empty.copy(workspacePath = path)
+            }
+            MainListSessionRestoreAction.Wait -> Unit
+        }
+        restoreSettled = true
+    }
+
+    LaunchedEffect(restoreSettled, workspacePath, searchQuery, memoListFilter) {
+        val path = workspacePath ?: return@LaunchedEffect
+        if (!restoreSettled) return@LaunchedEffect
+        val snapshot = sessionSnapshot.value
+        if (snapshot.workspacePath == path &&
+            (snapshot.searchQuery != searchQuery || snapshot.filter != memoListFilter)
+        ) {
+            sessionSnapshot.value =
+                snapshot.copy(searchQuery = searchQuery, filter = memoListFilter)
+        }
+    }
+
+    LaunchedEffect(restoreSettled, workspacePath, listState) {
+        val path = workspacePath ?: return@LaunchedEffect
+        if (!restoreSettled) return@LaunchedEffect
+        snapshotFlow {
+            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        }.distinctUntilChanged()
+            .collect { (index, offset) ->
+                val snapshot = sessionSnapshot.value
+                if (snapshot.workspacePath == path &&
+                    (snapshot.anchorIndex != index || snapshot.anchorOffset != offset)
+                ) {
+                    sessionSnapshot.value =
+                        snapshot.copy(anchorIndex = index, anchorOffset = offset)
+                }
+            }
+    }
+}
+
 @Composable
 private fun MainScreenFilterScrollEffect(
     searchQuery: String,
     memoListFilter: MemoListFilter,
     listState: androidx.compose.foundation.lazy.LazyListState,
 ) {
-    var previousQuery by rememberSaveable { mutableStateOf("") }
-    var previousMemoFilter by remember { mutableStateOf(MemoListFilter()) }
+    // Comparison baseline only — never persisted; it is seeded from the session the owner
+    // publishes at composition, which is the restored session when one applied.
+    var previousQuery by remember { mutableStateOf(searchQuery) }
+    var previousMemoFilter by remember { mutableStateOf(memoListFilter) }
 
     LaunchedEffect(searchQuery, memoListFilter) {
         val filterChanged =

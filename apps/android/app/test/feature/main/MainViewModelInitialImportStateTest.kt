@@ -23,7 +23,7 @@ import com.lomo.app.testing.fakes.FakeS3SyncRepository
 import com.lomo.app.testing.fakes.FakeSyncInboxRepository
 import com.lomo.app.testing.fakes.FakeSyncPolicyRepository
 import com.lomo.app.testing.fakes.FakeWebDavSyncRepository
-import com.lomo.domain.usecase.FakeDispatcherProvider
+import com.lomo.domain.usecase.SingleDispatcherProvider
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.EngineRetryDisposition
@@ -115,7 +115,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
     private val imageMapProvider by lazy { emptyImageMapProvider() }
     private val audioPlayerManager by lazy { FakeAudioPlayerManager() }
     private val rootLocationFlow = MutableStateFlow<StorageLocation?>(null)
-    private val dispatcherProvider = FakeDispatcherProvider(testDispatcher)
+    private val dispatcherProvider = SingleDispatcherProvider(testDispatcher)
     private val engineReadinessRepository = com.lomo.app.testing.fakes.FakeEngineReadinessRepository()
     private val switchRootStorageUseCase by lazy {
         FakeSwitchRootStorageUseCase(rootLocationFlow, engineReadinessRepository)
@@ -216,6 +216,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                             code = "projection_refresh_failed",
                             diagnostic = "Workspace projection build failed",
                             canRebuildDerivedIndex = false,
+                            hasRecoveryTarget = true,
                         )
 
                     viewModel.retryEngineOpen()
@@ -358,6 +359,8 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
             appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             appPreferencesSnapshotRepository = appConfigRepository,
             customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+            customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(com.lomo.app.testing.fakes.FakeCustomFontStore()),
+            preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
             appScope = appScope!!,
         )
 

@@ -115,7 +115,7 @@ class SidebarViewModelTest : AppFunSpec() {
             }
         }
 
-        test("clearFilters resets query") {
+        test("the session owner clears the query through one explicit reset") {
             runTest {
                 val viewModel = SidebarViewModel(
                     observeSidebarStatisticsUseCase = observeSidebarStatisticsUseCase(),
@@ -125,7 +125,7 @@ class SidebarViewModelTest : AppFunSpec() {
 
                 viewModel.onSearch("meeting")
 
-                viewModel.clearFilters()
+                stateHolder.clearAll()
 
                 viewModel.searchQuery.value shouldBe ""
             }

@@ -25,6 +25,7 @@ fun EngineReadOnlyRecoveryScreen(
     code: String,
     diagnostic: String,
     onRetry: () -> Unit,
+    retryEnabled: Boolean,
     onReselectWorkspace: () -> Unit,
     canRebuildDerivedIndex: Boolean,
     onRebuildDerivedIndex: () -> Unit,
@@ -64,8 +65,18 @@ fun EngineReadOnlyRecoveryScreen(
         OutlinedButton(onClick = onExportDiagnostics) {
             Text(stringResource(R.string.engine_recovery_export_diagnostics))
         }
-        Button(onClick = onRetry) {
+        Button(
+            onClick = onRetry,
+            enabled = retryEnabled,
+        ) {
             Text(stringResource(R.string.engine_recovery_retry))
+        }
+        if (!retryEnabled) {
+            Text(
+                text = stringResource(R.string.engine_recovery_retry_unavailable),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         OutlinedButton(onClick = onReselectWorkspace) {
             Text(stringResource(R.string.engine_recovery_reselect))

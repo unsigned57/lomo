@@ -311,6 +311,7 @@ internal fun MainScreenAnimatedBody(
                     code = state.code,
                     diagnostic = state.diagnostic,
                     onRetry = onRetryEngine,
+                    retryEnabled = state.hasRecoveryTarget,
                     onReselectWorkspace = onSettings,
                     canRebuildDerivedIndex = state.canRebuildDerivedIndex,
                     onRebuildDerivedIndex = onRebuildDerivedIndex,

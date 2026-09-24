@@ -137,6 +137,25 @@ class MemoUiMapper(
             )
         }
 
+        /**
+         * Synchronous cache probe for paging transforms. A hit returns the row without a dispatcher
+         * hop and without touching the disk-backed parse; a miss falls through to
+         * [mapToCachedUiModel], which performs the parse on the background dispatcher.
+         */
+        internal fun peekCachedUiModel(
+            memo: Memo,
+            rootPath: String?,
+            imagePath: String?,
+            imageMap: Map<String, Uri>,
+            reminders: List<com.lomo.domain.model.ReminderMarker>,
+        ): MemoUiModel? {
+            val cacheKey = buildCacheKey(memo, rootPath, imagePath, imageMap, reminders)
+            // LruCache point reads are internally synchronized; key equality is the
+            // consistency guard, so a torn read can only degrade to a miss.
+            val cached = cachedModels[memo.id]
+            return cached?.takeIf { it.key == cacheKey }?.model
+        }
+
         internal suspend fun mapToCachedUiModel(
             memo: Memo,
             rootPath: String?,
@@ -144,37 +163,7 @@ class MemoUiMapper(
             imageMap: Map<String, Uri>,
             reminders: List<com.lomo.domain.model.ReminderMarker>,
         ): MemoUiModel {
-            val cacheKey =
-                MemoUiCacheKey(
-                    memoId = memo.id,
-                    contentKind = memo.contentKind,
-                    contentRevision = memo.contentRevision,
-                    fileFingerprint = memo.fileFingerprint,
-                    fallbackContent =
-                        if (memo.contentRevision == null || memo.fileFingerprint == null) {
-                            memo.content
-                        } else {
-                            null
-                        },
-                    updatedAt = memo.updatedAt,
-                    isPinned = memo.isPinned,
-                    isDeleted = memo.isDeleted,
-                    isPending = memo.isPending,
-                    geoLocation = memo.geoLocation,
-                    tags = memo.tags,
-                    imageUrls = memo.imageUrls,
-                    reminderIdentities = reminders.map { reminder ->
-                        reminder.reference.opaqueId to reminder.token
-                    },
-                    rootPath = rootPath,
-                    imagePath = imagePath,
-                    projectedCharCount = memo.projectedCharCount,
-                    imageDependencySignature =
-                        buildImageMapDependencySignatureForPaths(
-                            imagePaths = memo.imageUrls.filterNot(::isAudioAttachmentPath).toSet(),
-                            imageMap = imageMap,
-                        ),
-                )
+            val cacheKey = buildCacheKey(memo, rootPath, imagePath, imageMap, reminders)
             val cached = cacheMutex.withLock { cachedModels[memo.id] }
             if (cached?.key == cacheKey) {
                 return cached.model
@@ -199,6 +188,44 @@ class MemoUiMapper(
             }
             return uiModel
         }
+
+        private fun buildCacheKey(
+            memo: Memo,
+            rootPath: String?,
+            imagePath: String?,
+            imageMap: Map<String, Uri>,
+            reminders: List<com.lomo.domain.model.ReminderMarker>,
+        ): MemoUiCacheKey =
+            MemoUiCacheKey(
+                memoId = memo.id,
+                contentKind = memo.contentKind,
+                contentRevision = memo.contentRevision,
+                fileFingerprint = memo.fileFingerprint,
+                fallbackContent =
+                    if (memo.contentRevision == null || memo.fileFingerprint == null) {
+                        memo.content
+                    } else {
+                        null
+                    },
+                updatedAt = memo.updatedAt,
+                isPinned = memo.isPinned,
+                isDeleted = memo.isDeleted,
+                isPending = memo.isPending,
+                geoLocation = memo.geoLocation,
+                tags = memo.tags,
+                imageUrls = memo.imageUrls,
+                reminderIdentities = reminders.map { reminder ->
+                    reminder.reference.opaqueId to reminder.token
+                },
+                rootPath = rootPath,
+                imagePath = imagePath,
+                projectedCharCount = memo.projectedCharCount,
+                imageDependencySignature =
+                    buildImageMapDependencySignatureForPaths(
+                        imagePaths = memo.imageUrls.filterNot(::isAudioAttachmentPath).toSet(),
+                        imageMap = imageMap,
+                    ),
+            )
 
         /**
          * A list row carries only Rust's bounded preview projection. Parsing those bytes as a

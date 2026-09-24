@@ -211,6 +211,8 @@ class SearchViewModelFilterTest : AppFunSpec() {
                         appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
                         appPreferencesSnapshotRepository = appConfigRepository,
                         customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                        customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(com.lomo.app.testing.fakes.FakeCustomFontStore()),
+                        preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
                         appScope = CoroutineScope(SupervisorJob() + testDispatcher),
                     ),
                 appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
@@ -222,7 +224,7 @@ class SearchViewModelFilterTest : AppFunSpec() {
                 saveImageUseCase = saveImageUseCase,
                 toggleMemoCheckboxUseCase = storeBackedToggleMemoCheckboxUseCase(memoRepository),
                 workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
-                    every { workspaceAuthority } returns engineReadinessRepository.workspaceAuthority
+                    every { mount } returns engineReadinessRepository.mount
                 },
             ),
         )

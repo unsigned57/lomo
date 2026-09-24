@@ -60,10 +60,6 @@ class SidebarViewModel(
             stateHolder.updateSearchQuery(query)
         }
 
-        fun clearFilters() {
-            stateHolder.updateSearchQuery("")
-        }
-
         fun updateTagOrder(order: List<String>) {
             viewModelScope.launch { appConfigCoordinator.updateSidebarTagOrder(order) }
         }

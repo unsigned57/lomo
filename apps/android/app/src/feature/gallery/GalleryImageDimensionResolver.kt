@@ -17,7 +17,7 @@ import timber.log.Timber
 import java.io.File
 
 class GalleryImageDimensionResolver(
-    private val contentResolver: ContentResolver? = null,
+    private val contentResolver: ContentResolver,
     maxEntries: Int = MAX_CACHE_ENTRIES,
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) {
@@ -59,8 +59,7 @@ class GalleryImageDimensionResolver(
         withContext(dispatcherProvider.io) {
             try {
                 if (path.startsWith(CONTENT_URI_PREFIX, ignoreCase = true)) {
-                    val resolver = contentResolver ?: return@withContext GALLERY_DEFAULT_ASPECT_RATIO
-                    val inputStream = resolver.openInputStream(path.toUri())
+                    val inputStream = contentResolver.openInputStream(path.toUri())
                     if (inputStream == null) {
                         return@withContext GALLERY_DEFAULT_ASPECT_RATIO
                     }

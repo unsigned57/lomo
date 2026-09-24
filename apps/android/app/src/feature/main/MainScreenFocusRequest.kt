@@ -1,5 +1,46 @@
 package com.lomo.app.feature.main
 
+import com.lomo.domain.model.MemoListFilter
+
+/**
+ * Query/filter epoch for focus retries. A queued focus request is only worth retrying inside the
+ * epoch it was issued under; a query or structural filter change produces a different epoch.
+ */
+internal data class MainListQueryEpoch(
+    val searchQuery: String,
+    val filter: MemoListFilter,
+)
+
+/**
+ * Bounded retry discriminator for queued focus requests.
+ *
+ * The key is bound to the query epoch, the visible window's bounds (start index plus first/last
+ * identity), and whether the target is already visible — never to an enumeration of the window's
+ * rows, which would cost O(loaded) key material on every composition pass.
+ */
+internal data class MainListFocusRetryKey(
+    val queryEpoch: MainListQueryEpoch,
+    val windowStartIndex: Int,
+    val windowFirstMemoId: String?,
+    val windowLastMemoId: String?,
+    val targetVisible: Boolean,
+)
+
+internal fun resolveMainListFocusRetryKey(
+    searchQuery: String,
+    filter: MemoListFilter,
+    windowStartIndex: Int,
+    visibleMemos: List<MemoUiModel>,
+    pendingFocusMemoIds: Set<String>,
+): MainListFocusRetryKey =
+    MainListFocusRetryKey(
+        queryEpoch = MainListQueryEpoch(searchQuery = searchQuery, filter = filter),
+        windowStartIndex = windowStartIndex,
+        windowFirstMemoId = visibleMemos.firstOrNull()?.run { memo.id },
+        windowLastMemoId = visibleMemos.lastOrNull()?.run { memo.id },
+        targetVisible = visibleMemos.any { it.memo.id in pendingFocusMemoIds },
+    )
+
 internal sealed interface MainScreenFocusRequest {
     data class Immediate(
         val index: Int,

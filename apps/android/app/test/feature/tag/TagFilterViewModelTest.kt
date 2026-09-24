@@ -145,6 +145,30 @@ class TagFilterViewModelTest : AppFunSpec() {
             }
         }
 
+        test("tag paging waits for mount admission instead of bare authority") {
+            runTest {
+                engineReadinessRepository.publishProjectionFreshness(
+                    com.lomo.domain.model.ProjectionFreshness.Unavailable,
+                )
+                val viewModel = createViewModel(tagName = "work")
+                val pagingEmissions = mutableListOf<PagingData<MemoUiModel>>()
+                val collectJob = backgroundScope.launch(testDispatcher) {
+                    viewModel.pagedUiMemos.collect { pagingEmissions += it }
+                }
+
+                advanceUntilIdle()
+                pagingEmissions shouldBe emptyList()
+
+                engineReadinessRepository.publishProjectionFreshness(
+                    com.lomo.domain.model.ProjectionFreshness.Verified(0uL),
+                )
+                runCurrent()
+                advanceUntilIdle()
+                pagingEmissions.size shouldBe 1
+                collectJob.cancel()
+            }
+        }
+
         test("missing tagName route argument fails instead of querying an empty tag") {
             runTest {
                 val failure =
@@ -304,6 +328,8 @@ class TagFilterViewModelTest : AppFunSpec() {
                         appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
                         appPreferencesSnapshotRepository = appConfigRepository,
                         customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                        customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(com.lomo.app.testing.fakes.FakeCustomFontStore()),
+                        preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
                         appScope = CoroutineScope(SupervisorJob() + testDispatcher),
                     ),
                 appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
@@ -314,7 +340,7 @@ class TagFilterViewModelTest : AppFunSpec() {
                 toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
                 saveImageUseCase = saveImageUseCase,
                 workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
-                    every { workspaceAuthority } returns engineReadinessRepository.workspaceAuthority
+                    every { mount } returns engineReadinessRepository.mount
                 },
             ),
             savedStateHandle = savedStateHandle,

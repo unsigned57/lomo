@@ -106,7 +106,7 @@ fun TrashScreen(
     val itemSnapshotList = pagedItems.itemSnapshotList
     val snapshotStartIndex = itemSnapshotList.placeholdersBefore
     val snapshotMemos = remember(itemSnapshotList) {
-        itemSnapshotList.items.toImmutableList()
+        itemSnapshotList.items
     }
 
     val trashExitState =
@@ -259,7 +259,7 @@ private fun TrashScreenScaffold(
 private fun TrashScreenContent(
     pagedItems: LazyPagingItems<MemoUiModel>,
     overlayIdle: Boolean,
-    snapshotMemos: ImmutableList<MemoUiModel>,
+    snapshotMemos: List<MemoUiModel>,
     renderList: ImmutableList<LomoListExitRenderEntry<MemoUiModel>>,
     snapshotStartIndex: Int,
     onExitSettled: (String) -> Unit,
@@ -307,7 +307,7 @@ private fun TrashEmptyState(modifier: Modifier = Modifier) {
 private fun TrashMemoList(
     pagedItems: LazyPagingItems<MemoUiModel>,
     overlayIdle: Boolean,
-    snapshotMemos: ImmutableList<MemoUiModel>,
+    snapshotMemos: List<MemoUiModel>,
     renderList: ImmutableList<LomoListExitRenderEntry<MemoUiModel>>,
     snapshotStartIndex: Int,
     onExitSettled: (String) -> Unit,

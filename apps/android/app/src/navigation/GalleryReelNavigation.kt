@@ -26,7 +26,7 @@ import kotlinx.collections.immutable.toImmutableList
 @Composable
 internal fun rememberGalleryReelNavigationAction(
     navController: NavHostController,
-    galleryMemos: ImmutableList<MemoUiModel>,
+    galleryMemos: List<MemoUiModel>,
 ): (memoId: String, imageIndex: Int, aspectByMemoId: Map<String, Float>) -> Unit =
     remember(navController, galleryMemos) {
         { memoId, imageIndex, aspectByMemoId ->
@@ -86,7 +86,7 @@ internal fun NavGraphBuilder.addGalleryReelDestination(
             remember(payload, galleryMemos.itemSnapshotList.items, route.initialMemoIndex, route.initialImageIndex) {
                 buildGalleryReelRequest(
                     payload = payload,
-                    galleryMemos = galleryMemos.itemSnapshotList.items.toImmutableList(),
+                    galleryMemos = galleryMemos.itemSnapshotList.items,
                     initialMemoIndex = route.initialMemoIndex,
                     initialImageIndex = route.initialImageIndex,
                 )
@@ -155,7 +155,7 @@ internal fun NavGraphBuilder.addGalleryReelDestination(
 
 private fun buildGalleryReelRequest(
     payload: GalleryReelPayloadStore.Payload,
-    galleryMemos: ImmutableList<MemoUiModel>,
+    galleryMemos: List<MemoUiModel>,
     initialMemoIndex: Int,
     initialImageIndex: Int,
 ): GalleryReelRequest? {

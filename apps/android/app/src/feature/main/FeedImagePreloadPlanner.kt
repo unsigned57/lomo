@@ -2,7 +2,6 @@ package com.lomo.app.feature.main
 
 import com.lomo.app.feature.image.FeedImagePreloadSize
 import com.lomo.app.feature.image.ImagePreloadSpec
-import kotlinx.collections.immutable.ImmutableList
 
 internal data class FeedImagePreloadPlan(
     val startRequests: List<ImagePreloadSpec>,
@@ -11,7 +10,7 @@ internal data class FeedImagePreloadPlan(
 
 internal data class FeedImagePreloadWindow(
     val placeholdersBefore: Int,
-    val memos: ImmutableList<MemoUiModel>,
+    val memos: List<MemoUiModel>,
 ) {
     init {
         require(placeholdersBefore >= 0) { "placeholdersBefore must be non-negative." }

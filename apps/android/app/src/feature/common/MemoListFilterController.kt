@@ -77,4 +77,12 @@ class MemoListFilterController {
     val clear: () -> Unit = {
         _filter.value = MemoListFilter()
     }
+
+    /**
+     * Restore a previously captured filter as part of session restore — the caller owns when the
+     * whole session is republished, so restoring never produces an intermediate partial filter.
+     */
+    fun restore(filter: MemoListFilter) {
+        _filter.value = filter
+    }
 }

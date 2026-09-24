@@ -91,6 +91,7 @@ class SearchViewModelTest : AppFunSpec() {
     private val appConfigRepository = FakeAppConfigRepository()
     private val mediaRepository = com.lomo.app.testing.fakes.FakeMediaRepository()
     private val imageMapProvider: ImageMapProvider = emptyImageMapProvider()
+    private val engineReadinessRepository = com.lomo.app.testing.fakes.FakeEngineReadinessRepository()
     private val createdViewModels = mutableListOf<SearchViewModel>()
 
     private val updateMemoContentUseCase = UpdateMemoContentUseCase(
@@ -172,6 +173,35 @@ class SearchViewModelTest : AppFunSpec() {
                     )
                 memoRepository.mainListPageLoads shouldContain
                     FakeMemoStore.MainListPageLoad(key = null, loadSize = 60)
+            }
+        }
+
+        test("search paging waits for mount admission instead of bare authority") {
+            runTest {
+                memoRepository.setActiveMemos(listOf(sampleMemo(id = "memo-1", content = "search-hit")))
+                engineReadinessRepository.publishProjectionFreshness(
+                    com.lomo.domain.model.ProjectionFreshness.Unavailable,
+                )
+                val viewModel = createViewModel()
+                val differ = backgroundScope.collectPagedData(viewModel.pagedUiMemos)
+
+                viewModel.onSearchQueryChanged("search-hit")
+                testDispatcher.scheduler.advanceTimeBy(350)
+                advanceUntilIdle()
+
+                memoRepository.mainListCalls.isEmpty() shouldBe true
+
+                engineReadinessRepository.publishProjectionFreshness(
+                    com.lomo.domain.model.ProjectionFreshness.Verified(0uL),
+                )
+                advanceUntilIdle()
+
+                memoRepository.mainListCalls shouldContain
+                    FakeMemoStore.MainListCall(
+                        query = "search-hit",
+                        filter = MemoListFilter(),
+                    )
+                differ.cancel()
             }
         }
 
@@ -525,6 +555,8 @@ class SearchViewModelTest : AppFunSpec() {
                         appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
                         appPreferencesSnapshotRepository = appConfigRepository,
                         customFontStore = com.lomo.app.testing.fakes.FakeCustomFontStore(),
+                        customFontHost = com.lomo.app.testing.fakes.testCustomFontHost(com.lomo.app.testing.fakes.FakeCustomFontStore()),
+                        preferencesHealthRepository = com.lomo.app.testing.fakes.FakePreferencesHealthRepository(),
                         appScope = CoroutineScope(SupervisorJob() + testDispatcher),
                     ),
                 appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
@@ -536,8 +568,7 @@ class SearchViewModelTest : AppFunSpec() {
                 saveImageUseCase = saveImageUseCase,
                 toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
                 workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
-                    every { workspaceAuthority } returns
-                        com.lomo.app.testing.fakes.FakeEngineReadinessRepository().workspaceAuthority
+                    every { mount } returns engineReadinessRepository.mount
                 },
             ),
         ).also { viewModel ->

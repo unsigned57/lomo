@@ -80,7 +80,9 @@ class TagFilterViewModel(
         val tagName: String = routeArgs.tagName
 
         val uiState: StateFlow<TagFilterScreenState> =
-            workspaceCoordinator.workspaceAuthority
+            workspaceCoordinator.mount
+                .map { mount -> mount.admittedAuthority }
+                .distinctUntilChanged()
                 .map { authority ->
                     if (authority == null) TagFilterScreenState.Opening else TagFilterScreenState.Ready
                 }.stateIn(viewModelScope, appWhileSubscribed(), TagFilterScreenState.Opening)
@@ -101,7 +103,9 @@ class TagFilterViewModel(
         val pagedUiMemos: Flow<PagingData<MemoUiModel>> =
             combine(
                 mappingInput,
-                workspaceCoordinator.workspaceAuthority
+                workspaceCoordinator.mount
+                    .map { it.admittedAuthority }
+                    .distinctUntilChanged()
                     .filterNotNull()
                     .flatMapLatest {
                         memoPager(

@@ -41,7 +41,7 @@ private const val GALLERY_MOSAIC_CONTENT_TYPE = "gallery-mosaic"
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GalleryGridContent(
-    memos: ImmutableList<MemoUiModel>,
+    memos: List<MemoUiModel>,
     aspectByMemoId: ImmutableMap<String, Float>,
     dateFormat: String,
     timeFormat: String,

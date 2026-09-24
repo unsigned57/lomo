@@ -88,7 +88,7 @@ fun GalleryScreen(
                 is GalleryUiMemosState.Loaded -> state.memos
             }
         }
-    val galleryMemos = remember(memos) { memos.toImmutableList() }
+    val galleryMemos = memos
     val deletingMemoIds by viewModel.deletingMemoIds.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
@@ -154,7 +154,7 @@ private data class GalleryEntryReadiness(
 
 @Composable
 private fun rememberGalleryEntryReadiness(
-    memos: ImmutableList<MemoUiModel>,
+    memos: List<MemoUiModel>,
     dimensionResolver: GalleryImageDimensionResolver,
 ): GalleryEntryReadiness {
     val aspectByPath by dimensionResolver.aspectFlow.collectAsStateWithLifecycle()
@@ -207,7 +207,7 @@ private fun rememberGalleryEntryReadiness(
 }
 
 @Composable
-private fun rememberGalleryInitialImageUrls(memos: ImmutableList<MemoUiModel>): ImmutableList<String> =
+private fun rememberGalleryInitialImageUrls(memos: List<MemoUiModel>): ImmutableList<String> =
     remember(memos) {
         memos
             .asSequence()
@@ -307,7 +307,7 @@ private fun GalleryScreenEffects(
     errorMessage: String?,
     snackbarHostState: SnackbarHostState,
     onClearError: () -> Unit,
-    memos: ImmutableList<MemoUiModel>,
+    memos: List<MemoUiModel>,
     deletingMemoIds: ImmutableSet<String>,
     onDeleteAnimationSettled: (String) -> Unit,
     initialImageUrls: ImmutableList<String>,

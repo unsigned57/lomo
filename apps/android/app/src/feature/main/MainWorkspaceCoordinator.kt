@@ -1,17 +1,13 @@
 package com.lomo.app.feature.main
 
-import com.lomo.domain.model.EngineReadiness
 import com.lomo.domain.model.DerivedIndexRebuildSummary
 import com.lomo.domain.model.RecoveryDiagnosticReport
-import com.lomo.domain.model.ProjectionFreshness
 import com.lomo.domain.model.StorageLocation
-import com.lomo.domain.model.WorkspaceAuthority
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
-import kotlinx.coroutines.flow.StateFlow
 
 class MainWorkspaceCoordinator(
     private val initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
@@ -20,12 +16,19 @@ class MainWorkspaceCoordinator(
     private val mediaRepository: MediaRepository,
     private val engineReadinessRepository: EngineReadinessRepository,
 ) {
-    val engineReadiness: StateFlow<EngineReadiness> = engineReadinessRepository.readiness
-    val activeWorkspaceLocation: StateFlow<StorageLocation?> =
-        engineReadinessRepository.activeWorkspaceLocation
-    val workspaceAuthority: StateFlow<WorkspaceAuthority?> = engineReadinessRepository.workspaceAuthority
-    val projectionFreshness: StateFlow<ProjectionFreshness> = engineReadinessRepository.projectionFreshness
+    /**
+     * The single published mount fact for the active engine session. Every UI/data consumer derives
+     * read admission here instead of recombining readiness, location, authority and freshness.
+     */
     val mount = engineReadinessRepository.mount
+
+    /**
+     * Explicit engine start for hosts that need the workspace. The Application never opens native
+     * on behalf of ambient wakes (tile state reads, staged recording); an Activity entry requests
+     * the engine here and the result settles through [mount].
+     */
+    suspend fun requestEngineStart(): com.lomo.domain.model.EngineReadiness =
+        engineReadinessRepository.requestEngineStart()
 
     suspend fun createDefaultDirectories(
         forImage: Boolean,

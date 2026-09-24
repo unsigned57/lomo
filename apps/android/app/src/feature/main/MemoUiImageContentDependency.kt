@@ -4,14 +4,6 @@ import android.net.Uri
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 
-internal fun buildMemoUiImageDependencySignature(
-    imageMap: Map<String, Uri>,
-): String =
-    imageMap
-        .map { (key, uri) -> "$key=$uri" }
-        .sorted()
-        .joinToString(separator = "\n")
-
 internal fun buildImageMapDependencySignatureForPaths(
     imagePaths: Set<String>,
     imageMap: Map<String, Uri>,

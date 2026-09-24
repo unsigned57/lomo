@@ -2,7 +2,7 @@ package com.lomo.app.feature.memo
 
 import android.net.Uri
 import com.lomo.app.feature.main.MemoUiImageContentResolver
-import com.lomo.app.feature.main.buildMemoUiImageDependencySignature
+import com.lomo.app.feature.main.buildImageMapDependencySignatureForPaths
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
@@ -30,13 +30,16 @@ internal class MemoVersionHistoryUiMapper(
 
         return revisions.map { revision ->
             val displayContent = revision.memoContent.ifBlank { revision.summary }
+            // behavior-contract: loop-io-ok: history page is bounded; each body renders alone
+            val sourceDocument = markdownWorkspaceRepository.renderMarkdown(displayContent)
             val cacheKey =
                 MemoVersionHistoryUiCacheKey(
                     revision = revision,
                     rootPath = rootPath,
                     imagePath = imagePath,
                     imageDependencySignature =
-                        buildMemoUiImageDependencySignature(
+                        buildImageMapDependencySignatureForPaths(
+                            imagePaths = sourceDocument.attachmentDestinations.toSet(),
                             imageMap = imageMap,
                         ),
                 )
@@ -47,8 +50,7 @@ internal class MemoVersionHistoryUiMapper(
                 val processedContent = displayContent
                 val renderDocument =
                     imageContentResolver.resolveRenderDocumentImages(
-                        // behavior-contract: loop-io-ok: history page is bounded; each body renders alone
-                        document = markdownWorkspaceRepository.renderMarkdown(displayContent),
+                        document = sourceDocument,
                         rootPath = rootPath,
                         imagePath = imagePath,
                         imageMap = imageMap,
