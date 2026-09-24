@@ -17,7 +17,8 @@ import kotlinx.coroutines.flow.StateFlow
 interface LanShareStateRepository {
     val discoveredDevices: StateFlow<List<DiscoveredDevice>>
     val pendingPairing: StateFlow<LanPairingRequest?>
-    val incomingBatch: StateFlow<LanIncomingBatch?>
+    /** Every active inbound batch; nothing hides behind a first-item selection. */
+    val incomingBatches: StateFlow<List<LanIncomingBatch>>
     val trustedPeers: StateFlow<List<LanTrustedPeer>>
     val transferState: StateFlow<ShareTransferState>
     val lanShareRuntimeState: StateFlow<LanShareRuntimeState>

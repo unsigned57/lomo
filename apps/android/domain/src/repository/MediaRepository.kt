@@ -3,6 +3,7 @@ package com.lomo.domain.repository
 import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
+import com.lomo.domain.model.MediaImageDescriptor
 import com.lomo.domain.model.StorageLocation
 import kotlinx.coroutines.flow.Flow
 
@@ -20,7 +21,7 @@ interface MediaRepository {
         draftId: DraftId,
     )
 
-    fun observeImageLocations(): Flow<Map<MediaEntryId, StorageLocation>>
+    fun observeImageLocations(): Flow<Map<MediaEntryId, MediaImageDescriptor>>
 
     suspend fun refreshImageLocations()
 

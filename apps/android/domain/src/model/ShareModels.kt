@@ -45,6 +45,8 @@ data class LanIncomingBatch(
     val titles: List<String>,
     val decision: LanBatchDecision,
     val items: List<LanReceivedItemResult>,
+    /** Durable confirmed payload bytes; receive progress is honest only through this fact. */
+    val confirmedBytes: Long = 0L,
 )
 
 enum class LanBatchDecision {
@@ -76,7 +78,11 @@ sealed interface LanReceivedItemResult {
 }
 
 /**
- * State of an outgoing share transfer (sender side).
+ * Presentation bucket of an outgoing share transfer failure (sender side).
+ *
+ * Every bucket maps to one localized reason. [PROTOCOL_FAILED] is the honest generic bucket for
+ * engine rejections this build cannot classify further — it never impersonates another cause and
+ * always keeps the raw engine code in [ShareTransferError.engineCode].
  */
 enum class ShareTransferErrorCode {
     PAIRING_REQUIRED,
@@ -87,8 +93,12 @@ enum class ShareTransferErrorCode {
     UNSUPPORTED_ATTACHMENT_TYPE,
     CONNECTION_FAILED,
     TRANSFER_REJECTED,
-    TRANSFER_FAILED,
-    UNKNOWN,
+    PEER_REVOKED,
+    AUTHENTICATION_FAILED,
+    APPROVAL_EXPIRED,
+    STORAGE_FAILED,
+    TRANSFER_CANCELLED,
+    PROTOCOL_FAILED,
 }
 
 data class ShareTransferError(
@@ -96,6 +106,8 @@ data class ShareTransferError(
     val detail: String? = null,
     val deviceName: String? = null,
     val missingAttachmentCount: Int? = null,
+    val engineCode: String? = null,
+    val retryDisposition: EngineRetryDisposition? = null,
 )
 
 sealed interface ShareTransferState {

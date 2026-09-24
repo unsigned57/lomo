@@ -8,6 +8,7 @@ import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoOperationId
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoListFilter
+import com.lomo.domain.model.MemoProjectionPublication
 import com.lomo.domain.model.MemoQuerySpec
 import com.lomo.domain.model.MemoSearchMode
 import com.lomo.domain.model.TagSelection
@@ -30,10 +31,10 @@ interface MemoListQueryRepository {
     suspend fun getMemoCount(): Int
 
     /**
-     * Emits when the derived list projection accepts a new publication. Non-paging observers
-     * collect this instead of commanding a refresh from a mutation site.
+     * Emits the durable stamp when the derived list projection accepts a new publication.
+     * Non-paging observers collect this instead of commanding a refresh from a mutation site.
      */
-    fun observeListProjection(): Flow<Unit>
+    fun observeListProjection(): Flow<MemoProjectionPublication>
 }
 
 interface DailyReviewCandidateRepository {
@@ -74,6 +75,16 @@ interface MainListQueryRepository {
      * Missing or filtered-out identities return null; they must not be reported as head.
      */
     suspend fun rankInDefaultMainList(id: String): Int?
+
+    /**
+     * Returns the zero-based rank of [id] under [spec] evaluated by the owning query engine.
+     * Null means the memo is not a member of the spec's result; any rank above zero means the
+     * memo is a member but cannot be the list head under the spec's ordering.
+     */
+    suspend fun rankInMainListQuery(
+        spec: MemoQuerySpec,
+        id: String,
+    ): Int?
 
     /**
      * Reanchors the live main-list paging source so the next refresh starts at [id].

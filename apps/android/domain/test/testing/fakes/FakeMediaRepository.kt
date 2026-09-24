@@ -2,6 +2,7 @@ package com.lomo.domain.testing.fakes
 
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
+import com.lomo.domain.model.MediaImageDescriptor
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MediaRepository
 import kotlinx.coroutines.flow.Flow
@@ -9,7 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class FakeMediaRepository : MediaRepository {
-    private val imageLocations = MutableStateFlow<Map<MediaEntryId, StorageLocation>>(emptyMap())
+    private val imageLocations = MutableStateFlow<Map<MediaEntryId, MediaImageDescriptor>>(emptyMap())
     private val categoryWorkspaceResults = mutableMapOf<MediaCategory, StorageLocation?>()
     private val voiceTargets = mutableMapOf<MediaEntryId, StorageLocation>()
 
@@ -24,7 +25,10 @@ class FakeMediaRepository : MediaRepository {
         private set
 
     fun setImageLocations(value: Map<MediaEntryId, StorageLocation>) {
-        imageLocations.value = value
+        imageLocations.value =
+            value.mapValues { (_, location) ->
+                MediaImageDescriptor(location = location, contentId = null)
+            }
     }
 
     fun setCategoryWorkspaceResult(
@@ -57,7 +61,8 @@ class FakeMediaRepository : MediaRepository {
         removedImageIds += entryId
     }
 
-    override fun observeImageLocations(): Flow<Map<MediaEntryId, StorageLocation>> = imageLocations.asStateFlow()
+    override fun observeImageLocations(): Flow<Map<MediaEntryId, MediaImageDescriptor>> =
+        imageLocations.asStateFlow()
 
     override suspend fun refreshImageLocations() {
         refreshImageLocationsCallCount += 1
