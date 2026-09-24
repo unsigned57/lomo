@@ -63,9 +63,10 @@ import com.lomo.domain.model.RemoteSyncSessionProgress
 import com.lomo.ui.theme.AppSpacing
 
 /**
- * Stage-5 dark Sync Center Compose shell (P5-10).
+ * Sync Center Compose shell.
  *
- * Not registered in production navigation. Host / dark prototype only until P5-13.
+ * Registered in production navigation (NavRoute.SyncCenter). Session progress and conflict
+ * pages project the durable Rust cycle/conflict records; cancel persists a durable request.
  * Phone: single-column pane routes. Expanded width: list-detail dual pane for conflicts.
  */
 

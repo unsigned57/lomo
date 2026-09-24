@@ -51,7 +51,7 @@ internal fun SyncConflictStateHandler(
 internal fun RemoteSyncConflictPollHost(
     workspaceRoot: String?,
     onShowRemoteSession: (RemoteSyncConflictDialogUseCase.OpenSession) -> Unit,
-    loadSession: (String) -> RemoteSyncConflictDialogUseCase.OpenSession?,
+    loadSession: suspend (String) -> RemoteSyncConflictDialogUseCase.OpenSession?,
 ) {
     LaunchedEffect(workspaceRoot) {
         val root = workspaceRoot ?: return@LaunchedEffect

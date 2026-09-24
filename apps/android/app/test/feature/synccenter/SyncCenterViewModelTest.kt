@@ -56,6 +56,8 @@ import com.lomo.domain.model.RemoteSyncSessionPhase
 import com.lomo.domain.model.RemoteSyncSessionProgress
 import com.lomo.domain.repository.RemoteSyncCenterRepository
 import com.lomo.domain.usecase.DispatcherProvider
+import com.lomo.app.testing.fakes.FakeDirectorySettingsRepository
+import com.lomo.domain.usecase.ObserveDirectWorkspaceRootUseCase
 import com.lomo.domain.usecase.RemoteSyncCenterUseCase
 import kotlinx.coroutines.CoroutineDispatcher
 import io.kotest.matchers.collections.shouldContainExactly
@@ -82,6 +84,8 @@ class SyncCenterViewModelTest : AppFunSpec() {
                     SyncCenterViewModel(
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
+                        observeDirectWorkspaceRoot =
+                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -104,6 +108,8 @@ class SyncCenterViewModelTest : AppFunSpec() {
                     SyncCenterViewModel(
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
+                        observeDirectWorkspaceRoot =
+                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -125,6 +131,8 @@ class SyncCenterViewModelTest : AppFunSpec() {
                     SyncCenterViewModel(
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
+                        observeDirectWorkspaceRoot =
+                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -162,6 +170,8 @@ class SyncCenterViewModelTest : AppFunSpec() {
                     SyncCenterViewModel(
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
+                        observeDirectWorkspaceRoot =
+                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -188,6 +198,8 @@ class SyncCenterViewModelTest : AppFunSpec() {
                     SyncCenterViewModel(
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
+                        observeDirectWorkspaceRoot =
+                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -221,6 +233,8 @@ class SyncCenterViewModelTest : AppFunSpec() {
                     SyncCenterViewModel(
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
+                        observeDirectWorkspaceRoot =
+                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -256,6 +270,8 @@ class SyncCenterViewModelTest : AppFunSpec() {
                     SyncCenterViewModel(
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
+                        observeDirectWorkspaceRoot =
+                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -302,6 +318,8 @@ class SyncCenterViewModelTest : AppFunSpec() {
                     SyncCenterViewModel(
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
+                        observeDirectWorkspaceRoot =
+                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -353,6 +371,8 @@ class SyncCenterViewModelTest : AppFunSpec() {
                     SyncCenterViewModel(
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
+                        observeDirectWorkspaceRoot =
+                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws-stale", false)
@@ -363,6 +383,65 @@ class SyncCenterViewModelTest : AppFunSpec() {
                 val load = viewModel.uiState.value.load.shouldBeInstanceOf<SyncCenterLoadState.Ready>()
                 load.conflictPage.session shouldBe RemoteSyncConflictSessionState.Absent
                 load.conflictPage.sessionId shouldBe ""
+            }
+        }
+
+        test("cancel session persists request through repository and applies projected progress") {
+            runTest(dispatcher) {
+                val repo = FakeRemoteSyncCenterRepository()
+                repo.cancelProgressResult =
+                    RemoteSyncSessionProgress(
+                        phase = RemoteSyncSessionPhase.Cancelling,
+                        completedActions = 1,
+                        totalActions = 5,
+                        canCancel = false,
+                    )
+                val viewModel =
+                    SyncCenterViewModel(
+                        remoteSyncCenter = RemoteSyncCenterUseCase(repo),
+                        dispatcherProvider = TestDispatcherProvider(dispatcher),
+                        observeDirectWorkspaceRoot =
+                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                    )
+
+                viewModel.open("/ws", false)
+                advanceUntilIdle()
+                viewModel.cancelSession()
+                advanceUntilIdle()
+
+                repo.cancelRequestedFor shouldBe "/ws"
+                val load = viewModel.uiState.value.load.shouldBeInstanceOf<SyncCenterLoadState.Ready>()
+                load.session.phase shouldBe RemoteSyncSessionPhase.Cancelling
+                load.session.canCancel shouldBe false
+            }
+        }
+
+        test("cancel failure surfaces structured error without dropping ready state") {
+            runTest(dispatcher) {
+                val repo = FakeRemoteSyncCenterRepository()
+                repo.cancelFailure =
+                    RemoteSyncCenterFailure(
+                        category = "sync",
+                        code = "cycle_not_running",
+                        retryDisposition = "never",
+                        diagnostic = "no running cycle to cancel",
+                    )
+                val viewModel =
+                    SyncCenterViewModel(
+                        remoteSyncCenter = RemoteSyncCenterUseCase(repo),
+                        dispatcherProvider = TestDispatcherProvider(dispatcher),
+                        observeDirectWorkspaceRoot =
+                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
+                    )
+
+                viewModel.open("/ws", false)
+                advanceUntilIdle()
+                viewModel.cancelSession()
+                advanceUntilIdle()
+
+                repo.cancelRequestedFor.shouldBeNull()
+                val load = viewModel.uiState.value.load.shouldBeInstanceOf<SyncCenterLoadState.Ready>()
+                load.lastError shouldBe "sync:cycle_not_running"
             }
         }
 
@@ -386,6 +465,8 @@ class SyncCenterViewModelTest : AppFunSpec() {
                     SyncCenterViewModel(
                         remoteSyncCenter = RemoteSyncCenterUseCase(repo),
                         dispatcherProvider = TestDispatcherProvider(dispatcher),
+                        observeDirectWorkspaceRoot =
+                            ObserveDirectWorkspaceRootUseCase(FakeDirectorySettingsRepository()),
                     )
 
                 viewModel.open("/ws", false)
@@ -423,7 +504,18 @@ private class FakeRemoteSyncCenterRepository(
     var markdownDetailCallCount: Int = 0
     var binaryDetailCallCount: Int = 0
 
-    override fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary =
+    var cancelRequestedFor: String? = null
+    var cancelProgressResult: RemoteSyncSessionProgress? = null
+    var cancelFailure: RemoteSyncCenterFailure? = null
+    var sessionProgressResult: RemoteSyncSessionProgress =
+        RemoteSyncSessionProgress(
+            phase = RemoteSyncSessionPhase.ConflictOpen,
+            completedActions = 1,
+            totalActions = 5,
+            canCancel = true,
+        )
+
+    override suspend fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary =
         RemoteSyncConfigSummary(
             backend = RemoteSyncBackendLabel.Git,
             attentionCount = 2,
@@ -431,13 +523,14 @@ private class FakeRemoteSyncCenterRepository(
             schedulePolicyLabel = "interval_1h",
         )
 
-    override fun sessionProgress(workspaceRoot: String): RemoteSyncSessionProgress =
-        RemoteSyncSessionProgress(
-            phase = RemoteSyncSessionPhase.ConflictOpen,
-            completedActions = 1,
-            totalActions = 5,
-            canCancel = true,
-        )
+    override suspend fun sessionProgress(workspaceRoot: String): RemoteSyncSessionProgress =
+        sessionProgressResult
+
+    override suspend fun requestCancel(workspaceRoot: String): RemoteSyncSessionProgress {
+        cancelFailure?.let { throw it }
+        cancelRequestedFor = workspaceRoot
+        return cancelProgressResult ?: sessionProgressResult
+    }
 
     override fun listConflicts(
         workspaceRoot: String,

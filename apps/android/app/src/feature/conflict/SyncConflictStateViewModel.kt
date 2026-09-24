@@ -54,7 +54,7 @@ class SyncConflictStateViewModel(
                 initialValue = null,
             )
 
-    fun loadRemoteOpenSession(workspaceRoot: String): RemoteSyncConflictDialogUseCase.OpenSession? =
+    suspend fun loadRemoteOpenSession(workspaceRoot: String): RemoteSyncConflictDialogUseCase.OpenSession? =
         remoteSyncConflictDialogUseCase.loadOpenSession(workspaceRoot)
 }
 

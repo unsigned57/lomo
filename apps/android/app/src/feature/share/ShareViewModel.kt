@@ -66,14 +66,14 @@ class ShareViewModel(
                 lanShareUiCoordinator.transferState,
                 lanShareUiCoordinator.lanShareEnabled,
                 lanShareUiCoordinator.pendingPairing,
-                lanShareUiCoordinator.incomingBatch,
-            ) { devices, transfer, enabled, pairing, batch ->
+                lanShareUiCoordinator.incomingBatches,
+            ) { devices, transfer, enabled, pairing, batches ->
                 ShareSessionPrimary(
                     devices = devices,
                     transfer = transfer,
                     enabled = enabled,
                     pairing = pairing,
-                    batch = batch,
+                    batches = batches,
                 )
             },
             combine(
@@ -101,7 +101,7 @@ class ShareViewModel(
                 lanShareDiscoveryError = secondary.discoveryError,
                 lanShareDiscoveryDiagnostics = secondary.diagnostics,
                 pendingPairing = primary.pairing,
-                incomingBatch = primary.batch,
+                incomingBatches = primary.batches.toImmutableList(),
                 deviceName = secondary.deviceName,
                 memoContent = content,
             )
@@ -116,7 +116,7 @@ class ShareViewModel(
                 lanShareDiscoveryError = null,
                 lanShareDiscoveryDiagnostics = LanShareDiscoveryDiagnostics(),
                 pendingPairing = null,
-                incomingBatch = null,
+                incomingBatches = persistentListOf(),
                 deviceName = "",
                 memoContent = memoContentState.value,
             ),
@@ -291,7 +291,7 @@ private data class ShareSessionPrimary(
     val transfer: ShareTransferState,
     val enabled: Boolean,
     val pairing: LanPairingRequest?,
-    val batch: LanIncomingBatch?,
+    val batches: List<LanIncomingBatch>,
 )
 
 private data class ShareSessionSecondary(

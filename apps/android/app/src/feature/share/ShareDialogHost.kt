@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
+import com.lomo.domain.model.LanBatchDecision
 import com.lomo.domain.model.LanIncomingBatch
 import com.lomo.domain.model.LanPairingRequest
 import com.lomo.ui.theme.AppSpacing
@@ -77,6 +78,17 @@ internal fun LanBatchApprovalDialog(
                     ),
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                if (batch.decision == LanBatchDecision.Approved) {
+                    Text(
+                        stringResource(
+                            R.string.lan_batch_receive_progress,
+                            formatLanBytes(batch.confirmedBytes),
+                            formatLanBytes(batch.totalBytes),
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 batch.titles.forEach { title ->
                     Text(
                         text = title,
@@ -93,8 +105,10 @@ internal fun LanBatchApprovalDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onApprove(batch.sessionId, batch.batchId) }) {
-                Text(stringResource(R.string.action_accept))
+            if (batch.decision == LanBatchDecision.Pending) {
+                TextButton(onClick = { onApprove(batch.sessionId, batch.batchId) }) {
+                    Text(stringResource(R.string.action_accept))
+                }
             }
         },
         dismissButton = {

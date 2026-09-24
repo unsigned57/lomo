@@ -65,7 +65,7 @@ fun binaryFactsFor(path: RemoteSyncConflictPath): RemoteSyncBinaryConflictFacts 
  *
  * Pure presentation helper for reducer tests and Compose when the host has not yet loaded
  * durable bodies. Prefer domain remote-sync center markdown detail ports
- * when artifact-backed bodies are available (dark data adapter).
+ * when artifact-backed bodies are available.
  */
 fun markdownFactsFor(
     path: RemoteSyncConflictPath,

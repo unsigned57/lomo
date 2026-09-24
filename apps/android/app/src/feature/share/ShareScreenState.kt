@@ -30,7 +30,7 @@ data class ShareScreenUiState(
     val lanShareDiscoveryError: String?,
     val lanShareDiscoveryDiagnostics: LanShareDiscoveryDiagnostics,
     val pendingPairing: LanPairingRequest?,
-    val incomingBatch: LanIncomingBatch?,
+    val incomingBatches: ImmutableList<LanIncomingBatch>,
     val deviceName: String,
     val memoContent: String,
 )

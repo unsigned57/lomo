@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.lomo.domain.model.RemoteSyncCenterFailure
 import com.lomo.domain.model.RemoteSyncConflictPath
 import com.lomo.domain.usecase.DispatcherProvider
+import com.lomo.domain.usecase.ObserveDirectWorkspaceRootUseCase
 import com.lomo.domain.usecase.RemoteSyncCenterUseCase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,11 +17,11 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Stage-5 dark Sync Center ViewModel (P5-10).
+ * Sync Center ViewModel.
  *
- * Host-testable state machine over [RemoteSyncCenterUseCase]. Registered in
- * [com.lomo.app.di.ViewModelModule] / navigation post P5-13. Constructed manually in tests and
- * dark prototype hosts.
+ * Host-testable state machine over [RemoteSyncCenterUseCase]. Opens automatically against the
+ * observed Direct workspace root; session progress and cancel project the durable Rust cycle
+ * record (`cycle_state.rec`/`cancel_request.rec`).
  *
  * On conflict selection, loads markdown/binary detail facts via domain detail ports so Compose
  * can render real artifact bodies when the use case returns them (binary never invents text).
@@ -28,10 +29,28 @@ import java.util.concurrent.atomic.AtomicLong
 class SyncCenterViewModel(
     private val remoteSyncCenter: RemoteSyncCenterUseCase,
     private val dispatcherProvider: DispatcherProvider,
+    private val observeDirectWorkspaceRoot: ObserveDirectWorkspaceRootUseCase,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(initialSyncCenterState())
     val uiState: StateFlow<SyncCenterUiState> = _uiState.asStateFlow()
     private val loadEpoch = AtomicLong(0)
+
+    init {
+        // Production open: the Direct workspace root owns the durable sync authority; SAF/null
+        // roots leave the shell at its initial state (no fabricated empty session).
+        viewModelScope.launch {
+            observeDirectWorkspaceRoot.observe().collect { root ->
+                if (!root.isNullOrBlank() && _uiState.value.workspaceRoot != root) {
+                    applyIntent(
+                        SyncCenterIntent.Open(
+                            workspaceRoot = root,
+                            isListDetail = _uiState.value.layout.isListDetail,
+                        ),
+                    )
+                }
+            }
+        }
+    }
 
     val open: (workspaceRoot: String, isListDetail: Boolean) -> Unit = { workspaceRoot, isListDetail ->
         applyIntent(SyncCenterIntent.Open(workspaceRoot = workspaceRoot, isListDetail = isListDetail))
@@ -67,8 +86,38 @@ class SyncCenterViewModel(
             is SyncCenterEffect.LoadMore -> loadMore(effect.workspaceRoot, effect.cursor, effect.limit)
             is SyncCenterEffect.Resolve -> resolve(effect)
             is SyncCenterEffect.LoadConflictDetail -> loadConflictDetail(effect)
-            SyncCenterEffect.RequestCancel -> {
-                // Presentation shell only until shared scheduler / runner cutover (P5-13).
+            SyncCenterEffect.RequestCancel -> requestCancel()
+        }
+    }
+
+    /**
+     * Durable cancel: `sync_request_cancel` writes `cancel_request.rec` bound to the running
+     * cycle's fence, then the UI re-reads the authoritative record (no presentation-only flag).
+     */
+    private fun requestCancel() {
+        val workspaceRoot = _uiState.value.workspaceRoot
+        if (workspaceRoot.isBlank()) return
+        val epoch = loadEpoch.incrementAndGet()
+        viewModelScope.launch {
+            try {
+                val session =
+                    withContext(dispatcherProvider.io) {
+                        remoteSyncCenter.requestCancel(workspaceRoot)
+                    }
+                _uiState.update { current ->
+                    if (epoch != loadEpoch.get() || current.workspaceRoot != workspaceRoot) {
+                        current
+                    } else {
+                        applySyncCenterSessionUpdate(current, session)
+                    }
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                _uiState.update { current ->
+                    val ready = current.load as? SyncCenterLoadState.Ready ?: return@update current
+                    current.copy(load = ready.copy(lastError = failureMessage(error)))
+                }
             }
         }
     }

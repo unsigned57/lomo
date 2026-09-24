@@ -632,11 +632,6 @@ class SyncConflictViewModelTest : AppFunSpec() {
                 message = "synced",
             )
 
-        override suspend fun resolveConflicts(
-            resolution: com.lomo.domain.model.SyncConflictResolution,
-            conflictSet: SyncConflictSet,
-        ): UnifiedSyncResult = resolveResult
-
         override suspend fun resolveReview(
             resolution: SyncReviewResolution,
             review: SyncReviewSession,
@@ -658,7 +653,7 @@ class SyncConflictViewModelTest : AppFunSpec() {
 
         private var afterResolve = false
 
-        override fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary =
+        override suspend fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary =
             RemoteSyncConfigSummary(
                 backend = RemoteSyncBackendLabel.Git,
                 attentionCount = 0,
@@ -666,13 +661,16 @@ class SyncConflictViewModelTest : AppFunSpec() {
                 schedulePolicyLabel = null,
             )
 
-        override fun sessionProgress(workspaceRoot: String): RemoteSyncSessionProgress =
+        override suspend fun sessionProgress(workspaceRoot: String): RemoteSyncSessionProgress =
             RemoteSyncSessionProgress(
                 phase = RemoteSyncSessionPhase.ConflictOpen,
                 completedActions = 0,
                 totalActions = null,
                 canCancel = false,
             )
+
+        override suspend fun requestCancel(workspaceRoot: String): RemoteSyncSessionProgress =
+            sessionProgress(workspaceRoot)
 
         override fun listConflicts(
             workspaceRoot: String,

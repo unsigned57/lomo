@@ -48,17 +48,28 @@ object ShareErrorPresenter {
                 }
             }
 
-            ShareTransferErrorCode.TRANSFER_FAILED -> {
-                stringResource(R.string.share_error_transfer_failed)
+            ShareTransferErrorCode.PEER_REVOKED -> {
+                stringResource(R.string.share_error_peer_revoked)
             }
 
-            ShareTransferErrorCode.UNKNOWN -> {
-                val detail = error.detail.orEmpty()
-                if (detail.isBlank()) {
-                    stringResource(R.string.share_error_unknown)
-                } else {
-                    detail(detail, isTechnicalMessage)
-                }
+            ShareTransferErrorCode.AUTHENTICATION_FAILED -> {
+                stringResource(R.string.share_error_authentication_failed)
+            }
+
+            ShareTransferErrorCode.APPROVAL_EXPIRED -> {
+                stringResource(R.string.share_error_approval_expired)
+            }
+
+            ShareTransferErrorCode.STORAGE_FAILED -> {
+                stringResource(R.string.share_error_storage_failed)
+            }
+
+            ShareTransferErrorCode.TRANSFER_CANCELLED -> {
+                stringResource(R.string.share_error_transfer_cancelled)
+            }
+
+            ShareTransferErrorCode.PROTOCOL_FAILED -> {
+                stringResource(R.string.share_error_transfer_failed)
             }
         }
 
@@ -68,45 +79,10 @@ object ShareErrorPresenter {
         isTechnicalMessage: (String) -> Boolean,
     ): String {
         val detail = detailRaw.trim()
-        val resolvedMessage =
-            if (detail.isBlank()) {
-                stringResource(R.string.share_error_unknown)
-            } else {
-                resolveAttachmentDetail(detail)
-                    ?: resolveTransportDetail(detail)
-                    ?: if (isTechnicalMessage(detail)) {
-                        stringResource(R.string.share_error_unknown)
-                    } else {
-                        detail
-                    }
-            }
-
-        return resolvedMessage
+        return if (detail.isBlank() || isTechnicalMessage(detail)) {
+            stringResource(R.string.share_error_unknown)
+        } else {
+            detail
+        }
     }
-
-    @Composable
-    private fun resolveAttachmentDetail(detail: String): String? =
-        when {
-            detail.equals("Invalid attachment size", ignoreCase = true) ->
-                stringResource(R.string.share_error_invalid_attachment_size)
-            detail.equals("Attachment too large", ignoreCase = true) ->
-                stringResource(R.string.share_error_attachment_too_large)
-            detail.startsWith("Failed to resolve", ignoreCase = true) ->
-                stringResource(R.string.share_error_attachment_resolve_failed)
-            detail.startsWith("Unsupported attachment type", ignoreCase = true) ->
-                stringResource(R.string.share_error_unsupported_attachment_type)
-            else -> null
-        }
-
-    @Composable
-    private fun resolveTransportDetail(detail: String): String? =
-        when {
-            detail.equals("Device unreachable", ignoreCase = true) ->
-                stringResource(R.string.share_error_device_unreachable)
-            detail.equals("Transfer failed", ignoreCase = true) ->
-                stringResource(R.string.share_error_transfer_failed)
-            detail.equals("Unknown error", ignoreCase = true) ->
-                stringResource(R.string.share_error_unknown)
-            else -> null
-        }
 }

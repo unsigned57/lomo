@@ -9,8 +9,6 @@ import com.lomo.domain.model.toReviewChoice
 import com.lomo.domain.model.SyncReviewResolution
 import com.lomo.domain.model.SyncReviewResolutionChoice
 import com.lomo.domain.model.SyncReviewSession
-import com.lomo.domain.usecase.SyncConflictResolutionResult
-import com.lomo.domain.usecase.SyncConflictResolutionUseCase
 import com.lomo.domain.usecase.SyncReviewResolutionResult
 import com.lomo.domain.usecase.SyncReviewResolutionUseCase
 import kotlinx.collections.immutable.ImmutableMap
@@ -57,21 +55,6 @@ internal fun buildReviewSafeChoices(
             item.relativePath to choice
         }
     }.toMap().toImmutableMap()
-
-internal suspend fun resolveConflictDialogState(
-    current: SyncConflictDialogState.Showing,
-    useCase: SyncConflictResolutionUseCase,
-): SyncConflictDialogState =
-    when (
-        val result =
-            useCase.resolve(
-                conflictSet = current.conflictSet,
-                resolution = SyncConflictResolution(current.perFileChoices),
-            )
-    ) {
-        SyncConflictResolutionResult.Resolved -> SyncConflictDialogState.Hidden
-        is SyncConflictResolutionResult.Pending -> pendingConflictState(current, result.conflictSet)
-    }
 
 internal suspend fun resolveReviewDialogState(
     current: SyncConflictDialogState.ReviewShowing,

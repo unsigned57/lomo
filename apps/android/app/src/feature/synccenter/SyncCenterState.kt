@@ -12,9 +12,10 @@ import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentMapOf
 
 /**
- * Stage-5 dark Sync Center UI state (P5-10).
+ * Sync Center UI state.
  *
- * Pure presentation state for host tests + Compose shell. Not production-navigated.
+ * Pure presentation state for the production shell + host tests; populated only from the
+ * durable cycle record projection (no invented session progress).
  */
 
 enum class SyncCenterPane {
@@ -135,7 +136,7 @@ sealed interface SyncCenterEffect {
         val mergedDraft: String?,
     ) : SyncCenterEffect
 
-    /** Presentation-only cancel request; production runner wires later (P5-13). */
+    /** Durable cancel request: persists `cancel_request.rec` via the repository. */
     data object RequestCancel : SyncCenterEffect
 }
 

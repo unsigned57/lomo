@@ -199,6 +199,26 @@ fun applySyncCenterDetailFailure(
     )
 }
 
+/**
+ * Applies the post-write durable session projection after a cancel request.
+ *
+ * The record is authoritative — `Cancelling`/`Cancelled` arrive from Rust, not from a
+ * presentation flag.
+ */
+fun applySyncCenterSessionUpdate(
+    state: SyncCenterUiState,
+    session: RemoteSyncSessionProgress,
+): SyncCenterUiState {
+    val ready = state.load as? SyncCenterLoadState.Ready ?: return state
+    return state.copy(
+        load =
+            ready.copy(
+                session = session,
+                lastError = null,
+            ),
+    )
+}
+
 fun applySyncCenterResolveFailure(
     state: SyncCenterUiState,
     message: String,

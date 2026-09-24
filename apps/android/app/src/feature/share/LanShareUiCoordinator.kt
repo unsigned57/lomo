@@ -10,7 +10,7 @@ class LanShareUiCoordinator(
 ) {
         val discoveredDevices = lanShareService.discoveredDevices
         val pendingPairing = lanShareService.pendingPairing
-        val incomingBatch = lanShareService.incomingBatch
+        val incomingBatches = lanShareService.incomingBatches
         val trustedPeers = lanShareService.trustedPeers
         val transferState = lanShareService.transferState
         val lanShareRuntimeState = lanShareService.lanShareRuntimeState
