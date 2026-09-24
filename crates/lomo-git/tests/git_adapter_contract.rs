@@ -18,21 +18,28 @@
 //!   live owner or young lock remains Held / Busy.
 //! - Given app-private mirror rebuild, when rebuild runs, then only mirror objects/cache are
 //!   deleted and re-inited bare (not user workspace).
-//! - Given unrelated local HEAD vs remote tip (no merge-base), when publish runs, then
-//!   `git_merge_base_unproven` blocks (no guess / no force).
 //! - Given `PerPath` batch atomicity, when publish runs, then validation `git_batch_atomicity`.
 //! - Given a planner-shaped `WholeBatchRef` batch whose path tokens are blob OIDs and whose
 //!   snapshot token is the branch tip, when publish runs against a non-empty remote, then Applied
 //!   (CAS compares tip to tip).
 //! - Given a remote tree larger than the 512-item page, when `list_remote_pages` runs, then a
 //!   Complete multi-page stream; `list_remote` stays one Incomplete page.
-//! - Given diverged local HEAD and remote tip that share a proven merge-base (conflict-resolve
-//!   shape), when `KeepLocal` body publishes, then the resulting commit is a dual-parent merge
-//!   commit (first parent = remote tip for CAS; second parent = local HEAD) and tree carries the
-//!   resolved body; non-force CAS still applies.
+//! - Given diverged local HEAD and remote tip (conflict-resolve shape), when `KeepLocal` body
+//!   publishes, then the resulting commit is single-parent on the observed remote tip and the
+//!   tree carries the resolved body; non-force CAS still applies.
+//! - Given one adapter cycle, when list/verify/resolve run, then one fetch serves all calls and
+//!   the pinned remote tip is shared (cycle stats observable).
+//! - Given objects beyond the per-object / per-batch / mirror disk budgets, when publish runs,
+//!   then resource-limit failures reject before unbounded reads or ODB growth.
+//! - Given a crashed publish leaving `refs/lomo/push/*` staging refs, when connect runs, then
+//!   reconciliation reclaims them; success and failed pushes leave no staging refs.
+//! - Given a half-initialized (corrupt) app-private mirror, when open runs, then the tree is
+//!   quarantined intact and rebuilt exactly once.
+//! - Given a zero network timeout, when a remote operation runs, then `git_deadline_exceeded`.
 //!
 //! Observable outcomes: [`PathPublishStatus`], [`SnapshotCompleteness`], redacted diagnostics,
-//! lock reclaim outcomes, non-force push only, dual-parent merge-commit parent OIDs after resolve.
+//! lock reclaim outcomes, non-force push only, single-parent publish on observed remote tip,
+//! bounded ref lifecycle, quarantined mirror evidence, cycle fetch stats.
 //! Excludes: production DI, GitHub/GitLab real HTTPS smoke, force push, checkout/reset user files,
 //! arm64 device, dual DI.
 //! Host-hermetic bare-repo matrix only.
@@ -52,9 +59,9 @@ mod tests {
 
     use git2::{Repository, RepositoryInitOptions, Signature};
     use lomo_git::{
-        GitCredentials, GitLocalMode, GitObjectSource, LockReclaimOutcome, MapGitConnectParams,
-        MapGitObjectSource, connect_map_git_source, process_alive, rebuild_app_private_mirror,
-        redact_diagnostic, try_reclaim_stale_index_lock, write_index_lock,
+        GitCredentials, GitLocalMode, LockReclaimOutcome, MapGitConnectParams, MapGitObjectSource,
+        connect_map_git_source, process_alive, rebuild_app_private_mirror, redact_diagnostic,
+        try_reclaim_stale_index_lock, write_index_lock,
     };
     use lomo_sync::{
         BaselineHead, BatchAtomicity, ContentDigest, LocalPathEntry, LocalSnapshot,
@@ -168,15 +175,114 @@ mod tests {
     #[test]
     fn endpoint_rejects_ssh_urls() {
         let dir = tempdir().expect("tmp");
-        let err = lomo_git::GitEndpoint::parse(
+        for url in [
             "git@github.com:org/repo.git",
-            "main",
-            GitLocalMode::AppPrivateBareMirror {
-                mirror_dir: dir.path().join("m"),
-            },
-        )
-        .expect_err("ssh");
-        assert_eq!(err.code(), "git_ssh_not_supported");
+            "ssh://git@github.com/org/repo.git",
+            "alice@git.example.com:org/repo.git",
+        ] {
+            let err = lomo_git::GitEndpoint::parse(
+                url,
+                "main",
+                GitLocalMode::AppPrivateBareMirror {
+                    mirror_dir: dir.path().join("m"),
+                },
+            )
+            .expect_err("ssh-shaped url must fail");
+            assert_eq!(err.code(), "git_ssh_not_supported", "url={url}");
+        }
+    }
+
+    #[test]
+    fn endpoint_rejects_url_userinfo_and_non_https_schemes() {
+        let dir = tempdir().expect("tmp");
+        let local = |name: &str| GitLocalMode::AppPrivateBareMirror {
+            mirror_dir: dir.path().join(name),
+        };
+        for url in [
+            "https://alice:s3cr3t@github.com/org/repo.git",
+            "https://alice@github.com/org/repo.git",
+            "file://alice@host/repo.git",
+        ] {
+            let err = lomo_git::GitEndpoint::parse(url, "main", local("m")).expect_err("userinfo");
+            assert_eq!(err.code(), "git_url_userinfo_rejected", "url={url}");
+        }
+        for url in [
+            "http://github.com/org/repo.git",
+            "ftp://github.com/org/repo.git",
+            "git://github.com/org/repo.git",
+        ] {
+            let err = lomo_git::GitEndpoint::parse(url, "main", local("m")).expect_err("scheme");
+            assert_eq!(err.code(), "git_scheme_unsupported", "url={url}");
+        }
+    }
+
+    #[test]
+    fn endpoint_accepts_https_and_local_hermetic_urls() {
+        let dir = tempdir().expect("tmp");
+        let local = |name: &str| GitLocalMode::AppPrivateBareMirror {
+            mirror_dir: dir.path().join(name),
+        };
+        for url in [
+            "https://github.com/org/repo.git",
+            "file:///srv/remotes/repo.git",
+            "/srv/remotes/repo.git",
+        ] {
+            lomo_git::GitEndpoint::parse(url, "main", local("m")).expect("valid endpoint");
+        }
+    }
+
+    #[test]
+    fn endpoint_rejects_invalid_branch_names() {
+        let dir = tempdir().expect("tmp");
+        for branch in [
+            "",
+            "feat/x",
+            "-checkout",
+            ".hidden",
+            "a..b",
+            "tip.lock",
+            "a~b",
+        ] {
+            let err = lomo_git::GitEndpoint::parse(
+                "https://github.com/org/repo.git",
+                branch,
+                GitLocalMode::AppPrivateBareMirror {
+                    mirror_dir: dir.path().join("m"),
+                },
+            )
+            .expect_err("invalid branch must fail");
+            assert_eq!(err.code(), "git_branch_invalid", "branch={branch}");
+        }
+    }
+
+    #[test]
+    fn validate_remote_url_precheck_shares_endpoint_rule() {
+        assert_eq!(
+            lomo_git::validate_git_remote_url("https://a:b@h/r.git")
+                .expect_err("userinfo")
+                .code(),
+            "git_url_userinfo_rejected"
+        );
+        assert_eq!(
+            lomo_git::validate_git_remote_url("git@h:r.git")
+                .expect_err("scp ssh")
+                .code(),
+            "git_ssh_not_supported"
+        );
+        assert_eq!(
+            lomo_git::validate_git_remote_url("http://h/r.git")
+                .expect_err("http")
+                .code(),
+            "git_scheme_unsupported"
+        );
+        assert_eq!(
+            lomo_git::validate_git_remote_url("")
+                .expect_err("empty")
+                .code(),
+            "git_remote_url_empty"
+        );
+        lomo_git::validate_git_remote_url("https://github.com/org/repo.git").expect("https ok");
+        lomo_git::validate_git_remote_url("/srv/repo.git").expect("plain path ok");
     }
 
     #[test]
@@ -486,12 +592,31 @@ mod tests {
 
     #[test]
     fn object_source_digest_mismatch_fails_closed() {
+        let root = tempdir().expect("tmp");
+        let bare = root.path().join("remote.git");
+        let mirror = root.path().join("mirror.git");
+        init_bare(&bare);
         let mut objects = MapGitObjectSource::default();
         objects.objects.insert("a.md".to_owned(), b"bytes".to_vec());
-        let err = objects
-            .load_bytes(&path("a.md"), &digest_of(b"other"))
-            .expect_err("mismatch");
-        assert_eq!(err.code(), "git_object_source_digest_mismatch");
+        let adapter = adapter_mirror(&bare, &mirror, objects);
+        let batch = whole_batch(
+            vec![ProviderNeutralIntent::EnsurePresent {
+                path: path("a.md"),
+                digest: digest_of(b"other"),
+                expected_remote_token: None,
+            }],
+            None,
+        );
+        let receipt = adapter.publish(&batch).expect("publish");
+        assert!(
+            matches!(
+                receipt.path_results[0].1,
+                PathPublishStatus::Failed { ref code }
+                    if code == "git_object_source_digest_mismatch"
+            ),
+            "{:?}",
+            receipt.path_results[0].1
+        );
     }
 
     #[test]
@@ -568,18 +693,19 @@ mod tests {
         assert!(snap.entries.is_empty());
     }
 
-    /// Given unrelated local HEAD vs remote tip (no merge-base), when publish runs, then
-    /// `git_merge_base_unproven` blocks (no guess, no force).
+    /// Given an unrelated local HEAD in the mirror, when publish runs, then the local HEAD is
+    /// ignored: the publish is a single-parent commit on the observed remote tip (merge-base
+    /// between local and remote is no longer part of the publish contract).
     #[test]
-    fn unproven_merge_base_blocks_publish() {
+    fn unrelated_local_head_does_not_block_single_parent_publish() {
         let root = tempdir().expect("tmp");
         let bare = root.path().join("remote.git");
         let mirror = root.path().join("mirror.git");
         init_bare(&bare);
         let seed_tip: String = seed_remote_with_file(&bare, "memo/a.md", b"remote-only\n");
 
-        // Build app-private bare mirror, then plant an *unrelated* local HEAD commit so
-        // require_merge_base(local_head, remote_tip) cannot prove a common ancestor.
+        // Build app-private bare mirror, then plant an *unrelated* local HEAD commit; the
+        // single-parent publish contract does not merge local HEAD, so it must be ignored.
         init_bare(&mirror);
         {
             let repo = Repository::open_bare(&mirror).expect("open mirror");
@@ -623,14 +749,32 @@ mod tests {
                 digest: digest_of(body),
                 expected_remote_token: None,
             }],
-            Some(seed_tip),
+            Some(seed_tip.clone()),
         );
-        let err = adapter.publish(&batch).expect_err("must block");
+        let receipt = adapter.publish(&batch).expect("publish");
+        let new_token = match &receipt.path_results[0].1 {
+            PathPublishStatus::Applied { new_token } => new_token.clone(),
+            PathPublishStatus::PreconditionFailed
+            | PathPublishStatus::Failed { .. }
+            | PathPublishStatus::Skipped => {
+                panic!("expected Applied, got {:?}", receipt.path_results[0].1)
+            }
+        };
+        let bare_repo = Repository::open_bare(&bare).expect("bare");
+        let tip = bare_repo
+            .refname_to_id("refs/heads/main")
+            .expect("bare tip");
+        assert_eq!(tip.to_string(), new_token);
+        let commit = bare_repo.find_commit(tip).expect("tip commit");
         assert_eq!(
-            err.code(),
-            "git_merge_base_unproven",
-            "unrelated histories must block, not force-merge: {}",
-            err.diagnostic()
+            commit.parent_count(),
+            1,
+            "publish must be single-parent on the observed remote tip"
+        );
+        assert_eq!(
+            commit.parent_id(0).expect("parent").to_string(),
+            seed_tip,
+            "sole parent must be the remote tip observed for the publish"
         );
     }
 
@@ -669,11 +813,11 @@ mod tests {
         local_commit
     }
 
-    /// Given diverged local HEAD + remote tip with proven merge-base (`KeepLocal` resolve shape),
-    /// when publish runs, then the pushed commit is dual-parent (remote tip, local HEAD) and the
-    /// tree carries the resolved local body. Non-force CAS still applies.
+    /// Given diverged local HEAD + remote tip (`KeepLocal` resolve shape), when publish runs,
+    /// then the pushed commit is single-parent on the observed remote tip and the tree carries
+    /// the resolved local body. Non-force CAS still applies; local HEAD is not merged Git-side.
     #[test]
-    fn dual_parent_merge_commit_after_resolve_publishes_local_body() {
+    fn single_parent_publish_after_resolve_publishes_local_body() {
         let root = tempdir().expect("tmp");
         let bare = root.path().join("remote.git");
         let mirror = root.path().join("mirror.git");
@@ -697,7 +841,7 @@ mod tests {
                 .expect("tracking");
             assert_eq!(remote_tip, base_oid);
         }
-        let local_oid = plant_local_resolved_head(&mirror, base_oid, "memo/a.md", local_body);
+        let _local_oid = plant_local_resolved_head(&mirror, base_oid, "memo/a.md", local_body);
 
         // Concurrent remote tip: sibling with remote body (fixture force only).
         let remote_tip_str = diverge_bare_sibling(&bare, "memo/a.md", b"remote-side\n");
@@ -724,13 +868,13 @@ mod tests {
             | PathPublishStatus::Failed { .. }
             | PathPublishStatus::Skipped => {
                 panic!(
-                    "expected Applied dual-parent publish, got {:?}",
+                    "expected Applied single-parent publish, got {:?}",
                     receipt.path_results[0].1
                 )
             }
         };
 
-        // Inspect bare remote tip: dual parents + resolved body.
+        // Inspect bare remote tip: single parent = observed remote tip + resolved body.
         let bare_repo = Repository::open_bare(&bare).expect("bare");
         let tip = bare_repo
             .refname_to_id("refs/heads/main")
@@ -739,23 +883,15 @@ mod tests {
         let commit = bare_repo.find_commit(tip).expect("tip commit");
         assert_eq!(
             commit.parent_count(),
-            2,
-            "conflict-resolve publish must be dual-parent merge commit, parents={}",
+            1,
+            "resolve publish must be a single-parent commit, parents={}",
             commit.parent_count()
         );
         let p0 = commit.parent_id(0).expect("p0");
-        let p1 = commit.parent_id(1).expect("p1");
-        // First parent = remote tip at publish time (CAS mainline); second = local HEAD.
-        // Remote tip after diverge is not base_oid; local_oid is planted HEAD.
-        assert_eq!(
-            p1, local_oid,
-            "second parent must be local HEAD (resolved side)"
-        );
         assert_eq!(
             p0, remote_tip_oid,
-            "first parent must be concurrent remote tip (CAS mainline)"
+            "sole parent must be the concurrent remote tip (CAS mainline)"
         );
-        assert_ne!(p0, p1, "parents must be distinct");
 
         let tree = commit.tree().expect("tree");
         let entry = tree.get_path(Path::new("memo/a.md")).expect("path in tree");
@@ -763,7 +899,7 @@ mod tests {
         assert_eq!(
             blob.content(),
             local_body,
-            "merge-commit tree must carry KeepLocal resolved body"
+            "single-parent tree must carry KeepLocal resolved body"
         );
 
         // list/verify observe local digest.
@@ -916,5 +1052,261 @@ mod tests {
         remote
             .push(&["refs/heads/main:refs/heads/main"], None)
             .expect("push seed");
+    }
+
+    /// Given one adapter cycle, when list/verify/resolve run, then a single fetch serves all
+    /// calls, the pinned tip is shared, and listing walks trees without hashing blob bodies.
+    #[test]
+    fn cycle_reuses_one_fetch_and_listing_stays_metadata_only() {
+        let root = tempdir().expect("tmp");
+        let bare = root.path().join("remote.git");
+        let mirror = root.path().join("mirror.git");
+        init_bare(&bare);
+        let _tip = seed_remote_with_file(&bare, "memo/a.md", b"remote-a\n");
+        let adapter = adapter_mirror(&bare, &mirror, MapGitObjectSource::default());
+
+        let snap = adapter.list_remote().expect("list");
+        let _verified = adapter
+            .verify(&[VerifyExpectation {
+                path: path("memo/a.md"),
+                expected_digest: Some(digest_of(b"remote-a\n")),
+                expected_token: None,
+            }])
+            .expect("verify");
+        let _pages = adapter.list_remote_pages().expect("pages");
+
+        let stats = adapter.stats();
+        assert_eq!(
+            stats.fetches, 1,
+            "one cycle must fetch once, not per port call: {stats:?}"
+        );
+        assert_eq!(
+            stats.object_bytes, 0,
+            "list/verify must not stream workspace objects: {stats:?}"
+        );
+        assert!(snap.snapshot_revision.is_some());
+    }
+
+    /// Given an object larger than the per-object budget, when publish runs, then the intent
+    /// fails with `git_object_exceeds_budget` before a single byte is read into the ODB.
+    #[test]
+    fn per_object_budget_rejects_before_streaming() {
+        let root = tempdir().expect("tmp");
+        let bare = root.path().join("remote.git");
+        let mirror = root.path().join("mirror.git");
+        init_bare(&bare);
+        let mut objects = MapGitObjectSource::default();
+        objects
+            .objects
+            .insert("big.md".to_owned(), b"0123456789".to_vec());
+        let adapter = adapter_mirror(&bare, &mirror, objects).with_object_budget(4);
+        let batch = whole_batch(
+            vec![ProviderNeutralIntent::EnsurePresent {
+                path: path("big.md"),
+                digest: digest_of(b"0123456789"),
+                expected_remote_token: None,
+            }],
+            None,
+        );
+        let receipt = adapter.publish(&batch).expect("publish");
+        assert!(
+            matches!(
+                receipt.path_results[0].1,
+                PathPublishStatus::Failed { ref code }
+                    if code == "git_object_exceeds_budget"
+            ),
+            "{:?}",
+            receipt.path_results[0].1
+        );
+        assert_eq!(
+            adapter.stats().object_bytes,
+            0,
+            "over-budget object must reject before streaming bytes"
+        );
+    }
+
+    /// Given intents whose combined bytes exceed the batch budget, when publish runs, then the
+    /// overflow intent fails with `git_batch_object_budget_exceeded`.
+    #[test]
+    fn batch_object_budget_rejects_across_intents() {
+        let root = tempdir().expect("tmp");
+        let bare = root.path().join("remote.git");
+        let mirror = root.path().join("mirror.git");
+        init_bare(&bare);
+        let mut objects = MapGitObjectSource::default();
+        objects.objects.insert("a.md".to_owned(), b"aaa".to_vec());
+        objects.objects.insert("b.md".to_owned(), b"bbb".to_vec());
+        let adapter = adapter_mirror(&bare, &mirror, objects).with_batch_object_budget(4);
+        let batch = whole_batch(
+            vec![
+                ProviderNeutralIntent::EnsurePresent {
+                    path: path("a.md"),
+                    digest: digest_of(b"aaa"),
+                    expected_remote_token: None,
+                },
+                ProviderNeutralIntent::EnsurePresent {
+                    path: path("b.md"),
+                    digest: digest_of(b"bbb"),
+                    expected_remote_token: None,
+                },
+            ],
+            None,
+        );
+        let receipt = adapter.publish(&batch).expect("publish");
+        assert!(
+            matches!(
+                receipt.path_results[0].1,
+                PathPublishStatus::Failed { ref code }
+                    if code == "git_batch_object_budget_exceeded"
+            ),
+            "{:?}",
+            receipt.path_results[0].1
+        );
+    }
+
+    /// Given a mirror whose disk usage would exceed the disk budget, when publish streams, then
+    /// the intent fails with `git_mirror_disk_budget_exceeded`.
+    #[test]
+    fn mirror_disk_budget_rejects_object_writes() {
+        let root = tempdir().expect("tmp");
+        let bare = root.path().join("remote.git");
+        let mirror = root.path().join("mirror.git");
+        init_bare(&bare);
+        let mut objects = MapGitObjectSource::default();
+        objects.objects.insert("a.md".to_owned(), b"aaa".to_vec());
+        let adapter = adapter_mirror(&bare, &mirror, objects).with_mirror_disk_budget(1);
+        let batch = whole_batch(
+            vec![ProviderNeutralIntent::EnsurePresent {
+                path: path("a.md"),
+                digest: digest_of(b"aaa"),
+                expected_remote_token: None,
+            }],
+            None,
+        );
+        let receipt = adapter.publish(&batch).expect("publish");
+        assert!(
+            matches!(
+                receipt.path_results[0].1,
+                PathPublishStatus::Failed { ref code }
+                    if code == "git_mirror_disk_budget_exceeded"
+            ),
+            "{:?}",
+            receipt.path_results[0].1
+        );
+    }
+
+    /// Given a crashed publish that left `refs/lomo/push/*` staging refs in the mirror, when a
+    /// new adapter connects, then startup reconciliation reclaims every leftover.
+    #[test]
+    fn push_staging_refs_are_reclaimed_at_connect() {
+        let root = tempdir().expect("tmp");
+        let bare = root.path().join("remote.git");
+        let mirror = root.path().join("mirror.git");
+        init_bare(&bare);
+        init_bare(&mirror);
+        {
+            let repo = Repository::open_bare(&mirror).expect("open mirror");
+            let blob = repo.blob(b"orphan").expect("blob");
+            repo.reference("refs/lomo/push/dead", blob, true, "plant orphan")
+                .expect("plant ref");
+            repo.reference("refs/lomo/push/beef", blob, true, "plant orphan")
+                .expect("plant ref");
+        }
+        let adapter = adapter_mirror(&bare, &mirror, MapGitObjectSource::default());
+        drop(adapter);
+        let repo = Repository::open_bare(&mirror).expect("reopen");
+        let leftover = repo
+            .references_glob("refs/lomo/push/*")
+            .expect("glob")
+            .count();
+        assert_eq!(leftover, 0, "staging refs must be reclaimed at connect");
+    }
+
+    /// Given a successful publish, when the push finishes, then no `refs/lomo/push/*` staging
+    /// refs remain in the mirror.
+    #[test]
+    fn successful_publish_leaves_no_staging_refs() {
+        let root = tempdir().expect("tmp");
+        let bare = root.path().join("remote.git");
+        let mirror = root.path().join("mirror.git");
+        init_bare(&bare);
+        let mut objects = MapGitObjectSource::default();
+        objects.objects.insert("a.md".to_owned(), b"body".to_vec());
+        let adapter = adapter_mirror(&bare, &mirror, objects);
+        let batch = whole_batch(
+            vec![ProviderNeutralIntent::EnsurePresent {
+                path: path("a.md"),
+                digest: digest_of(b"body"),
+                expected_remote_token: None,
+            }],
+            None,
+        );
+        let receipt = adapter.publish(&batch).expect("publish");
+        assert!(matches!(
+            receipt.path_results[0].1,
+            PathPublishStatus::Applied { .. }
+        ));
+        let repo = Repository::open_bare(&mirror).expect("reopen");
+        let leftover = repo
+            .references_glob("refs/lomo/push/*")
+            .expect("glob")
+            .count();
+        assert_eq!(leftover, 0, "staging lease must be cleaned after push");
+    }
+
+    /// Given a half-initialized (corrupt) app-private mirror dir, when the adapter connects,
+    /// then the tree is quarantined intact under `*.corrupt-*` and a valid bare repo is rebuilt.
+    #[test]
+    fn corrupt_mirror_is_quarantined_and_rebuilt_once() {
+        let root = tempdir().expect("tmp");
+        let bare = root.path().join("remote.git");
+        let mirror = root.path().join("mirror.git");
+        init_bare(&bare);
+        fs::create_dir_all(&mirror).expect("mirror dir");
+        fs::write(mirror.join("junk-marker"), b"not a repo").expect("junk");
+
+        let adapter = adapter_mirror(&bare, &mirror, MapGitObjectSource::default());
+        drop(adapter);
+
+        let rebuilt = Repository::open_bare(&mirror).expect("mirror must be rebuilt valid");
+        assert!(rebuilt.is_bare());
+        let quarantined: Vec<_> = fs::read_dir(root.path())
+            .expect("list root")
+            .flatten()
+            .filter(|entry| entry.file_name().to_string_lossy().contains(".corrupt-"))
+            .collect();
+        assert_eq!(
+            quarantined.len(),
+            1,
+            "corrupt mirror must be quarantined exactly once"
+        );
+        assert_eq!(
+            fs::read(quarantined[0].path().join("junk-marker")).expect("evidence"),
+            b"not a repo",
+            "quarantine must preserve the original tree"
+        );
+    }
+
+    /// Given a zero network timeout, when a remote operation runs, then the deadline is
+    /// observed and fails the call with `git_deadline_exceeded`.
+    #[test]
+    fn zero_timeout_fails_remote_operation() {
+        let root = tempdir().expect("tmp");
+        let bare = root.path().join("remote.git");
+        let mirror = root.path().join("mirror.git");
+        init_bare(&bare);
+        let adapter = connect_map_git_source(MapGitConnectParams {
+            remote_url: bare.to_str().expect("utf8"),
+            branch: "main",
+            local: GitLocalMode::AppPrivateBareMirror { mirror_dir: mirror },
+            credentials: GitCredentials::anonymous(),
+            objects: MapGitObjectSource::default(),
+            timeout: Duration::ZERO,
+            author_name: "lomo-git",
+            author_email: "git@lomo.local",
+        })
+        .expect("adapter");
+        let err = adapter.list_remote().expect_err("deadline must fail");
+        assert_eq!(err.code(), "git_deadline_exceeded");
     }
 }

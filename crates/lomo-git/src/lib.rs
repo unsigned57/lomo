@@ -24,8 +24,8 @@ mod redaction;
 
 pub use adapter::{GitAdapter, connect_map_git_source, connect_workspace_git};
 pub use endpoint::{
-    GitCredentials, GitEndpoint, GitLocalMode, GitObjectSource, MapGitConnectParams,
-    MapGitObjectSource, WorkspaceFileGitObjectSource,
+    GitCredentials, GitEndpoint, GitLocalMode, GitObjectSource, GitObjectStream,
+    MapGitConnectParams, MapGitObjectSource, WorkspaceFileGitObjectSource, validate_git_remote_url,
 };
 pub use error::{
     authentication as git_authentication, busy as git_busy, conflict as git_conflict, from_git2,

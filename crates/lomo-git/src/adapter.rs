@@ -1,7 +1,10 @@
 //! `RemoteSyncPort` implementation for Git (`git2` adapter only; no Git-specific planner).
 
 use std::collections::BTreeMap;
-use std::time::Duration;
+use std::io::Read;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use git2::{
     Cred, ErrorCode, FetchOptions, FileMode, ObjectType, Oid, PushOptions, RemoteCallbacks,
@@ -9,31 +12,99 @@ use git2::{
 };
 use sha2::{Digest, Sha256};
 
-use crate::endpoint::{GitCredentials, GitEndpoint, GitObjectSource};
-use crate::error::{conflict, from_git2, validation};
+use crate::endpoint::{GitCredentials, GitEndpoint, GitObjectSource, GitObjectStream};
+use crate::error::{conflict, from_git2, network, resource_limit, storage, validation};
 use crate::lock::{DEFAULT_STALE_LOCK_THRESHOLD, ensure_index_lock_clear};
 use crate::mirror::open_local_repository;
-use lomo_core::LomoError;
+use lomo_core::{LomoError, RetryDisposition};
 use lomo_sync::{
     BatchAtomicity, ContentDigest, MAX_ACTION_PAGE_ITEMS, PathPublishStatus, PreparedRemoteBatch,
-    ProviderNeutralIntent, PublishReceipt, RemoteDigestFact, RemoteListingStream, RemotePathEntry,
-    RemoteResolvedObject, RemoteSnapshot, RemoteSyncPort, RemoteValidator, SnapshotCompleteness,
-    SyncPath, VerifiedRemoteState, VerifyExpectation, VerifyStatus,
+    ProviderNeutralIntent, PublishReceipt, RemoteCapabilities, RemoteDigestFact,
+    RemoteListingStream, RemotePathEntry, RemoteResolvedObject, RemoteSnapshot, RemoteSyncPort,
+    RemoteValidator, SnapshotCompleteness, SyncPath, VerifiedRemoteState, VerifyExpectation,
+    VerifyStatus,
 };
+
+/// Workspace objects embedded into Git trees stay under the sync object bound.
+const MAX_GIT_OBJECT_BYTES: u64 = 32 * 1_048_576;
+
+/// Total object bytes one publish may stream into the ODB (eight objects' worth at the bound).
+const MAX_GIT_BATCH_OBJECT_BYTES: u64 = 8 * MAX_GIT_OBJECT_BYTES;
+
+/// Total bytes the app-private mirror / local object store may hold (2 GiB disk bound).
+const MAX_GIT_MIRROR_BYTES: u64 = 2 * 1_073_741_824;
+
+/// Push staging namespace; leased per publish and reconciled at connect.
+const PUSH_STAGING_GLOB: &str = "refs/lomo/push/*";
+
+/// The remote tip pinned for a cycle.
+#[derive(Default)]
+enum CycleTip {
+    /// No remote query has run yet this cycle.
+    #[default]
+    Unfetched,
+    /// The remote tip observed by this cycle's single fetch (or the pushed commit).
+    Known(Option<Oid>),
+}
+
+/// Cycle-scoped remote state shared by every port call on one adapter instance.
+///
+/// The repository handle and the fetched remote tip live under one lock so list/publish/verify
+/// observe one snapshot lifetime: the first port call fetches once, later calls reuse the pinned
+/// tip, and a successful publish records its commit as the new tip.
+#[derive(Default)]
+struct RemoteCycle {
+    repo: Option<Repository>,
+    fetched_tip: CycleTip,
+}
+
+/// Adapter execution counters (diagnostics for the cycle's real cost).
+#[derive(Default)]
+struct AdapterStats {
+    /// Remote fetch operations executed this cycle.
+    fetches: AtomicUsize,
+    /// Remote tip queries via `ls-remote` style connect+list (no object transfer).
+    remote_tip_queries: AtomicUsize,
+    /// Commit-tree walks executed for listings/verifies.
+    tree_walks: AtomicUsize,
+    /// Workspace object bytes streamed into the ODB.
+    object_bytes: AtomicU64,
+    /// Local object-store disk estimate; `u64::MAX` means "not yet measured this cycle".
+    disk_bytes: AtomicU64,
+}
+
+/// Public snapshot of [`AdapterStats`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GitAdapterStats {
+    /// Remote fetch operations executed this cycle.
+    pub fetches: usize,
+    /// `ls-remote` style tip queries (no object transfer).
+    pub remote_tip_queries: usize,
+    /// Commit-tree walks executed for listings/verifies.
+    pub tree_walks: usize,
+    /// Workspace object bytes streamed into the ODB.
+    pub object_bytes: u64,
+}
 
 /// Git remote adapter implementing the public [`RemoteSyncPort`].
 ///
 /// Compiles path intents into tree/commit + non-force CAS ref push (`WholeBatchRef`).
-/// When local HEAD and remote tip diverge with a proven merge-base (conflict resolve), the
-/// publish commit is dual-parent (remote tip first, local HEAD second). Never force-pushes,
-/// never checkout/resets user worktrees.
+/// Publishes are single-parent on the enumerated remote tip; concurrent remote advances surface
+/// as precondition failures for the planner to re-plan. Never force-pushes, never
+/// checkout/resets user worktrees.
 pub struct GitAdapter<S: GitObjectSource> {
     endpoint: GitEndpoint,
     credentials: GitCredentials,
     objects: S,
     author_name: String,
     author_email: String,
+    timeout: Duration,
     stale_lock_threshold: Duration,
+    cycle: Mutex<RemoteCycle>,
+    stats: AdapterStats,
+    max_object_bytes: u64,
+    batch_object_budget: u64,
+    mirror_disk_budget: u64,
 }
 
 impl<S: GitObjectSource> GitAdapter<S> {
@@ -48,17 +119,39 @@ impl<S: GitObjectSource> GitAdapter<S> {
         objects: S,
         author_name: impl Into<String>,
         author_email: impl Into<String>,
-        _timeout: Duration,
+        timeout: Duration,
     ) -> Result<Self, LomoError> {
-        let _repo = open_local_repository(endpoint.local())?;
+        let repo = open_local_repository(endpoint.local())?;
+        // Startup reconcile: leftover publish-staging refs from a crashed cycle are reclaimed.
+        reconcile_push_refs(&repo)?;
         Ok(Self {
             endpoint,
             credentials,
             objects,
             author_name: author_name.into(),
             author_email: author_email.into(),
+            timeout,
             stale_lock_threshold: DEFAULT_STALE_LOCK_THRESHOLD,
+            cycle: Mutex::new(RemoteCycle::default()),
+            stats: AdapterStats {
+                disk_bytes: AtomicU64::new(u64::MAX),
+                ..AdapterStats::default()
+            },
+            max_object_bytes: MAX_GIT_OBJECT_BYTES,
+            batch_object_budget: MAX_GIT_BATCH_OBJECT_BYTES,
+            mirror_disk_budget: MAX_GIT_MIRROR_BYTES,
         })
+    }
+
+    /// Diagnostic counters for this adapter's cycle.
+    #[must_use]
+    pub fn stats(&self) -> GitAdapterStats {
+        GitAdapterStats {
+            fetches: self.stats.fetches.load(Ordering::Acquire),
+            remote_tip_queries: self.stats.remote_tip_queries.load(Ordering::Acquire),
+            tree_walks: self.stats.tree_walks.load(Ordering::Acquire),
+            object_bytes: self.stats.object_bytes.load(Ordering::Acquire),
+        }
     }
 
     /// Test-only: override stale-lock threshold.
@@ -68,8 +161,77 @@ impl<S: GitObjectSource> GitAdapter<S> {
         self
     }
 
-    fn open(&self) -> Result<Repository, LomoError> {
-        open_local_repository(self.endpoint.local())
+    /// Test-only: shrink the per-object byte budget.
+    #[must_use]
+    pub const fn with_object_budget(mut self, bytes: u64) -> Self {
+        self.max_object_bytes = bytes;
+        self
+    }
+
+    /// Test-only: shrink the per-batch object byte budget.
+    #[must_use]
+    pub const fn with_batch_object_budget(mut self, bytes: u64) -> Self {
+        self.batch_object_budget = bytes;
+        self
+    }
+
+    /// Test-only: shrink the local mirror disk budget.
+    #[must_use]
+    pub const fn with_mirror_disk_budget(mut self, bytes: u64) -> Self {
+        self.mirror_disk_budget = bytes;
+        self
+    }
+
+    /// Runs `f` against the cycle's repository handle (opened once, lock-protected).
+    fn with_repo<R>(
+        &self,
+        f: impl FnOnce(&Repository) -> Result<R, LomoError>,
+    ) -> Result<R, LomoError> {
+        let mut guard = self
+            .cycle
+            .lock()
+            .map_err(|error| storage("git_cycle_lock_poisoned", &error.to_string()))?;
+        if guard.repo.is_none() {
+            guard.repo = Some(open_local_repository(self.endpoint.local())?);
+        }
+        let repo = guard
+            .repo
+            .as_ref()
+            .ok_or_else(|| storage("git_cycle_repo_missing", "cycle repository was not opened"))?;
+        let output = f(repo);
+        drop(guard);
+        output
+    }
+
+    /// The remote tip pinned for this cycle: first call fetches once, later calls reuse it.
+    fn cycle_tip(&self) -> Result<Option<Oid>, LomoError> {
+        let mut guard = self
+            .cycle
+            .lock()
+            .map_err(|error| storage("git_cycle_lock_poisoned", &error.to_string()))?;
+        if guard.repo.is_none() {
+            guard.repo = Some(open_local_repository(self.endpoint.local())?);
+        }
+        if let CycleTip::Known(tip) = guard.fetched_tip {
+            return Ok(tip);
+        }
+        let repo = guard
+            .repo
+            .as_ref()
+            .ok_or_else(|| storage("git_cycle_repo_missing", "cycle repository was not opened"))?;
+        self.ensure_lock_clear(repo)?;
+        self.fetch_remote(repo)?;
+        let tip = self.resolve_remote_tip(repo)?;
+        guard.fetched_tip = CycleTip::Known(tip);
+        drop(guard);
+        Ok(tip)
+    }
+
+    /// Records the pushed commit as this cycle's remote tip after a successful publish.
+    fn record_published_tip(&self, commit: Oid) {
+        if let Ok(mut guard) = self.cycle.lock() {
+            guard.fetched_tip = CycleTip::Known(Some(commit));
+        }
     }
 
     fn ensure_lock_clear(&self, repo: &Repository) -> Result<(), LomoError> {
@@ -80,7 +242,24 @@ impl<S: GitObjectSource> GitAdapter<S> {
         )
     }
 
-    fn remote_callbacks(&self) -> RemoteCallbacks<'_> {
+    fn network_deadline(&self) -> Instant {
+        Instant::now() + self.timeout
+    }
+
+    /// Fails when the configured network timeout has already elapsed.
+    fn check_deadline(deadline: Instant) -> Result<(), LomoError> {
+        if Instant::now() >= deadline {
+            return Err(network(
+                "git_deadline_exceeded",
+                "git network operation exceeded the configured timeout",
+                RetryDisposition::Transient,
+            ));
+        }
+        Ok(())
+    }
+
+    /// Credentials + deadline-aware progress callbacks: transfers cancel past the deadline.
+    fn remote_callbacks(&self, deadline: Instant) -> RemoteCallbacks<'_> {
         let mut callbacks = RemoteCallbacks::new();
         if self.credentials.has_secret() {
             let username = self.credentials.username().to_owned();
@@ -89,18 +268,22 @@ impl<S: GitObjectSource> GitAdapter<S> {
                 Cred::userpass_plaintext(&username, &token)
             });
         }
+        callbacks.transfer_progress(move |_progress| Instant::now() < deadline);
         callbacks
     }
 
-    /// Fetch remote branch into `refs/remotes/origin/{branch}`.
-    fn fetch_remote(&self, repo: &Repository) -> Result<(), LomoError> {
-        let branch_ref = self.endpoint.branch_ref();
+    /// Ensures `origin` exists and points at the configured remote URL, then returns it.
+    fn origin_remote<'repo>(
+        &self,
+        repo: &'repo Repository,
+    ) -> Result<git2::Remote<'repo>, LomoError> {
         let remote_name = "origin";
         match repo.find_remote(remote_name) {
             Ok(remote) => {
                 let matches = remote
                     .url()
-                    .is_ok_and(|url| url == self.endpoint.remote_url());
+                    .map_err(|error| from_git2("git_remote_url_read_failed", &error))?
+                    == self.endpoint.remote_url();
                 if !matches {
                     repo.remote_set_url(remote_name, self.endpoint.remote_url())
                         .map_err(|error| from_git2("git_remote_set_url_failed", &error))?;
@@ -111,20 +294,48 @@ impl<S: GitObjectSource> GitAdapter<S> {
                     .map_err(|error| from_git2("git_remote_create_failed", &error))?;
             }
         }
-        let mut remote = repo
-            .find_remote(remote_name)
-            .map_err(|error| from_git2("git_remote_find_failed", &error))?;
+        repo.find_remote(remote_name)
+            .map_err(|error| from_git2("git_remote_find_failed", &error))
+    }
+
+    /// Queries the live remote tip for the configured branch without transferring objects.
+    fn live_remote_tip(&self, repo: &Repository) -> Result<Option<Oid>, LomoError> {
+        let deadline = self.network_deadline();
+        Self::check_deadline(deadline)?;
+        let mut remote = self.origin_remote(repo)?;
+        remote
+            .connect(git2::Direction::Fetch)
+            .map_err(|error| from_git2("git_remote_connect_failed", &error))?;
+        Self::check_deadline(deadline)?;
+        self.stats.remote_tip_queries.fetch_add(1, Ordering::AcqRel);
+        let branch_ref = self.endpoint.branch_ref();
+        let tip = remote
+            .list()
+            .map_err(|error| from_git2("git_remote_list_failed", &error))?
+            .iter()
+            .find(|head| head.name() == branch_ref)
+            .map(git2::RemoteHead::oid);
+        Self::check_deadline(deadline)?;
+        Ok(tip)
+    }
+
+    /// Fetch remote branch into `refs/remotes/origin/{branch}`.
+    fn fetch_remote(&self, repo: &Repository) -> Result<(), LomoError> {
+        let deadline = self.network_deadline();
+        Self::check_deadline(deadline)?;
+        let mut remote = self.origin_remote(repo)?;
         let mut fetch_opts = FetchOptions::new();
-        fetch_opts.remote_callbacks(self.remote_callbacks());
+        fetch_opts.remote_callbacks(self.remote_callbacks(deadline));
         // Leading `+` updates the *remote-tracking* ref only; publish push is non-force.
         let refspec = format!(
-            "+{branch_ref}:refs/remotes/origin/{}",
+            "+{}:refs/remotes/origin/{}",
+            self.endpoint.branch_ref(),
             self.endpoint.branch()
         );
-        remote
-            .fetch(&[refspec.as_str()], Some(&mut fetch_opts), None)
-            .map_err(|error| from_git2("git_fetch_failed", &error))?;
-        Ok(())
+        self.stats.fetches.fetch_add(1, Ordering::AcqRel);
+        let result = remote.fetch(&[refspec.as_str()], Some(&mut fetch_opts), None);
+        Self::check_deadline(deadline)?;
+        result.map_err(|error| from_git2("git_fetch_failed", &error))
     }
 
     fn remote_tracking_ref(&self) -> String {
@@ -141,9 +352,11 @@ impl<S: GitObjectSource> GitAdapter<S> {
     }
 
     fn tree_entries_from_commit(
+        &self,
         repo: &Repository,
         commit_oid: Oid,
     ) -> Result<Vec<RemotePathEntry>, LomoError> {
+        self.stats.tree_walks.fetch_add(1, Ordering::AcqRel);
         let commit = repo
             .find_commit(commit_oid)
             .map_err(|error| from_git2("git_commit_lookup_failed", &error))?;
@@ -227,6 +440,12 @@ impl<S: GitObjectSource> GitAdapter<S> {
         }
         match repo.find_blob(entry.id()) {
             Ok(blob) => {
+                if u64::try_from(blob.size()).unwrap_or(u64::MAX) > MAX_GIT_OBJECT_BYTES {
+                    return VerifyStatus::Failed {
+                        path: path.clone(),
+                        code: "git_object_exceeds_budget".to_owned(),
+                    };
+                }
                 let digest_hex = format!("{:x}", Sha256::digest(blob.content()));
                 if digest_hex == expected_digest.as_str() {
                     VerifyStatus::Verified {
@@ -248,48 +467,56 @@ impl<S: GitObjectSource> GitAdapter<S> {
         }
     }
 
-    /// Reads one remote blob at the fetched remote tip: `(body bytes, blob oid)` when present.
+    /// Reads one remote blob at the cycle's pinned remote tip: `(body bytes, blob oid)` when
+    /// present.
     fn read_remote_blob(&self, path: &SyncPath) -> Result<Option<(Vec<u8>, String)>, LomoError> {
-        let repo = self.open()?;
-        self.ensure_lock_clear(&repo)?;
-        self.fetch_remote(&repo)?;
-        let Some(tip) = self.resolve_remote_tip(&repo)? else {
+        let Some(tip) = self.cycle_tip()? else {
             return Ok(None);
         };
-        let commit = repo
-            .find_commit(tip)
-            .map_err(|error| from_git2("git_commit_lookup_failed", &error))?;
-        let tree = commit
-            .tree()
-            .map_err(|error| from_git2("git_tree_lookup_failed", &error))?;
-        let entry = match tree.get_path(std::path::Path::new(path.as_str())) {
-            Ok(entry) => entry,
-            Err(error) if error.code() == ErrorCode::NotFound => return Ok(None),
-            Err(error) => {
-                return Err(from_git2("git_tree_path_lookup_failed", &error));
+        self.with_repo(|repo| {
+            let commit = repo
+                .find_commit(tip)
+                .map_err(|error| from_git2("git_commit_lookup_failed", &error))?;
+            let tree = commit
+                .tree()
+                .map_err(|error| from_git2("git_tree_lookup_failed", &error))?;
+            let entry = match tree.get_path(std::path::Path::new(path.as_str())) {
+                Ok(entry) => entry,
+                Err(error) if error.code() == ErrorCode::NotFound => return Ok(None),
+                Err(error) => {
+                    return Err(from_git2("git_tree_path_lookup_failed", &error));
+                }
+            };
+            let blob = repo
+                .find_blob(entry.id())
+                .map_err(|error| from_git2("git_blob_lookup_failed", &error))?;
+            let size = u64::try_from(blob.size())
+                .map_err(|error| validation("git_blob_size_overflow", &error.to_string()))?;
+            if size > self.max_object_bytes {
+                return Err(resource_limit(
+                    "git_object_exceeds_budget",
+                    "remote blob exceeds the per-object byte bound",
+                ));
             }
-        };
-        let blob = repo
-            .find_blob(entry.id())
-            .map_err(|error| from_git2("git_blob_lookup_failed", &error))?;
-        Ok(Some((blob.content().to_vec(), entry.id().to_string())))
+            Ok(Some((blob.content().to_vec(), entry.id().to_string())))
+        })
     }
 
     fn apply_intents_to_tree(
         &self,
         repo: &Repository,
-        baseline_tree: Option<git2::Tree<'_>>,
+        baseline_tree_oid: Option<Oid>,
         intents: &[ProviderNeutralIntent],
     ) -> Result<Oid, LomoError> {
         let mut upserts: BTreeMap<String, Oid> = BTreeMap::new();
         let mut removes: Vec<String> = Vec::new();
+        let mut batch_used: u64 = 0;
         for intent in intents {
             match intent {
                 ProviderNeutralIntent::EnsurePresent { path, digest, .. } => {
-                    let bytes = self.objects.load_bytes(path, digest)?;
-                    let oid = repo
-                        .blob(&bytes)
-                        .map_err(|error| from_git2("git_blob_write_failed", &error))?;
+                    // behavior-contract: loop-io-ok: each EnsurePresent names a distinct required
+                    // blob; ObjectSource has no bulk contract and tree build needs every body.
+                    let oid = self.stream_object_to_odb(repo, path, digest, &mut batch_used)?;
                     upserts.insert(path.as_str().to_owned(), oid);
                 }
                 ProviderNeutralIntent::EnsureAbsent { path, .. } => {
@@ -302,7 +529,10 @@ impl<S: GitObjectSource> GitAdapter<S> {
             }
         }
 
-        if let Some(tree) = baseline_tree {
+        if let Some(tree_oid) = baseline_tree_oid {
+            let tree = repo
+                .find_tree(tree_oid)
+                .map_err(|error| from_git2("git_tree_lookup_failed", &error))?;
             if removes.is_empty() && upserts.is_empty() {
                 return Ok(tree.id());
             }
@@ -319,6 +549,106 @@ impl<S: GitObjectSource> GitAdapter<S> {
         } else {
             build_tree_from_paths(repo, &upserts)
         }
+    }
+
+    /// Streams one workspace object into the ODB under the per-object and per-batch budgets.
+    ///
+    /// The source reports its length on the opened descriptor; over-budget objects reject before
+    /// a single byte is read. Bytes stream through a SHA-256 tee into the ODB writer, so the
+    /// digest check runs while bytes move — a length drift or digest mismatch surfaces before the
+    /// OID is admitted into the tree.
+    fn stream_object_to_odb(
+        &self,
+        repo: &Repository,
+        path: &SyncPath,
+        expected_digest: &ContentDigest,
+        batch_used: &mut u64,
+    ) -> Result<Oid, LomoError> {
+        let GitObjectStream { len, mut reader } = self.objects.open_object(path)?;
+        if len > self.max_object_bytes {
+            return Err(resource_limit(
+                "git_object_exceeds_budget",
+                "git object exceeds the 32 MiB per-object bound",
+            ));
+        }
+        if batch_used.saturating_add(len) > self.batch_object_budget {
+            return Err(resource_limit(
+                "git_batch_object_budget_exceeded",
+                "git publish batch exceeds the object byte budget",
+            ));
+        }
+        self.charge_mirror_disk(repo, len)?;
+        let declared_size = usize::try_from(len)
+            .map_err(|error| validation("git_object_size_overflow", &error.to_string()))?;
+        let odb = repo
+            .odb()
+            .map_err(|error| from_git2("git_odb_open_failed", &error))?;
+        let mut writer = odb
+            .writer(declared_size, ObjectType::Blob)
+            .map_err(|error| from_git2("git_odb_writer_failed", &error))?;
+        let mut hasher = Sha256::new();
+        let mut buffer = vec![0u8; 64 * 1024].into_boxed_slice();
+        let mut written: u64 = 0;
+        loop {
+            let read = reader
+                .read(&mut buffer)
+                .map_err(|error| storage("git_object_source_read_failed", &error.to_string()))?;
+            if read == 0 {
+                break;
+            }
+            let Some(chunk) = buffer.get(..read) else {
+                return Err(storage(
+                    "git_object_source_read_overflow",
+                    "object source returned more bytes than the stream buffer",
+                ));
+            };
+            hasher.update(chunk);
+            std::io::Write::write_all(&mut writer, chunk)
+                .map_err(|error| storage("git_odb_stream_write_failed", &error.to_string()))?;
+            written = written.saturating_add(u64::try_from(read).map_err(|error| {
+                validation("git_object_stream_count_overflow", &error.to_string())
+            })?);
+        }
+        if written != len {
+            return Err(validation(
+                "git_object_source_len_mismatch",
+                "object source length drifted between open and stream end",
+            ));
+        }
+        let digest_hex = format!("{:x}", hasher.finalize());
+        if digest_hex != expected_digest.as_str() {
+            return Err(validation(
+                "git_object_source_digest_mismatch",
+                "git object source digest does not match the ensure-present intent",
+            ));
+        }
+        let oid = writer
+            .finalize()
+            .map_err(|error| from_git2("git_odb_stream_commit_failed", &error))?;
+        *batch_used = batch_used.saturating_add(written);
+        self.stats.object_bytes.fetch_add(written, Ordering::AcqRel);
+        Ok(oid)
+    }
+
+    /// Charges `delta` bytes against the local object-store disk budget.
+    ///
+    /// The on-disk footprint is measured once per cycle by walking the repository dir, then
+    /// tracked incrementally by streamed bytes — object writes never exceed the configured
+    /// mirror budget.
+    fn charge_mirror_disk(&self, repo: &Repository, delta: u64) -> Result<(), LomoError> {
+        let mut used = self.stats.disk_bytes.load(Ordering::Acquire);
+        if used == u64::MAX {
+            used = git_dir_size(repo.path());
+            self.stats.disk_bytes.store(used, Ordering::Release);
+        }
+        if used.saturating_add(delta) > self.mirror_disk_budget {
+            return Err(resource_limit(
+                "git_mirror_disk_budget_exceeded",
+                "git local object store exceeds the disk budget",
+            ));
+        }
+        self.stats.disk_bytes.fetch_add(delta, Ordering::AcqRel);
+        Ok(())
     }
 
     fn commit_tree(
@@ -347,39 +677,25 @@ impl<S: GitObjectSource> GitAdapter<S> {
             .map_err(|error| from_git2("git_commit_failed", &error))
     }
 
-    /// Non-force push of `commit` to `refs/heads/{branch}` with expected remote tip CAS.
-    fn push_cas(
-        &self,
-        repo: &Repository,
-        commit: Oid,
-        expected_remote_tip: Option<Oid>,
-    ) -> Result<(), LomoError> {
-        if let Some(expected) = expected_remote_tip {
-            let current = self.resolve_remote_tip(repo)?;
-            if current != Some(expected) {
-                return Err(conflict(
-                    "git_precondition_failed",
-                    "remote tip moved since snapshot; non-force CAS push blocked",
-                ));
-            }
-        }
-
+    /// Non-force push of `commit` to `refs/heads/{branch}`; the staging ref is leased and always
+    /// cleaned with an observed result. The remote's non-fast-forward rejection is the CAS.
+    fn push_cas(&self, repo: &Repository, commit: Oid) -> Result<(), LomoError> {
+        let deadline = self.network_deadline();
+        Self::check_deadline(deadline)?;
         let branch_ref = self.endpoint.branch_ref();
         let push_src = format!("refs/lomo/push/{commit}");
         repo.reference(&push_src, commit, true, "lomo-git publish staging")
             .map_err(|error| from_git2("git_push_src_ref_failed", &error))?;
 
-        let mut remote = repo
-            .find_remote("origin")
-            .map_err(|error| from_git2("git_remote_find_failed", &error))?;
+        let mut remote = self.origin_remote(repo)?;
         let mut push_opts = PushOptions::new();
-        push_opts.remote_callbacks(self.remote_callbacks());
+        push_opts.remote_callbacks(self.remote_callbacks(deadline));
         // Non-force dest update: `src:dst` without leading `+`.
         let refspec = format!("{push_src}:{branch_ref}");
         let result = remote.push(&[refspec.as_str()], Some(&mut push_opts));
-        if let Ok(mut reference) = repo.find_reference(&push_src) {
-            let _deleted: Result<(), git2::Error> = reference.delete();
-        }
+        // The staging lease is durable-state hygiene: cleanup failures always surface.
+        cleanup_push_ref(repo, &push_src)?;
+        Self::check_deadline(deadline)?;
         match result {
             Ok(()) => Ok(()),
             Err(error) if error.code() == ErrorCode::NotFastForward => Err(conflict(
@@ -402,53 +718,11 @@ impl<S: GitObjectSource> GitAdapter<S> {
             }
         }
     }
-
-    /// Selects commit parents for a publish:
-    /// - remote tip as first parent when present (CAS mainline)
-    /// - local HEAD as second parent when distinct and merge-base is proven (resolve shape)
-    /// - empty when remote has no tip (root commit)
-    fn select_publish_parents(
-        repo: &Repository,
-        remote_tip: Option<Oid>,
-    ) -> Result<Vec<Oid>, LomoError> {
-        let mut parents: Vec<Oid> = Vec::new();
-        let Some(tip) = remote_tip else {
-            return Ok(parents);
-        };
-        parents.push(tip);
-        if let Ok(head) = repo.head()
-            && let Ok(head_commit) = head.peel_to_commit()
-        {
-            let local = head_commit.id();
-            if local != tip {
-                let _base = Self::require_merge_base(repo, local, tip)?;
-                parents.push(local);
-            }
-        }
-        Ok(parents)
-    }
-
-    /// Proves merge-base between local tip and remote tip; blocks when unprovable (shallow).
-    fn require_merge_base(repo: &Repository, local: Oid, remote: Oid) -> Result<Oid, LomoError> {
-        match repo.merge_base(local, remote) {
-            Ok(base) => Ok(base),
-            Err(error) => Err(conflict(
-                "git_merge_base_unproven",
-                &format!(
-                    "cannot prove merge-base between local and remote tips: {}",
-                    crate::redaction::redact_diagnostic(error.message())
-                ),
-            )),
-        }
-    }
 }
 
 impl<S: GitObjectSource> RemoteSyncPort for GitAdapter<S> {
     fn list_remote(&self) -> Result<RemoteSnapshot, LomoError> {
-        let repo = self.open()?;
-        self.ensure_lock_clear(&repo)?;
-        self.fetch_remote(&repo)?;
-        let tip = self.resolve_remote_tip(&repo)?;
+        let tip = self.cycle_tip()?;
         let snapshot_revision = tip.map(|oid| oid.to_string());
         let Some(commit_oid) = tip else {
             return RemoteSnapshot::with_snapshot_revision(
@@ -457,7 +731,7 @@ impl<S: GitObjectSource> RemoteSyncPort for GitAdapter<S> {
                 None,
             );
         };
-        let entries = Self::tree_entries_from_commit(&repo, commit_oid)?;
+        let entries = self.with_repo(|repo| self.tree_entries_from_commit(repo, commit_oid))?;
         if entries.len() > MAX_ACTION_PAGE_ITEMS {
             let page = entries.into_iter().take(MAX_ACTION_PAGE_ITEMS).collect();
             return RemoteSnapshot::with_snapshot_revision(
@@ -474,13 +748,10 @@ impl<S: GitObjectSource> RemoteSyncPort for GitAdapter<S> {
     }
 
     fn list_remote_pages(&self) -> Result<RemoteListingStream, LomoError> {
-        let repo = self.open()?;
-        self.ensure_lock_clear(&repo)?;
-        self.fetch_remote(&repo)?;
-        let tip = self.resolve_remote_tip(&repo)?;
+        let tip = self.cycle_tip()?;
         let snapshot_revision = tip.map(|oid| oid.to_string());
         let entries = if let Some(commit_oid) = tip {
-            Self::tree_entries_from_commit(&repo, commit_oid)?
+            self.with_repo(|repo| self.tree_entries_from_commit(repo, commit_oid))?
         } else {
             Vec::new()
         };
@@ -503,6 +774,18 @@ impl<S: GitObjectSource> RemoteSyncPort for GitAdapter<S> {
         BatchAtomicity::WholeBatchRef
     }
 
+    fn remote_capabilities(&self) -> Result<RemoteCapabilities, LomoError> {
+        // Protocol-static: ref-tip CAS (non-force push) is the conditional write/delete;
+        // ETag/move/copy are not part of the Git smart-protocol surface the adapter uses.
+        Ok(RemoteCapabilities {
+            conditional_write: true,
+            conditional_delete: true,
+            supports_move: false,
+            supports_copy: false,
+            supports_etag: false,
+        })
+    }
+
     fn publish(&self, batch: &PreparedRemoteBatch) -> Result<PublishReceipt, LomoError> {
         if batch.atomicity != BatchAtomicity::WholeBatchRef {
             return Err(validation(
@@ -510,12 +793,14 @@ impl<S: GitObjectSource> RemoteSyncPort for GitAdapter<S> {
                 "git adapter only executes WholeBatchRef batches",
             ));
         }
-        let repo = self.open()?;
-        self.ensure_lock_clear(&repo)?;
-        self.fetch_remote(&repo)?;
+        self.cycle_tip()?;
 
-        let remote_tip = self.resolve_remote_tip(&repo)?;
-        match (batch.expected_snapshot_token.as_deref(), remote_tip) {
+        // CAS anchor: compare the planner's expected snapshot token against the *live* remote tip
+        // (cheap connect+list, no object transfer). A concurrent remote advance fails closed as
+        // PreconditionFailed before any tree work, so the planner re-plans.
+        let live_tip = self.with_repo(|repo| self.live_remote_tip(repo))?;
+        let expected = batch.expected_snapshot_token.as_deref();
+        match (expected, live_tip) {
             (Some(token), Some(tip)) if !token.is_empty() && tip.to_string() != token => {
                 return Ok(PublishReceipt {
                     path_results: path_statuses(batch, &PathPublishStatus::PreconditionFailed),
@@ -534,20 +819,37 @@ impl<S: GitObjectSource> RemoteSyncPort for GitAdapter<S> {
             _ => {}
         }
 
-        let baseline_tree = if let Some(tip) = remote_tip {
-            let commit = repo
-                .find_commit(tip)
-                .map_err(|error| from_git2("git_commit_lookup_failed", &error))?;
-            Some(
-                commit
-                    .tree()
-                    .map_err(|error| from_git2("git_tree_lookup_failed", &error))?,
-            )
+        // The baseline is the tree of the expected tip. If the live tip's objects are not yet in
+        // the local ODB (remote moved between our cycle fetch and the live tip query), fetch once
+        // to confirm the final tip — correctness is never traded for a fetch count.
+        let baseline_tree_oid = if let Some(tip) = live_tip {
+            let commit_result = self.with_repo(|repo| {
+                repo.find_commit(tip)
+                    .map_err(|error| from_git2("git_commit_lookup_failed", &error))
+                    .map(|commit| commit.id())
+            });
+            match commit_result {
+                Ok(_) => {}
+                Err(_) => {
+                    self.with_repo(|repo| {
+                        self.ensure_lock_clear(repo)?;
+                        self.fetch_remote(repo)
+                    })?;
+                }
+            }
+            Some(self.with_repo(|repo| {
+                repo.find_commit(tip)
+                    .and_then(|commit| commit.tree())
+                    .map(|tree| tree.id())
+                    .map_err(|error| from_git2("git_tree_lookup_failed", &error))
+            })?)
         } else {
             None
         };
 
-        let tree_oid = match self.apply_intents_to_tree(&repo, baseline_tree, &batch.intents) {
+        let tree_oid = match self
+            .with_repo(|repo| self.apply_intents_to_tree(repo, baseline_tree_oid, &batch.intents))
+        {
             Ok(oid) => oid,
             Err(error) => {
                 return Ok(PublishReceipt {
@@ -561,16 +863,15 @@ impl<S: GitObjectSource> RemoteSyncPort for GitAdapter<S> {
             }
         };
 
-        let parents = Self::select_publish_parents(&repo, remote_tip)?;
-        let message = if parents.len() >= 2 {
-            "lomo-git sync publish (merge after resolve)"
-        } else {
-            "lomo-git sync publish"
-        };
-        let commit_oid = self.commit_tree(&repo, tree_oid, &parents, message)?;
+        // Single-parent conditional publish: the confirmed remote tip is the sole CAS parent.
+        let parents: Vec<Oid> = live_tip.into_iter().collect();
+        let commit_oid = self.with_repo(|repo| {
+            self.commit_tree(repo, tree_oid, &parents, "lomo-git sync publish")
+        })?;
 
-        match self.push_cas(&repo, commit_oid, parents.first().copied()) {
+        match self.with_repo(|repo| self.push_cas(repo, commit_oid)) {
             Ok(()) => {
+                self.record_published_tip(commit_oid);
                 let new_token = commit_oid.to_string();
                 Ok(PublishReceipt {
                     path_results: path_statuses(batch, &PathPublishStatus::Applied { new_token }),
@@ -597,22 +898,21 @@ impl<S: GitObjectSource> RemoteSyncPort for GitAdapter<S> {
     }
 
     fn verify(&self, expectations: &[VerifyExpectation]) -> Result<VerifiedRemoteState, LomoError> {
-        let repo = self.open()?;
-        self.ensure_lock_clear(&repo)?;
-        self.fetch_remote(&repo)?;
-        let tip = self.resolve_remote_tip(&repo)?;
-        let tree = tip
-            .map(|oid| {
-                repo.find_commit(oid)
-                    .and_then(|commit| commit.tree())
-                    .map_err(|error| from_git2("git_tree_lookup_failed", &error))
-            })
-            .transpose()?;
-        let results = expectations
-            .iter()
-            .map(|expectation| Self::verify_expectation(&repo, tree.as_ref(), expectation))
-            .collect();
-        Ok(VerifiedRemoteState { results })
+        let tip = self.cycle_tip()?;
+        self.with_repo(|repo| {
+            let tree = tip
+                .map(|oid| {
+                    repo.find_commit(oid)
+                        .and_then(|commit| commit.tree())
+                        .map_err(|error| from_git2("git_tree_lookup_failed", &error))
+                })
+                .transpose()?;
+            let results = expectations
+                .iter()
+                .map(|expectation| Self::verify_expectation(repo, tree.as_ref(), expectation))
+                .collect();
+            Ok(VerifiedRemoteState { results })
+        })
     }
 
     fn resolve_remote_object(
@@ -713,6 +1013,59 @@ fn write_tree_node(repo: &Repository, node: &TreeNode) -> Result<Oid, LomoError>
     builder
         .write()
         .map_err(|error| from_git2("git_treebuilder_write_failed", &error))
+}
+
+/// Deletes the publish staging ref with an observed result; deletion failures surface.
+/// Sums file sizes under a git directory (bounded: mirror/object stores are small).
+fn git_dir_size(dir: &std::path::Path) -> u64 {
+    let mut total: u64 = 0;
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return total;
+    };
+    for entry in entries.flatten() {
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if metadata.is_dir() {
+            total = total.saturating_add(git_dir_size(&entry.path()));
+        } else {
+            total = total.saturating_add(metadata.len());
+        }
+    }
+    total
+}
+
+fn cleanup_push_ref(repo: &Repository, refname: &str) -> Result<(), LomoError> {
+    match repo.find_reference(refname) {
+        Ok(mut reference) => reference
+            .delete()
+            .map_err(|error| from_git2("git_push_src_ref_cleanup_failed", &error)),
+        Err(error) if error.code() == ErrorCode::NotFound => Ok(()),
+        Err(error) => Err(from_git2("git_push_src_ref_lookup_failed", &error)),
+    }
+}
+
+/// Reclaims orphaned `refs/lomo/push/*` staging refs left by a crashed publish cycle.
+///
+/// Runs once at connect; each ref names its own commit OID so enumeration is bounded by actual
+/// leftovers, and every delete is result-checked rather than best-effort.
+fn reconcile_push_refs(repo: &Repository) -> Result<(), LomoError> {
+    let stale: Vec<String> = repo
+        .references_glob(PUSH_STAGING_GLOB)
+        .map_err(|error| from_git2("git_push_ref_reconcile_failed", &error))?
+        .map(|reference| {
+            let reference =
+                reference.map_err(|error| from_git2("git_push_ref_reconcile_failed", &error))?;
+            let name = reference
+                .name()
+                .map_err(|error| from_git2("git_push_ref_reconcile_failed", &error))?;
+            Ok::<String, LomoError>(name.to_owned())
+        })
+        .collect::<Result<Vec<String>, LomoError>>()?;
+    for refname in stale {
+        cleanup_push_ref(repo, &refname)?;
+    }
+    Ok(())
 }
 
 /// Convenience constructor using map object source (hermetic tests).

@@ -6,6 +6,9 @@ use std::time::Duration;
 use crate::error::validation;
 use lomo_core::LomoError;
 
+/// Workspace objects embedded into Git trees stay under the sync object bound.
+const MAX_GIT_OBJECT_BYTES: u64 = 32 * 1_048_576;
+
 /// How the adapter opens the local Git object store.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GitLocalMode {
@@ -40,25 +43,11 @@ impl GitEndpoint {
     ) -> Result<Self, LomoError> {
         let remote_url = remote_url.into().trim().to_owned();
         let branch = branch.into().trim().to_owned();
-        if remote_url.is_empty() {
-            return Err(validation(
-                "git_remote_url_empty",
-                "git remote url must be non-empty",
-            ));
-        }
-        if branch.is_empty() || branch.contains('/') || branch.contains('\\') {
+        validate_git_remote_url(&remote_url)?;
+        if !is_valid_branch_name(&branch) {
             return Err(validation(
                 "git_branch_invalid",
-                "git branch must be a non-empty single path segment",
-            ));
-        }
-        if remote_url.starts_with("ssh://")
-            || remote_url.starts_with("git@")
-            || remote_url.contains("://git@")
-        {
-            return Err(validation(
-                "git_ssh_not_supported",
-                "stage 5 git adapter supports https (and local bare paths for hermetic tests) only",
+                "git branch must be a non-empty single ref path segment",
             ));
         }
         match &local {
@@ -105,6 +94,93 @@ impl GitEndpoint {
     pub const fn local(&self) -> &GitLocalMode {
         &self.local
     }
+}
+
+/// Validates a remote URL without building an endpoint (settings precheck shares this rule).
+///
+/// # Errors
+///
+/// Validation when the URL is empty, SSH-shaped, carries userinfo, or uses an unsupported scheme.
+pub fn validate_git_remote_url(remote_url: &str) -> Result<(), LomoError> {
+    let remote_url = remote_url.trim();
+    if remote_url.is_empty() {
+        return Err(validation(
+            "git_remote_url_empty",
+            "git remote url must be non-empty",
+        ));
+    }
+    if remote_url.starts_with("ssh://")
+        || remote_url.starts_with("git@")
+        || remote_url.contains("://git@")
+        || is_scp_like_ssh(remote_url)
+    {
+        return Err(validation(
+            "git_ssh_not_supported",
+            "stage 5 git adapter supports https (and local bare paths for hermetic tests) only",
+        ));
+    }
+    validate_remote_url_shape(remote_url)
+}
+
+/// `user@host:path` SCP-like syntax is SSH transport — rejected with the SSH error code.
+fn is_scp_like_ssh(remote_url: &str) -> bool {
+    if remote_url.contains("://") {
+        return false;
+    }
+    let Some((before_colon, _)) = remote_url.split_once(':') else {
+        return false;
+    };
+    before_colon.contains('@') && !before_colon.contains('/')
+}
+
+/// Supported remote schemes: `https` (production) and `file` (hermetic local remotes).
+/// Plain paths carry no scheme marker. URL userinfo (`user:pass@host`) is always rejected so
+/// credentials can never ride inside a persisted endpoint.
+fn validate_remote_url_shape(remote_url: &str) -> Result<(), LomoError> {
+    let Some((scheme, rest)) = remote_url.split_once("://") else {
+        return Ok(());
+    };
+    let authority = match rest.split_once('/') {
+        Some((authority, _)) => authority,
+        None => rest,
+    };
+    if authority.contains('@') {
+        return Err(validation(
+            "git_url_userinfo_rejected",
+            "git remote url must not embed userinfo credentials; configure them via the credential store",
+        ));
+    }
+    if scheme != "https" && scheme != "file" {
+        return Err(validation(
+            "git_scheme_unsupported",
+            "git remote url scheme must be https or file",
+        ));
+    }
+    Ok(())
+}
+
+/// `git check-ref-format`-compatible single-segment branch name (the app uses short branch names
+/// only; slashes stay rejected).
+fn is_valid_branch_name(branch: &str) -> bool {
+    !branch.is_empty()
+        && !branch.contains('/')
+        && !branch.contains('\\')
+        && !branch.starts_with('-')
+        && !branch.starts_with('.')
+        && !ends_with_lock_suffix(branch)
+        && !branch.ends_with('.')
+        && !branch.contains("..")
+        && !branch.contains("@{")
+        && !branch
+            .chars()
+            .any(|ch| ch.is_control() || "~^:?*[".contains(ch))
+}
+
+/// Git forbids a `.lock` ref component suffix; the check is ASCII case-insensitive.
+fn ends_with_lock_suffix(branch: &str) -> bool {
+    branch
+        .get(branch.len().saturating_sub(".lock".len())..)
+        .is_some_and(|tail| tail.eq_ignore_ascii_case(".lock"))
 }
 
 /// Ephemeral HTTPS username + token. Never place these in diagnostics or durable state.
@@ -167,24 +243,35 @@ impl std::fmt::Debug for GitCredentials {
     }
 }
 
-/// Object-byte source for `EnsurePresent` publishes (workspace path → bytes).
+/// One opened workspace object as a bounded byte stream.
+///
+/// `len` is measured on the opened descriptor before any byte is read, so the adapter can reject
+/// over-budget objects pre-read and size the ODB stream writer exactly.
+pub struct GitObjectStream {
+    /// Object length in bytes measured at open time.
+    pub len: u64,
+    /// Bounded byte stream for the object body.
+    pub reader: Box<dyn std::io::Read + Send>,
+}
+
+/// Object-byte source for `EnsurePresent` publishes (workspace path → stream).
+///
+/// The adapter owns digest verification while streaming into the ODB; sources only open a bounded,
+/// length-measured stream. Missing paths fail closed; sources never invent bodies.
 pub trait GitObjectSource {
-    /// Loads full object bytes for a workspace-relative path.
+    /// Opens a bounded, length-measured byte stream for a workspace-relative path.
     ///
     /// # Errors
     ///
-    /// Validation when the path is unknown or digest mismatches.
-    fn load_bytes(
-        &self,
-        path: &lomo_sync::SyncPath,
-        expected_digest: &lomo_sync::ContentDigest,
-    ) -> Result<Vec<u8>, LomoError>;
+    /// Validation when the path is unknown or unreadable.
+    fn open_object(&self, path: &lomo_sync::SyncPath) -> Result<GitObjectStream, LomoError>;
 }
 
 /// Workspace-rooted object source for production composition (Direct path bytes).
 ///
-/// Digest is verified against the intent before publish. Missing path fails closed.
-/// Never invents bodies. Used by `lomo-sync` composed Git cycles only.
+/// Length is measured on the opened file descriptor (not the path) so a concurrently grown file
+/// is caught by the declared-length/digest checks instead of silently truncating. Used by
+/// `lomo-sync` composed Git cycles only.
 #[derive(Clone, Debug)]
 pub struct WorkspaceFileGitObjectSource {
     workspace_root: PathBuf,
@@ -201,30 +288,34 @@ impl WorkspaceFileGitObjectSource {
 }
 
 impl GitObjectSource for WorkspaceFileGitObjectSource {
-    fn load_bytes(
-        &self,
-        path: &lomo_sync::SyncPath,
-        expected_digest: &lomo_sync::ContentDigest,
-    ) -> Result<Vec<u8>, LomoError> {
-        use sha2::{Digest, Sha256};
+    fn open_object(&self, path: &lomo_sync::SyncPath) -> Result<GitObjectStream, LomoError> {
+        use std::io::Read;
         let absolute = self.workspace_root.join(path.as_str());
-        let bytes = std::fs::read(&absolute).map_err(|err| {
+        let file = std::fs::File::open(&absolute).map_err(|error| {
             validation(
                 "git_workspace_object_source_missing",
                 &format!(
-                    "git workspace object source cannot read {}: {err}",
+                    "git workspace object source cannot open {}: {error}",
                     path.as_str()
                 ),
             )
         })?;
-        let digest = format!("{:x}", Sha256::digest(&bytes));
-        if digest != expected_digest.as_str() {
-            return Err(validation(
-                "git_workspace_object_source_digest_mismatch",
-                "git workspace object source digest does not match the ensure-present intent",
-            ));
-        }
-        Ok(bytes)
+        let len = file
+            .metadata()
+            .map_err(|error| {
+                validation(
+                    "git_workspace_object_source_metadata_failed",
+                    &format!(
+                        "git workspace object source cannot stat {}: {error}",
+                        path.as_str()
+                    ),
+                )
+            })?
+            .len();
+        Ok(GitObjectStream {
+            len,
+            reader: Box::new(file.take(MAX_GIT_OBJECT_BYTES.saturating_add(1))),
+        })
     }
 }
 
@@ -235,26 +326,19 @@ pub struct MapGitObjectSource {
 }
 
 impl GitObjectSource for MapGitObjectSource {
-    fn load_bytes(
-        &self,
-        path: &lomo_sync::SyncPath,
-        expected_digest: &lomo_sync::ContentDigest,
-    ) -> Result<Vec<u8>, LomoError> {
-        use sha2::{Digest, Sha256};
+    fn open_object(&self, path: &lomo_sync::SyncPath) -> Result<GitObjectStream, LomoError> {
         let bytes = self.objects.get(path.as_str()).ok_or_else(|| {
             validation(
                 "git_object_source_missing",
                 "git object source has no bytes for the ensure-present path",
             )
         })?;
-        let digest = format!("{:x}", Sha256::digest(bytes));
-        if digest != expected_digest.as_str() {
-            return Err(validation(
-                "git_object_source_digest_mismatch",
-                "git object source digest does not match the ensure-present intent",
-            ));
-        }
-        Ok(bytes.clone())
+        Ok(GitObjectStream {
+            len: u64::try_from(bytes.len()).map_err(|error| {
+                validation("git_object_source_len_overflow", &error.to_string())
+            })?,
+            reader: Box::new(std::io::Cursor::new(bytes.clone())),
+        })
     }
 }
 

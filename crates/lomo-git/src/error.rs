@@ -63,6 +63,17 @@ pub fn conflict(code: &str, diagnostic: &str) -> LomoError {
     )
 }
 
+/// Builds a resource-limit error (page/path/size ceilings).
+#[must_use]
+pub fn resource_limit(code: &str, diagnostic: &str) -> LomoError {
+    boundary(
+        ErrorCategory::ResourceLimit,
+        code,
+        RetryDisposition::Never,
+        diagnostic,
+    )
+}
+
 /// Builds a busy error (lock held by live owner).
 #[must_use]
 pub fn busy(code: &str, diagnostic: &str) -> LomoError {

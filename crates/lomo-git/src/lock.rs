@@ -10,6 +10,9 @@ use lomo_core::LomoError;
 /// Default frozen threshold before a lock whose owner is gone may be reclaimed.
 pub const DEFAULT_STALE_LOCK_THRESHOLD: Duration = Duration::from_mins(30);
 
+/// `index.lock` holds one decimal PID line; anything larger is not a lock we wrote.
+const GIT_LOCK_BYTES: u64 = 4096;
+
 /// Outcome of a lock reclaim attempt.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LockReclaimOutcome {
@@ -54,12 +57,13 @@ pub fn try_reclaim_stale_index_lock(
     if age < threshold {
         return Ok(LockReclaimOutcome::Held);
     }
-    let contents = fs::read_to_string(&lock_path).map_err(|error| {
+    let contents = lomo_core::read_bounded(&lock_path, GIT_LOCK_BYTES).map_err(|error| {
         storage(
             "git_lock_read_failed",
             &format!("failed to read index.lock: {error}"),
         )
     })?;
+    let contents = String::from_utf8_lossy(&contents);
     let pid_line = contents.lines().next().unwrap_or("").trim();
     let Ok(pid) = pid_line.parse::<i32>() else {
         return Ok(LockReclaimOutcome::Held);
