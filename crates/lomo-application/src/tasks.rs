@@ -21,7 +21,7 @@ pub struct TaskItem {
     pub source_path: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ToggleTaskRequest {
     pub operation_id: OperationId,
     pub memo_id: MemoId,
@@ -43,10 +43,20 @@ impl WorkspaceSession {
             },
             sort: lomo_store::MemoSort::default(),
         };
+        let summaries = collect_summaries(self, &query)?;
+        let memo_ids = summaries
+            .iter()
+            .map(|summary| summary.memo_id.clone())
+            .collect::<Vec<_>>();
+        let mut snapshots = self
+            .with_reader(|store| store.get_projected_memos(&memo_ids))?
+            .into_iter()
+            .map(|snapshot| (snapshot.summary.memo_id.clone(), snapshot))
+            .collect::<std::collections::BTreeMap<_, _>>();
         let mut tasks = Vec::new();
-        for summary in collect_summaries(self, &query)? {
-            let snapshot = self
-                .with_reader(|store| store.get_projected_memo(&summary.memo_id))?
+        for summary in summaries {
+            let snapshot = snapshots
+                .remove(&summary.memo_id)
                 .ok_or_else(|| validation("memo_not_found", "task memo disappeared"))?;
             tasks.extend(parse_tasks(
                 &summary.memo_id,

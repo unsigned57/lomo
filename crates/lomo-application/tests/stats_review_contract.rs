@@ -19,7 +19,7 @@ mod tests {
         calendar::CivilDate,
     };
     use lomo_core::{CapabilityToken, OperationId, RelativeWorkspacePath};
-    use lomo_platform_fs::PosixPlatformActionExecutor;
+    use lomo_platform_fs::FsPlatformActionExecutor;
     use lomo_workspace::WorkspaceRootId;
     use tempfile::tempdir;
 
@@ -27,7 +27,7 @@ mod tests {
         session: WorkspaceSession,
         _workspace: tempfile::TempDir,
         _state: tempfile::TempDir,
-        _cache: tempfile::TempDir,
+        cache: tempfile::TempDir,
         _runtime: tempfile::TempDir,
         _exchange: tempfile::TempDir,
     }
@@ -38,7 +38,7 @@ mod tests {
         let cache = tempdir().expect("ca");
         let runtime = tempdir().expect("rt");
         let exchange = tempdir().expect("ex");
-        let executor = Arc::new(PosixPlatformActionExecutor::new(exchange.path()).expect("exec"));
+        let executor = Arc::new(FsPlatformActionExecutor::new(exchange.path()).expect("exec"));
         let capability = CapabilityToken::parse("notes").expect("cap");
         executor
             .bind_root(capability.clone(), workspace.path())
@@ -55,6 +55,7 @@ mod tests {
                 cache_dir: cache.path().to_path_buf(),
                 runtime_dir: runtime.path().to_path_buf(),
                 exchange_dir: exchange.path().to_path_buf(),
+                media_stage_root: state.path().join("media-stage"),
             },
             executor,
         )
@@ -63,7 +64,7 @@ mod tests {
             session,
             _workspace: workspace,
             _state: state,
-            _cache: cache,
+            cache,
             _runtime: runtime,
             _exchange: exchange,
         }
@@ -123,5 +124,59 @@ mod tests {
             ))
             .expect("stats");
         assert!(stats.total_memos >= 1);
+    }
+
+    #[test]
+    fn statistics_reads_materialized_rows_without_body_bytes() {
+        let ctx = open();
+        ctx.session
+            .create_memo(CreateMemoRequest {
+                operation_id: OperationId::parse("stat-a").expect("op"),
+                relative_path: Some(RelativeWorkspacePath::parse("2026_09_11.md").expect("path")),
+                time_token: Some("08:00:00".to_owned()),
+                content: "alpha beta beta #work".to_owned(),
+                expected_document_fingerprint: None,
+                pinned: false,
+                pending_promotes: Vec::new(),
+                chronology_epoch_ms: None,
+            })
+            .expect("create a");
+        ctx.session
+            .create_memo(CreateMemoRequest {
+                operation_id: OperationId::parse("stat-b").expect("op"),
+                relative_path: Some(RelativeWorkspacePath::parse("2026_09_12.md").expect("path")),
+                time_token: Some("09:00:00".to_owned()),
+                content: "second note".to_owned(),
+                expected_document_fingerprint: None,
+                pinned: false,
+                pending_promotes: Vec::new(),
+                chronology_epoch_ms: None,
+            })
+            .expect("create b");
+
+        // Legacy/incomplete projections may hold NULL bodies. Statistics must still answer from
+        // the materialized columns alone; per-memo body reads would surface
+        // `projection_rebuild_required` here.
+        let database =
+            rusqlite::Connection::open(ctx.cache.path().join(".lomo-sqlite").join("store.db"))
+                .expect("open store database");
+        database
+            .execute("UPDATE memo SET body = NULL", [])
+            .expect("null out projection bodies");
+        drop(database);
+
+        let stats = ctx
+            .session
+            .statistics(&StatisticsSnapshot::new(
+                "UTC",
+                CivilDate::new(2026, 9, 13).expect("as of"),
+            ))
+            .expect("statistics must not read memo bodies");
+        assert_eq!(2, stats.total_memos, "both memos counted");
+        assert_eq!(1, stats.total_tags, "tag facts arrive with the rows");
+        assert!(
+            stats.total_words > 0,
+            "word totals come from materialized counts"
+        );
     }
 }

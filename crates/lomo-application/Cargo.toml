@@ -12,16 +12,20 @@ lomo-core = { path = "../lomo-core" }
 lomo-workspace = { path = "../lomo-workspace" }
 lomo-store = { path = "../lomo-store" }
 lomo-media = { path = "../lomo-media" }
-rustix = { workspace = true, features = ["fs", "rand"] }
+getrandom.workspace = true
 jiff.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 pinyin = { workspace = true, features = ["heteronym"] }
 
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
+
 [dev-dependencies]
 lomo-platform-fs = { path = "../lomo-platform-fs" }
 tempfile.workspace = true
+rusqlite.workspace = true
 
 [lints]
 workspace = true
@@ -70,3 +74,11 @@ path = "tests/workspace_interchange_contract.rs"
 [[test]]
 name = "exchange_budget_contract"
 path = "tests/exchange_budget_contract.rs"
+
+[[test]]
+name = "media_artifact_contract"
+path = "tests/media_artifact_contract.rs"
+
+[[test]]
+name = "media_sweep_contract"
+path = "tests/media_sweep_contract.rs"

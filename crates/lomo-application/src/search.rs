@@ -130,12 +130,22 @@ fn fulltext(session: &WorkspaceSession, request: &SearchRequest) -> Result<Searc
     session.with_reader(|store| {
         let page = store.query_memos(&query, request.cursor.as_ref(), request.page_size)?;
         let total = store.query_count(&query)?;
+        let memo_ids = page
+            .items
+            .iter()
+            .map(|summary| summary.memo_id.clone())
+            .collect::<Vec<_>>();
+        let mut snapshots = store
+            .get_projected_memos(&memo_ids)?
+            .into_iter()
+            .map(|snapshot| (snapshot.summary.memo_id.clone(), snapshot))
+            .collect::<std::collections::BTreeMap<_, _>>();
         let items = page
             .items
             .into_iter()
             .map(|summary| {
-                let snapshot = store
-                    .get_projected_memo(&summary.memo_id)?
+                let snapshot = snapshots
+                    .remove(&summary.memo_id)
                     .ok_or_else(|| validation("memo_not_found", "search result disappeared"))?;
                 verify_version(&summary, &snapshot.summary)?;
                 let excerpt = crate::search_excerpt::fulltext_excerpt(
@@ -203,11 +213,20 @@ fn scored_hits(
         sort: lomo_store::MemoSort::default(),
     };
     let summaries = collect_summaries(session, &query)?;
+    let memo_ids = summaries
+        .iter()
+        .map(|summary| summary.memo_id.clone())
+        .collect::<Vec<_>>();
+    let mut snapshots = session
+        .with_reader(|store| store.get_projected_memos(&memo_ids))?
+        .into_iter()
+        .map(|snapshot| (snapshot.summary.memo_id.clone(), snapshot))
+        .collect::<std::collections::BTreeMap<_, _>>();
     let mut hits = Vec::new();
     let needle = text.trim();
     for summary in summaries {
-        let snapshot = session
-            .with_reader(|store| store.get_projected_memo(&summary.memo_id))?
+        let snapshot = snapshots
+            .remove(&summary.memo_id)
             .ok_or_else(|| validation("memo_not_found", "search candidate disappeared"))?;
         verify_version(&summary, &snapshot.summary)?;
         if let Some((score, excerpt)) =
