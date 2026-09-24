@@ -88,6 +88,17 @@ pub fn conflict(code: &str, diagnostic: &str) -> LomoError {
     )
 }
 
+/// Builds an internal error (poisoned lock, violated own invariant).
+#[must_use]
+pub fn internal(code: &str, diagnostic: &str) -> LomoError {
+    boundary(
+        ErrorCategory::Internal,
+        code,
+        RetryDisposition::AfterUserAction,
+        diagnostic,
+    )
+}
+
 /// Builds a cancelled error (peer revoked mid-session, user cancel, shutdown).
 #[must_use]
 pub fn cancelled(code: &str, diagnostic: &str) -> LomoError {

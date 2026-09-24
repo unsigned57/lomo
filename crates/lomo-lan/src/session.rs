@@ -1,4 +1,4 @@
-//! Session authentication, key derivation, chunk/control AEAD and the replay ledger.
+//! Session authentication, key derivation and chunk/control AEAD.
 //!
 //! Each connection derives a fresh session key from an ephemeral X25519 agreement bound to a
 //! session transcript, and both endpoints authenticate with their device signing keys over that
@@ -10,8 +10,6 @@
 //! reuses the original coordinates and therefore the original ciphertext. Control frames are AEAD
 //! sealed; frame kind, session, batch, sequence and declared length are additional authenticated
 //! data. The session key bytes never leave this module.
-
-use std::collections::BTreeSet;
 
 use aws_lc_rs::aead::{Aad, CHACHA20_POLY1305, LessSafeKey, Nonce, UnboundKey};
 use aws_lc_rs::hkdf::{HKDF_SHA256, KeyType, Salt};
@@ -675,66 +673,6 @@ impl ControlBinding {
     #[must_use]
     pub const fn sequence(&self) -> u32 {
         self.sequence
-    }
-}
-
-/// Durable replay protection for session ids and confirmed chunks.
-///
-/// Confirmed chunks double as the resume ledger: a recovering transfer retransmits only chunks that
-/// are **not** already confirmed.
-#[derive(Clone, Debug, Default)]
-pub struct ReplayLedger {
-    sessions: BTreeSet<LanSessionId>,
-    chunks: BTreeSet<ChunkBinding>,
-}
-
-impl ReplayLedger {
-    /// Accepts a session id exactly once.
-    ///
-    /// # Errors
-    ///
-    /// Authentication when the session id was already accepted.
-    pub fn accept_session(&mut self, session_id: &LanSessionId) -> Result<(), LomoError> {
-        if !self.sessions.insert(session_id.clone()) {
-            return Err(authentication(
-                "lan_session_replayed",
-                "session id was already used and may not be replayed",
-            ));
-        }
-        Ok(())
-    }
-
-    /// Confirms one chunk exactly once.
-    ///
-    /// # Errors
-    ///
-    /// Authentication when the chunk was already confirmed.
-    pub fn confirm_chunk(&mut self, binding: &ChunkBinding) -> Result<(), LomoError> {
-        if !self.chunks.insert(binding.clone()) {
-            return Err(authentication(
-                "lan_chunk_replayed",
-                "chunk was already confirmed and may not be replayed",
-            ));
-        }
-        Ok(())
-    }
-
-    /// True when the chunk is already confirmed (resume skips it).
-    #[must_use]
-    pub fn is_chunk_confirmed(&self, binding: &ChunkBinding) -> bool {
-        self.chunks.contains(binding)
-    }
-
-    /// Count of confirmed chunks.
-    #[must_use]
-    pub fn confirmed_chunk_count(&self) -> usize {
-        self.chunks.len()
-    }
-
-    /// True when the session id has been accepted.
-    #[must_use]
-    pub fn is_session_accepted(&self, session_id: &LanSessionId) -> bool {
-        self.sessions.contains(session_id)
     }
 }
 
