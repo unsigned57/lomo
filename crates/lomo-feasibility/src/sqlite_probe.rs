@@ -48,6 +48,19 @@ pub fn run_sqlite_probe(database_path: &Path) -> Result<SqliteProbeReport, Sqlit
         .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
         .map_err(sqlite_error)?;
 
+    // Capability check via the compiled-in option list: module presence is a build fact, never a
+    // diagnostic string.
+    let fts5_available: i64 = connection
+        .query_row(
+            "SELECT sqlite_compileoption_used('ENABLE_FTS5')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(sqlite_error)?;
+    if fts5_available == 0 {
+        return Err(SqliteProbeError::Fts5Unavailable);
+    }
+
     connection
         .execute_batch(
             "
@@ -69,13 +82,7 @@ pub fn run_sqlite_probe(database_path: &Path) -> Result<SqliteProbeReport, Sqlit
             [],
             |row| row.get(0),
         )
-        .map_err(|error| {
-            if error.to_string().contains("no such module") {
-                SqliteProbeError::Fts5Unavailable
-            } else {
-                sqlite_error(error)
-            }
-        })?;
+        .map_err(sqlite_error)?;
 
     let integrity: String = connection
         .query_row("PRAGMA quick_check", [], |row| row.get(0))

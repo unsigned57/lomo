@@ -20,7 +20,6 @@ use crate::{util, workspace::Workspace};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ChangeSource {
     Worktree,
-    Staged,
     Push { remote: String },
     All,
 }
@@ -60,30 +59,8 @@ impl ChangeInventory {
                     &["ls-files", "--others", "--exclude-standard", "-z"],
                 )?);
             }
-            ChangeSource::Staged => {
-                paths.extend(git_paths(root, &STAGED_DIFF)?);
-                removed.extend(git_paths(root, &deleted_only(&STAGED_DIFF))?);
-            }
             ChangeSource::Push { remote } => {
-                ensure!(
-                    !remote.starts_with('-') && !remote.contains(char::is_whitespace),
-                    "invalid remote name"
-                );
-                let mut base = None;
-                for reference in [
-                    format!("refs/remotes/{remote}/HEAD"),
-                    format!("refs/remotes/{remote}/main"),
-                ] {
-                    let output = Command::new("git")
-                        .current_dir(root)
-                        .args(["rev-parse", "--verify", &reference])
-                        .output()?;
-                    if output.status.success() {
-                        base = Some(reference);
-                        break;
-                    }
-                }
-                let Some(base) = base else {
+                let Some(base) = push_base(root, remote)? else {
                     return Ok(Self {
                         paths,
                         removed,
@@ -111,18 +88,61 @@ impl ChangeInventory {
     }
 }
 
+/// Resolves the push comparison base (`refs/remotes/<remote>/HEAD`, then `.../main`).
+///
+/// # Errors
+/// Returns an error for an invalid remote name or an unreadable repository.
+fn push_base(root: &Path, remote: &str) -> Result<Option<String>> {
+    ensure!(
+        !remote.starts_with('-') && !remote.contains(char::is_whitespace),
+        "invalid remote name"
+    );
+    for reference in [
+        format!("refs/remotes/{remote}/HEAD"),
+        format!("refs/remotes/{remote}/main"),
+    ] {
+        let output = Command::new("git")
+            .current_dir(root)
+            .args(["rev-parse", "--verify", &reference])
+            .output()?;
+        if output.status.success() {
+            return Ok(Some(reference));
+        }
+    }
+    Ok(None)
+}
+
+/// The unified diff matching one inventory source, for diff-scoped tooling such as
+/// `cargo mutants --in-diff`. `None` for whole-worktree scopes, which have no base to
+/// diff against.
+///
+/// # Errors
+/// Returns an error for an unreadable repository or non-UTF-8 diff output.
+pub fn unified_diff(root: &Path, source: &ChangeSource) -> Result<Option<String>> {
+    let arguments: Vec<String> = match source {
+        ChangeSource::All => return Ok(None),
+        ChangeSource::Worktree => ["diff", "HEAD", "--"].map(str::to_owned).to_vec(),
+        ChangeSource::Push { remote } => match push_base(root, remote)? {
+            Some(base) => vec!["diff".to_owned(), format!("{base}...HEAD"), "--".to_owned()],
+            None => return Ok(None),
+        },
+    };
+    let output = Command::new("git")
+        .current_dir(root)
+        .args(&arguments)
+        .output()?;
+    ensure!(
+        output.status.success(),
+        "git diff failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(Some(
+        String::from_utf8(output.stdout).context("git diff output must be UTF-8")?,
+    ))
+}
+
 /// Unstaged worktree inventory against `HEAD`, emitted as NUL-terminated paths.
 const WORKTREE_DIFF: [&str; 6] = ["diff", "--name-only", "--no-renames", "-z", "HEAD", "--"];
-
-/// Staged inventory, emitted as NUL-terminated paths.
-const STAGED_DIFF: [&str; 6] = [
-    "diff",
-    "--cached",
-    "--name-only",
-    "--no-renames",
-    "-z",
-    "--",
-];
 
 /// Narrows one inventory diff to deleted paths, which is what survives of a rename's source.
 ///
@@ -184,6 +204,7 @@ pub enum RequiredTool {
     BoltFfi,
     AndroidSdk,
     Machete,
+    Mutants,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
@@ -210,6 +231,7 @@ pub enum TaskAction {
     RustFmt,
     RustClippy { package: String },
     RustTests { package: String },
+    RustMutants { package: String },
     RustDocs,
     Machete,
     Bindings,
@@ -220,6 +242,7 @@ pub enum TaskAction {
     KotlinTests { module: String },
     AndroidLint,
     ShellContracts,
+    UseCaseReachability,
     BaselineProfile,
 }
 
@@ -320,6 +343,23 @@ impl VerificationPlan {
             })
             .cloned()
             .collect();
+        // Mutation testing is diff-scoped: only crates whose own sources appear in the
+        // change set have mutants to generate, and a complete inventory has no diff.
+        let mutating: BTreeSet<_> = if mode == PlanMode::Dev && !changes.complete {
+            rust.iter()
+                .filter(|name| {
+                    graph.owners.get(*name).is_some_and(|owner| {
+                        changes
+                            .paths
+                            .iter()
+                            .any(|path| path.starts_with(&owner.path))
+                    })
+                })
+                .cloned()
+                .collect()
+        } else {
+            BTreeSet::new()
+        };
         let kotlin: BTreeSet<_> = selected
             .iter()
             .filter(|name| {
@@ -340,7 +380,7 @@ impl VerificationPlan {
                 .using(RequiredTool::Rust, Resource::Cargo),
             );
         }
-        plan.add_rust_tasks(rust, mode);
+        plan.add_rust_tasks(rust, mutating, mode);
         let ffi_changed = changes.complete
             || changes
                 .paths
@@ -527,6 +567,16 @@ impl VerificationPlan {
                 .using(RequiredTool::Rust, Resource::Cargo),
             );
         }
+        if mode != PlanMode::Tests && !product_modules.is_empty() {
+            self.tasks.push(
+                Task::new(
+                    "usecase-reachability",
+                    TaskAction::UseCaseReachability,
+                    "domain usecases must stay reachable from production pipelines",
+                )
+                .using(RequiredTool::Rust, Resource::Reports),
+            );
+        }
         if mode != PlanMode::Tests {
             self.tasks.push(
                 Task::new(
@@ -566,17 +616,24 @@ impl VerificationPlan {
                 | TaskAction::RustFmt
                 | TaskAction::RustClippy { .. }
                 | TaskAction::RustTests { .. }
+                | TaskAction::RustMutants { .. }
                 | TaskAction::RustDocs
                 | TaskAction::Machete
                 | TaskAction::KotlinLight { .. }
                 | TaskAction::KotlinTests { .. }
                 | TaskAction::AndroidLint
-                | TaskAction::ShellContracts => {}
+                | TaskAction::ShellContracts
+                | TaskAction::UseCaseReachability => {}
             }
         }
     }
 
-    fn add_rust_tasks(&mut self, rust: BTreeSet<String>, mode: PlanMode) {
+    fn add_rust_tasks(
+        &mut self,
+        rust: BTreeSet<String>,
+        mutating: BTreeSet<String>,
+        mode: PlanMode,
+    ) {
         if !rust.is_empty() && mode != PlanMode::Tests {
             self.tasks.push(
                 Task::new("rust-fmt", TaskAction::RustFmt, "Rust source formatting")
@@ -609,6 +666,20 @@ impl VerificationPlan {
                 tests = tests.after(&format!("rust-clippy:{package}"));
             }
             self.tasks.push(tests);
+        }
+        for package in mutating {
+            self.tasks.push(
+                Task::new(
+                    format!("rust-mutants:{package}"),
+                    TaskAction::RustMutants {
+                        package: package.clone(),
+                    },
+                    "incremental mutation testing of the change diff",
+                )
+                .after(&format!("rust-tests:{package}"))
+                .using(RequiredTool::Rust, Resource::Cargo)
+                .using(RequiredTool::Mutants, Resource::Cargo),
+            );
         }
     }
 
@@ -674,7 +745,19 @@ pub(crate) fn run(
         plan.complete_worktree,
         plan.excluded_owners
     ));
-    let runner = runner::RepositoryRunner::new(workspace)?;
+    let mutation_diff = if plan
+        .tasks
+        .iter()
+        .any(|task| matches!(task.action, TaskAction::RustMutants { .. }))
+    {
+        Some(
+            unified_diff(&workspace.root, source)?
+                .context("rust-mutants tasks require a diffable change scope")?,
+        )
+    } else {
+        None
+    };
+    let runner = runner::RepositoryRunner::new(workspace, mutation_diff.as_deref())?;
     let results = execute(&plan, &runner)?;
     runner.write_report(&plan, &results)?;
     if let Some(failed) = results

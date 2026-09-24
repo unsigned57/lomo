@@ -1,4 +1,8 @@
-use std::{fs, path::PathBuf, process::Command};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use anyhow::{Context, Result, bail};
 
@@ -17,19 +21,9 @@ pub fn ensure_required(
         match tool {
             RequiredTool::Rust => ensure_rust_version(workspace)?,
             RequiredTool::BoltFfi => ensure_boltffi(workspace)?,
-            RequiredTool::Nextest | RequiredTool::Machete => {
-                let package = if *tool == RequiredTool::Nextest {
-                    "cargo-nextest"
-                } else {
-                    "cargo-machete"
-                };
-                let tools = quality_and_diagnostic_tools(workspace)?;
-                let pin = tools
-                    .iter()
-                    .find(|tool| tool.package == package)
-                    .with_context(|| format!("missing {package} pin"))?;
-                ensure_tool(workspace, pin)?;
-            }
+            RequiredTool::Nextest => ensure_pinned_tool(workspace, "cargo-nextest")?,
+            RequiredTool::Machete => ensure_pinned_tool(workspace, "cargo-machete")?,
+            RequiredTool::Mutants => ensure_pinned_tool(workspace, "cargo-mutants")?,
             RequiredTool::Kotlin => anyhow::ensure!(
                 workspace.root.join("kotlin").is_file(),
                 "missing Kotlin wrapper"
@@ -84,7 +78,7 @@ fn install_git_hooks(workspace: &Workspace) -> Result<()> {
 pub fn bootstrap_rust(workspace: &Workspace) -> Result<()> {
     workspace.prepare_directories()?;
     install_rust_components(workspace)?;
-    for tool in quality_and_diagnostic_tools(workspace)? {
+    for tool in quality_and_diagnostic_tools(&workspace.root)? {
         install_tool(workspace, &tool)?;
     }
     install_boltffi(workspace)?;
@@ -94,7 +88,7 @@ pub fn bootstrap_rust(workspace: &Workspace) -> Result<()> {
 
 pub fn ensure_quality(workspace: &Workspace) -> Result<()> {
     ensure_rust_version(workspace)?;
-    let tools = quality_and_diagnostic_tools(workspace)?;
+    let tools = quality_and_diagnostic_tools(&workspace.root)?;
     for package in [
         "cargo-deny",
         "cargo-nextest",
@@ -113,7 +107,7 @@ pub fn ensure_quality(workspace: &Workspace) -> Result<()> {
 
 pub fn ensure_diagnostics(workspace: &Workspace) -> Result<()> {
     ensure_rust_version(workspace)?;
-    let tools = quality_and_diagnostic_tools(workspace)?;
+    let tools = quality_and_diagnostic_tools(&workspace.root)?;
     for package in ["cargo-bloat", "cargo-llvm-lines"] {
         let tool = tools
             .iter()
@@ -122,6 +116,29 @@ pub fn ensure_diagnostics(workspace: &Workspace) -> Result<()> {
         ensure_tool(workspace, tool)?;
     }
     Ok(())
+}
+
+/// Resolves the exact pinned version of a quality/diagnostics cargo tool.
+///
+/// # Errors
+/// Returns an error when `tools.toml` is unreadable or the package has no pin.
+pub fn pinned_tool_version(root: &Path, package: &str) -> Result<String> {
+    Ok(quality_and_diagnostic_tools(root)?
+        .iter()
+        .find(|tool| tool.package == package)
+        .with_context(|| format!("missing {package} pin"))?
+        .version
+        .clone())
+}
+
+fn ensure_pinned_tool(workspace: &Workspace, package: &str) -> Result<()> {
+    ensure_tool(
+        workspace,
+        &Tool {
+            package: package.to_owned(),
+            version: pinned_tool_version(&workspace.root, package)?,
+        },
+    )
 }
 
 pub fn ensure_boltffi(workspace: &Workspace) -> Result<()> {
@@ -408,8 +425,8 @@ fn sdkmanager(workspace: &Workspace) -> Result<PathBuf> {
     bail!("sdkmanager is required to install NDK {NDK_VERSION}")
 }
 
-fn quality_and_diagnostic_tools(workspace: &Workspace) -> Result<Vec<Tool>> {
-    let path = workspace.root.join("tools.toml");
+fn quality_and_diagnostic_tools(root: &Path) -> Result<Vec<Tool>> {
+    let path = root.join("tools.toml");
     let text =
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
     let mut tools = Vec::new();

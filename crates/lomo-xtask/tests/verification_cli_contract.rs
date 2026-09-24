@@ -4,8 +4,8 @@
 //! Scenarios:
 //! - Given a TUI iteration, when dev --scope lomo-tui --plan runs, then only host checks are planned.
 //! - Given an unknown owner, when planning, then the command rejects the scope explicitly.
-//! - Given the retired ffi-parity dispatch, when the CLI runs, then it is not advertised and not
-//!   accepted: the DAG's own `ffi-contract` node owns explicit-export verification.
+//! - Given retired commands (ffi-parity, test, tui, mutants, package-linux, check-linux,
+//!   usecase-reachability, smokes), when the CLI runs, then none are advertised or accepted.
 //!
 //! Observable outcomes: CLI status and the serialized task graph, including scope completeness.
 //! TDD proof: `cargo test -p lomo-xtask --test verification_cli_contract --locked`;
@@ -62,24 +62,41 @@ mod tests {
     }
 
     #[test]
-    fn the_retired_ffi_parity_dispatch_is_gone() -> Result<()> {
+    fn retired_commands_are_neither_advertised_nor_accepted() -> Result<()> {
+        let retired = [
+            "ffi-parity",
+            "test",
+            "tui",
+            "mutants",
+            "package-linux",
+            "check-linux",
+            "usecase-reachability",
+            "device-smoke",
+            "sync-provider-smoke",
+        ];
         let help = Command::new(env!("CARGO_BIN_EXE_lomo-xtask"))
             .arg("help")
             .output()?;
         ensure!(help.status.success());
         let help = String::from_utf8_lossy(&help.stderr);
-        ensure!(
-            !help.contains("ffi-parity"),
-            "the retired command must not be advertised: {help}"
-        );
-        let retired = Command::new(env!("CARGO_BIN_EXE_lomo-xtask"))
-            .arg("ffi-parity")
-            .output()?;
-        ensure!(
-            !retired.status.success(),
-            "ffi-parity must not remain an accepted command"
-        );
-        ensure!(String::from_utf8_lossy(&retired.stderr).contains("unknown xtask command"));
+        let tokens: Vec<&str> = help.split_whitespace().collect();
+        for command in retired {
+            ensure!(
+                !tokens.contains(&command),
+                "the retired command must not be advertised: {command}"
+            );
+            let output = Command::new(env!("CARGO_BIN_EXE_lomo-xtask"))
+                .arg(command)
+                .output()?;
+            ensure!(
+                !output.status.success(),
+                "{command} must not remain an accepted command"
+            );
+            ensure!(
+                String::from_utf8_lossy(&output.stderr).contains("unknown xtask command"),
+                "{command} must fail closed as unknown"
+            );
+        }
         Ok(())
     }
 }

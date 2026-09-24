@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 
 use crate::{
     tools,
-    util::{cargo, run},
+    util::{cargo, repository_command, run},
     workspace::Workspace,
 };
 
@@ -19,8 +19,11 @@ pub fn run_dependencies(workspace: &Workspace, mode: DependencyMode) -> Result<(
             let mut deny = cargo(workspace);
             deny.args(["deny", "check"]);
             run(&mut deny)?;
-            let mut machete = cargo(workspace);
-            machete.arg("machete");
+            // Invoke the tool binary directly: `cargo machete` relies on the
+            // `CARGO` env var that `cargo()` intentionally strips, which would
+            // leave "machete" misread as a path argument.
+            let mut machete =
+                repository_command(workspace, workspace.tool_bin().join("cargo-machete"));
             run(&mut machete)?;
             let mut update = cargo(workspace);
             update.args(["update", "--dry-run"]);

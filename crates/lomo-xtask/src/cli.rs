@@ -18,22 +18,14 @@ pub fn run(workspace: &Workspace, arguments: &[String]) -> Result<()> {
     match command.as_str() {
         "bootstrap" => no_args(rest, || tools::bootstrap(workspace)),
         "fmt" => quality::format(workspace, format_mode(rest)?),
-        "test" => no_args(rest, || quality::test(workspace)),
         "dev" => dev(workspace, rest),
         "preflight" => preflight(workspace, rest),
         "check" => no_args(rest, || quality::check(workspace)),
-        "check-linux" => no_args(rest, || quality::check_linux(workspace)),
-        "tui" => tui_command(workspace, rest),
-        "package-linux" => no_args(rest, || crate::package::package_linux(workspace)),
         "bindings" => no_args(rest, || native::generate_bindings(workspace)),
         "native" => native_command(workspace, rest),
         "android" => android_command(workspace, rest),
         "ci" => no_args(rest, || quality::ci(workspace)),
         "deps" => deps_command(workspace, rest),
-        "usecase-reachability" => no_args(rest, || {
-            crate::usecase_reachability::check_usecase_reachability(&workspace.root)
-        }),
-        "mutants" => mutants_command(workspace, rest),
         "perf" => no_args(rest, || perf::run_diagnostics(workspace)),
         "cache" => cache_command(workspace, rest),
         "ci-rust" => ci_rust(workspace, rest),
@@ -52,10 +44,12 @@ pub fn run(workspace: &Workspace, arguments: &[String]) -> Result<()> {
 fn dev(workspace: &Workspace, arguments: &[String]) -> Result<()> {
     let mut scope = None;
     let mut print_only = false;
+    let mut mode = crate::verification::PlanMode::Dev;
     let mut arguments = arguments.iter();
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--plan" => print_only = true,
+            "--tests-only" => mode = crate::verification::PlanMode::Tests,
             "--scope" => {
                 scope = Some(
                     arguments
@@ -64,14 +58,14 @@ fn dev(workspace: &Workspace, arguments: &[String]) -> Result<()> {
                         .as_str(),
                 );
             }
-            _ => bail!("usage: just dev [--scope <owner>] [--plan]"),
+            _ => bail!("usage: just dev [--scope <owner>] [--plan] [--tests-only]"),
         }
     }
     crate::verification::run(
         workspace,
         &crate::verification::ChangeSource::Worktree,
         scope,
-        crate::verification::PlanMode::Dev,
+        mode,
         print_only,
     )
 }
@@ -123,16 +117,19 @@ fn android_command(workspace: &Workspace, arguments: &[String]) -> Result<()> {
 }
 
 fn preflight(workspace: &Workspace, arguments: &[String]) -> Result<()> {
+    // The only remaining preflight scope is the pushed-commit diff; worktree/staged
+    // iteration is `just dev`.
     let source = match arguments {
-        [] => quality::ChangeSource::Staged,
-        [value] | [value, _] if value == "staged" => quality::ChangeSource::Staged,
+        [] => quality::ChangeSource::Push {
+            remote: "origin".to_owned(),
+        },
         [value] if value == "push" => quality::ChangeSource::Push {
             remote: "origin".to_owned(),
         },
         [value, remote] if value == "push" => quality::ChangeSource::Push {
             remote: remote.clone(),
         },
-        _ => bail!("usage: just preflight [staged|push [<remote>]]"),
+        _ => bail!("usage: just preflight [push [<remote>]]; staged iteration is `just dev`"),
     };
     quality::preflight(workspace, &source)
 }
@@ -154,18 +151,11 @@ fn deps_command(workspace: &Workspace, arguments: &[String]) -> Result<()> {
     deps::run_dependencies(workspace, mode)
 }
 
-fn tui_command(workspace: &Workspace, arguments: &[String]) -> Result<()> {
-    let mut command = crate::util::cargo(workspace);
-    command.args(["run", "--locked", "-p", "lomo-tui", "--"]);
-    command.args(arguments);
-    crate::util::run(&mut command)
-}
-
 fn cache_command(workspace: &Workspace, arguments: &[String]) -> Result<()> {
     let mode = match arguments {
         [] => cache::CacheMode::Audit,
         [value] => cache::parse_mode(value)?,
-        _ => bail!("usage: just cache [audit|paths|clean]"),
+        _ => bail!("usage: just cache [audit|paths|prune|clean]"),
     };
     cache::run_cache(workspace, mode)
 }
@@ -199,13 +189,6 @@ fn parse_coverage_mode(arguments: &[String], command: &str) -> Result<CoverageMo
     }
 }
 
-fn mutants_command(workspace: &Workspace, arguments: &[String]) -> Result<()> {
-    let mut cmd = crate::util::cargo(workspace);
-    cmd.arg("mutants");
-    cmd.args(arguments);
-    crate::util::run(&mut cmd)
-}
-
 fn format_mode(arguments: &[String]) -> Result<FormatMode> {
     match arguments {
         [] => Ok(FormatMode::Staged),
@@ -225,6 +208,6 @@ fn no_args(arguments: &[String], action: impl FnOnce() -> Result<()>) -> Result<
 
 fn print_help() {
     crate::util::emit_stderr(format_args!(
-        "Lomo xtask\n\nCommands:\n  bootstrap\n  fmt [staged|all|check]\n  test\n  preflight\n  check\n  check-linux\n  tui\n  package-linux\n  bindings\n  native\n  android [debug|release]\n  ci\n  deps [check|update]\n  usecase-reachability\n  mutants\n  perf\n  cache [audit|paths|clean]\n  rust-toolchain-bump <channel> [--dry-run]"
+        "Lomo xtask\n\nCommands:\n  bootstrap\n  fmt [staged|all|check]\n  dev [--scope <owner>] [--plan] [--tests-only]\n  check\n  bindings\n  native\n  android [debug|release]\n  ci\n  deps [check|update]\n  perf\n  cache [audit|paths|prune|clean]\n  rust-toolchain-bump <channel> [--dry-run]"
     ));
 }

@@ -182,10 +182,11 @@ fn execute_task(task: &Task, expected: &str, runner: &impl CommandRunner) -> Tas
 pub(super) struct RepositoryRunner<'a> {
     workspace: &'a Workspace,
     report_dir: PathBuf,
+    mutation_diff: Option<PathBuf>,
 }
 
 impl<'a> RepositoryRunner<'a> {
-    pub(super) fn new(workspace: &'a Workspace) -> Result<Self> {
+    pub(super) fn new(workspace: &'a Workspace, mutation_diff: Option<&str>) -> Result<Self> {
         let run_id = format!(
             "{}-{}",
             SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos(),
@@ -193,9 +194,17 @@ impl<'a> RepositoryRunner<'a> {
         );
         let report_dir = workspace.reports_dir().join("verification").join(run_id);
         fs::create_dir_all(&report_dir)?;
+        let mutation_diff = mutation_diff
+            .map(|text| -> Result<PathBuf> {
+                let path = report_dir.join("mutants.diff");
+                fs::write(&path, text)?;
+                Ok(path)
+            })
+            .transpose()?;
         Ok(Self {
             workspace,
             report_dir,
+            mutation_diff,
         })
     }
 
@@ -233,10 +242,14 @@ impl<'a> RepositoryRunner<'a> {
             | TaskAction::RustFmt
             | TaskAction::RustClippy { .. }
             | TaskAction::RustTests { .. }
+            | TaskAction::RustMutants { .. }
             | TaskAction::RustDocs
             | TaskAction::Machete => self.rust_command(task),
             TaskAction::BaselineProfile => self.baseline_profile_command(),
-            TaskAction::AndroidLint | TaskAction::Bindings | TaskAction::ShellContracts => {
+            TaskAction::AndroidLint
+            | TaskAction::Bindings
+            | TaskAction::ShellContracts
+            | TaskAction::UseCaseReachability => {
                 anyhow::bail!("task uses an owned executor")
             }
         }
@@ -325,6 +338,7 @@ impl<'a> RepositoryRunner<'a> {
                     "--no-tests=fail",
                 ]);
             }
+            TaskAction::RustMutants { package } => return self.mutants_command(package),
             TaskAction::RustDocs => {
                 cargo.args([
                     "doc",
@@ -350,10 +364,45 @@ impl<'a> RepositoryRunner<'a> {
             TaskAction::AndroidLint
             | TaskAction::Bindings
             | TaskAction::ShellContracts
+            | TaskAction::UseCaseReachability
             | TaskAction::BaselineProfile => {
                 anyhow::bail!("task uses an owned executor")
             }
         }
+        Ok(cargo)
+    }
+
+    /// Diff-scoped incremental mutation testing. `--in-place` reuses the shared target dir
+    /// already warmed by this DAG's clippy/test tasks; a leftover mutation flips the
+    /// post-task input digest and fails closed. The baseline is skipped because this task
+    /// runs strictly after `rust-tests:<package>` proved the suite green.
+    fn mutants_command(&self, package: &str) -> Result<Command> {
+        let mut cargo = util::cargo(self.workspace);
+        cargo
+            .args([
+                "mutants",
+                "--in-place",
+                "--baseline",
+                "skip",
+                "--test-tool",
+                "nextest",
+                "--all-features",
+                "--colors",
+                "never",
+                "--minimum-test-timeout",
+                "120",
+                "--package",
+                package,
+                "--in-diff",
+            ])
+            .arg(
+                self.mutation_diff
+                    .as_ref()
+                    .context("rust-mutants task has no change diff")?,
+            )
+            .arg("--output")
+            .arg(self.report_dir.join("mutants").join(package));
+        fs::create_dir_all(self.report_dir.join("mutants"))?;
         Ok(cargo)
     }
 
@@ -408,11 +457,13 @@ impl<'a> RepositoryRunner<'a> {
             | TaskAction::RustFmt
             | TaskAction::RustClippy { .. }
             | TaskAction::RustTests { .. }
+            | TaskAction::RustMutants { .. }
             | TaskAction::RustDocs
             | TaskAction::Machete
             | TaskAction::Bindings
             | TaskAction::AndroidLint
             | TaskAction::ShellContracts
+            | TaskAction::UseCaseReachability
             | TaskAction::BaselineProfile => {
                 anyhow::bail!("task does not use the Kotlin command executor")
             }
@@ -486,11 +537,16 @@ impl CommandRunner for RepositoryRunner<'_> {
                 quality::run_shell_contracts(self.workspace)?;
                 return Ok(TaskOutcome::Success { tests: None });
             }
+            TaskAction::UseCaseReachability => {
+                crate::usecase_reachability::check_usecase_reachability(&self.workspace.root)?;
+                return Ok(TaskOutcome::Success { tests: None });
+            }
             TaskAction::Architecture
             | TaskAction::FfiContract
             | TaskAction::RustFmt
             | TaskAction::RustClippy { .. }
             | TaskAction::RustTests { .. }
+            | TaskAction::RustMutants { .. }
             | TaskAction::RustDocs
             | TaskAction::Machete
             | TaskAction::KotlinRules

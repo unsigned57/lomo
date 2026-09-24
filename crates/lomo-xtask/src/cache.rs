@@ -1,16 +1,22 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    time::{Duration, SystemTime},
 };
 
 use anyhow::{Context, Result, bail};
 
 use crate::{util::remove_if_exists, workspace::Workspace};
 
+/// Cargo keeps every artifact fingerprint it has ever produced; files untouched for longer than
+/// this necessarily predate the active dependency/feature set.
+const STALE_ARTIFACT_AGE: Duration = Duration::from_hours(24 * 7);
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CacheMode {
     Audit,
     Paths,
+    Prune,
     Clean,
 }
 
@@ -21,6 +27,7 @@ pub fn run_cache(workspace: &Workspace, mode: CacheMode) -> Result<()> {
             paths(workspace);
             Ok(())
         }
+        CacheMode::Prune => prune(workspace),
         CacheMode::Clean => clean(workspace),
     }
 }
@@ -29,8 +36,9 @@ pub fn parse_mode(value: &str) -> Result<CacheMode> {
     match value {
         "audit" => Ok(CacheMode::Audit),
         "paths" => Ok(CacheMode::Paths),
+        "prune" => Ok(CacheMode::Prune),
         "clean" => Ok(CacheMode::Clean),
-        _ => bail!("cache mode must be `audit`, `paths`, or `clean`, found `{value}`"),
+        _ => bail!("cache mode must be `audit`, `paths`, `prune`, or `clean`, found `{value}`"),
     }
 }
 
@@ -73,6 +81,57 @@ fn audit(workspace: &Workspace) -> Result<()> {
             crate::util::emit_stderr(format_args!("{relative}: absent"));
         }
     }
+    Ok(())
+}
+
+fn prune(workspace: &Workspace) -> Result<()> {
+    let target = &workspace.rust_target;
+    let lomo_output = workspace.lomo_output_dir();
+    let instrumented = target.join("llvm-cov-target");
+    if instrumented.exists() {
+        crate::util::emit_stderr(format_args!("xtask: removing {}", instrumented.display()));
+        remove_if_exists(&instrumented)?;
+    }
+    let Some(cutoff) = SystemTime::now().checked_sub(STALE_ARTIFACT_AGE) else {
+        bail!("system clock predates the stale-artifact cutoff");
+    };
+    let mut removed = 0_u64;
+    let mut freed = 0_u64;
+    let mut pending = vec![target.clone()];
+    while let Some(directory) = pending.pop() {
+        let entries = match fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("failed to read {}", directory.display()));
+            }
+        };
+        for entry in entries {
+            let path = entry?.path();
+            if path == lomo_output {
+                continue;
+            }
+            let metadata = fs::symlink_metadata(&path)
+                .with_context(|| format!("failed to stat {}", path.display()))?;
+            if metadata.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            let stale = metadata.modified().is_ok_and(|modified| modified < cutoff);
+            let debug_symbol_package = path.extension().is_some_and(|ext| ext == "dwp");
+            if stale || debug_symbol_package {
+                freed = freed.saturating_add(metadata.len());
+                removed += 1;
+                fs::remove_file(&path)
+                    .with_context(|| format!("failed to remove {}", path.display()))?;
+            }
+        }
+    }
+    crate::util::emit_stderr(format_args!(
+        "xtask: pruned {removed} stale artifacts ({freed} bytes) under {}",
+        target.display()
+    ));
     Ok(())
 }
 

@@ -5,7 +5,6 @@ mod cache;
 mod cli;
 mod deps;
 mod native;
-pub mod package;
 mod perf;
 mod quality;
 mod rust_pin;
@@ -19,6 +18,7 @@ use std::path::PathBuf;
 
 pub use native::canonicalize_binding;
 pub use rust_pin::{RustPin, parse_channel, replace_toml_assignment};
+pub use tools::pinned_tool_version;
 pub use usecase_reachability::check_usecase_reachability;
 
 /// Canonical repository root discovered the same way as the xtask CLI.
@@ -47,18 +47,6 @@ pub fn check_generated_artifact_layout() -> anyhow::Result<()> {
 pub fn run_cli(arguments: &[String]) -> anyhow::Result<()> {
     let workspace = workspace::Workspace::discover()?;
     cli::run(&workspace, arguments)
-}
-
-/// Parses cargo metadata JSON and verifies that Linux host packages are free from
-/// forbidden Android/FFI dependencies and that the dependency graph is valid.
-///
-/// # Errors
-///
-/// Returns an error if the JSON is malformed, if required host packages or resolve nodes
-/// are missing, if dependency entries are invalid, or if any host package transitively
-/// depends on a forbidden Android or FFI package.
-pub fn parse_and_verify_host_dependencies(metadata_json: &str) -> anyhow::Result<()> {
-    quality::parse_and_verify_host_dependencies(metadata_json)
 }
 
 /// Validates that an Android NDK directory contains a valid `source.properties`

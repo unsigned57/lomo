@@ -17,7 +17,7 @@ mod tests {
     use anyhow::{Context, Result, ensure};
     use lomo_xtask::verification::{
         Artifact, ChangeInventory, ChangeSource, CommandRunner, ImpactGraph, PlanMode, Task,
-        TaskAction, TaskOutcome, TaskStatus, VerificationPlan, execute,
+        TaskAction, TaskOutcome, TaskStatus, VerificationPlan, execute, unified_diff,
     };
     use std::{
         collections::{BTreeMap, BTreeSet},
@@ -105,6 +105,107 @@ mod tests {
         ] {
             ensure!(ids(&native).contains(required), "missing {required}");
         }
+        Ok(())
+    }
+
+    #[test]
+    fn dev_mode_schedules_diff_scoped_mutants_only_on_touched_rust_crates() -> Result<()> {
+        let store = plan(&["crates/lomo-store/src/cursor.rs"])?;
+        let mutants: Vec<&Task> = store
+            .tasks
+            .iter()
+            .filter(|task| task.id.starts_with("rust-mutants:"))
+            .collect();
+        ensure!(
+            mutants.len() == 1,
+            "expected exactly one mutants task: {:?}",
+            ids(&store)
+        );
+        let task = mutants.first().context("mutants task")?;
+        ensure!(task.id == "rust-mutants:lomo-store");
+        ensure!(
+            task.dependencies.contains("rust-tests:lomo-store"),
+            "mutation runs only after the package suite is green"
+        );
+        ensure!(
+            task.tools
+                .iter()
+                .any(|tool| format!("{tool:?}") == "Mutants"),
+            "the task must declare the pinned cargo-mutants tool"
+        );
+
+        // An API-shaped change pulls reverse dependencies into the gate, but only the
+        // directly touched crate has diff hunks to mutate.
+        let api = plan(&["crates/lomo-store/Cargo.toml"])?;
+        let mutants: BTreeSet<&str> = api
+            .tasks
+            .iter()
+            .filter(|task| task.id.starts_with("rust-mutants:"))
+            .map(|task| task.id.as_str())
+            .collect();
+        ensure!(
+            mutants == BTreeSet::from(["rust-mutants:lomo-store"]),
+            "{mutants:?}"
+        );
+
+        // Kotlin-only and complete-inventory plans never schedule mutation tasks.
+        let kotlin = plan(&["apps/android/app/src/feature/main/MainViewModel.kt"])?;
+        ensure!(!ids(&kotlin).iter().any(|id| id.starts_with("rust-mutants")));
+        ensure!(
+            !ids(&check_plan(&["crates/lomo-store/src/cursor.rs"])?)
+                .iter()
+                .any(|id| id.starts_with("rust-mutants"))
+        );
+        let complete = VerificationPlan::build(
+            &graph()?,
+            &ChangeInventory {
+                paths: BTreeSet::new(),
+                removed: BTreeSet::new(),
+                complete: true,
+            },
+            None,
+            PlanMode::Dev,
+        )?;
+        ensure!(
+            !ids(&complete)
+                .iter()
+                .any(|id| id.starts_with("rust-mutants"))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn product_kotlin_changes_schedule_usecase_reachability() -> Result<()> {
+        // Any product module can break reachability: domain adds a usecase, app/data drop a caller.
+        for path in [
+            "apps/android/domain/src/usecase/CreateMemoUseCase.kt",
+            "apps/android/app/src/feature/main/MainViewModel.kt",
+        ] {
+            let planned = plan(&[path])?;
+            ensure!(
+                ids(&planned).contains("usecase-reachability"),
+                "{path} must schedule the usecase reachability contract: {:?}",
+                ids(&planned)
+            );
+        }
+        let checked = check_plan(&["apps/android/app/src/feature/main/MainViewModel.kt"])?;
+        ensure!(ids(&checked).contains("usecase-reachability"));
+
+        let rust_only = plan(&["crates/lomo-store/src/cursor.rs"])?;
+        ensure!(!ids(&rust_only).contains("usecase-reachability"));
+        let tests_only = VerificationPlan::build(
+            &graph()?,
+            &ChangeInventory {
+                paths: BTreeSet::from([PathBuf::from(
+                    "apps/android/domain/src/usecase/CreateMemoUseCase.kt",
+                )]),
+                removed: BTreeSet::new(),
+                complete: false,
+            },
+            None,
+            PlanMode::Tests,
+        )?;
+        ensure!(!ids(&tests_only).contains("usecase-reachability"));
         Ok(())
     }
 
@@ -217,6 +318,61 @@ mod tests {
             changes.removed == BTreeSet::from([PathBuf::from(old), PathBuf::from("removed.rs")]),
             "removed must hold exactly the rename source and the deletion: {:?}",
             changes.removed
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn unified_diff_follows_the_same_scope_as_the_inventory() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let git = |args: &[&str]| -> Result<()> {
+            let output = Command::new("git")
+                .current_dir(root.path())
+                .args(args)
+                .output()?;
+            ensure!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            Ok(())
+        };
+        git(&["init", "-q"])?;
+        std::fs::write(root.path().join("tracked.rs"), "fn old() {}\n")?;
+        git(&["add", "."])?;
+        git(&[
+            "-c",
+            "user.name=fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "-qm",
+            "fixture",
+        ])?;
+        std::fs::write(root.path().join("tracked.rs"), "fn new() {}\n")?;
+        std::fs::write(root.path().join("untracked.rs"), "fn fresh() {}\n")?;
+
+        let worktree = unified_diff(root.path(), &ChangeSource::Worktree)?
+            .context("a modified tracked file must produce a diff")?;
+        ensure!(
+            worktree.contains("tracked.rs") && worktree.contains("fn new"),
+            "the diff must name the touched file and hunk: {worktree}"
+        );
+        ensure!(
+            unified_diff(root.path(), &ChangeSource::All)?.is_none(),
+            "a complete inventory has no diff scope"
+        );
+        ensure!(
+            unified_diff(
+                root.path(),
+                &ChangeSource::Push {
+                    remote: "missing-remote".to_owned()
+                }
+            )?
+            .is_none(),
+            "a missing remote base means the inventory is complete and no diff exists"
         );
         Ok(())
     }

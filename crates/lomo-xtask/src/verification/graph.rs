@@ -223,15 +223,19 @@ impl ImpactGraph {
 
     pub(super) fn task_inputs(&self, action: &TaskAction) -> BTreeSet<PathBuf> {
         let owners: BTreeSet<String> = match action {
-            TaskAction::RustClippy { package } | TaskAction::RustTests { package } => {
-                BTreeSet::from([package.clone()])
-            }
+            TaskAction::RustClippy { package }
+            | TaskAction::RustTests { package }
+            | TaskAction::RustMutants { package } => BTreeSet::from([package.clone()]),
             TaskAction::KotlinTests { module } => BTreeSet::from([module.clone()]),
             TaskAction::KotlinRules => BTreeSet::from(["detekt-rules".to_owned()]),
             TaskAction::BaselineProfile => BTreeSet::from(["app".to_owned()]),
             TaskAction::KotlinLight { modules }
             | TaskAction::KotlinFull { modules }
             | TaskAction::AnalysisInput { modules } => modules.clone(),
+            TaskAction::UseCaseReachability => ["app", "data", "domain", "ui-components"]
+                .map(str::to_owned)
+                .into_iter()
+                .collect(),
             TaskAction::Architecture
             | TaskAction::FfiContract
             | TaskAction::RustFmt

@@ -1,38 +1,13 @@
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    process::Command,
-};
-
 use anyhow::{Context, Result, bail};
 
 use crate::{
     native::{self, NativeProfile},
     tools,
-    util::{cargo, kotlin, policy_script, repository_command, run, text_output},
+    util::{cargo, kotlin, policy_script, repository_command, run},
     workspace::Workspace,
 };
 
 const TEST_MODULES: [&str; 5] = ["app", "data", "detekt-rules", "domain", "ui-components"];
-const HOST_PACKAGES: [&str; 9] = [
-    "lomo-application",
-    "lomo-core",
-    "lomo-workspace",
-    "lomo-store",
-    "lomo-media",
-    "lomo-platform-fs",
-    "lomo-tui",
-    "lomo-architecture-tests",
-    "lomo-xtask",
-];
-const FORBIDDEN_HOST_DEPENDENCIES: [&str; 7] = [
-    "lomo-native",
-    "boltffi",
-    "jni",
-    "ndk",
-    "ndk-sys",
-    "ndk-glue",
-    "android-activity",
-];
 const RUST_COVERAGE_MINIMUM: u32 = 70;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -70,17 +45,8 @@ pub fn format(workspace: &Workspace, mode: FormatMode) -> Result<()> {
 
 pub use crate::verification::ChangeSource;
 
-pub fn test(workspace: &Workspace) -> Result<()> {
-    crate::verification::run(
-        workspace,
-        &ChangeSource::All,
-        None,
-        crate::verification::PlanMode::Tests,
-        false,
-    )
-}
-
 pub fn preflight(workspace: &Workspace, source: &ChangeSource) -> Result<()> {
+    crate::cache::run_cache(workspace, crate::cache::CacheMode::Prune)?;
     crate::verification::run(
         workspace,
         source,
@@ -148,222 +114,6 @@ pub fn android_ci(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
         &native::Abi::ALL,
     )?;
     crate::android::publish_apk(workspace, &apk, "debug", "all")?;
-    Ok(())
-}
-
-pub fn check_linux(workspace: &Workspace) -> Result<()> {
-    crate::util::emit_stderr(format_args!("xtask: running Linux host quality gate..."));
-
-    crate::util::emit_stderr(format_args!("xtask: checking rust formatting..."));
-    let mut fmt = cargo(workspace);
-    fmt.args(["fmt", "--all", "--", "--check"]);
-    run(&mut fmt)?;
-
-    verify_host_dependency_closure(workspace)?;
-
-    crate::util::emit_stderr(format_args!("xtask: running clippy for host packages..."));
-    let mut clippy = cargo(workspace);
-    clippy.arg("clippy");
-    for pkg in HOST_PACKAGES {
-        clippy.args(["-p", pkg]);
-    }
-    clippy.args(["--all-targets", "--locked", "--", "-D", "warnings"]);
-    run(&mut clippy)?;
-
-    crate::util::emit_stderr(format_args!("xtask: running architecture tests..."));
-    let mut arch_tests = cargo(workspace);
-    arch_tests.args(["test", "-p", "lomo-architecture-tests", "--locked"]);
-    run(&mut arch_tests)?;
-
-    crate::util::emit_stderr(format_args!(
-        "xtask: running unit and integration tests for host packages..."
-    ));
-    let mut host_tests = cargo(workspace);
-    host_tests.arg("test");
-    for pkg in HOST_PACKAGES {
-        host_tests.args(["-p", pkg]);
-    }
-    host_tests.arg("--locked");
-    run(&mut host_tests)?;
-
-    crate::util::emit_stderr(format_args!("xtask: check-linux passed successfully."));
-    Ok(())
-}
-
-fn host_target_triple() -> Result<String> {
-    let mut cmd = Command::new("rustc");
-    let output = text_output(cmd.arg("-vV"))?;
-    for line in output.lines() {
-        if let Some(host) = line.strip_prefix("host: ") {
-            return Ok(host.trim().to_owned());
-        }
-    }
-    bail!("failed to determine host target triple from rustc -vV");
-}
-
-fn parse_metadata_packages(
-    meta: &serde_json::Value,
-) -> Result<(HashMap<String, String>, Vec<String>)> {
-    let packages = meta
-        .get("packages")
-        .and_then(serde_json::Value::as_array)
-        .context("packages array missing in cargo metadata")?;
-
-    let mut id_to_name = HashMap::new();
-    let mut host_root_ids = Vec::new();
-
-    for pkg in packages {
-        let id = pkg
-            .get("id")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| anyhow::anyhow!("package in metadata is missing string id: {pkg:?}"))?;
-        let name = pkg
-            .get("name")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| {
-                anyhow::anyhow!("package in metadata is missing string name: {pkg:?}")
-            })?;
-
-        id_to_name.insert(id.to_owned(), name.to_owned());
-        if HOST_PACKAGES.contains(&name) {
-            host_root_ids.push(id.to_owned());
-        }
-    }
-
-    let mut missing_hosts = Vec::new();
-    for &expected_host in &HOST_PACKAGES {
-        if !id_to_name.values().any(|name| name == expected_host) {
-            missing_hosts.push(expected_host);
-        }
-    }
-    if !missing_hosts.is_empty() {
-        bail!(
-            "missing required host packages in metadata: {}",
-            missing_hosts.join(", ")
-        );
-    }
-
-    if host_root_ids.len() != HOST_PACKAGES.len() {
-        bail!(
-            "expected {} host package root IDs in metadata, found {}",
-            HOST_PACKAGES.len(),
-            host_root_ids.len()
-        );
-    }
-
-    Ok((id_to_name, host_root_ids))
-}
-
-fn parse_metadata_nodes(meta: &serde_json::Value) -> Result<HashMap<String, Vec<String>>> {
-    let nodes = meta
-        .get("resolve")
-        .and_then(|r| r.get("nodes"))
-        .and_then(serde_json::Value::as_array)
-        .context("resolve.nodes array missing in cargo metadata")?;
-
-    let mut adj = HashMap::new();
-    for node in nodes {
-        let id = node
-            .get("id")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| anyhow::anyhow!("resolve node missing string id: {node:?}"))?;
-        let deps = node
-            .get("dependencies")
-            .and_then(serde_json::Value::as_array)
-            .ok_or_else(|| {
-                anyhow::anyhow!("resolve node {id} missing dependencies array: {node:?}")
-            })?;
-        let mut dep_ids = Vec::with_capacity(deps.len());
-        for dep in deps {
-            let dep_str = dep.as_str().ok_or_else(|| {
-                anyhow::anyhow!("dependency entry in node {id} is not a string: {dep:?}")
-            })?;
-            dep_ids.push(dep_str.to_owned());
-        }
-        adj.insert(id.to_owned(), dep_ids);
-    }
-
-    Ok(adj)
-}
-
-fn check_host_closure_purity(
-    host_root_ids: &[String],
-    id_to_name: &HashMap<String, String>,
-    adj: &HashMap<String, Vec<String>>,
-) -> Result<()> {
-    let mut violations = Vec::new();
-    for root_id in host_root_ids {
-        let root_name = id_to_name
-            .get(root_id)
-            .ok_or_else(|| anyhow::anyhow!("host root id `{root_id}` not found in package map"))?;
-        let mut visited = HashSet::new();
-        let mut queue = VecDeque::new();
-        queue.push_back(root_id.clone());
-
-        while let Some(curr) = queue.pop_front() {
-            if !visited.insert(curr.clone()) {
-                continue;
-            }
-            let pkg_name = id_to_name.get(&curr).ok_or_else(|| {
-                anyhow::anyhow!("dependency id `{curr}` not found in packages list")
-            })?;
-            for &forbidden in &FORBIDDEN_HOST_DEPENDENCIES {
-                if pkg_name == forbidden || pkg_name.starts_with("boltffi_") {
-                    violations.push(format!(
-                        "host package `{root_name}` transitively depends on forbidden Android/FFI package `{pkg_name}`"
-                    ));
-                }
-            }
-            let neighbors = adj.get(&curr).ok_or_else(|| {
-                anyhow::anyhow!("dependency id `{curr}` not found in resolve nodes")
-            })?;
-            for neighbor in neighbors {
-                if !visited.contains(neighbor) {
-                    queue.push_back(neighbor.clone());
-                }
-            }
-        }
-    }
-
-    if !violations.is_empty() {
-        violations.sort();
-        violations.dedup();
-        bail!(
-            "host dependency closure purity violations:\n{}",
-            violations.join("\n")
-        );
-    }
-
-    Ok(())
-}
-
-pub fn parse_and_verify_host_dependencies(metadata_json: &str) -> Result<()> {
-    let meta: serde_json::Value =
-        serde_json::from_str(metadata_json).context("failed to parse cargo metadata JSON")?;
-    let (id_to_name, host_root_ids) = parse_metadata_packages(&meta)?;
-    let adj = parse_metadata_nodes(&meta)?;
-    check_host_closure_purity(&host_root_ids, &id_to_name, &adj)
-}
-
-pub fn verify_host_dependency_closure(workspace: &Workspace) -> Result<()> {
-    crate::util::emit_stderr(format_args!(
-        "xtask: verifying Linux host dependency closure..."
-    ));
-    let host_triple = host_target_triple()?;
-    let mut cmd = cargo(workspace);
-    cmd.args([
-        "metadata",
-        "--locked",
-        "--format-version",
-        "1",
-        "--filter-platform",
-        &host_triple,
-    ]);
-    let raw_json = text_output(&mut cmd)?;
-    parse_and_verify_host_dependencies(&raw_json)?;
-    crate::util::emit_stderr(format_args!(
-        "xtask: host dependency closure verified (0 forbidden Android/FFI dependencies in host packages)."
-    ));
     Ok(())
 }
 
