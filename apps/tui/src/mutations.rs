@@ -6,12 +6,91 @@ use crate::{
     ops::{TuiRuntime, mint_operation_id},
 };
 use lomo_application::{
-    CreateMemoRequest, DeleteMemoRequest, PinMemoRequest, PinPolicy, RestoreMemoRequest,
-    ToggleTaskRequest,
+    CreateMemoRequest, DeleteMemoRequest, PermanentDeleteRequest, PinMemoRequest, PinPolicy,
+    RestoreMemoRequest, RestoreRevisionRequest, ToggleTaskRequest,
+    calendar::{DateFormat, journal_stamp},
 };
 use lomo_core::RelativeWorkspacePath;
 use lomo_media::{ContentDigest, MediaSource, PromotePlan, stage_media};
 use std::fs;
+
+/// Revisions newest first, each with its local creation time and a one-line preview.
+fn history_rows(
+    runtime: &TuiRuntime,
+    id: &lomo_workspace::MemoId,
+) -> Result<RuntimeMessage, TuiError> {
+    let page = runtime.session.list_history(id, None, 32)?;
+    let mut revisions = Vec::new();
+    for item in page.items {
+        // Snapshots written before timestamps were recorded carry no creation time.
+        let stamp = if item.created_at_ms > 0 {
+            let stamp = journal_stamp(
+                item.created_at_ms,
+                &runtime.config.time_zone,
+                DateFormat::YyyyMmDdHyphen,
+            )?;
+            format!(
+                "{} {}",
+                stamp.filename.trim_end_matches(".md"),
+                stamp.time_token
+            )
+        } else {
+            String::new()
+        };
+        revisions.push(crate::model::RevisionRow {
+            revision: item.revision,
+            stamp,
+            preview: crate::menu::preview(&item.content),
+        });
+    }
+    Ok(RuntimeMessage::History {
+        id: id.clone(),
+        revisions,
+    })
+}
+
+/// Drops every trashed memo. Each memo is its own transaction; the first failure stops the
+/// sweep and reports how many were removed so the trash view shows the true remainder.
+fn empty_trash(runtime: &TuiRuntime) -> Result<RuntimeMessage, TuiError> {
+    let s = crate::i18n::UiStrings::detect();
+    let query = lomo_application::MemoQuery {
+        search_text: None,
+        filters: lomo_application::MemoFilters {
+            trash_only: true,
+            ..lomo_application::MemoFilters::default()
+        },
+        sort: lomo_application::MemoSort::default(),
+    };
+    let mut removed = 0_u64;
+    loop {
+        let page =
+            runtime
+                .session
+                .query_memos_page(&query, None, None, lomo_core::PageSize::new(64)?)?;
+        if page.items.is_empty() {
+            break;
+        }
+        for summary in page.items {
+            runtime
+                .session
+                .permanently_delete_memo(&PermanentDeleteRequest {
+                    operation_id: mint_operation_id()?,
+                    memo_id: lomo_workspace::MemoId::parse(&summary.memo_id)?,
+                })
+                .map_err(|error| {
+                    TuiError::config(format!(
+                        "{} {removed} · {error}",
+                        s.text("Emptying the trash stopped after", "清空回收站中断，已删除")
+                    ))
+                })?;
+            removed += 1;
+        }
+    }
+    Ok(RuntimeMessage::Changed(format!(
+        "{} {removed}",
+        s.text("Trash emptied · removed", "回收站已清空 · 已删除")
+    )))
+}
 
 /// # Errors
 /// Application, media, clipboard and process failures.
@@ -51,33 +130,34 @@ pub fn execute(runtime: &TuiRuntime, effect: &Effect) -> Result<RuntimeMessage, 
                 memo_id: id.clone(),
             })?;
         }
-        Effect::History(id) => {
-            let page = runtime.session.list_history(id, None, 32)?;
-            return Ok(RuntimeMessage::Message {
-                title: crate::i18n::UiStrings::detect().title_history,
-                lines: page
-                    .items
-                    .into_iter()
-                    .map(|item| {
-                        format!(
-                            "r{} · {}\n{}",
-                            item.revision, item.created_at_ms, item.content
-                        )
-                    })
-                    .collect(),
-            });
+        Effect::History(id) => return history_rows(runtime, id),
+        Effect::DeleteForever(id) => {
+            runtime
+                .session
+                .permanently_delete_memo(&PermanentDeleteRequest {
+                    operation_id: mint_operation_id()?,
+                    memo_id: id.clone(),
+                })?;
+            return Ok(RuntimeMessage::Changed(
+                crate::i18n::UiStrings::detect()
+                    .text("Deleted permanently", "已永久删除")
+                    .to_owned(),
+            ));
+        }
+        Effect::EmptyTrash => return empty_trash(runtime),
+        Effect::RestoreRevision { id, revision } => {
+            runtime.session.restore_revision(RestoreRevisionRequest {
+                operation_id: mint_operation_id()?,
+                memo_id: id.clone(),
+                revision: *revision,
+            })?;
+            return Ok(RuntimeMessage::Changed(format!(
+                "{} r{revision}",
+                crate::i18n::UiStrings::detect().text("Restored revision", "已恢复版本")
+            )));
         }
         Effect::ImportClipboard => {
             import_from_clipboard(runtime, &SystemClipboard)?;
-        }
-        Effect::OpenAttachment(path) => {
-            open_attachment(runtime, path, &crate::editor::StdCommandRunner)?;
-            return Ok(RuntimeMessage::Message {
-                title: crate::i18n::UiStrings::detect()
-                    .text("Attachment opened", "附件已打开")
-                    .to_owned(),
-                lines: vec![path.as_str().to_owned()],
-            });
         }
         Effect::Query(_)
         | Effect::Navigate { .. }
@@ -91,6 +171,8 @@ pub fn execute(runtime: &TuiRuntime, effect: &Effect) -> Result<RuntimeMessage, 
         | Effect::CaptureEdited { .. }
         | Effect::Tags
         | Effect::Date { .. }
+        | Effect::OpenAttachment(_)
+        | Effect::Reconcile
         | Effect::Refresh
         | Effect::Quit => {
             return Err(TuiError::config(
@@ -160,14 +242,14 @@ pub fn import_clipboard_png(runtime: &TuiRuntime, png: &[u8]) -> Result<String, 
     })?;
     Ok(relative)
 }
-/// Reads under the bound workspace capability, then opens a private snapshot.
+/// Reads under the bound workspace capability and stages a private snapshot for
+/// the external player. Returns the staged path for a managed spawn.
 /// # Errors
-/// A missing, escaped or unreadable attachment, or a failed external player.
-pub fn open_attachment<R: crate::editor::CommandRunner>(
+/// A missing, escaped, extensionless or unreadable attachment.
+pub fn stage_attachment(
     runtime: &TuiRuntime,
     path: &RelativeWorkspacePath,
-    runner: &R,
-) -> Result<(), TuiError> {
+) -> Result<std::path::PathBuf, TuiError> {
     let bytes = lomo_application::rebuild::read_workspace_file(
         &runtime.session_config,
         &runtime.executor,
@@ -185,5 +267,5 @@ pub fn open_attachment<R: crate::editor::CommandRunner>(
         extension
     ));
     fs::write(&staged, bytes)?;
-    crate::media::play_audio(runner, &runtime.config.player, &staged)
+    Ok(staged)
 }

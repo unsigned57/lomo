@@ -147,14 +147,19 @@ fn query_page(
         let page = runtime
             .session
             .query_memos_page(&query, None, cursor, PageSize::new(48)?)?;
-        let total = runtime.session.query_count(&query)?;
+        // COUNT is bound to the query's first page; cursor pages reuse it.
+        let total = if cursor.is_none() {
+            Some(runtime.session.query_count(&query)?)
+        } else {
+            None
+        };
         Ok((
             page.items
                 .into_iter()
                 .map(|summary| card(summary, runtime))
                 .collect::<Result<_, _>>()?,
             page.next_cursor,
-            Some(total),
+            total,
         ))
     } else {
         let result = runtime.session.search(&SearchRequest {
@@ -240,7 +245,7 @@ pub fn load_screen(runtime: &TuiRuntime, screen: Screen, epoch: u64) -> Result<V
                         memo_id: MemoId::parse(&task.memo_id)?,
                         line: task.line_index,
                         text: task.text,
-                        date: task.source_path.trim_end_matches(".md").to_owned(),
+                        date: day_label(runtime, &task.source_path),
                         done: task.done,
                     })
                 })
@@ -271,6 +276,13 @@ pub fn load_screen(runtime: &TuiRuntime, screen: Screen, epoch: u64) -> Result<V
             format!("workspace: {}", runtime.workspace.display()),
             format!("timezone: {}", runtime.config.time_zone),
             format!(
+                "language: {} (LOMO_LANG / LANG)",
+                match crate::i18n::UiStrings::detect().language {
+                    crate::i18n::UiLanguage::English => "English",
+                    crate::i18n::UiLanguage::ChineseSimplified => "简体中文",
+                }
+            ),
+            format!(
                 "editor: {}",
                 runtime
                     .config
@@ -283,6 +295,20 @@ pub fn load_screen(runtime: &TuiRuntime, screen: Screen, epoch: u64) -> Result<V
             format!("device: {}", runtime.session.device_id()),
         ])),
     }
+}
+/// Daily-note sources display as the same `YYYY-MM-DD` day label as memo cards. A source
+/// whose file stem is not a day key in the workspace date format is shown by its stem, since
+/// that stem is the only identity the task carries.
+fn day_label(runtime: &TuiRuntime, source_path: &str) -> String {
+    let stem = source_path
+        .rsplit('/')
+        .next()
+        .unwrap_or(source_path)
+        .trim_end_matches(".md");
+    parse_date_key_with_format(stem, runtime.config.date_format).map_or_else(
+        |_| stem.to_owned(),
+        |date| format_date_key(date, DateFormat::YyyyMmDdHyphen),
+    )
 }
 fn load_statistics(runtime: &TuiRuntime) -> Result<View, TuiError> {
     let date = local_date(now_ms()?, &runtime.config.time_zone)?;

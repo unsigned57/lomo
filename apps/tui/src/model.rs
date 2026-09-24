@@ -134,8 +134,8 @@ pub struct TextAnchor {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+/// Card rows in reading order; `Time` is the top of a card.
 pub enum CardPosition {
-    Group(u8),
     Time,
     Body(TextAnchor),
     Footer(usize),
@@ -207,7 +207,7 @@ impl FeedState {
         {
             self.anchor = self.selected.clone().map(|id| MemoAnchor {
                 id,
-                position: CardPosition::Group(0),
+                position: CardPosition::Time,
             });
         }
     }
@@ -218,8 +218,8 @@ impl FeedState {
         }
     }
 
-    pub fn invalidate_results(&mut self) {
-        self.memos.clear();
+    /// Keeps the previous results on screen while a changed query is in flight.
+    pub fn mark_requery(&mut self) {
         self.selected = None;
         self.anchor = None;
         self.next_cursor = None;
@@ -243,7 +243,7 @@ impl FeedState {
                 .and_then(|anchor| self.surviving_neighbor(previous, &anchor.id))
                 .map(|id| MemoAnchor {
                     id,
-                    position: CardPosition::Group(0),
+                    position: CardPosition::Time,
                 });
         }
         if selected_missing {
@@ -323,13 +323,43 @@ impl View {
     }
 }
 
+/// One durable revision of a memo, ready for a picker row.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RevisionRow {
+    pub revision: u64,
+    /// Local `YYYY-MM-DD HH:MM:SS`, or empty for snapshots recorded without a timestamp.
+    pub stamp: String,
+    pub preview: String,
+}
+
+/// The item the palette was opened on; its identity is frozen for the palette's lifetime.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PaletteItem {
+    None,
+    Memo(Box<MemoCard>),
+    Task(TaskRow),
+    Attachment(AttachmentRow),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PaletteScope {
+    All,
+    Item,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PickerKind {
-    Functions,
-    Actions(Box<MemoCard>),
+    Palette {
+        item: PaletteItem,
+        scope: PaletteScope,
+    },
     Tags(lomo_application::TagSelectionMode),
     Dates,
     Attachments(Box<MemoCard>),
+    History {
+        id: MemoId,
+        revisions: Vec<RevisionRow>,
+    },
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Picker {
@@ -340,7 +370,10 @@ pub struct Picker {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Confirmation {
     Delete { id: MemoId, fingerprint: String },
+    DeleteForever(MemoId),
+    EmptyTrash,
     Restore(MemoId),
+    RestoreRevision { id: MemoId, revision: u64 },
     DiscardDraft,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -349,7 +382,6 @@ pub enum InputMode {
     Compose,
     Search {
         text: TextBuffer,
-        before: Box<View>,
     },
     Picker(Picker),
     Date {
@@ -409,6 +441,9 @@ pub struct AppModel {
     pub graphics: crate::media::GraphicsProtocol,
     pub cell_size: Option<crate::graphics::CellSize>,
     pub images: Vec<crate::graphics::ReaderImage>,
+    /// Whether the platform watcher is observing the workspace. `false` means
+    /// external changes only arrive through the manual F5 reconcile.
+    pub watcher_active: bool,
 }
 impl AppModel {
     #[must_use]
@@ -429,6 +464,7 @@ impl AppModel {
             graphics: crate::media::GraphicsProtocol::None,
             cell_size: None,
             images: Vec::new(),
+            watcher_active: false,
         }
     }
     #[must_use]
@@ -442,6 +478,31 @@ impl AppModel {
             | View::Settings(_)
             | View::Loading(_)
             | View::Failed { .. } => None,
+        }
+    }
+    /// The row the palette acts on from the current view.
+    #[must_use]
+    pub fn palette_item(&self) -> PaletteItem {
+        match &self.view {
+            View::Tasks(list) => list
+                .items
+                .get(list.selected)
+                .cloned()
+                .map_or(PaletteItem::None, PaletteItem::Task),
+            View::Attachments(list) => list
+                .items
+                .get(list.selected)
+                .cloned()
+                .map_or(PaletteItem::None, PaletteItem::Attachment),
+            View::Feed(_)
+            | View::Reader { .. }
+            | View::Statistics(_)
+            | View::Settings(_)
+            | View::Loading(_)
+            | View::Failed { .. } => self
+                .selected_memo()
+                .cloned()
+                .map_or(PaletteItem::None, |memo| PaletteItem::Memo(Box::new(memo))),
         }
     }
     #[must_use]

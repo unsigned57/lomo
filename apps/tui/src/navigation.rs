@@ -114,14 +114,6 @@ pub fn open_selected(model: &mut AppModel) -> Option<Effect> {
 }
 pub fn click(model: &mut AppModel, column: u16, row: u16) -> Option<Effect> {
     let layout = crate::ui::layout_for(model);
-    let controls =
-        crate::overlays::header_controls(layout.header, &crate::i18n::UiStrings::detect());
-    if let Some((_, _, command)) = controls
-        .into_iter()
-        .find(|(rect, _, _)| rect.contains((column, row).into()))
-    {
-        return crate::update::apply_command(model, command);
-    }
     if let Some((_, _, command)) = crate::filter_controls::controls(model, layout.filters)
         .into_iter()
         .find(|(rect, _, _)| rect.contains((column, row).into()))
@@ -217,7 +209,7 @@ pub fn first(model: &mut AppModel) {
             feed.selected = feed.memos.first().map(|memo| memo.id.clone());
             feed.anchor = feed.selected.clone().map(|id| MemoAnchor {
                 id,
-                position: CardPosition::Group(0),
+                position: CardPosition::Time,
             });
         }
         View::Reader { anchor, .. } => *anchor = TextAnchor::default(),

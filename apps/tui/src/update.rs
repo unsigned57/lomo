@@ -4,8 +4,8 @@ use crate::effects::{EditTarget, FeedRequest, PageIntent};
 use crate::event::{Command, MemoAction};
 use crate::input::TextBuffer;
 use crate::model::{
-    AppModel, BodyState, Confirmation, FeedKind, FeedState, InputMode, LoadStatus, Picker,
-    PickerKind, Screen, View,
+    AppModel, BodyState, Confirmation, FeedKind, FeedState, InputMode, LoadStatus, PaletteItem,
+    PaletteScope, Picker, PickerKind, Screen, View,
 };
 
 #[must_use]
@@ -13,6 +13,9 @@ pub fn apply_command(model: &mut AppModel, command: Command) -> Option<Effect> {
     if command == Command::Quit {
         return Some(Effect::Quit);
     }
+    // A status message is transient: it stays until the next user command, then the
+    // context key hints return.
+    model.status = None;
     if !matches!(model.input, InputMode::Browse) {
         return crate::input_update::apply(model, &command);
     }
@@ -20,8 +23,8 @@ pub fn apply_command(model: &mut AppModel, command: Command) -> Option<Effect> {
         Command::Compose => begin_input(model, InputStart::Compose),
         Command::Search => open_search(model),
         Command::Tags => begin_input(model, InputStart::Tags),
-        Command::Functions => begin_input(model, InputStart::Functions),
-        Command::Actions => begin_input(model, InputStart::Actions),
+        Command::Palette => begin_input(model, InputStart::Palette(PaletteScope::All)),
+        Command::Actions => begin_input(model, InputStart::Palette(PaletteScope::Item)),
         Command::Attachments => begin_input(model, InputStart::Attachments),
         Command::Date => begin_input(model, InputStart::Date),
         Command::CustomDate => begin_input(model, InputStart::CustomDate),
@@ -37,11 +40,7 @@ pub fn apply_command(model: &mut AppModel, command: Command) -> Option<Effect> {
             request_more(model)
         }
         Command::Page(delta) => {
-            let height = crate::reader::page(model).map_or_else(
-                || crate::ui::layout_for(model).content.height,
-                |page| page.area.height,
-            );
-            let step = i32::from(height.saturating_sub(1).max(1));
+            let step = page_step(model);
             crate::navigation::scroll(model, delta.saturating_mul(step));
             request_more(model)
         }
@@ -59,25 +58,28 @@ pub fn apply_command(model: &mut AppModel, command: Command) -> Option<Effect> {
         Command::SelectTag(tag) => change_tag(model, tag),
         Command::ClearFilters => clear_filters(model),
         Command::ExternalEdit => edit_selected(model),
-        Command::Pin | Command::Delete | Command::Restore | Command::History => apply_to_memo(
+        Command::Pin
+        | Command::Delete
+        | Command::DeleteForever
+        | Command::Restore
+        | Command::History => apply_to_memo(
             model,
             &model.selected_memo()?.clone(),
             command.memo_action()?,
         ),
-        Command::ToggleTask => match &model.view {
-            View::Tasks(list) => list
-                .items
-                .get(list.selected)
-                .cloned()
-                .map(Effect::ToggleTask),
-            View::Feed(_)
-            | View::Reader { .. }
-            | View::Statistics(_)
-            | View::Attachments(_)
-            | View::Settings(_)
-            | View::Loading(_)
-            | View::Failed { .. } => None,
-        },
+        Command::EmptyTrash => {
+            let trash = matches!(&model.view, View::Feed(feed) if feed.kind == FeedKind::Trash);
+            if trash {
+                model.input = InputMode::Confirm(Confirmation::EmptyTrash);
+            }
+            None
+        }
+        Command::OpenMemo(id) => {
+            let epoch = model.next_epoch();
+            model.push_view(View::Loading(Screen::Timeline));
+            Some(Effect::ReadMemo { epoch, id })
+        }
+        Command::ToggleTask => toggle_task(model),
         Command::ImportClipboard => Some(Effect::ImportClipboard),
         Command::OpenAttachment(path) => Some(Effect::OpenAttachment(path)),
         Command::DiscardDraft => {
@@ -85,14 +87,66 @@ pub fn apply_command(model: &mut AppModel, command: Command) -> Option<Effect> {
             None
         }
         Command::Refresh => Some(Effect::Refresh),
+        Command::FocusReconcile => focus_reconcile(model),
+        Command::PasteDenied => {
+            model.set_status(crate::i18n::UiStrings::detect().text(
+                "Paste works only while editing text",
+                "粘贴仅在文本输入时可用",
+            ));
+            None
+        }
         Command::ShowCreated => show_created(model),
         Command::ToggleTagScope
+        | Command::RestoreRevision(_)
         | Command::Quit
         | Command::Commit
         | Command::Type(_)
         | Command::Edit(_) => None,
     }
 }
+/// Task toggling only exists in the task view.
+fn toggle_task(model: &AppModel) -> Option<Effect> {
+    match &model.view {
+        View::Tasks(list) => list
+            .items
+            .get(list.selected)
+            .cloned()
+            .map(Effect::ToggleTask),
+        View::Feed(_)
+        | View::Reader { .. }
+        | View::Statistics(_)
+        | View::Attachments(_)
+        | View::Settings(_)
+        | View::Loading(_)
+        | View::Failed { .. } => None,
+    }
+}
+
+/// One page of scroll in reader rows or feed content rows.
+fn page_step(model: &AppModel) -> i32 {
+    let height = crate::reader::page(model).map_or_else(
+        || crate::ui::layout_for(model).content.height,
+        |page| page.area.height,
+    );
+    i32::from(height.saturating_sub(1).max(1))
+}
+
+/// Watching is event-driven; focus only surfaces an outage and the manual
+/// fallback. It never rebuilds the projection on its own.
+fn focus_reconcile(model: &mut AppModel) -> Option<Effect> {
+    if model.watcher_active {
+        return None;
+    }
+    let text = crate::i18n::UiStrings::detect().text(
+        "File watching unavailable; press F5 to refresh",
+        "文件监视不可用，按 F5 手动刷新",
+    );
+    if model.status.as_deref() != Some(text) {
+        model.set_status(text);
+    }
+    None
+}
+
 fn picker(model: &mut AppModel, kind: PickerKind) {
     model.input = InputMode::Picker(Picker {
         kind,
@@ -104,8 +158,7 @@ fn picker(model: &mut AppModel, kind: PickerKind) {
 enum InputStart {
     Compose,
     Tags,
-    Functions,
-    Actions,
+    Palette(PaletteScope),
     Attachments,
     Date,
     CustomDate,
@@ -126,11 +179,13 @@ fn begin_input(model: &mut AppModel, start: InputStart) -> Option<Effect> {
             );
             return Some(Effect::Tags);
         }
-        InputStart::Functions => picker(model, PickerKind::Functions),
-        InputStart::Actions => picker(
-            model,
-            PickerKind::Actions(Box::new(model.selected_memo()?.clone())),
-        ),
+        InputStart::Palette(scope) => {
+            let item = model.palette_item();
+            if scope == PaletteScope::Item && item == PaletteItem::None {
+                return None;
+            }
+            picker(model, PickerKind::Palette { item, scope });
+        }
         InputStart::Attachments => picker(
             model,
             PickerKind::Attachments(Box::new(model.selected_memo()?.clone())),
@@ -167,15 +222,16 @@ fn request_date(model: &mut AppModel, text: String) -> Effect {
     Effect::Date { ticket, text }
 }
 
+/// Search always edits the timeline query; any other view is kept underneath for Esc.
 fn open_search(model: &mut AppModel) -> Option<Effect> {
-    let before = Box::new(model.view.clone());
-    let feed = timeline_context(model);
+    ensure_feed(model);
+    let View::Feed(feed) = &model.view else {
+        return None;
+    };
     let load = matches!(feed.load, LoadStatus::Loading | LoadStatus::Stale);
     model.input = InputMode::Search {
         text: TextBuffer::new(feed.query.text.clone()),
-        before,
     };
-    model.view = View::Feed(feed);
     if load { reload_feed(model) } else { None }
 }
 
@@ -230,9 +286,25 @@ pub fn reload_feed(model: &mut AppModel) -> Option<Effect> {
         intent,
     }))
 }
+/// A changed query starts over from the first page while the previous results stay on screen.
+#[must_use]
+pub fn requery(model: &mut AppModel) -> Option<Effect> {
+    let epoch = model.next_epoch();
+    let View::Feed(feed) = &mut model.view else {
+        return None;
+    };
+    feed.epoch = epoch;
+    feed.load = LoadStatus::Loading;
+    Some(Effect::Query(FeedRequest {
+        epoch,
+        kind: feed.kind,
+        query: feed.query.clone(),
+        intent: PageIntent::Initial,
+    }))
+}
 #[must_use]
 pub fn search_changed(model: &mut AppModel) -> Option<Effect> {
-    let InputMode::Search { text, .. } = &model.input else {
+    let InputMode::Search { text } = &model.input else {
         return None;
     };
     let query = text.text().trim().to_owned();
@@ -242,7 +314,7 @@ pub fn search_changed(model: &mut AppModel) -> Option<Effect> {
         }
         feed.remember_unfiltered();
         feed.query.text = query;
-        feed.invalidate_results();
+        feed.mark_requery();
     }
     query_changed(model)
 }
@@ -257,15 +329,19 @@ pub fn toggle_mode(model: &mut AppModel) -> Option<Effect> {
     if feed.query.text.is_empty() {
         return None;
     }
-    feed.invalidate_results();
-    reload_feed(model)
+    feed.mark_requery();
+    requery(model)
 }
 fn navigate(model: &mut AppModel, screen: Screen) -> Effect {
     let epoch = model.next_epoch();
     model.push_view(View::Loading(screen));
     Effect::Navigate { epoch, screen }
 }
+/// Esc peels one layer: an active filter first, then the view underneath.
 fn go_back(model: &mut AppModel) -> Option<Effect> {
+    if matches!(&model.view, View::Feed(feed) if feed.query.is_filtered()) {
+        return clear_filters(model);
+    }
     if let Some(view) = model.history.pop() {
         model.next_epoch();
         model.view = view;
@@ -279,9 +355,6 @@ fn go_back(model: &mut AppModel) -> Option<Effect> {
             return reload_feed(model);
         }
         return None;
-    }
-    if matches!(&model.view, View::Feed(feed) if feed.query.is_filtered()) {
-        return clear_filters(model);
     }
     None
 }
@@ -309,7 +382,7 @@ pub fn select_tag(
             feed.query.filters.tag = None;
             feed.query.filters.tag_selection = lomo_application::TagSelectionMode::Exact;
         }
-        feed.invalidate_results();
+        feed.mark_requery();
     }
     query_changed(model)
 }
@@ -369,11 +442,18 @@ pub fn apply_to_memo(
             });
             None
         }
+        // In the trash, `d` means the only delete that is left: permanent.
+        MemoAction::Delete | MemoAction::DeleteForever if memo.trashed => {
+            model.input = InputMode::Confirm(Confirmation::DeleteForever(memo.id.clone()));
+            None
+        }
         MemoAction::Restore if memo.trashed => {
             model.input = InputMode::Confirm(Confirmation::Restore(memo.id.clone()));
             None
         }
-        MemoAction::Pin | MemoAction::Delete | MemoAction::Restore => None,
+        MemoAction::Pin | MemoAction::Delete | MemoAction::DeleteForever | MemoAction::Restore => {
+            None
+        }
     }
 }
 
@@ -408,7 +488,8 @@ fn show_created(model: &mut AppModel) -> Option<Effect> {
 pub fn apply_resize(model: &mut AppModel, width: u16, height: u16) {
     model.width = width;
     model.height = height;
-    model.images.clear();
+    // Image requests carry their sampling geometry: hydration invalidates only
+    // the requests that actually changed instead of blanking the cache.
     let layout = crate::ui::layout_for(model);
     if model.input == InputMode::Browse
         && let View::Feed(feed) = &mut model.view
@@ -426,7 +507,7 @@ fn query_changed(model: &mut AppModel) -> Option<Effect> {
     {
         clear_filters(model)
     } else {
-        reload_feed(model)
+        requery(model)
     }
 }
 
@@ -440,7 +521,7 @@ fn remove_filter(model: &mut AppModel, command: &Command) -> Option<Effect> {
             feed.query.filters.date_until_exclusive_ms = None;
             feed.query.date_label = None;
         }
-        feed.invalidate_results();
+        feed.mark_requery();
     }
     query_changed(model)
 }

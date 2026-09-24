@@ -27,7 +27,7 @@ mod tests {
     fn reading_area_is_centered_and_never_exceeds_96_columns() {
         for width in [0, 1, 2, 20, 80, 100, 120, 220] {
             let area = Rect::new(0, 0, width, 24);
-            let layout = reading_layout(area, 0);
+            let layout = reading_layout(area, 0, 2);
             assert!(layout.content.width <= 96);
             assert!(layout.content.right() <= width);
             assert_eq!(layout.content.x, (width - layout.content.width) / 2);

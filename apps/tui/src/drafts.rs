@@ -11,9 +11,8 @@ use lomo_workspace::MemoId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io::Write,
-    os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
 };
 
@@ -219,12 +218,23 @@ pub fn commit_capture(
 
 /// # Errors
 /// Private directory creation or permission changes fail visibly.
+#[cfg(unix)]
 pub fn private_directory(path: &Path) -> Result<(), TuiError> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(path)?;
     fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    Ok(())
+}
+
+/// # Errors
+/// Private directory creation fails visibly. Non-Unix targets inherit the
+/// per-user profile ACL, which is already private — no mode bits exist.
+#[cfg(not(unix))]
+pub fn private_directory(path: &Path) -> Result<(), TuiError> {
+    fs::create_dir_all(path)?;
     Ok(())
 }
 
@@ -241,15 +251,40 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), TuiError> {
     private_directory(parent)?;
     let operation = mint_operation_id()?;
     let temp = path.with_extension(format!("{}.tmp", operation.as_str()));
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&temp)?;
+    let mut file = private_file_options().open(&temp)?;
     file.write_all(bytes)?;
     file.sync_all()?;
     fs::rename(&temp, path)?;
-    File::open(parent)?.sync_all()?;
+    sync_dir(parent)?;
+    Ok(())
+}
+
+/// `create_new` + `write` open with owner-only permissions on Unix. Non-Unix
+/// targets inherit the per-user profile ACL; no mode flag exists there.
+fn private_file_options() -> OpenOptions {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options
+}
+
+/// Directory metadata durability. Windows has no directory-sync syscall —
+/// NTFS journals directory metadata — so it resolves immediately there.
+#[cfg(unix)]
+fn sync_dir(path: &Path) -> Result<(), TuiError> {
+    fs::File::open(path)?.sync_all()?;
+    Ok(())
+}
+
+/// # Errors
+/// Never fails: NTFS journals directory metadata; no sync primitive exists.
+#[cfg(not(unix))]
+fn sync_dir(path: &Path) -> Result<(), TuiError> {
+    let _ = path;
     Ok(())
 }
 
@@ -259,7 +294,7 @@ pub fn remove_draft(path: &Path) -> Result<(), TuiError> {
     match fs::remove_file(path) {
         Ok(()) => {
             if let Some(parent) = path.parent() {
-                File::open(parent)?.sync_all()?;
+                sync_dir(parent)?;
             }
             Ok(())
         }

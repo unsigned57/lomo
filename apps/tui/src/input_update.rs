@@ -2,7 +2,7 @@
 use crate::effects::Effect;
 use crate::event::{Command, TextEdit};
 use crate::input::TextBuffer;
-use crate::model::{AppModel, Confirmation, InputMode, SaveState, View};
+use crate::model::{AppModel, Confirmation, InputMode, SaveState};
 use crate::navigation::{move_cursor, shifted};
 
 pub fn apply(model: &mut AppModel, command: &Command) -> Option<Effect> {
@@ -28,11 +28,22 @@ pub fn apply(model: &mut AppModel, command: &Command) -> Option<Effect> {
             }
             crate::update::search_changed(model)
         }
-        InputMode::Picker(picker) => {
+        InputMode::Picker(_) => {
             if let Command::Move(delta) | Command::Scroll(delta) = command {
-                let count = crate::menu::entries(&model.tags, picker).len();
-                picker.selected = shifted(picker.selected, count, *delta);
-            } else {
+                let count = match &model.input {
+                    InputMode::Picker(picker) => crate::menu::entries(model, picker).len(),
+                    InputMode::Browse
+                    | InputMode::Compose
+                    | InputMode::Search { .. }
+                    | InputMode::Date { .. }
+                    | InputMode::Confirm(_)
+                    | InputMode::Message { .. }
+                    | InputMode::Help { .. } => 0,
+                };
+                if let InputMode::Picker(picker) = &mut model.input {
+                    picker.selected = shifted(picker.selected, count, *delta);
+                }
+            } else if let InputMode::Picker(picker) = &mut model.input {
                 edit_field(&mut picker.text, command, model.width);
                 picker.selected = 0;
             }
@@ -58,7 +69,8 @@ pub fn apply(model: &mut AppModel, command: &Command) -> Option<Effect> {
         }
         InputMode::Help { scroll } => {
             if let Command::Scroll(delta) = command {
-                *scroll = shifted(*scroll, 20, *delta);
+                let length = crate::overlays::help(crate::i18n::UiStrings::detect()).len();
+                *scroll = shifted(*scroll, length, *delta);
             }
             None
         }
@@ -140,21 +152,9 @@ fn back(model: &mut AppModel) -> Option<Effect> {
                 content: model.draft.text.text().to_owned(),
             })
         }
-        InputMode::Search { before, .. } => {
-            model.next_epoch();
-            model.view = *before;
-            if let View::Feed(feed) = &mut model.view {
-                feed.epoch = model.epoch;
-                if matches!(
-                    feed.load,
-                    crate::model::LoadStatus::Loading | crate::model::LoadStatus::Stale
-                ) {
-                    return crate::update::reload_feed(model);
-                }
-            }
-            None
-        }
-        InputMode::Compose
+        // Collapsing the search field keeps the keyword as a filter chip.
+        InputMode::Search { .. }
+        | InputMode::Compose
         | InputMode::Browse
         | InputMode::Picker(_)
         | InputMode::Date { .. }
@@ -167,13 +167,6 @@ fn accept(model: &mut AppModel) -> Option<Effect> {
     let input = std::mem::replace(&mut model.input, InputMode::Browse);
     match input {
         InputMode::Picker(picker) => accept_picker(model, picker),
-        InputMode::Search { before, .. } => {
-            if !matches!(&*before, View::Feed(feed) if feed.kind == crate::model::FeedKind::Timeline)
-            {
-                model.history.push(*before);
-            }
-            None
-        }
         InputMode::Date {
             text,
             error,
@@ -192,7 +185,12 @@ fn accept(model: &mut AppModel) -> Option<Effect> {
         }
         InputMode::Confirm(confirmation) => match confirmation {
             Confirmation::Delete { id, fingerprint } => Some(Effect::Delete { id, fingerprint }),
+            Confirmation::DeleteForever(id) => Some(Effect::DeleteForever(id)),
+            Confirmation::EmptyTrash => Some(Effect::EmptyTrash),
             Confirmation::Restore(id) => Some(Effect::Restore(id)),
+            Confirmation::RestoreRevision { id, revision } => {
+                Some(Effect::RestoreRevision { id, revision })
+            }
             Confirmation::DiscardDraft => {
                 model.draft.text = TextBuffer::default();
                 model.draft.revision += 1;
@@ -206,12 +204,16 @@ fn accept(model: &mut AppModel) -> Option<Effect> {
             model.input = InputMode::Compose;
             None
         }
-        InputMode::Browse | InputMode::Help { .. } | InputMode::Message { .. } => None,
+        // Enter leaves the search field with the keyword kept as a filter chip.
+        InputMode::Search { .. }
+        | InputMode::Browse
+        | InputMode::Help { .. }
+        | InputMode::Message { .. } => None,
     }
 }
 
 fn accept_picker(model: &mut AppModel, mut picker: crate::model::Picker) -> Option<Effect> {
-    let rows = crate::menu::entries(&model.tags, &picker);
+    let rows = crate::menu::entries(model, &picker);
     let command = rows
         .get(picker.selected.min(rows.len().saturating_sub(1)))?
         .command
@@ -233,26 +235,44 @@ fn accept_picker(model: &mut AppModel, mut picker: crate::model::Picker) -> Opti
             );
         }
     }
-    if let crate::model::PickerKind::Actions(memo) = picker.kind {
-        return command
-            .memo_action()
-            .and_then(|action| crate::update::apply_to_memo(model, &memo, action));
+    if let crate::model::PickerKind::Palette { item, .. } = picker.kind {
+        return match item {
+            crate::model::PaletteItem::Memo(memo) => match command.memo_action() {
+                Some(action) => crate::update::apply_to_memo(model, &memo, action),
+                None => crate::update::apply_command(model, command),
+            },
+            crate::model::PaletteItem::Task(task) if command == Command::ToggleTask => {
+                Some(Effect::ToggleTask(task))
+            }
+            crate::model::PaletteItem::None
+            | crate::model::PaletteItem::Task(_)
+            | crate::model::PaletteItem::Attachment(_) => {
+                crate::update::apply_command(model, command)
+            }
+        };
+    }
+    if let crate::model::PickerKind::History { id, .. } = picker.kind
+        && let Command::RestoreRevision(revision) = command
+    {
+        model.input = InputMode::Confirm(Confirmation::RestoreRevision { id, revision });
+        return None;
     }
     crate::update::apply_command(model, command)
 }
 
 fn click_input(model: &mut AppModel, x: u16, y: u16) -> Option<Effect> {
     if let InputMode::Picker(picker) = &model.input {
-        let rows = crate::menu::entries(&model.tags, picker);
+        let rows = crate::menu::rows(model, picker);
         let area = crate::overlays::picker_area(model);
         if !area.contains((x, y).into()) {
             return None;
         }
-        let top = crate::overlays::picker_top(picker.selected, rows.len(), area.height);
-        let index = top + usize::from(y - area.y);
-        if index >= rows.len() {
-            return None;
-        }
+        let top = crate::overlays::picker_top(
+            crate::menu::selected_row(&rows, picker.selected),
+            rows.len(),
+            area.height,
+        );
+        let index = crate::menu::entry_at(&rows, top + usize::from(y - area.y))?;
         if let InputMode::Picker(picker) = &mut model.input {
             picker.selected = index;
         }

@@ -1,6 +1,7 @@
 //! Behavior Contract
 //! Capability: memo mutations and external editor commits stay within application transactions.
-//! Scenarios: pin/delete/restore/history, deferred edit commit, concurrent file changes and capture editing.
+//! Scenarios: pin/delete/restore/history, permanent delete and empty trash, revision restore,
+//! deferred edit commit, concurrent file changes and capture editing.
 //! Observable outcomes: Markdown bytes, retained drafts, original fingerprint rejection and unchanged input context.
 //! TDD proof: editor commits block the foreground return; capture editing submits without Ctrl+S.
 //! Excludes: a real terminal, clipboard backend and network sync.
@@ -44,6 +45,14 @@ mod tests {
             )?;
             Ok(ExitStatus::from_raw(0))
         }
+
+        fn spawn_managed(
+            &self,
+            _program: &str,
+            _args: &[String],
+        ) -> Result<Box<dyn lomo_tui::editor::ManagedChild>, std::io::Error> {
+            Err(std::io::Error::other("the editor fake never spawns"))
+        }
     }
 
     fn edit_target(
@@ -83,11 +92,12 @@ mod tests {
                 .expect("fixture and operation must succeed")
                 .pinned
         );
-        let reply = execute(&fixture.runtime, &Effect::History(id.clone()))
+        let (results, _inbox) = std::sync::mpsc::channel();
+        let reply = execute(&fixture.runtime, &Effect::History(id.clone()), &results)
             .expect("fixture and operation must succeed");
         assert!(matches!(
             reply,
-            lomo_tui::effects::RuntimeMessage::Message { .. }
+            lomo_tui::effects::RuntimeMessage::History { .. }
         ));
         command(&fixture.runtime, &mut model, Command::Delete)
             .expect("fixture and operation must succeed");
@@ -117,6 +127,114 @@ mod tests {
                 .expect("fixture and operation must succeed")
                 .is_trashed
         );
+    }
+
+    #[test]
+    fn trash_offers_permanent_delete_and_empty_trash_behind_confirmations() {
+        let fixture = RuntimeFixture::new().expect("fixture and operation must succeed");
+        fixture.seed(3).expect("fixture and operation must succeed");
+        let mut model = bootstrap_model(&fixture.runtime, AppModel::new(80, 24))
+            .expect("fixture and operation must succeed");
+        for _ in 0..3 {
+            command(&fixture.runtime, &mut model, Command::Delete)
+                .expect("fixture and operation must succeed");
+            command(&fixture.runtime, &mut model, Command::Accept)
+                .expect("fixture and operation must succeed");
+        }
+        command(&fixture.runtime, &mut model, Command::Goto(Screen::Trash))
+            .expect("fixture and operation must succeed");
+        assert_eq!(feed(&model).expect("trash").memos.len(), 3);
+        let first = feed(&model)
+            .expect("trash")
+            .memos
+            .first()
+            .expect("first trashed memo")
+            .id
+            .clone();
+        // `d` in the trash is a permanent delete, never a second soft delete.
+        command(&fixture.runtime, &mut model, Command::Delete)
+            .expect("fixture and operation must succeed");
+        assert!(matches!(
+            model.input,
+            InputMode::Confirm(lomo_tui::model::Confirmation::DeleteForever(ref id)) if *id == first
+        ));
+        command(&fixture.runtime, &mut model, Command::Accept)
+            .expect("fixture and operation must succeed");
+        assert_eq!(feed(&model).expect("trash").memos.len(), 2);
+        assert!(
+            fixture
+                .runtime
+                .session
+                .projected_memo(first.as_str())
+                .expect("fixture and operation must succeed")
+                .is_none()
+        );
+        command(&fixture.runtime, &mut model, Command::EmptyTrash)
+            .expect("fixture and operation must succeed");
+        assert!(matches!(
+            model.input,
+            InputMode::Confirm(lomo_tui::model::Confirmation::EmptyTrash)
+        ));
+        command(&fixture.runtime, &mut model, Command::Accept)
+            .expect("fixture and operation must succeed");
+        assert!(feed(&model).expect("trash").memos.is_empty());
+        assert_eq!(feed(&model).expect("trash").total, Some(0));
+    }
+
+    #[test]
+    fn history_lists_revisions_and_restores_the_chosen_one() {
+        let fixture = RuntimeFixture::new().expect("fixture and operation must succeed");
+        fixture.seed(1).expect("fixture and operation must succeed");
+        let mut model = bootstrap_model(&fixture.runtime, AppModel::new(80, 24))
+            .expect("fixture and operation must succeed");
+        let id = model.selected_memo().expect("selected").id.clone();
+        let target = edit_target(&fixture, &model).expect("fixture and operation must succeed");
+        let effect = complete_edit(
+            &fixture.runtime,
+            &mut model,
+            &Editor {
+                body: "edited body",
+                concurrent_file: None,
+            },
+            &target,
+            None,
+            None,
+        )
+        .expect("fixture and operation must succeed");
+        run_effect(&fixture.runtime, &mut model, effect)
+            .expect("fixture and operation must succeed");
+        command(&fixture.runtime, &mut model, Command::History)
+            .expect("fixture and operation must succeed");
+        let InputMode::Picker(picker) = &model.input else {
+            panic!("history picker");
+        };
+        let entries = lomo_tui::menu::entries(&model, picker);
+        let original = entries
+            .iter()
+            .position(|entry| entry.label.contains("needle 0"))
+            .expect("the original body is listed as a revision");
+        command(
+            &fixture.runtime,
+            &mut model,
+            Command::Move(i32::try_from(original).expect("index")),
+        )
+        .expect("fixture and operation must succeed");
+        command(&fixture.runtime, &mut model, Command::Accept)
+            .expect("fixture and operation must succeed");
+        assert!(matches!(
+            model.input,
+            InputMode::Confirm(lomo_tui::model::Confirmation::RestoreRevision { .. })
+        ));
+        command(&fixture.runtime, &mut model, Command::Accept)
+            .expect("fixture and operation must succeed");
+        let body = fixture
+            .runtime
+            .session
+            .get_memo(&id)
+            .expect("fixture and operation must succeed")
+            .expect("memo")
+            .body;
+        assert!(body.contains("needle 0") && !body.contains("edited body"));
     }
 
     #[test]
@@ -251,6 +369,17 @@ mod tests {
                 "player missing",
             ))
         }
+
+        fn spawn_managed(
+            &self,
+            _program: &str,
+            _args: &[String],
+        ) -> Result<Box<dyn lomo_tui::editor::ManagedChild>, std::io::Error> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "player missing",
+            ))
+        }
     }
 
     #[test]
@@ -267,8 +396,11 @@ mod tests {
             png
         );
         let attachment = lomo_core::RelativeWorkspacePath::parse(&path).expect("relative path");
+        let staged = lomo_tui::mutations::stage_attachment(&fixture.runtime, &attachment)
+            .expect("attachment stages under the workspace capability");
         let error =
-            lomo_tui::mutations::open_attachment(&fixture.runtime, &attachment, &MissingPlayer)
+            lomo_tui::media::spawn_player(&MissingPlayer, &fixture.runtime.config.player, &staged)
+                .map(|_| ())
                 .expect_err("missing player");
         assert!(matches!(error, lomo_tui::error::TuiError::Player { .. }));
         let error = lomo_tui::mutations::import_from_clipboard(

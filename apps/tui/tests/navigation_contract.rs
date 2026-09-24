@@ -55,6 +55,58 @@ mod tests {
     }
 
     #[test]
+    fn task_and_attachment_rows_offer_actions_that_open_their_memo() {
+        let fixture = RuntimeFixture::new().expect("fixture and operation must succeed");
+        std::fs::write(
+            fixture.runtime.workspace.join("2026_09_11.md"),
+            "- 10:00:00\n- [ ] buy milk\n\n![](assets/a.png)\n",
+        )
+        .expect("fixture and operation must succeed");
+        std::fs::create_dir_all(fixture.runtime.workspace.join("assets"))
+            .expect("fixture and operation must succeed");
+        std::fs::write(fixture.runtime.workspace.join("assets/a.png"), b"png")
+            .expect("fixture and operation must succeed");
+        fixture
+            .runtime
+            .session
+            .rebuild_projection()
+            .expect("fixture and operation must succeed");
+        let mut model = bootstrap_model(&fixture.runtime, AppModel::new(80, 24))
+            .expect("fixture and operation must succeed");
+        let id = model.selected_memo().expect("memo").id.clone();
+        for screen in [Screen::Tasks, Screen::Attachments] {
+            command(&fixture.runtime, &mut model, Command::Goto(screen))
+                .expect("fixture and operation must succeed");
+            command(&fixture.runtime, &mut model, Command::Actions)
+                .expect("fixture and operation must succeed");
+            let InputMode::Picker(picker) = &model.input else {
+                panic!("{screen:?} actions picker");
+            };
+            let open = lomo_tui::menu::entries(&model, picker)
+                .iter()
+                .position(|entry| entry.command == Command::OpenMemo(id.clone()))
+                .expect("open memo action");
+            command(
+                &fixture.runtime,
+                &mut model,
+                Command::Move(i32::try_from(open).expect("index")),
+            )
+            .expect("fixture and operation must succeed");
+            command(&fixture.runtime, &mut model, Command::Accept)
+                .expect("fixture and operation must succeed");
+            assert!(
+                matches!(&model.view, View::Reader { memo, .. } if memo.id == id),
+                "{screen:?} did not open the memo"
+            );
+            command(&fixture.runtime, &mut model, Command::Back)
+                .expect("fixture and operation must succeed");
+            assert_eq!(model.view.screen(), screen);
+            command(&fixture.runtime, &mut model, Command::Back)
+                .expect("fixture and operation must succeed");
+        }
+    }
+
+    #[test]
     fn auxiliary_pages_return_to_the_previous_reading_context() {
         let fixture = RuntimeFixture::new().expect("fixture and operation must succeed");
         fixture

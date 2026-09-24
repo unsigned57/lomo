@@ -1,6 +1,7 @@
 //! Contextual key translation. Input modes consume characters before browsing shortcuts.
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use lomo_core::RelativeWorkspacePath;
+use lomo_workspace::MemoId;
 
 use crate::model::{AppModel, InputMode, Screen};
 
@@ -23,7 +24,7 @@ pub enum TextEdit {
 pub enum Command {
     Quit,
     Help,
-    Functions,
+    Palette,
     Actions,
     Back,
     Accept,
@@ -53,13 +54,22 @@ pub enum Command {
     SetDate(String),
     Pin,
     Delete,
+    DeleteForever,
+    EmptyTrash,
     Restore,
     History,
+    RestoreRevision(u64),
+    OpenMemo(MemoId),
     ToggleTask,
     ImportClipboard,
     Attachments,
     OpenAttachment(RelativeWorkspacePath),
     Refresh,
+    /// Terminal focus returned. Reconcile observed changes only — never an
+    /// unconditional projection rebuild.
+    FocusReconcile,
+    /// A paste arrived while no text field could receive it.
+    PasteDenied,
     ShowCreated,
     Click(u16, u16),
 }
@@ -70,6 +80,7 @@ pub enum MemoAction {
     Edit,
     Pin,
     Delete,
+    DeleteForever,
     Restore,
     History,
     Attachments,
@@ -83,12 +94,13 @@ impl Command {
             Self::ExternalEdit => Some(MemoAction::Edit),
             Self::Pin => Some(MemoAction::Pin),
             Self::Delete => Some(MemoAction::Delete),
+            Self::DeleteForever => Some(MemoAction::DeleteForever),
             Self::Restore => Some(MemoAction::Restore),
             Self::History => Some(MemoAction::History),
             Self::Attachments => Some(MemoAction::Attachments),
             Self::Quit
             | Self::Help
-            | Self::Functions
+            | Self::Palette
             | Self::Actions
             | Self::Back
             | Self::Compose
@@ -115,12 +127,28 @@ impl Command {
             | Self::SelectTag(_)
             | Self::SetDate(_)
             | Self::ToggleTask
+            | Self::EmptyTrash
+            | Self::RestoreRevision(_)
+            | Self::OpenMemo(_)
             | Self::ImportClipboard
             | Self::OpenAttachment(_)
             | Self::Refresh
+            | Self::FocusReconcile
+            | Self::PasteDenied
             | Self::ShowCreated
             | Self::Click(..) => None,
         }
+    }
+}
+
+/// Bracketed paste targets the active text field; in Browse it is reported,
+/// not silently dropped.
+#[must_use]
+pub fn command_from_paste(text: String, model: &AppModel) -> Option<Command> {
+    if matches!(model.input, InputMode::Browse) {
+        Some(Command::PasteDenied)
+    } else {
+        Some(Command::Type(text))
     }
 }
 
@@ -135,16 +163,16 @@ pub fn command_from_key(key: KeyEvent, model: &AppModel) -> Option<Command> {
     match &model.input {
         InputMode::Browse => browse_key(key),
         InputMode::Compose => compose_key(key),
-        InputMode::Search { .. } | InputMode::Date { .. } | InputMode::Picker(_) => field_key(key),
+        InputMode::Search { .. } => field_key(key, true),
+        InputMode::Date { .. } | InputMode::Picker(_) => field_key(key, false),
         InputMode::Confirm(_) => confirm_key(key),
         InputMode::Message { .. } | InputMode::Help { .. } => message_key(key),
     }
 }
+/// Browsing keeps a small, semantic set of direct keys; everything else lives in the palette.
 const fn browse_key(key: KeyEvent) -> Option<Command> {
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         return match key.code {
-            KeyCode::Char('p') => Some(Command::Functions),
-            KeyCode::Char('f') => Some(Command::ToggleSearchMode),
             KeyCode::Char('d') => Some(Command::Page(1)),
             KeyCode::Char('u') => Some(Command::Page(-1)),
             KeyCode::Backspace
@@ -180,10 +208,9 @@ const fn browse_key(key: KeyEvent) -> Option<Command> {
         (KeyCode::Char('q'), _) => Some(Command::Quit),
         (KeyCode::Char('?'), _) => Some(Command::Help),
         (KeyCode::Char('/'), _) => Some(Command::Search),
+        (KeyCode::Char(':'), _) => Some(Command::Palette),
         (KeyCode::Char('n'), _) => Some(Command::Compose),
         (KeyCode::Char('e'), _) => Some(Command::ExternalEdit),
-        (KeyCode::Char('t'), _) => Some(Command::Tags),
-        (KeyCode::Char('c'), _) => Some(Command::Date),
         (KeyCode::Char('.'), _) => Some(Command::Actions),
         (KeyCode::Char('j') | KeyCode::Down, _) => Some(Command::Move(1)),
         (KeyCode::Char('k') | KeyCode::Up, _) => Some(Command::Move(-1)),
@@ -195,11 +222,6 @@ const fn browse_key(key: KeyEvent) -> Option<Command> {
         (KeyCode::Esc, _) => Some(Command::Back),
         (KeyCode::Char('m'), _) => Some(Command::Pin),
         (KeyCode::Char('d'), _) => Some(Command::Delete),
-        (KeyCode::Char('r'), _) => Some(Command::Restore),
-        (KeyCode::Char('h'), _) => Some(Command::History),
-        (KeyCode::Char('p'), _) => Some(Command::ImportClipboard),
-        (KeyCode::Char('a'), _) => Some(Command::Attachments),
-        (KeyCode::Char('x' | ' '), _) => Some(Command::ToggleTask),
         (KeyCode::F(5), _) => Some(Command::Refresh),
         _ => None,
     }
@@ -226,11 +248,12 @@ fn compose_key(key: KeyEvent) -> Option<Command> {
     if key.code == KeyCode::Down {
         return Some(Command::Edit(TextEdit::Down));
     }
-    field_key(key)
+    field_key(key, false)
 }
-fn field_key(key: KeyEvent) -> Option<Command> {
+/// `Ctrl+F` switches fulltext / fuzzy only where a search keyword is being typed.
+fn field_key(key: KeyEvent, search: bool) -> Option<Command> {
     if key.modifiers.contains(KeyModifiers::CONTROL) {
-        return (key.code == KeyCode::Char('f')).then_some(Command::ToggleSearchMode);
+        return (search && key.code == KeyCode::Char('f')).then_some(Command::ToggleSearchMode);
     }
     match (key.code, key.modifiers) {
         (KeyCode::Char(ch), _) => Some(Command::Type(ch.to_string())),

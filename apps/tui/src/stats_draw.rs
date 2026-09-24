@@ -1,4 +1,4 @@
-//! Think-style statistics: overview, period report, and activity heatmap.
+//! Statistics: overview, period counts and an activity heatmap in the reading column's chrome.
 
 use std::collections::HashMap;
 
@@ -7,28 +7,25 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
-use crate::i18n::{UiLanguage, UiStrings};
+use crate::i18n::UiStrings;
 use crate::model::StatsView;
 
-/// Draws Think's statistics screen into `area`.
+const OVERVIEW_ROWS: u16 = 6;
+/// Two header rows (month labels), seven weekday rows and one legend row.
+const HEATMAP_MIN_INNER_ROWS: u16 = 10;
+
+/// Draws the statistics screen into `area`.
 pub fn draw_stats(frame: &mut Frame, area: Rect, stats: &StatsView, i18n: &UiStrings) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(6),
-            Constraint::Length(12),
-            Constraint::Min(0),
-        ])
+        .constraints([Constraint::Length(OVERVIEW_ROWS), Constraint::Min(0)])
         .split(area);
     let Some(overview_area) = chunks.first().copied() else {
         return;
     };
     let Some(heatmap_area) = chunks.get(1).copied() else {
-        return;
-    };
-    let Some(flashback_area) = chunks.get(2).copied() else {
         return;
     };
     let top = Layout::default()
@@ -45,83 +42,65 @@ pub fn draw_stats(frame: &mut Frame, area: Rect, stats: &StatsView, i18n: &UiStr
     let summary = vec![
         labeled(&i18n.label_total_notes, stats.total_memos.to_string()),
         labeled(&i18n.label_total_words, stats.total_words.to_string()),
-        labeled(
-            &i18n.label_active_days,
-            format!("{} {}", stats.active_days, i18n.label_days),
-        ),
+        labeled(&i18n.label_active_days, stats.active_days.to_string()),
         labeled(
             &i18n.label_streak,
-            format!("{} / {}", stats.current_streak, stats.longest_streak),
+            format!(
+                "{} · {} {}",
+                stats.current_streak, i18n.label_longest, stats.longest_streak
+            ),
         ),
     ];
     frame.render_widget(
-        Paragraph::new(summary).block(rounded(&i18n.header_stats, Color::Reset)),
+        Paragraph::new(summary).block(panel(&i18n.header_stats)),
         summary_area,
     );
-
-    let period = period_text(stats, i18n);
     frame.render_widget(
-        Paragraph::new(period).block(rounded(&i18n.header_cycle, Color::Magenta)),
+        Paragraph::new(period_lines(stats, i18n)).block(panel(&i18n.header_cycle)),
         period_area,
     );
-
     draw_heatmap(frame, heatmap_area, stats, i18n);
-    frame.render_widget(
-        Paragraph::new(Span::styled(
-            i18n.hint_no_flashback.as_str(),
-            Style::default().fg(Color::DarkGray),
-        ))
-        .wrap(Wrap { trim: true })
-        .block(rounded(&i18n.header_flashback, Color::Cyan)),
-        flashback_area,
-    );
 }
 
-fn period_text(stats: &StatsView, i18n: &UiStrings) -> String {
-    if i18n.language == UiLanguage::ChineseSimplified {
-        format!(
-            "本周: {} 笔记\n本月: {} 笔记\n今年: {} 笔记",
-            stats.this_week, stats.this_month, stats.this_year
-        )
-    } else {
-        format!(
-            "This week: {} notes\nThis month: {} notes\nThis year: {} notes",
-            stats.this_week, stats.this_month, stats.this_year
-        )
-    }
+fn period_lines(stats: &StatsView, i18n: &UiStrings) -> Vec<Line<'static>> {
+    vec![
+        labeled(
+            i18n.text("This week: ", "本周: "),
+            stats.this_week.to_string(),
+        ),
+        labeled(
+            i18n.text("This month: ", "本月: "),
+            stats.this_month.to_string(),
+        ),
+        labeled(
+            i18n.text("This year: ", "今年: "),
+            stats.this_year.to_string(),
+        ),
+    ]
 }
 
 fn labeled(label: &str, value: String) -> Line<'static> {
     Line::from(vec![
-        Span::styled(label.to_owned(), Style::default().fg(Color::Cyan)),
+        Span::styled(label.to_owned(), Style::default().fg(Color::DarkGray)),
         Span::raw(value),
     ])
 }
 
-fn rounded(title: &str, border: Color) -> Block<'static> {
-    let mut block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .title(Span::styled(title.to_owned(), Style::default()));
-    if border != Color::Reset {
-        block = block.border_style(Style::default().fg(border));
-    }
-    block
-}
-
-fn draw_heatmap(frame: &mut Frame, area: Rect, stats: &StatsView, i18n: &UiStrings) {
-    let block = Block::default()
+fn panel(title: &str) -> Block<'static> {
+    Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(Color::DarkGray))
         .title(Span::styled(
-            i18n.header_heatmap.clone(),
-            Style::default()
-                .add_modifier(Modifier::BOLD)
-                .fg(Color::Cyan),
-        ));
-    frame.render_widget(block.clone(), area);
+            format!(" {title} "),
+            Style::default().add_modifier(Modifier::BOLD),
+        ))
+}
+
+fn draw_heatmap(frame: &mut Frame, area: Rect, stats: &StatsView, i18n: &UiStrings) {
+    let block = panel(&i18n.header_heatmap);
     let inner = block.inner(area);
+    frame.render_widget(block, area);
     let Some(plan) = heatmap_plan(inner, stats) else {
         return;
     };
@@ -186,7 +165,7 @@ fn paint_weekday_labels(frame: &mut Frame, inner: Rect, start_y: u16, i18n: &UiS
                 inner.x.saturating_add(1),
                 label_y,
                 label,
-                Style::default().fg(Color::Rgb(100, 100, 100)),
+                Style::default().fg(Color::DarkGray),
             );
         }
     }
@@ -229,7 +208,7 @@ fn paint_month_label(frame: &mut Frame, inner: Rect, col_x: u16, month: u8, i18n
             col_x,
             inner.y.saturating_add(1),
             month_name,
-            Style::default().fg(Color::Rgb(150, 150, 150)),
+            Style::default().fg(Color::DarkGray),
         );
     }
 }
@@ -267,18 +246,26 @@ fn paint_week_column(
     }
 }
 
+const HEAT_SCALE: [Color; 5] = [
+    Color::Rgb(60, 60, 60),
+    Color::Rgb(163, 190, 140),
+    Color::Rgb(235, 203, 139),
+    Color::Rgb(208, 135, 112),
+    Color::Rgb(191, 97, 106),
+];
+
 const fn heat_color(count: u64) -> Color {
     match count {
-        0 => Color::Rgb(60, 60, 60),
-        1 => Color::Rgb(163, 190, 140),
-        2..=3 => Color::Rgb(235, 203, 139),
-        4..=6 => Color::Rgb(208, 135, 112),
-        _ => Color::Rgb(191, 97, 106),
+        0 => HEAT_SCALE[0],
+        1 => HEAT_SCALE[1],
+        2..=3 => HEAT_SCALE[2],
+        4..=6 => HEAT_SCALE[3],
+        _ => HEAT_SCALE[4],
     }
 }
 
 fn paint_heatmap_legend(frame: &mut Frame, inner: Rect, i18n: &UiStrings) {
-    if inner.height <= 10 {
+    if inner.height < HEATMAP_MIN_INNER_ROWS {
         return;
     }
     let legend_x = inner.right().saturating_sub(22);
@@ -290,13 +277,7 @@ fn paint_heatmap_legend(frame: &mut Frame, inner: Rect, i18n: &UiStrings) {
         Style::default().fg(Color::DarkGray),
     );
     let mut x = legend_x.saturating_add(5);
-    for color in [
-        Color::Rgb(60, 60, 60),
-        Color::Rgb(163, 190, 140),
-        Color::Rgb(235, 203, 139),
-        Color::Rgb(208, 135, 112),
-        Color::Rgb(191, 97, 106),
-    ] {
+    for color in HEAT_SCALE {
         frame
             .buffer_mut()
             .set_string(x, legend_y, "●", Style::default().fg(color));

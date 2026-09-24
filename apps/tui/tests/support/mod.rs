@@ -110,6 +110,7 @@ pub fn runtime_at(
         drafts_dir: root.join("state/drafts"),
         exchange_dir: root.join("state/exchange"),
         default_workspace: None,
+        home_dir: Some(root.join("home")),
     };
     let config = lomo_tui::config::AppConfig {
         workspace: root.join(workspace),
@@ -118,6 +119,8 @@ pub fn runtime_at(
         editor: Some(vec!["scripted".to_owned()]),
         player: vec!["xdg-open".to_owned()],
     };
+    // The fixture's explicit "create a library" step: opening must not create.
+    std::fs::create_dir_all(&config.workspace).map_err(TuiError::from)?;
     lomo_tui::ops::open_runtime(paths, config, lomo_tui::media::GraphicsProtocol::None)
 }
 
@@ -129,8 +132,9 @@ pub fn run_effect(
     effect: Option<lomo_tui::effects::Effect>,
 ) -> Result<(), TuiError> {
     let mut pending = effect;
+    let (results, _inbox) = std::sync::mpsc::channel();
     while let Some(effect) = pending {
-        let reply = lomo_tui::ops::execute(runtime, &effect)?;
+        let reply = lomo_tui::ops::execute(runtime, &effect, &results)?;
         pending = lomo_tui::messages::apply_message(model, reply);
     }
     Ok(())

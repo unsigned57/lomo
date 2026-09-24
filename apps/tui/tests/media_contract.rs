@@ -16,12 +16,22 @@ mod tests {
     use std::path::Path;
     use std::process::ExitStatus;
 
-    use lomo_tui::editor::CommandRunner;
+    use lomo_tui::editor::{CommandRunner, ManagedChild};
     use lomo_tui::error::TuiError;
     use lomo_tui::media::{
         ClipboardError, GraphicsProtocol, ImageClipboard, MediaKind, detect_graphics,
-        image_placeholder, play_audio, rgba_to_png, unique_media_relative_path,
+        image_placeholder, rgba_to_png, spawn_player, unique_media_relative_path,
     };
+
+    struct ImmediateChild {
+        status: i32,
+    }
+
+    impl ManagedChild for ImmediateChild {
+        fn wait(&mut self) -> Result<ExitStatus, std::io::Error> {
+            Ok(ExitStatus::from_raw(self.status))
+        }
+    }
 
     struct MissingPlayer;
 
@@ -31,6 +41,17 @@ mod tests {
             _program: &str,
             _args: &[String],
         ) -> Result<ExitStatus, std::io::Error> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "xdg-open: no such file",
+            ))
+        }
+
+        fn spawn_managed(
+            &self,
+            _program: &str,
+            _args: &[String],
+        ) -> Result<Box<dyn ManagedChild>, std::io::Error> {
             Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "xdg-open: no such file",
@@ -48,6 +69,14 @@ mod tests {
         ) -> Result<ExitStatus, std::io::Error> {
             Ok(ExitStatus::from_raw(0))
         }
+
+        fn spawn_managed(
+            &self,
+            _program: &str,
+            _args: &[String],
+        ) -> Result<Box<dyn ManagedChild>, std::io::Error> {
+            Ok(Box::new(ImmediateChild { status: 0 }))
+        }
     }
 
     struct FailPlayer;
@@ -59,6 +88,14 @@ mod tests {
             _args: &[String],
         ) -> Result<ExitStatus, std::io::Error> {
             Ok(ExitStatus::from_raw(1))
+        }
+
+        fn spawn_managed(
+            &self,
+            _program: &str,
+            _args: &[String],
+        ) -> Result<Box<dyn ManagedChild>, std::io::Error> {
+            Ok(Box::new(ImmediateChild { status: 1 }))
         }
     }
 
@@ -95,11 +132,12 @@ mod tests {
 
     #[test]
     fn missing_player_is_an_error_not_success() {
-        let error = play_audio(
+        let error = spawn_player(
             &MissingPlayer,
             &["xdg-open".to_owned()],
             Path::new("media/a.mp3"),
         )
+        .map(|_| ())
         .expect_err("missing player");
         match error {
             TuiError::Player { diagnostic } => {
@@ -113,13 +151,19 @@ mod tests {
             | TuiError::Terminal { .. }
             | TuiError::Clipboard { .. } => panic!("expected player error, got {error:?}"),
         }
-        play_audio(
+        let mut child = spawn_player(
             &ZeroPlayer,
             &["xdg-open".to_owned()],
             Path::new("media/a.mp3"),
         )
-        .expect("zero exit is success");
-        let empty = play_audio(&ZeroPlayer, &[], Path::new("media/a.mp3")).expect_err("empty argv");
+        .expect("spawn succeeds without waiting on the worker");
+        assert!(
+            child.wait().expect("wait").success(),
+            "zero exit is a successful completion"
+        );
+        let empty = spawn_player(&ZeroPlayer, &[], Path::new("media/a.mp3"))
+            .map(|_| ())
+            .expect_err("empty argv");
         match empty {
             TuiError::Player { diagnostic } => {
                 assert!(diagnostic.contains("not configured"));
@@ -132,13 +176,16 @@ mod tests {
             | TuiError::Terminal { .. }
             | TuiError::Clipboard { .. } => panic!("expected player error, got {empty:?}"),
         }
-        let failed = play_audio(
+        let mut failed = spawn_player(
             &FailPlayer,
             &["xdg-open".to_owned()],
             Path::new("media/a.mp3"),
         )
-        .expect_err("nonzero");
-        assert!(matches!(failed, TuiError::Player { .. }));
+        .expect("a failing exit status is still a managed spawn");
+        assert!(
+            !failed.wait().expect("wait").success(),
+            "non-zero exit surfaces through the managed handle, not a blocked worker"
+        );
     }
 
     #[test]

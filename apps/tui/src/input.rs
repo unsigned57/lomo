@@ -1,11 +1,16 @@
 //! Unicode-safe text input shared by quick capture and filter fields.
+use std::collections::VecDeque;
+
 use unicode_segmentation::UnicodeSegmentation;
+
+/// Undo retains a bounded edit record: the oldest checkpoints are evicted.
+const UNDO_LIMIT: usize = 100;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TextBuffer {
     text: String,
     cursor: usize,
-    undo: Vec<(String, usize)>,
+    undo: VecDeque<(String, usize)>,
     redo: Vec<(String, usize)>,
 }
 impl TextBuffer {
@@ -15,7 +20,7 @@ impl TextBuffer {
         Self {
             text,
             cursor,
-            undo: Vec::new(),
+            undo: VecDeque::new(),
             redo: Vec::new(),
         }
     }
@@ -85,7 +90,7 @@ impl TextBuffer {
             .unwrap_or(0);
     }
     pub fn undo(&mut self) {
-        if let Some((text, cursor)) = self.undo.pop() {
+        if let Some((text, cursor)) = self.undo.pop_back() {
             self.redo
                 .push((std::mem::replace(&mut self.text, text), self.cursor));
             self.cursor = cursor;
@@ -94,7 +99,7 @@ impl TextBuffer {
     pub fn redo(&mut self) {
         if let Some((text, cursor)) = self.redo.pop() {
             self.undo
-                .push((std::mem::replace(&mut self.text, text), self.cursor));
+                .push_back((std::mem::replace(&mut self.text, text), self.cursor));
             self.cursor = cursor;
         }
     }
@@ -130,10 +135,10 @@ impl TextBuffer {
         self.text.split_at(self.cursor).1
     }
     fn checkpoint(&mut self) {
-        self.undo.push((self.text.clone(), self.cursor));
+        self.undo.push_back((self.text.clone(), self.cursor));
         self.redo.clear();
-        if self.undo.len() > 100 {
-            self.undo.remove(0);
+        if self.undo.len() > UNDO_LIMIT {
+            self.undo.pop_front();
         }
     }
 }

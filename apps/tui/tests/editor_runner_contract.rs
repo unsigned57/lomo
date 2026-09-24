@@ -38,6 +38,14 @@ mod tests {
             )?;
             Ok(ExitStatus::from_raw(self.exit))
         }
+
+        fn spawn_managed(
+            &self,
+            _program: &str,
+            _args: &[String],
+        ) -> Result<Box<dyn lomo_tui::editor::ManagedChild>, std::io::Error> {
+            Err(std::io::Error::other("the editor fake never spawns"))
+        }
     }
 
     #[test]

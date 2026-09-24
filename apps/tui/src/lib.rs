@@ -1,7 +1,9 @@
 #![deny(unsafe_code)]
 
+pub mod cli;
 pub mod config;
 pub mod content;
+pub mod crash;
 pub mod drafts;
 pub mod edit_flow;
 pub mod editor;
@@ -17,6 +19,7 @@ pub mod image_surface;
 pub mod input;
 pub mod input_update;
 pub mod layout;
+pub mod logging;
 pub mod markdown_view;
 pub mod media;
 pub mod menu;
@@ -32,7 +35,6 @@ pub mod search_view;
 pub mod sixel;
 pub mod stats_draw;
 pub mod text_layout;
-pub mod theme;
 pub mod ui;
 pub mod update;
 pub mod xdg;

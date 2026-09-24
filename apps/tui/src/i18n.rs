@@ -27,13 +27,11 @@ pub struct UiStrings {
     pub header_stats: String,
     pub header_cycle: String,
     pub header_heatmap: String,
-    pub header_flashback: String,
     pub label_total_notes: String,
     pub label_total_words: String,
     pub label_active_days: String,
     pub label_streak: String,
-    pub label_days: String,
-    pub hint_no_flashback: String,
+    pub label_longest: String,
     pub heatmap_less: String,
     pub heatmap_more: String,
     pub heatmap_weekdays: [&'static str; 7],
@@ -49,10 +47,12 @@ impl UiStrings {
         }
     }
 
-    /// Reads `LOMO_LANG`, then `LC_ALL` / `LC_MESSAGES` / `LANG`.
+    /// Reads `LOMO_LANG`, then `LC_ALL` / `LC_MESSAGES` / `LANG` — once per
+    /// process. The language is process configuration, not per-frame input.
     #[must_use]
-    pub fn detect() -> Self {
-        Self::for_language(detect_language())
+    pub fn detect() -> &'static Self {
+        static STRINGS: std::sync::OnceLock<UiStrings> = std::sync::OnceLock::new();
+        STRINGS.get_or_init(|| Self::for_language(detect_language()))
     }
 
     #[must_use]
@@ -86,18 +86,16 @@ impl UiStrings {
             title_attachments: "Attachments".to_owned(),
             title_trash: "Trash".to_owned(),
             title_settings: "Settings".to_owned(),
-            title_overdue: " [ Overdue reminders ] ".to_owned(),
-            title_history: " [ History ] ".to_owned(),
-            header_stats: " [ Overview ] ".to_owned(),
-            header_cycle: " [ Period Report ] ".to_owned(),
-            header_heatmap: " [ Activity Heatmap ] ".to_owned(),
-            header_flashback: " [ Flashback ] ".to_owned(),
-            label_total_notes: "Total notes: ".to_owned(),
-            label_total_words: "Total words: ".to_owned(),
+            title_overdue: "Overdue reminders".to_owned(),
+            title_history: "History".to_owned(),
+            header_stats: "Overview".to_owned(),
+            header_cycle: "This period".to_owned(),
+            header_heatmap: "Activity".to_owned(),
+            label_total_notes: "Memos: ".to_owned(),
+            label_total_words: "Words: ".to_owned(),
             label_active_days: "Active days: ".to_owned(),
             label_streak: "Streak: ".to_owned(),
-            label_days: "days".to_owned(),
-            hint_no_flashback: "No historical notes yet — go write your first one!".to_owned(),
+            label_longest: "longest".to_owned(),
             heatmap_less: "Less ".to_owned(),
             heatmap_more: "More".to_owned(),
             heatmap_weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
@@ -117,23 +115,22 @@ impl UiStrings {
             title_attachments: "附件".to_owned(),
             title_trash: "回收站".to_owned(),
             title_settings: "设置".to_owned(),
-            title_overdue: " [ 逾期提醒 ] ".to_owned(),
-            title_history: " [ 版本历史 ] ".to_owned(),
-            header_stats: " [ 数据概览 ] ".to_owned(),
-            header_cycle: " [ 周期报表 ] ".to_owned(),
-            header_heatmap: " [ 活跃度热力图 ] ".to_owned(),
-            header_flashback: " [ 历史回顾 ] ".to_owned(),
-            label_total_notes: "总笔记数: ".to_owned(),
-            label_total_words: "总字数:   ".to_owned(),
+            title_overdue: "逾期提醒".to_owned(),
+            title_history: "版本历史".to_owned(),
+            header_stats: "数据概览".to_owned(),
+            header_cycle: "本期".to_owned(),
+            header_heatmap: "活跃度".to_owned(),
+            label_total_notes: "记录数: ".to_owned(),
+            label_total_words: "总字数: ".to_owned(),
             label_active_days: "活跃天数: ".to_owned(),
             label_streak: "连续天数: ".to_owned(),
-            label_days: "天".to_owned(),
-            hint_no_flashback: "暂无历史笔记，快去写下第一条吧！".to_owned(),
-            heatmap_less: "Less ".to_owned(),
-            heatmap_more: "More".to_owned(),
-            heatmap_weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+            label_longest: "最长".to_owned(),
+            heatmap_less: "少 ".to_owned(),
+            heatmap_more: "多".to_owned(),
+            heatmap_weekdays: ["日", "一", "二", "三", "四", "五", "六"],
             heatmap_months: [
-                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+                "1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月",
+                "12月",
             ],
         }
     }

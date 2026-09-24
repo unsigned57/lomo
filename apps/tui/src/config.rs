@@ -8,7 +8,8 @@ use serde::Deserialize;
 use crate::error::TuiError;
 use crate::xdg::RuntimePaths;
 
-/// User-facing TUI configuration loaded from `$XDG_CONFIG_HOME/lomo/config.toml`.
+/// User-facing TUI configuration loaded from `<config base>/lomo/config.toml`
+/// (`$XDG_CONFIG_HOME`, `~/Library/Application Support`, or `%APPDATA%`).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AppConfig {
     pub workspace: PathBuf,
@@ -38,41 +39,6 @@ enum TomlEditor {
     Argv(Vec<String>),
 }
 
-/// CLI verbs. Unknown flags fail closed.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CliAction {
-    Help,
-    Version,
-    Run { workspace_override: Option<PathBuf> },
-}
-
-/// Parses argv after the binary name.
-///
-/// # Errors
-/// Unknown flags.
-pub fn parse_cli(args: impl IntoIterator<Item = String>) -> Result<CliAction, TuiError> {
-    let mut args = args.into_iter();
-    let _binary = args.next();
-    match args.next().as_deref() {
-        None => Ok(CliAction::Run {
-            workspace_override: None,
-        }),
-        Some("--help" | "-h") => Ok(CliAction::Help),
-        Some("--version" | "-V") => Ok(CliAction::Version),
-        Some(flag) if flag.starts_with('-') => Err(TuiError::config(format!(
-            "unknown argument {flag}; try --help"
-        ))),
-        Some(path) => {
-            if args.next().is_some() {
-                return Err(TuiError::config("unexpected extra arguments"));
-            }
-            Ok(CliAction::Run {
-                workspace_override: Some(PathBuf::from(path)),
-            })
-        }
-    }
-}
-
 /// Loads config.toml and applies an optional workspace override.
 ///
 /// Missing `config.toml` is a first-run state: the file is created with the CLI workspace
@@ -99,7 +65,7 @@ pub fn load_config(
             )));
         }
     };
-    parse_config_toml(&raw, workspace_override)
+    parse_config_toml(&raw, workspace_override, paths.home_dir.as_deref())
 }
 
 fn mint_first_run_config(
@@ -115,6 +81,10 @@ fn mint_first_run_config(
                 "config.toml is missing and no default workspace is available; set HOME or pass a workspace path",
             )
         })?;
+    let workspace = normalize_workspace(&workspace, paths.home_dir.as_deref())?;
+    // Minting a first-run config IS the create-new-library action; opening an
+    // existing library never materializes directories itself.
+    fs::create_dir_all(&workspace)?;
     fs::create_dir_all(&paths.config_dir)?;
     let contents = first_run_toml(&workspace)?;
     match OpenOptions::new().write(true).create_new(true).open(file) {
@@ -157,20 +127,23 @@ fn first_run_toml(workspace: &Path) -> Result<String, TuiError> {
 /// Parses a config document. Used by tests without touching XDG.
 ///
 /// # Errors
-/// Invalid TOML or empty workspace path.
+/// Invalid TOML, empty workspace path, or a non-absolute workspace (after `~`
+/// expansion against `home_dir`).
 pub fn parse_config_toml(
     raw: &str,
     workspace_override: Option<&Path>,
+    home_dir: Option<&Path>,
 ) -> Result<AppConfig, TuiError> {
     let parsed: FileConfig =
         toml::from_str(raw).map_err(|error| TuiError::config(error.to_string()))?;
     if parsed.workspace.trim().is_empty() {
         return Err(TuiError::config("workspace path must be non-empty"));
     }
-    let workspace = match workspace_override {
+    let configured = match workspace_override {
         Some(path) => path.to_path_buf(),
-        None => PathBuf::from(parsed.workspace),
+        None => PathBuf::from(&parsed.workspace),
     };
+    let workspace = normalize_workspace(&configured, home_dir)?;
     let date_format = match parsed.date_format {
         Some(pattern) => {
             parse_pattern(&pattern).map_err(|error| TuiError::config(error.to_string()))?
@@ -200,25 +173,62 @@ pub fn parse_config_toml(
         player: parsed
             .player
             .filter(|argv| argv.first().is_some_and(|program| !program.is_empty()))
-            .unwrap_or_else(|| vec!["xdg-open".to_owned()]),
+            .unwrap_or_else(default_player),
     })
 }
 
-pub const HELP_TEXT: &str = "\
-lomo — Linux TUI for a Lomo workspace
+/// Resolves a configured workspace path: `~`/`~/…` expand against `home_dir`,
+/// `~other` forms are rejected, and the result must be absolute. A relative
+/// binding can only come from a hand-edited file or CLI flag — both are
+/// configuration errors, never silently anchored to the process cwd.
+fn normalize_workspace(path: &Path, home_dir: Option<&Path>) -> Result<PathBuf, TuiError> {
+    let text = path
+        .to_str()
+        .ok_or_else(|| TuiError::config("workspace path must be UTF-8"))?;
+    let resolved = if text == "~" {
+        home_dir
+            .ok_or_else(|| TuiError::config("workspace '~' requires a home directory"))?
+            .to_path_buf()
+    } else if let Some(rest) = text.strip_prefix("~/") {
+        home_dir
+            .ok_or_else(|| TuiError::config("workspace '~/' requires a home directory"))?
+            .join(rest)
+    } else if text.starts_with('~') {
+        return Err(TuiError::config(format!(
+            "workspace '{text}' is unsupported; only '~' and '~/' expand"
+        )));
+    } else {
+        path.to_path_buf()
+    };
+    if resolved.is_absolute() {
+        Ok(resolved)
+    } else {
+        Err(TuiError::config(format!(
+            "workspace path must be absolute, got '{text}'"
+        )))
+    }
+}
 
-Usage:
-  lomo [--help|--version] [workspace]
-
-Keys:
-  j/k or arrows   select a memo / scroll full text
-  Enter / Esc     read / return
-  n               quick capture (Enter inserts a newline)
-  Ctrl+s          submit capture
-  Ctrl+e / e      edit capture / existing memo in external editor
-  / t c           search / tags / date
-  Ctrl+f          toggle fulltext / fuzzy and pinyin
-  Ctrl+p / .      searchable functions / memo actions
-  PageUp/PageDown scroll a page
-  ? / q           help / quit (drafts are retained)
-";
+/// Platform "open with the default handler" argv: the media path is appended
+/// as the final argument by [`crate::media::spawn_player`].
+fn default_player() -> Vec<String> {
+    #[cfg(target_os = "windows")]
+    {
+        // `Start-Process` on the file opens its registered handler without a
+        // visible console window; cmd's `start` would need shell quoting.
+        vec![
+            "powershell".to_owned(),
+            "-NoProfile".to_owned(),
+            "-Command".to_owned(),
+            "Start-Process".to_owned(),
+        ]
+    }
+    #[cfg(target_os = "macos")]
+    {
+        vec!["open".to_owned()]
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        vec!["xdg-open".to_owned()]
+    }
+}

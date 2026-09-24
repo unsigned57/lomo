@@ -1,4 +1,4 @@
-//! Linux composition root. Runtime IO is driven by typed effects.
+//! TUI composition root. Runtime IO is driven by typed effects.
 use crate::{
     config::AppConfig,
     effects::{Effect, RuntimeMessage},
@@ -9,10 +9,9 @@ use crate::{
 };
 use lomo_application::{WorkspaceSession, WorkspaceSessionConfig};
 use lomo_core::{CapabilityToken, OperationId};
-use lomo_platform_fs::PosixPlatformActionExecutor;
+use lomo_platform_fs::FsPlatformActionExecutor;
 use lomo_workspace::WorkspaceRootId;
 use std::{
-    fs,
     path::{Path, PathBuf},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
@@ -46,10 +45,18 @@ pub fn open_runtime(
     ] {
         crate::drafts::private_directory(dir)?;
     }
-    fs::create_dir_all(&config.workspace)?;
-    let executor = Arc::new(PosixPlatformActionExecutor::new(&paths.exchange_dir)?);
+    // Opening an existing library never materializes one: first-run minting is
+    // the distinct create action. A missing workspace means a wrong path.
+    if !config.workspace.is_dir() {
+        return Err(TuiError::config(format!(
+            "workspace directory does not exist: {}",
+            config.workspace.display()
+        )));
+    }
+    let executor = Arc::new(FsPlatformActionExecutor::new(&paths.exchange_dir)?);
     let capability = CapabilityToken::parse("notes-root")?;
     executor.bind_root(capability.clone(), &config.workspace)?;
+    lomo_workspace::migrate_history_state_v1_to_v2(&config.workspace)?;
     let workspace_generation =
         lomo_workspace::load_or_mint_workspace_generation(&config.workspace)?;
     let session_config = WorkspaceSessionConfig {
@@ -62,6 +69,7 @@ pub fn open_runtime(
         cache_dir: paths.cache_dir.clone(),
         runtime_dir: paths.runtime_dir.clone(),
         exchange_dir: paths.exchange_dir.clone(),
+        media_stage_root: config.workspace.clone(),
     };
     let executor: Arc<dyn lomo_core::PlatformActionExecutor> = executor;
     let session = WorkspaceSession::open(session_config.clone(), Arc::clone(&executor))?;
@@ -99,11 +107,23 @@ pub fn bootstrap_model(runtime: &TuiRuntime, mut model: AppModel) -> Result<AppM
         .alarms
         .into_iter()
         .filter(|alarm| alarm.is_catch_up)
-        .map(|alarm| format!("{} · {}", alarm.memo_identity, alarm.trigger_at_utc_ms))
-        .collect::<Vec<_>>();
+        .map(|alarm| {
+            let stamp = lomo_application::calendar::journal_stamp(
+                alarm.trigger_at_utc_ms,
+                &runtime.config.time_zone,
+                lomo_application::calendar::DateFormat::YyyyMmDdHyphen,
+            )?;
+            Ok(format!(
+                "{} {} · {}",
+                stamp.filename.trim_end_matches(".md"),
+                stamp.time_token,
+                alarm.memo_identity
+            ))
+        })
+        .collect::<Result<Vec<_>, TuiError>>()?;
     if !overdue.is_empty() {
         model.input = InputMode::Message {
-            title: crate::i18n::UiStrings::detect().title_overdue,
+            title: crate::i18n::UiStrings::detect().title_overdue.clone(),
             lines: overdue,
             scroll: 0,
         };
@@ -111,9 +131,14 @@ pub fn bootstrap_model(runtime: &TuiRuntime, mut model: AppModel) -> Result<AppM
     Ok(model)
 }
 /// Executes one effect. The caller applies its reply in the UI thread.
+/// `results` carries asynchronous completions (player exit) back to the loop.
 /// # Errors
 /// Preserves session, tool and filesystem diagnostics.
-pub fn execute(runtime: &TuiRuntime, effect: &Effect) -> Result<RuntimeMessage, TuiError> {
+pub fn execute(
+    runtime: &TuiRuntime,
+    effect: &Effect,
+    results: &std::sync::mpsc::Sender<RuntimeMessage>,
+) -> Result<RuntimeMessage, TuiError> {
     match effect {
         Effect::LoadImage(request) => Ok(RuntimeMessage::Image {
             request: request.clone(),
@@ -165,13 +190,22 @@ pub fn execute(runtime: &TuiRuntime, effect: &Effect) -> Result<RuntimeMessage, 
                 revision: *revision,
             })
         }
+        Effect::OpenAttachment(path) => open_attachment(runtime, path, results),
         Effect::ToggleTask(_)
         | Effect::Pin { .. }
         | Effect::Delete { .. }
+        | Effect::DeleteForever(_)
+        | Effect::EmptyTrash
         | Effect::Restore(_)
+        | Effect::RestoreRevision { .. }
         | Effect::History(_)
-        | Effect::ImportClipboard
-        | Effect::OpenAttachment(_) => crate::mutations::execute(runtime, effect),
+        | Effect::ImportClipboard => crate::mutations::execute(runtime, effect),
+        Effect::Reconcile => {
+            let result = runtime.session.rebuild_projection()?;
+            Ok(RuntimeMessage::Reconciled {
+                changed: result.rewritten,
+            })
+        }
         Effect::Tags => Ok(RuntimeMessage::Tags(
             runtime
                 .session
@@ -196,6 +230,45 @@ pub fn execute(runtime: &TuiRuntime, effect: &Effect) -> Result<RuntimeMessage, 
         )),
     }
 }
+
+/// Stages the attachment under the workspace capability, spawns the player as
+/// a managed child and reports its exit through `results` — the blocking wait
+/// runs on a monitor thread, never on this effect worker.
+/// # Errors
+/// Staging or spawn failures keep their typed diagnostics.
+fn open_attachment(
+    runtime: &TuiRuntime,
+    path: &lomo_core::RelativeWorkspacePath,
+    results: &std::sync::mpsc::Sender<RuntimeMessage>,
+) -> Result<RuntimeMessage, TuiError> {
+    let staged = crate::mutations::stage_attachment(runtime, path)?;
+    let mut child = crate::media::spawn_player(
+        &crate::editor::StdCommandRunner,
+        &runtime.config.player,
+        &staged,
+    )?;
+    let monitor = results.clone();
+    std::thread::spawn(move || {
+        let reply = match child.wait() {
+            Ok(status) => RuntimeMessage::PlayerFinished {
+                success: status.success(),
+                diagnostic: crate::media::player_exit_diagnostic(status),
+            },
+            Err(error) => RuntimeMessage::PlayerFinished {
+                success: false,
+                diagnostic: Some(format!("player wait failed: {error}")),
+            },
+        };
+        drop(monitor.send(reply));
+    });
+    Ok(RuntimeMessage::Message {
+        title: crate::i18n::UiStrings::detect()
+            .text("Attachment opened", "附件已打开")
+            .to_owned(),
+        lines: vec![path.as_str().to_owned()],
+    })
+}
+
 /// Cryptographically unique identity for a durable operation.
 /// # Errors
 /// OS randomness or identifier validation failure.

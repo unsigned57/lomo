@@ -18,6 +18,30 @@ pub trait CommandRunner {
     /// # Errors
     /// Spawn or wait failures, including a missing binary.
     fn run_foreground(&self, program: &str, args: &[String]) -> Result<ExitStatus, std::io::Error>;
+
+    /// Spawns `program` as a managed child whose wait runs on a dedicated
+    /// monitor, keeping the effect worker free for queries.
+    ///
+    /// # Errors
+    /// Spawn failures, including a missing binary.
+    fn spawn_managed(
+        &self,
+        program: &str,
+        args: &[String],
+    ) -> Result<Box<dyn ManagedChild>, std::io::Error>;
+}
+
+/// A spawned process whose exit is awaited off the effect worker.
+pub trait ManagedChild: Send {
+    /// # Errors
+    /// Wait failures, including an already-reaped child.
+    fn wait(&mut self) -> Result<ExitStatus, std::io::Error>;
+}
+
+impl ManagedChild for std::process::Child {
+    fn wait(&mut self) -> Result<ExitStatus, std::io::Error> {
+        Self::wait(self)
+    }
 }
 
 /// Production runner using `std::process::Command` with an argv vector (no shell).
@@ -27,6 +51,15 @@ pub struct StdCommandRunner;
 impl CommandRunner for StdCommandRunner {
     fn run_foreground(&self, program: &str, args: &[String]) -> Result<ExitStatus, std::io::Error> {
         Command::new(program).args(args).status()
+    }
+
+    fn spawn_managed(
+        &self,
+        program: &str,
+        args: &[String],
+    ) -> Result<Box<dyn ManagedChild>, std::io::Error> {
+        let child: Box<dyn ManagedChild> = Box::new(Command::new(program).args(args).spawn()?);
+        Ok(child)
     }
 }
 

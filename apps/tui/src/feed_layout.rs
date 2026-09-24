@@ -1,7 +1,7 @@
 //! Feed geometry is shared by drawing, semantic anchors and mouse hit testing.
 use lomo_workspace::MemoId;
 use ratatui::{
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
 };
 
@@ -25,11 +25,12 @@ pub fn memo_lines(memo: &MemoCard, width: u16, searching: bool) -> Vec<Line<'sta
 }
 
 fn card_rows(memo: &MemoCard, width: u16, searching: bool) -> Vec<(CardPosition, Line<'static>)> {
-    let mut time = if searching {
-        format!("{}  {}", memo.date, memo.time)
-    } else {
-        memo.time.clone()
-    };
+    let mut time = format!(
+        "{}{}  {}",
+        if memo.pinned { "◆ " } else { "" },
+        memo.date,
+        memo.time
+    );
     if searching && let Some(excerpt) = &memo.excerpt {
         use lomo_application::search_excerpt::MatchSource;
         let s = crate::i18n::UiStrings::detect();
@@ -45,7 +46,7 @@ fn card_rows(memo: &MemoCard, width: u16, searching: bool) -> Vec<(CardPosition,
     )];
     let content = memo.excerpt.as_ref().filter(|_| searching).map_or_else(
         || match &memo.body {
-            BodyState::Ready(body) => body.lines().to_vec(),
+            BodyState::Ready(body) => body.card_lines().to_vec(),
             BodyState::Pending | BodyState::Loading { .. } => plain_lines(&memo.summary),
             BodyState::Failed(error) => plain_lines(error),
         },
@@ -90,7 +91,11 @@ fn card_rows(memo: &MemoCard, width: u16, searching: bool) -> Vec<(CardPosition,
         ));
     }
     if wrapped.len() > CARD_BODY_LINES {
-        footer.push(Span::styled("  ↵ …", Style::default().fg(Color::DarkGray)));
+        let s = crate::i18n::UiStrings::detect();
+        footer.push(Span::styled(
+            format!("  ↵ {}", s.text("more", "更多")),
+            Style::default().fg(Color::DarkGray),
+        ));
     }
     if !footer.is_empty() {
         lines.extend(
@@ -106,42 +111,19 @@ fn card_rows(memo: &MemoCard, width: u16, searching: bool) -> Vec<(CardPosition,
 
 #[must_use]
 pub fn feed_lines(feed: &FeedState, width: u16) -> Vec<FeedLine> {
-    let mut out = Vec::new();
-    let mut group = None;
     let searching = !feed.query.text.trim().is_empty();
-    for memo in &feed.memos {
-        if !searching {
-            let key = if memo.pinned { "◆" } else { &memo.date };
-            if group != Some(key) {
-                out.push(FeedLine {
-                    id: memo.id.clone(),
-                    position: CardPosition::Group(0),
-                    line: Line::styled(
-                        format!("{key}  ────────────"),
-                        Style::default()
-                            .fg(Color::DarkGray)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                });
-                out.push(FeedLine {
-                    id: memo.id.clone(),
-                    position: CardPosition::Group(1),
-                    line: Line::default(),
-                });
-                group = Some(key);
-            }
-        }
-        out.extend(
+    feed.memos
+        .iter()
+        .flat_map(|memo| {
             card_rows(memo, width.saturating_sub(2), searching)
                 .into_iter()
                 .map(|(position, line)| FeedLine {
                     id: memo.id.clone(),
                     position,
                     line,
-                }),
-        );
-    }
-    out
+                })
+        })
+        .collect()
 }
 
 #[must_use]
@@ -205,7 +187,7 @@ pub fn ensure_selected_visible(feed: &mut FeedState, width: u16, height: u16) {
     {
         feed.anchor = Some(MemoAnchor {
             id: selected.clone(),
-            position: CardPosition::Group(0),
+            position: CardPosition::Time,
         });
     }
 }

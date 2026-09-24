@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::io::Cursor;
 use std::path::Path;
-use std::process::ExitStatus;
 
 use image::{ImageBuffer, ImageFormat, Rgba};
 
@@ -123,15 +122,18 @@ pub fn unique_media_relative_path(
     format!("media/{stem}_{short}.{ext}")
 }
 
-/// Plays `path` with `argv` (typically `xdg-open`). Missing binaries are errors.
+/// Spawns `path`'s handler with `argv` (typically `xdg-open`) as a managed child.
+///
+/// The caller waits on the returned handle from a monitor thread so the effect
+/// worker is never blocked by a long-running player.
 ///
 /// # Errors
-/// Empty argv, missing player, or non-zero exit.
-pub fn play_audio<R: CommandRunner>(
+/// Empty argv or a missing/failed spawn. A non-zero exit belongs to the child.
+pub fn spawn_player<R: CommandRunner>(
     runner: &R,
     argv: &[String],
     path: &Path,
-) -> Result<(), TuiError> {
+) -> Result<Box<dyn crate::editor::ManagedChild>, TuiError> {
     let Some(program) = argv.first().filter(|value| !value.is_empty()) else {
         return Err(TuiError::Player {
             diagnostic: "player command is not configured".to_owned(),
@@ -139,17 +141,28 @@ pub fn play_audio<R: CommandRunner>(
     };
     let mut player_args: Vec<String> = argv.iter().skip(1).cloned().collect();
     player_args.push(path.display().to_string());
-    match runner.run_foreground(program, &player_args) {
-        Ok(status) if status_ok(status) => Ok(()),
-        Ok(status) => Err(TuiError::Player {
-            diagnostic: format!("player exited {status}"),
-        }),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Err(TuiError::Player {
-            diagnostic: format!("player binary not found: {error}"),
-        }),
-        Err(error) => Err(TuiError::Player {
-            diagnostic: error.to_string(),
-        }),
+    runner
+        .spawn_managed(program, &player_args)
+        .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                TuiError::Player {
+                    diagnostic: format!("player binary not found: {error}"),
+                }
+            } else {
+                TuiError::Player {
+                    diagnostic: error.to_string(),
+                }
+            }
+        })
+}
+
+/// Classifies a completed player wait into a user-visible diagnostic.
+#[must_use]
+pub fn player_exit_diagnostic(status: std::process::ExitStatus) -> Option<String> {
+    if status.success() {
+        None
+    } else {
+        Some(format!("player exited {status}"))
     }
 }
 
@@ -175,8 +188,4 @@ pub fn rgba_to_png(width: u32, height: u32, bytes: &[u8]) -> Result<Vec<u8>, Cli
 
 fn nonempty(value: Option<&String>) -> Option<&str> {
     value.map(String::as_str).filter(|text| !text.is_empty())
-}
-
-fn status_ok(status: ExitStatus) -> bool {
-    status.success()
 }

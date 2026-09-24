@@ -195,4 +195,30 @@ mod tests {
         text.undo();
         assert_eq!(text.text(), "想法\n#read");
     }
+    #[test]
+    fn undo_history_is_bounded_and_drops_the_oldest_checkpoint() {
+        let mut text = TextBuffer::default();
+        for index in 0..120 {
+            text.insert(&index.to_string());
+        }
+        let mut steps = 0;
+        loop {
+            let before = text.text().to_owned();
+            text.undo();
+            if text.text() == before {
+                break;
+            }
+            steps += 1;
+            assert!(steps <= 120);
+        }
+        assert_eq!(
+            steps, 100,
+            "undo history must be bounded at the retained checkpoint cap"
+        );
+        assert_eq!(
+            text.text(),
+            "012345678910111213141516171819",
+            "evicted checkpoints leave the earliest retained state (before insert 20)"
+        );
+    }
 }

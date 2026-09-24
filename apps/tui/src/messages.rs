@@ -53,16 +53,7 @@ pub fn apply_message(model: &mut AppModel, message: RuntimeMessage) -> Option<Ef
         }
         RuntimeMessage::Bodies { epoch, bodies } => {
             if epoch == model.epoch {
-                hydrate(&mut model.view, &bodies);
-                if let InputMode::Picker(picker) = &mut model.input
-                    && let crate::model::PickerKind::Actions(memo)
-                    | crate::model::PickerKind::Attachments(memo) = &mut picker.kind
-                {
-                    hydrate_memo(memo, &bodies);
-                }
-                for view in &mut model.history {
-                    hydrate(view, &bodies);
-                }
+                hydrate_all(model, &bodies);
             }
             None
         }
@@ -81,12 +72,31 @@ pub fn apply_message(model: &mut AppModel, message: RuntimeMessage) -> Option<Ef
             model.present_notice(title, lines);
             None
         }
+        RuntimeMessage::History { id, revisions } => {
+            if model.input == InputMode::Browse {
+                model.input = InputMode::Picker(crate::model::Picker {
+                    kind: crate::model::PickerKind::History { id, revisions },
+                    text: crate::input::TextBuffer::default(),
+                    selected: 0,
+                });
+            }
+            None
+        }
         RuntimeMessage::Date {
             ticket,
             from,
             until,
             label,
         } => apply_date(model, ticket, from, until, label),
+        RuntimeMessage::RuntimeReady { model: prepared } => {
+            *model = *prepared;
+            None
+        }
+        RuntimeMessage::FsChanged
+        | RuntimeMessage::Reconciled { .. }
+        | RuntimeMessage::WatcherReady
+        | RuntimeMessage::WatcherUnavailable { .. }
+        | RuntimeMessage::PlayerFinished { .. } => apply_observation(model, message),
         RuntimeMessage::Changed(status) => {
             model.set_status(&status);
             refresh_current(model)
@@ -95,6 +105,54 @@ pub fn apply_message(model: &mut AppModel, message: RuntimeMessage) -> Option<Ef
             apply_failure(model, target, &diagnostic);
             None
         }
+    }
+}
+
+/// Watcher and managed-process replies carry only observation state; a changed
+/// projection is what re-queries the visible window.
+fn apply_observation(model: &mut AppModel, message: RuntimeMessage) -> Option<Effect> {
+    match message {
+        RuntimeMessage::FsChanged => Some(Effect::Reconcile),
+        RuntimeMessage::Reconciled { changed } => {
+            if changed {
+                refresh_current(model)
+            } else {
+                None
+            }
+        }
+        RuntimeMessage::WatcherReady => {
+            model.watcher_active = true;
+            None
+        }
+        RuntimeMessage::WatcherUnavailable { diagnostic } => {
+            model.watcher_active = false;
+            model.set_status(&diagnostic);
+            None
+        }
+        RuntimeMessage::PlayerFinished {
+            success,
+            diagnostic,
+        } => {
+            if !success {
+                model.set_status(&diagnostic.unwrap_or_else(|| "player failed".to_owned()));
+            }
+            None
+        }
+        RuntimeMessage::QuitReady
+        | RuntimeMessage::Image { .. }
+        | RuntimeMessage::View { .. }
+        | RuntimeMessage::Page { .. }
+        | RuntimeMessage::Bodies { .. }
+        | RuntimeMessage::ReadMemo { .. }
+        | RuntimeMessage::DraftStored { .. }
+        | RuntimeMessage::Saved { .. }
+        | RuntimeMessage::Tags(_)
+        | RuntimeMessage::Message { .. }
+        | RuntimeMessage::History { .. }
+        | RuntimeMessage::Date { .. }
+        | RuntimeMessage::RuntimeReady { .. }
+        | RuntimeMessage::Changed(_)
+        | RuntimeMessage::Failed { .. } => None,
     }
 }
 
@@ -130,7 +188,7 @@ fn apply_page(
         let following_head = feed.memos.first().is_some_and(|first| {
             feed.selected.as_ref() == Some(&first.id)
                 && feed.anchor.as_ref().is_some_and(|anchor| {
-                    anchor.id == first.id && anchor.position == CardPosition::Group(0)
+                    anchor.id == first.id && anchor.position == CardPosition::Time
                 })
         });
         for card in &mut cards {
@@ -151,7 +209,7 @@ fn apply_page(
             feed.selected = cards.first().map(|first| first.id.clone());
             feed.anchor = feed.selected.clone().map(|id| MemoAnchor {
                 id,
-                position: CardPosition::Group(0),
+                position: CardPosition::Time,
             });
         }
         let previous = std::mem::replace(&mut feed.memos, cards);
@@ -167,9 +225,34 @@ fn apply_page(
         }
     }
     feed.next_cursor = next;
-    feed.total = total;
+    // The query total is bound to the first page; append replies carry none
+    // and must not erase the established count.
+    if total.is_some() {
+        feed.total = total;
+    }
     feed.load = LoadStatus::Ready;
     feed.reconcile();
+}
+
+/// Every copy of a memo (views, history and the picker it was opened on) receives its body.
+fn hydrate_all(model: &mut AppModel, replies: &[BodyReply]) {
+    hydrate(&mut model.view, replies);
+    if let InputMode::Picker(picker) = &mut model.input {
+        match &mut picker.kind {
+            crate::model::PickerKind::Palette {
+                item: crate::model::PaletteItem::Memo(memo),
+                ..
+            }
+            | crate::model::PickerKind::Attachments(memo) => hydrate_memo(memo, replies),
+            crate::model::PickerKind::Palette { .. }
+            | crate::model::PickerKind::Tags(_)
+            | crate::model::PickerKind::Dates
+            | crate::model::PickerKind::History { .. } => {}
+        }
+    }
+    for view in &mut model.history {
+        hydrate(view, replies);
+    }
 }
 
 fn hydrate(view: &mut View, replies: &[BodyReply]) {
@@ -217,10 +300,10 @@ fn apply_date(
         feed.query.filters.date_from_inclusive_ms = Some(from);
         feed.query.filters.date_until_exclusive_ms = Some(until);
         feed.query.date_label = Some(label);
-        feed.invalidate_results();
+        feed.mark_requery();
     }
     model.input = InputMode::Browse;
-    crate::update::reload_feed(model)
+    crate::update::requery(model)
 }
 
 fn apply_failure(model: &mut AppModel, target: FailureTarget, diagnostic: &str) {
@@ -268,7 +351,13 @@ fn apply_failure(model: &mut AppModel, target: FailureTarget, diagnostic: &str) 
             }
             *error = Some(diagnostic.to_owned());
         }
-        FailureTarget::Action => {}
+        FailureTarget::Bootstrap => {
+            model.view = View::Failed {
+                screen: model.view.screen(),
+                diagnostic: diagnostic.to_owned(),
+            };
+        }
+        FailureTarget::Reconcile | FailureTarget::Action => {}
     }
     model.set_status(diagnostic);
 }

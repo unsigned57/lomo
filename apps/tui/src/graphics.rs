@@ -82,6 +82,13 @@ pub struct ReaderImage {
     pub state: ImageState,
 }
 
+/// Aggregate byte ceiling for resident ready image payloads.
+///
+/// Ready images are demoted oldest-first when the working set reaches the
+/// ceiling; a single payload larger than the ceiling is a visible failure,
+/// never silently kept.
+pub const READY_IMAGE_BUDGET_BYTES: usize = 64 * 1024 * 1024;
+
 /// # Errors
 /// Capability-bound reads, decoder limits and invalid image formats remain visible per attachment.
 pub fn load_image(runtime: &TuiRuntime, request: &ImageRequest) -> Result<TerminalImage, TuiError> {
@@ -227,11 +234,18 @@ pub fn hydrate_images(model: &mut AppModel) -> Option<Effect> {
         .map(|image| &image.request)
         .eq(requests.iter())
     {
+        // Reconcile per request: an identical request keeps its state (a Ready
+        // image survives a no-op resize), while a changed request — new
+        // geometry, protocol or owner — re-enters the queue as Pending.
+        let mut retained = std::mem::take(&mut model.images);
         model.images = requests
             .into_iter()
-            .map(|request| ReaderImage {
-                request,
-                state: ImageState::Pending,
+            .map(|request| {
+                let state = retained
+                    .iter()
+                    .position(|image| image.request == request)
+                    .map_or(ImageState::Pending, |index| retained.remove(index).state);
+                ReaderImage { request, state }
             })
             .collect();
     }
@@ -257,8 +271,37 @@ pub fn apply_image(
         .find(|image| &image.request == request)
     {
         image.state = match result {
+            Ok(image) if image.payload.len() > READY_IMAGE_BUDGET_BYTES => ImageState::Failed(
+                format!("image payload exceeds the {READY_IMAGE_BUDGET_BYTES} byte budget"),
+            ),
             Ok(image) => ImageState::Ready(Arc::new(image)),
             Err(error) => ImageState::Failed(error),
         };
+    }
+    enforce_ready_budget(model, request);
+}
+
+/// Demotes the oldest resident images to `Pending` until the aggregate ready
+/// payload fits the budget. The image that just arrived is never demoted by
+/// its own admission; it can reload later if the working set needs it back.
+fn enforce_ready_budget(model: &mut AppModel, admitted: &ImageRequest) {
+    loop {
+        let total: usize = model
+            .images
+            .iter()
+            .map(|image| match &image.state {
+                ImageState::Ready(image) => image.payload.len(),
+                ImageState::Pending | ImageState::Loading | ImageState::Failed(_) => 0,
+            })
+            .sum();
+        if total < READY_IMAGE_BUDGET_BYTES {
+            return;
+        }
+        let Some(oldest) = model.images.iter_mut().find(|image| {
+            image.request != *admitted && matches!(image.state, ImageState::Ready(_))
+        }) else {
+            return;
+        };
+        oldest.state = ImageState::Pending;
     }
 }

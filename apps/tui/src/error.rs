@@ -1,18 +1,25 @@
-use std::fmt;
 use std::io;
 
 use lomo_core::LomoError;
 
 /// Fail-closed TUI composition-root errors. Missing tools are reported, never forged as success.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum TuiError {
+    #[error("config: {diagnostic}")]
     Config { diagnostic: String },
+    #[error("config: $XDG_RUNTIME_DIR is required for process locks")]
     MissingRuntimeDir,
+    #[error("editor: set editor in lomo config, $VISUAL, or $EDITOR; vim is not assumed")]
     EditorNotConfigured,
+    #[error("io: {diagnostic}")]
     Io { diagnostic: String },
+    #[error("session {code}: {diagnostic}")]
     Session { code: String, diagnostic: String },
+    #[error("terminal: {diagnostic}")]
     Terminal { diagnostic: String },
+    #[error("clipboard: {diagnostic}")]
     Clipboard { diagnostic: String },
+    #[error("player: {diagnostic}")]
     Player { diagnostic: String },
 }
 
@@ -31,31 +38,6 @@ impl TuiError {
         }
     }
 }
-
-impl fmt::Display for TuiError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Config { diagnostic } => write!(formatter, "config: {diagnostic}"),
-            Self::MissingRuntimeDir => write!(
-                formatter,
-                "config: $XDG_RUNTIME_DIR is required for process locks"
-            ),
-            Self::EditorNotConfigured => write!(
-                formatter,
-                "editor: set editor in lomo config, $VISUAL, or $EDITOR; vim is not assumed"
-            ),
-            Self::Io { diagnostic } => write!(formatter, "io: {diagnostic}"),
-            Self::Session { code, diagnostic } => {
-                write!(formatter, "session {code}: {diagnostic}")
-            }
-            Self::Terminal { diagnostic } => write!(formatter, "terminal: {diagnostic}"),
-            Self::Clipboard { diagnostic } => write!(formatter, "clipboard: {diagnostic}"),
-            Self::Player { diagnostic } => write!(formatter, "player: {diagnostic}"),
-        }
-    }
-}
-
-impl std::error::Error for TuiError {}
 
 impl From<LomoError> for TuiError {
     fn from(error: LomoError) -> Self {

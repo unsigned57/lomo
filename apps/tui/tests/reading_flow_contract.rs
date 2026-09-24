@@ -281,7 +281,9 @@ mod tests {
             .expect("fixture and operation must succeed") =
             memo("memo-0", &format!("```text\n{text}\n```"))
                 .expect("fixture and operation must succeed");
-        assert_eq!(apply_command(&mut model, Command::Scroll(5)), None);
+        // Three rows down: past the date-time line and two body rows, so the third body row
+        // (starting at token 047) is the top of the viewport.
+        assert_eq!(apply_command(&mut model, Command::Scroll(3)), None);
         lomo_tui::update::apply_resize(&mut model, 48, 12);
         let state = feed(&model).expect("fixture and operation must succeed");
         let rows = feed_lines(state, lomo_tui::ui::layout_for(&model).content.width);

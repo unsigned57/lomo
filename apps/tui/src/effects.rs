@@ -100,7 +100,13 @@ pub enum Effect {
         id: MemoId,
         fingerprint: String,
     },
+    DeleteForever(MemoId),
+    EmptyTrash,
     Restore(MemoId),
+    RestoreRevision {
+        id: MemoId,
+        revision: u64,
+    },
     History(MemoId),
     ImportClipboard,
     OpenAttachment(RelativeWorkspacePath),
@@ -109,6 +115,9 @@ pub enum Effect {
         ticket: u64,
         text: String,
     },
+    /// Reconcile the projection with observed filesystem changes. Issued once
+    /// per drained watcher batch — never a substitute for watching.
+    Reconcile,
     Refresh,
     Quit,
 }
@@ -150,11 +159,34 @@ pub enum RuntimeMessage {
         title: String,
         lines: Vec<String>,
     },
+    History {
+        id: MemoId,
+        revisions: Vec<crate::model::RevisionRow>,
+    },
     Date {
         ticket: u64,
         from: i64,
         until: i64,
         label: String,
+    },
+    /// The deferred workspace mount finished; the prepared model replaces the
+    /// `Loading` shell shown during startup.
+    RuntimeReady {
+        model: Box<crate::model::AppModel>,
+    },
+    /// The watcher drained a batch of filesystem events; reconcile once.
+    FsChanged,
+    Reconciled {
+        changed: bool,
+    },
+    WatcherReady,
+    WatcherUnavailable {
+        diagnostic: String,
+    },
+    /// A spawned external player exited; success/failure is carried, not logged.
+    PlayerFinished {
+        success: bool,
+        diagnostic: Option<String>,
     },
     Changed(String),
     Failed {
@@ -181,6 +213,10 @@ pub enum FailureTarget {
     Date(u64),
     DraftPersist(u64),
     DraftCommit(u64),
+    /// Workspace mount/bootstrap failed before the model was ready.
+    Bootstrap,
+    /// A watcher-driven projection reconcile failed.
+    Reconcile,
     Action,
 }
 
@@ -204,13 +240,17 @@ impl Effect {
             | Self::ToggleTask(_)
             | Self::Pin { .. }
             | Self::Delete { .. }
+            | Self::DeleteForever(_)
+            | Self::EmptyTrash
             | Self::Restore(_)
+            | Self::RestoreRevision { .. }
             | Self::History(_)
             | Self::ImportClipboard
             | Self::OpenAttachment(_)
             | Self::Tags
             | Self::Refresh
             | Self::Quit => FailureTarget::Action,
+            Self::Reconcile => FailureTarget::Reconcile,
         }
     }
 }
