@@ -1040,65 +1040,26 @@ pub fn get_memo_projection(
     connection: &Connection,
     memo_id: &str,
 ) -> Result<Option<MemoSummary>, lomo_core::LomoError> {
-    let row = connection
-        .query_row(
+    let mut statement = connection
+        .prepare(
             "SELECT m.memo_id, m.source_path, m.file_fingerprint, m.updated_at_ms, m.created_at_ms, \
                     m.has_todo, m.has_url, m.has_attachment, \
                     m.is_pinned, m.is_trashed, \
-                    m.body_preview, m.content_revision, m.reminders_json, \
+                    m.body_preview, m.content_revision, NULL AS rank, m.reminders_json, \
                     m.pending_operation_id IS NOT NULL, m.char_count \
              FROM memo m \
              WHERE m.memo_id = ?1",
-            params![memo_id],
-            |row| {
-                Ok(MemoSummary {
-                    memo_id: row.get(0)?,
-                    source_path: row.get(1)?,
-                    file_fingerprint: row.get(2)?,
-                    updated_at_ms: row.get(3)?,
-                    created_at_ms: row.get(4)?,
-                    has_todo: row.get::<_, i64>(5)? != 0,
-                    has_url: row.get::<_, i64>(6)? != 0,
-                    has_attachment: row.get::<_, i64>(7)? != 0,
-                    is_pinned: row.get::<_, i64>(8)? != 0,
-                    is_trashed: row.get::<_, i64>(9)? != 0,
-                    body_preview: row.get(10)?,
-                    content_revision: {
-                        let rev: i64 = row.get(11)?;
-                        u64::try_from(rev).map_err(|_error| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                11,
-                                rusqlite::types::Type::Integer,
-                                Box::new(std::io::Error::new(
-                                    std::io::ErrorKind::InvalidData,
-                                    "negative content revision",
-                                )),
-                            )
-                        })?
-                    },
-                    rank: None,
-                    tags: Vec::new(),
-                    image_urls: Vec::new(),
-                    reminders: serde_json::from_str(&row.get::<_, String>(12)?).map_err(|error| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            12,
-                            rusqlite::types::Type::Text,
-                            Box::new(error),
-                        )
-                    })?,
-                    is_pending: row.get::<_, i64>(13)? != 0,
-                    char_count: row.get(14)?,
-                })
-            },
         )
-        .optional()
         .map_err(|err| from_sqlite(&err))?;
-    let Some(mut summary) = row else {
+    let mut rows = statement
+        .query(params![memo_id])
+        .map_err(|err| from_sqlite(&err))?;
+    let Some(row) = rows.next().map_err(|err| from_sqlite(&err))? else {
         return Ok(None);
     };
-    let mut one = [summary];
-    attach_tags_and_images(connection, &mut one)?;
-    summary = one
+    let mut summaries = [memo_summary_from_row(row)?];
+    attach_tags_and_images(connection, &mut summaries)?;
+    let summary = summaries
         .into_iter()
         .next()
         .ok_or_else(|| validation("memo_projection_missing", "summary vanished after attach"))?;
@@ -1118,23 +1079,75 @@ pub fn get_projected_memo(
     connection: &Connection,
     memo_id: &str,
 ) -> Result<Option<MemoSnapshot>, lomo_core::LomoError> {
-    let Some(summary) = get_memo_projection(connection, memo_id)? else {
-        return Ok(None);
-    };
-    let body = connection
-        .query_row(
-            "SELECT body FROM memo WHERE memo_id = ?1",
-            params![memo_id],
-            |row| row.get::<_, Option<String>>(0),
-        )
-        .map_err(|error| from_sqlite(&error))?
-        .ok_or_else(|| {
-            validation(
-                "projection_rebuild_required",
-                "memo body is absent from the durable projection; a verified rebuild is required",
-            )
-        })?;
-    Ok(Some(MemoSnapshot { summary, body }))
+    Ok(get_projected_memos(connection, &[memo_id.to_owned()])?
+        .into_iter()
+        .next())
+}
+
+/// One SQLite variable-binding page for `IN (...)` memo-id sets.
+const MAX_BOUND_MEMO_IDS: usize = 256;
+
+/// Loads complete memo snapshots for a candidate set in bounded batched statements.
+///
+/// Same projection contract as [`get_projected_memo`], but one statement pair per
+/// `MAX_BOUND_MEMO_IDS` ids instead of per memo, so a search page or fuzzy candidate set
+/// hydrates inside a constant number of reads. Unknown ids simply yield no row.
+///
+/// # Errors
+///
+/// Returns `SQLite` failures or `projection_rebuild_required` for a legacy/incomplete projection.
+pub fn get_projected_memos(
+    connection: &Connection,
+    memo_ids: &[String],
+) -> Result<Vec<MemoSnapshot>, lomo_core::LomoError> {
+    if memo_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut snapshots = Vec::with_capacity(memo_ids.len());
+    for chunk in memo_ids.chunks(MAX_BOUND_MEMO_IDS) {
+        let placeholders = std::iter::repeat_n("?", chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let bindings = chunk
+            .iter()
+            .map(|id| Value::Text(id.clone()))
+            .collect::<Vec<_>>();
+        let mut statement = connection
+            .prepare(&format!(
+                "SELECT m.memo_id, m.source_path, m.file_fingerprint, m.updated_at_ms, \
+                 m.created_at_ms, m.has_todo, m.has_url, m.has_attachment, \
+                 m.is_pinned, m.is_trashed, \
+                 m.body_preview, m.content_revision, NULL AS rank, m.reminders_json, \
+                 m.pending_operation_id IS NOT NULL, m.char_count, m.body \
+                 FROM memo m WHERE m.memo_id IN ({placeholders})"
+            ))
+            .map_err(|err| from_sqlite(&err))?;
+        let mut summaries = Vec::new();
+        let mut bodies = Vec::new();
+        {
+            let mut rows = statement
+                .query(params_from_iter(bindings.iter()))
+                .map_err(|err| from_sqlite(&err))?;
+            while let Some(row) = rows.next().map_err(|err| from_sqlite(&err))? {
+                summaries.push(memo_summary_from_row(row)?);
+                bodies.push(
+                    row.get::<_, Option<String>>(16)
+                        .map_err(|err| from_sqlite(&err))?,
+                );
+            }
+        }
+        attach_tags_and_images(connection, &mut summaries)?;
+        for (summary, body) in summaries.into_iter().zip(bodies) {
+            let body = body.ok_or_else(|| {
+                validation(
+                    "projection_rebuild_required",
+                    "memo body is absent from the durable projection; a verified rebuild is required",
+                )
+            })?;
+            snapshots.push(MemoSnapshot { summary, body });
+        }
+    }
+    Ok(snapshots)
 }
 
 /// Reads the one canonical fingerprint shared by every memo projected from a source document.
@@ -1395,14 +1408,22 @@ pub fn query_count(
 }
 
 /// One compact materialized statistics row (no body bytes cross the boundary).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Carries the memo identity and its deduplicated tag facts so statistics aggregation reads
+/// exactly one joined scan instead of re-reading bodies or issuing per-memo tag queries.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoStatisticsRow {
+    pub memo_id: String,
     pub created_at_ms: i64,
     pub word_count: i64,
     pub char_count: i64,
+    pub tags: Vec<String>,
 }
 
-/// Reads the materialized word/character statistics rows for every active memo in one scan.
+/// Reads the materialized statistics rows for every active memo in one joined scan.
+///
+/// The LEFT JOIN fans out one row per (memo, tag); consecutive same-memo rows fold into a single
+/// [`MemoStatisticsRow`] whose `tags` arrive in canonical (sorted) order.
 ///
 /// # Errors
 ///
@@ -1412,22 +1433,37 @@ pub fn query_memo_statistics_rows(
 ) -> Result<Vec<MemoStatisticsRow>, lomo_core::LomoError> {
     let mut statement = connection
         .prepare(
-            "SELECT m.created_at_ms, m.word_count, m.char_count \
-             FROM memo m WHERE m.is_trashed = 0",
+            "SELECT m.memo_id, m.created_at_ms, m.word_count, m.char_count, tg.name \
+             FROM memo m \
+             LEFT JOIN memo_tag mt ON mt.memo_id = m.memo_id \
+             LEFT JOIN tag tg ON tg.id = mt.tag_id \
+             WHERE m.is_trashed = 0 \
+             ORDER BY m.memo_id, tg.name",
         )
         .map_err(|err| from_sqlite(&err))?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok(MemoStatisticsRow {
-                created_at_ms: row.get(0)?,
-                word_count: row.get(1)?,
-                char_count: row.get(2)?,
-            })
-        })
+    let mut rows = statement
+        .query(params![])
         .map_err(|err| from_sqlite(&err))?;
-    let mut out = Vec::new();
-    for row in rows {
-        out.push(row.map_err(|err| from_sqlite(&err))?);
+    let mut out: Vec<MemoStatisticsRow> = Vec::new();
+    while let Some(row) = rows.next().map_err(|err| from_sqlite(&err))? {
+        let memo_id = row.get::<_, String>(0).map_err(|err| from_sqlite(&err))?;
+        let tag = row
+            .get::<_, Option<String>>(4)
+            .map_err(|err| from_sqlite(&err))?;
+        match out.last_mut() {
+            Some(last) if last.memo_id == memo_id => {
+                if let Some(tag) = tag {
+                    last.tags.push(tag);
+                }
+            }
+            _ => out.push(MemoStatisticsRow {
+                memo_id,
+                created_at_ms: row.get(1).map_err(|err| from_sqlite(&err))?,
+                word_count: row.get(2).map_err(|err| from_sqlite(&err))?,
+                char_count: row.get(3).map_err(|err| from_sqlite(&err))?,
+                tags: tag.into_iter().collect(),
+            }),
+        }
     }
     Ok(out)
 }
@@ -1445,4 +1481,54 @@ pub fn recompute_stats(connection: &Connection) -> Result<(), lomo_core::LomoErr
         )
         .map_err(|err| from_sqlite(&err))?;
     Ok(())
+}
+
+/// One projected attachment reference with its owner's lifecycle bit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectedAttachmentRef {
+    /// Memo that owns the reference.
+    pub memo_id: String,
+    /// Canonical relative attachment path exactly as the memo body names it.
+    pub relative_path: String,
+    /// Whether the owning memo is currently trashed.
+    pub is_trashed: bool,
+}
+
+/// Lists every projected attachment reference in one scan.
+///
+/// `attachment_ref` rows cover all attachment types (images and audio) and are refreshed with the
+/// owning memo's projection, so trashed memos still contribute their last projected references.
+///
+/// # Errors
+///
+/// Storage errors when the projection cannot be read.
+pub fn list_projected_attachment_refs(
+    connection: &Connection,
+) -> Result<Vec<ProjectedAttachmentRef>, lomo_core::LomoError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT a.memo_id, a.relative_path, m.is_trashed \
+             FROM attachment_ref a JOIN memo m ON m.memo_id = a.memo_id \
+             ORDER BY a.memo_id, a.relative_path",
+        )
+        .map_err(|err| from_sqlite(&err))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })
+        .map_err(|err| from_sqlite(&err))?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (memo_id, relative_path, is_trashed) = row.map_err(|err| from_sqlite(&err))?;
+        out.push(ProjectedAttachmentRef {
+            memo_id,
+            relative_path,
+            is_trashed: is_trashed != 0,
+        });
+    }
+    Ok(out)
 }

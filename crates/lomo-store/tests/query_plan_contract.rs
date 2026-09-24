@@ -31,7 +31,7 @@ mod support;
     reason = "contract tests fail closed with panics on missing facts; plan matrix covers all core paths"
 )]
 mod tests {
-    use super::support::{indexed_store, seed_memo, seed_state};
+    use super::support::{indexed_store, publish_pin, publish_trash, seed_memo};
     use lomo_store::open_store;
     use rusqlite::Connection;
     use tempfile::tempdir;
@@ -82,13 +82,13 @@ mod tests {
                 &["rust", "architecture"],
             );
         }
+        let mut store = indexed_store(dir.path());
         for i in 1..=10 {
             if i % 2 == 0 {
-                seed_state(dir.path(), &format!("memo-{i}"), true, false);
+                publish_pin(&mut store, &format!("memo-{i}"), &format!("op-pin-{i}"));
             }
         }
-        seed_state(dir.path(), "memo-1", false, true);
-        let store = indexed_store(dir.path());
+        publish_trash(&mut store, "memo-1", "op-trash-1");
 
         // Close and reopen through raw connection to inspect the projection with ANALYZE stats
         drop(store);

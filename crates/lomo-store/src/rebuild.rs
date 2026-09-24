@@ -13,10 +13,7 @@ use crate::content_facts::{
     project_content_facts, project_reminder_references,
 };
 use crate::error::{busy, conflict, corruption, from_sqlite, storage, validation};
-use crate::lomo_format::{
-    HistoryBody, LomoPaths, LomoRecordKind, MemoCommandKind, StateBody, isolate_corrupt_record,
-    read_record,
-};
+use crate::lomo_format::{LomoPaths, MemoCommandKind};
 use crate::open::{SQLITE_DIR_NAME, create_schema_db, database_path};
 use crate::query::recompute_stats;
 use crate::tokenizer::index_tokens;
@@ -150,6 +147,10 @@ pub enum SafProjectionMutationKind {
     Delete,
     Restore,
     PermanentDelete,
+    /// One atomic permanent delete covering a bounded target set. Unlike per-target loops, the
+    /// whole batch validates and applies inside a single projection transaction and owns one
+    /// durable operation receipt.
+    PermanentDeleteMany,
     Pin,
     Unpin,
 }
@@ -164,6 +165,11 @@ pub struct SafProjectionMutation {
     pub expected_fingerprint: Option<String>,
     pub projection: Option<ScannedMemoProjection>,
     pub trashed_at_ms: Option<i64>,
+    /// Verified per-target facts for [`SafProjectionMutationKind::PermanentDeleteMany`]; empty for
+    /// every other kind. `memo_id`/`expected_revision`/`expected_fingerprint` mirror the first
+    /// target so the committed receipt keeps a single primary subject.
+    #[serde(default)]
+    pub batch_targets: Vec<SafPermanentDeleteTarget>,
 }
 
 /// Commit facts returned after a verified SAF projection mutation.
@@ -177,37 +183,36 @@ pub struct SafProjectionCommitResult {
     pub file_fingerprint: String,
     pub scopes: Vec<lomo_core::InvalidationScope>,
     pub idempotent_replay: bool,
+    /// Per-target reminder facts for [`SafProjectionMutationKind::PermanentDeleteMany`]. The facts
+    /// are part of the frozen mutation, so every replay path reconstructs them without re-reading
+    /// the deleted projection rows.
+    #[serde(default)]
+    pub deleted_memos: Vec<SafPermanentDeleteMemoResult>,
 }
 
-/// Verified platform facts for one SAF permanent-delete target.
+/// Verified platform facts for one permanent-delete target.
 ///
-/// The source document has already been rewritten by the workspace job. `result_fingerprint` is
-/// the post-rewrite fingerprint used to refresh sibling memo rows from the same document in one
-/// projection transaction.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// `result_fingerprint` is the post-delete source document fingerprint used to refresh sibling
+/// memo rows from the same document in the same projection transaction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SafPermanentDeleteTarget {
     pub memo_id: String,
     pub source_path: String,
     pub expected_revision: u64,
     pub expected_fingerprint: String,
     pub result_fingerprint: String,
-}
-
-/// One atomic SAF permanent-delete publication.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SafPermanentDeleteMemoResult {
-    pub memo_id: String,
+    /// Reminder opaque identities captured from the projection before the row is deleted. The
+    /// commit re-verifies them against `reminders_json`, then the receipt echoes them so the
+    /// platform scheduler can cancel alarms without a second read.
+    #[serde(default)]
     pub reminder_ids: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SafPermanentDeleteManyResult {
-    pub operation_id: String,
-    pub deleted: Vec<SafPermanentDeleteMemoResult>,
-    pub core_revision: u64,
-    pub event_sequence: u64,
-    pub scopes: Vec<lomo_core::InvalidationScope>,
-    pub idempotent_replay: bool,
+/// One memo's reminder identities captured before its durable row is removed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SafPermanentDeleteMemoResult {
+    pub memo_id: String,
+    pub reminder_ids: Vec<String>,
 }
 
 /// Commits a verified SAF mutation into the app-private projection only.
@@ -317,9 +322,25 @@ fn find_publication_receipt(
             file_fingerprint: fingerprint,
             scopes: saf_projection_scopes(mutation.kind),
             idempotent_replay: true,
+            deleted_memos: batch_deleted_facts(mutation),
         }));
     }
     Ok(None)
+}
+
+/// Rebuilds per-target reminder facts from the frozen batch mutation.
+fn batch_deleted_facts(mutation: &SafProjectionMutation) -> Vec<SafPermanentDeleteMemoResult> {
+    if mutation.kind != SafProjectionMutationKind::PermanentDeleteMany {
+        return Vec::new();
+    }
+    mutation
+        .batch_targets
+        .iter()
+        .map(|target| SafPermanentDeleteMemoResult {
+            memo_id: target.memo_id.clone(),
+            reminder_ids: target.reminder_ids.clone(),
+        })
+        .collect()
 }
 
 #[expect(
@@ -344,6 +365,14 @@ fn commit_projection_publication(
             "SAF projection memo id must be non-empty and bounded",
         ));
     }
+    if mutation.kind != SafProjectionMutationKind::PermanentDeleteMany
+        && !mutation.batch_targets.is_empty()
+    {
+        return Err(validation(
+            "unexpected_batch_targets",
+            "batch targets are only valid for a permanent-delete batch",
+        ));
+    }
     match mutation.kind {
         SafProjectionMutationKind::Delete => {
             if mutation
@@ -361,6 +390,7 @@ fn commit_projection_publication(
         | SafProjectionMutationKind::HistoryRestore
         | SafProjectionMutationKind::Restore
         | SafProjectionMutationKind::PermanentDelete
+        | SafProjectionMutationKind::PermanentDeleteMany
         | SafProjectionMutationKind::Pin
         | SafProjectionMutationKind::Unpin => {
             if mutation.trashed_at_ms.is_some() {
@@ -392,6 +422,7 @@ fn commit_projection_publication(
         .optional()
         .map_err(|error| from_sqlite(&error))?;
 
+    let mut deleted_memos: Vec<SafPermanentDeleteMemoResult> = Vec::new();
     let (content_revision, file_fingerprint) = match mutation.kind {
         SafProjectionMutationKind::Create => {
             let projection = mutation.projection.as_ref().ok_or_else(|| {
@@ -720,6 +751,120 @@ fn commit_projection_publication(
                 projection.file_fingerprint.clone(),
             )
         }
+        SafProjectionMutationKind::PermanentDeleteMany => {
+            if mutation.projection.is_some() {
+                return Err(validation(
+                    "unexpected_projection_facts",
+                    "permanent delete batch carries per-target facts, not one projection",
+                ));
+            }
+            let targets = &mutation.batch_targets;
+            if targets.is_empty() {
+                return Err(validation(
+                    "empty_permanent_delete_batch",
+                    "permanent delete batch must contain at least one target",
+                ));
+            }
+            if targets.len() > MAX_PERMANENT_DELETE_BATCH_TARGETS {
+                return Err(validation(
+                    "permanent_delete_batch_too_large",
+                    "permanent delete batch exceeds the bounded target limit",
+                ));
+            }
+            if targets
+                .first()
+                .is_some_and(|first| first.memo_id != mutation.memo_id)
+            {
+                return Err(validation(
+                    "saf_batch_subject_mismatch",
+                    "batch memo identity must mirror its first target",
+                ));
+            }
+            validate_permanent_delete_targets(targets)?;
+            // Every target row is validated before any delete: a stale baseline fails the whole
+            // batch without touching the projection.
+            for target in targets {
+                let row = transaction
+                    .query_row(
+                        "SELECT content_revision, file_fingerprint, source_path, reminders_json FROM memo WHERE memo_id=?1",
+                        params![&target.memo_id],
+                        |row| {
+                            Ok((
+                                row.get::<_, i64>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, String>(2)?,
+                                row.get::<_, String>(3)?,
+                            ))
+                        },
+                    )
+                    .optional()
+                    .map_err(|error| from_sqlite(&error))?
+                    .ok_or_else(|| {
+                        validation(
+                            "memo_not_found",
+                            "permanent delete batch target is absent",
+                        )
+                    })?;
+                let expected_revision = i64::try_from(target.expected_revision)
+                    .map_err(|_error| validation("revision_overflow", "revision overflow"))?;
+                if row.0 != expected_revision || row.1 != target.expected_fingerprint {
+                    return Err(conflict(
+                        "stale_snapshot",
+                        "permanent delete batch snapshot is stale",
+                    ));
+                }
+                if row.2 != target.source_path {
+                    return Err(validation(
+                        "saf_projection_source_path_mismatch",
+                        "permanent delete source path does not match the current memo",
+                    ));
+                }
+                let trashed: bool = transaction
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM memo_trash WHERE memo_id=?1)",
+                        params![&target.memo_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(|error| from_sqlite(&error))?;
+                if !trashed {
+                    return Err(validation(
+                        "memo_not_trashed",
+                        "permanent delete requires a memo currently projected in trash",
+                    ));
+                }
+                let projected_reminders: Vec<lomo_workspace::ReminderReference> =
+                    serde_json::from_str(&row.3).map_err(|error| {
+                        corruption(
+                            "invalid_reminder_projection",
+                            &format!("cannot decode reminder projection: {error}"),
+                        )
+                    })?;
+                let projected_ids: BTreeSet<&str> = projected_reminders
+                    .iter()
+                    .map(|reminder| reminder.opaque_id.as_str())
+                    .collect();
+                let supplied_ids: BTreeSet<&str> =
+                    target.reminder_ids.iter().map(String::as_str).collect();
+                if projected_ids != supplied_ids {
+                    return Err(conflict(
+                        "stale_snapshot",
+                        "permanent delete reminder facts disagree with the projection",
+                    ));
+                }
+            }
+            delete_saf_projection_rows(&transaction, targets)?;
+            let mut last_revision = 0_u64;
+            let mut last_fingerprint = String::new();
+            for target in targets {
+                last_revision = target.expected_revision;
+                last_fingerprint.clone_from(&target.result_fingerprint);
+                deleted_memos.push(SafPermanentDeleteMemoResult {
+                    memo_id: target.memo_id.clone(),
+                    reminder_ids: target.reminder_ids.clone(),
+                });
+            }
+            (last_revision, last_fingerprint)
+        }
         SafProjectionMutationKind::Pin | SafProjectionMutationKind::Unpin => {
             let (revision, fingerprint, _source_path) = current.ok_or_else(|| {
                 validation("memo_not_found", "SAF projection pin target is absent")
@@ -810,6 +955,7 @@ fn commit_projection_publication(
         file_fingerprint,
         scopes: saf_projection_scopes(mutation.kind),
         idempotent_replay: false,
+        deleted_memos,
     })
 }
 
@@ -856,6 +1002,7 @@ pub fn acknowledge_rebuilt_publication(
         file_fingerprint,
         scopes: saf_projection_scopes(mutation.kind),
         idempotent_replay: true,
+        deleted_memos: batch_deleted_facts(mutation),
     })
 }
 
@@ -879,6 +1026,23 @@ fn verify_rebuilt_publication(
     if mutation.kind == SafProjectionMutationKind::PermanentDelete && current.is_none() {
         return Ok((mutation.expected_revision, desired_fingerprint.to_owned()));
     }
+    if mutation.kind == SafProjectionMutationKind::PermanentDeleteMany {
+        for target in &mutation.batch_targets {
+            if crate::query::get_projected_memo(connection, &target.memo_id)?.is_some() {
+                return Err(corruption(
+                    "recovery_projection_mismatch",
+                    "rebuilt projection still contains a permanently deleted memo",
+                ));
+            }
+        }
+        let last = mutation.batch_targets.last().ok_or_else(|| {
+            corruption(
+                "invalid_operation_plan",
+                "permanent delete batch has no targets",
+            )
+        })?;
+        return Ok((last.expected_revision, last.result_fingerprint.clone()));
+    }
     let current = current.ok_or_else(|| {
         corruption(
             "recovery_memo_missing",
@@ -896,7 +1060,8 @@ fn verify_rebuilt_publication(
         SafProjectionMutationKind::Delete
         | SafProjectionMutationKind::Pin
         | SafProjectionMutationKind::Unpin
-        | SafProjectionMutationKind::PermanentDelete => mutation.expected_revision,
+        | SafProjectionMutationKind::PermanentDelete
+        | SafProjectionMutationKind::PermanentDeleteMany => mutation.expected_revision,
     };
     let lifecycle_matches = match mutation.kind {
         SafProjectionMutationKind::Delete => current.summary.is_trashed,
@@ -904,7 +1069,8 @@ fn verify_rebuilt_publication(
         SafProjectionMutationKind::Unpin => {
             !current.summary.is_pinned && !current.summary.is_trashed
         }
-        SafProjectionMutationKind::PermanentDelete => false,
+        SafProjectionMutationKind::PermanentDelete
+        | SafProjectionMutationKind::PermanentDeleteMany => false,
         SafProjectionMutationKind::Create
         | SafProjectionMutationKind::Update
         | SafProjectionMutationKind::HistoryRestore
@@ -944,90 +1110,25 @@ fn verify_rebuilt_publication(
     Ok((expected_revision, desired_fingerprint.to_owned()))
 }
 
-/// Commits verified SAF permanent-delete results as one projection transaction/publication.
-///
-/// Provider documents are necessarily mutated before this call.  The boundary therefore accepts
-/// only the post-action fingerprints and rechecks every projected CAS fact before removing rows.
-/// Child operation records in the existing replay table are derived from the one batch operation
-/// id; SQLite atomicity guarantees that a retry observes either all children or none.
-///
-/// # Errors
-/// Commits a SAF permanent-delete batch using an already-open projection connection.
-pub fn commit_saf_permanent_delete_many_on_connection(
-    connection: &Connection,
-    operation_id: &str,
-    targets: &[SafPermanentDeleteTarget],
-) -> Result<SafPermanentDeleteManyResult, lomo_core::LomoError> {
-    validate_saf_permanent_delete_batch(operation_id, targets)?;
+/// Upper bound on targets in one permanent-delete batch. Session chunking stays far below this;
+/// the bound exists so a hostile or corrupt frozen plan cannot fan out unbounded work.
+const MAX_PERMANENT_DELETE_BATCH_TARGETS: usize = 4_096;
+/// Upper bound on one reminder identity string.
+const MAX_REMINDER_ID_LEN: usize = 512;
 
-    let transaction = connection
-        .unchecked_transaction()
-        .map_err(|error| from_sqlite(&error))?;
-    let batch_digest = saf_batch_digest(operation_id, targets)?;
-    if let Some(replay) = load_saf_batch_replay(&transaction, operation_id, targets, &batch_digest)?
-    {
-        return Ok(SafPermanentDeleteManyResult {
-            operation_id: operation_id.to_owned(),
-            deleted: replay.deleted,
-            core_revision: stored_revision(replay.core_revision)?,
-            event_sequence: stored_revision(replay.event_sequence)?,
-            scopes: saf_projection_scopes(SafProjectionMutationKind::PermanentDelete),
-            idempotent_replay: true,
-        });
-    }
-
-    let deleted = load_saf_delete_results(&transaction, targets)?;
-
-    delete_saf_projection_rows(&transaction, targets)?;
-    recompute_stats(&transaction)?;
-    let core_revision = crate::read_meta_u64(&transaction, "high_water_revision")?
-        .checked_add(1)
-        .ok_or_else(|| validation("revision_overflow", "core revision overflow"))?;
-    let event_sequence = crate::read_meta_u64(&transaction, "event_sequence")?
-        .checked_add(1)
-        .ok_or_else(|| validation("event_sequence_overflow", "event sequence overflow"))?;
-    crate::write_meta_u64(&transaction, "high_water_revision", core_revision)?;
-    crate::write_meta_u64(&transaction, "event_sequence", event_sequence)?;
-    insert_saf_batch_replay_rows(
-        &transaction,
-        operation_id,
-        targets,
-        &batch_digest,
-        core_revision,
-        event_sequence,
-        &deleted,
-    )?;
-    transaction.commit().map_err(|error| from_sqlite(&error))?;
-    Ok(SafPermanentDeleteManyResult {
-        operation_id: operation_id.to_owned(),
-        deleted,
-        core_revision,
-        event_sequence,
-        scopes: saf_projection_scopes(SafProjectionMutationKind::PermanentDelete),
-        idempotent_replay: false,
-    })
-}
-
-fn validate_saf_permanent_delete_batch(
-    operation_id: &str,
+fn validate_permanent_delete_targets(
     targets: &[SafPermanentDeleteTarget],
 ) -> Result<(), lomo_core::LomoError> {
-    if operation_id.trim().is_empty() || operation_id.len() > 128 {
-        return Err(validation(
-            "invalid_saf_operation_id",
-            "SAF batch operation id must be non-empty and bounded",
-        ));
-    }
     if targets.is_empty() {
         return Err(validation(
             "empty_permanent_delete_batch",
-            "SAF permanent delete batch must contain at least one target",
+            "permanent delete batch must contain at least one target",
         ));
     }
-    if targets.len() > 4_096 {
+    if targets.len() > MAX_PERMANENT_DELETE_BATCH_TARGETS {
         return Err(validation(
             "permanent_delete_batch_too_large",
-            "SAF permanent delete batch exceeds the bounded target limit",
+            "permanent delete batch exceeds the bounded target limit",
         ));
     }
     let mut seen = BTreeSet::new();
@@ -1036,26 +1137,35 @@ fn validate_saf_permanent_delete_batch(
         if target.memo_id.trim().is_empty() || target.memo_id.len() > 512 {
             return Err(validation(
                 "invalid_memo_id",
-                "SAF batch memo identity must be non-empty and bounded",
+                "permanent delete memo identity must be non-empty and bounded",
             ));
         }
         if !seen.insert(&target.memo_id) {
             return Err(validation(
                 "duplicate_permanent_delete_target",
-                "SAF permanent delete batch contains a duplicate memo identity",
+                "permanent delete batch contains a duplicate memo identity",
             ));
         }
         if target.source_path.trim().is_empty() || target.source_path.len() > 4_096 {
             return Err(validation(
                 "invalid_source_path",
-                "SAF batch source path must be non-empty and bounded",
+                "permanent delete source path must be non-empty and bounded",
             ));
         }
         if target.expected_fingerprint.is_empty() || target.result_fingerprint.is_empty() {
             return Err(validation(
                 "invalid_source_fingerprint",
-                "SAF batch source fingerprints must be non-empty",
+                "permanent delete source fingerprints must be non-empty",
             ));
+        }
+        let mut reminder_ids = BTreeSet::new();
+        for id in &target.reminder_ids {
+            if id.trim().is_empty() || id.len() > MAX_REMINDER_ID_LEN || !reminder_ids.insert(id) {
+                return Err(validation(
+                    "invalid_reminder_facts",
+                    "permanent delete reminder identities must be unique and bounded",
+                ));
+            }
         }
         if let Some(previous) =
             source_results.insert(&target.source_path, &target.result_fingerprint)
@@ -1063,200 +1173,11 @@ fn validate_saf_permanent_delete_batch(
         {
             return Err(conflict(
                 "saf_batch_source_fingerprint_conflict",
-                "targets from one SAF source document must share the final fingerprint",
+                "targets from one source document must share the final fingerprint",
             ));
         }
     }
     Ok(())
-}
-
-fn saf_batch_digest(
-    operation_id: &str,
-    targets: &[SafPermanentDeleteTarget],
-) -> Result<String, lomo_core::LomoError> {
-    let batch_json = serde_json::to_string(&(operation_id, targets)).map_err(|error| {
-        corruption(
-            "saf_batch_mutation_digest_failed",
-            &format!("cannot encode SAF batch mutation identity: {error}"),
-        )
-    })?;
-    Ok(fingerprint_content(&batch_json))
-}
-
-struct SafBatchReplay {
-    core_revision: i64,
-    event_sequence: i64,
-    deleted: Vec<SafPermanentDeleteMemoResult>,
-}
-
-fn load_saf_batch_replay(
-    transaction: &Transaction<'_>,
-    operation_id: &str,
-    targets: &[SafPermanentDeleteTarget],
-    batch_digest: &str,
-) -> Result<Option<SafBatchReplay>, lomo_core::LomoError> {
-    let mut prior_rows = Vec::with_capacity(targets.len());
-    for (index, target) in targets.iter().enumerate() {
-        let child_id = saf_batch_child_operation_id(operation_id, index);
-        let child_digest = fingerprint_content(&format!("{batch_digest}:{index}"));
-        let prior = transaction
-            .query_row(
-                "SELECT mutation_digest,memo_id,core_revision,event_sequence,reminder_ids_json \
-                 FROM saf_mutation_operation WHERE operation_id = ?1",
-                params![&child_id],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, i64>(2)?,
-                        row.get::<_, i64>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                    ))
-                },
-            )
-            .optional()
-            .map_err(|error| from_sqlite(&error))?;
-        if let Some(row) = prior {
-            if row.0 != child_digest || row.1 != target.memo_id {
-                return Err(validation(
-                    "saf_operation_conflict",
-                    "SAF batch child operation id is already bound to different facts",
-                ));
-            }
-            let reminder_ids_json = row.4.ok_or_else(|| {
-                corruption(
-                    "saf_batch_replay_facts_missing",
-                    "SAF batch replay row has no durable reminder identities",
-                )
-            })?;
-            let reminder_ids: Vec<String> =
-                serde_json::from_str(&reminder_ids_json).map_err(|error| {
-                    corruption(
-                        "saf_batch_replay_facts_invalid",
-                        &format!("cannot decode SAF batch reminder identities: {error}"),
-                    )
-                })?;
-            validate_replayed_reminder_ids(&reminder_ids)?;
-            prior_rows.push((
-                row.2,
-                row.3,
-                SafPermanentDeleteMemoResult {
-                    memo_id: target.memo_id.clone(),
-                    reminder_ids,
-                },
-            ));
-        }
-    }
-    if prior_rows.is_empty() {
-        return Ok(None);
-    }
-    if prior_rows.len() != targets.len() {
-        return Err(corruption(
-            "saf_batch_partial_operation",
-            "SAF batch replay table contains only a subset of child operations",
-        ));
-    }
-    let (core_revision, event_sequence, _) = prior_rows.first().ok_or_else(|| {
-        corruption(
-            "saf_batch_partial_operation",
-            "missing SAF batch replay row",
-        )
-    })?;
-    if prior_rows
-        .iter()
-        .any(|row| row.0 != *core_revision || row.1 != *event_sequence)
-    {
-        return Err(corruption(
-            "saf_batch_operation_revision_mismatch",
-            "SAF batch child operations do not share one publication revision",
-        ));
-    }
-    Ok(Some(SafBatchReplay {
-        core_revision: *core_revision,
-        event_sequence: *event_sequence,
-        deleted: prior_rows.into_iter().map(|row| row.2).collect(),
-    }))
-}
-
-fn validate_replayed_reminder_ids(ids: &[String]) -> Result<(), lomo_core::LomoError> {
-    let mut seen = BTreeSet::new();
-    for id in ids {
-        if id.trim().is_empty() || id.len() > 512 || !seen.insert(id) {
-            return Err(corruption(
-                "saf_batch_replay_facts_invalid",
-                "SAF batch replay reminder identities must be unique and bounded",
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn load_saf_delete_results(
-    transaction: &Transaction<'_>,
-    targets: &[SafPermanentDeleteTarget],
-) -> Result<Vec<SafPermanentDeleteMemoResult>, lomo_core::LomoError> {
-    let mut deleted = Vec::with_capacity(targets.len());
-    for target in targets {
-        let row = transaction
-            .query_row(
-                "SELECT content_revision,file_fingerprint,source_path,is_trashed,reminders_json \
-                 FROM memo WHERE memo_id = ?1",
-                params![&target.memo_id],
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, i64>(3)?,
-                        row.get::<_, String>(4)?,
-                    ))
-                },
-            )
-            .optional()
-            .map_err(|error| from_sqlite(&error))?
-            .ok_or_else(|| validation("memo_not_found", "SAF batch target is absent"))?;
-        let revision = u64::try_from(row.0).map_err(|_error| {
-            validation("invalid_content_revision", "content revision out of range")
-        })?;
-        if revision != target.expected_revision
-            || row.1 != target.expected_fingerprint
-            || row.2 != target.source_path
-            || row.3 == 0
-        {
-            return Err(conflict(
-                "stale_snapshot",
-                "SAF batch target snapshot is stale",
-            ));
-        }
-        let has_trash: bool = transaction
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM memo_trash WHERE memo_id=?1)",
-                params![&target.memo_id],
-                |row| row.get(0),
-            )
-            .map_err(|error| from_sqlite(&error))?;
-        if !has_trash {
-            return Err(validation(
-                "memo_not_trashed",
-                "SAF batch permanent delete requires every target to be trashed",
-            ));
-        }
-        let reminders: Vec<lomo_workspace::ReminderReference> = serde_json::from_str(&row.4)
-            .map_err(|error| {
-                corruption(
-                    "invalid_reminder_projection",
-                    &format!("cannot decode reminder projection: {error}"),
-                )
-            })?;
-        deleted.push(SafPermanentDeleteMemoResult {
-            memo_id: target.memo_id.clone(),
-            reminder_ids: reminders
-                .into_iter()
-                .map(|reminder| reminder.opaque_id)
-                .collect(),
-        });
-    }
-    Ok(deleted)
 }
 
 fn delete_saf_projection_rows(
@@ -1291,57 +1212,6 @@ fn delete_saf_projection_rows(
         }
     }
     Ok(())
-}
-
-fn insert_saf_batch_replay_rows(
-    transaction: &Transaction<'_>,
-    operation_id: &str,
-    targets: &[SafPermanentDeleteTarget],
-    batch_digest: &str,
-    core_revision: u64,
-    event_sequence: u64,
-    deleted: &[SafPermanentDeleteMemoResult],
-) -> Result<(), lomo_core::LomoError> {
-    if targets.len() != deleted.len() {
-        return Err(corruption(
-            "saf_batch_replay_facts_invalid",
-            "SAF batch target and reminder-fact counts differ",
-        ));
-    }
-    for (index, (target, deleted_memo)) in targets.iter().zip(deleted).enumerate() {
-        let child_id = saf_batch_child_operation_id(operation_id, index);
-        let child_digest = fingerprint_content(&format!("{batch_digest}:{index}"));
-        validate_replayed_reminder_ids(&deleted_memo.reminder_ids)?;
-        let reminder_ids_json =
-            serde_json::to_string(&deleted_memo.reminder_ids).map_err(|error| {
-                corruption(
-                    "saf_batch_replay_facts_invalid",
-                    &format!("cannot encode SAF batch reminder identities: {error}"),
-                )
-            })?;
-        transaction
-            .execute(
-                "INSERT INTO saf_mutation_operation( \
-                 operation_id,mutation_digest,memo_id,core_revision,event_sequence,content_revision,file_fingerprint,reminder_ids_json \
-                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
-                params![
-                    &child_id,
-                    child_digest,
-                    &target.memo_id,
-                    persisted_revision(core_revision)?,
-                    persisted_revision(event_sequence)?,
-                    persisted_revision(target.expected_revision)?,
-                    &target.result_fingerprint,
-                    reminder_ids_json,
-                ],
-            )
-            .map_err(|error| from_sqlite(&error))?;
-    }
-    Ok(())
-}
-
-fn saf_batch_child_operation_id(operation_id: &str, index: usize) -> String {
-    format!("{operation_id}:batch:{index}")
 }
 
 /// Begin facts for a SAF memo create whose workspace bytes are not yet durable.
@@ -1591,12 +1461,10 @@ fn allocate_saf_create_identity(
 
 fn mint_opaque_memo_id() -> Result<String, lomo_core::LomoError> {
     let mut bytes = [0_u8; 16];
-    rustix::rand::getrandom(&mut bytes, rustix::rand::GetRandomFlags::empty()).map_err(
-        |error| {
-            let diagnostic = format!("system CSPRNG getrandom failed: {error}");
-            storage("csprng_read_failed", &diagnostic)
-        },
-    )?;
+    getrandom::fill(&mut bytes).map_err(|error| {
+        let diagnostic = format!("system CSPRNG getrandom failed: {error}");
+        storage("csprng_read_failed", &diagnostic)
+    })?;
     let mut hex = String::with_capacity(32);
     for byte in bytes {
         write!(hex, "{byte:02x}").map_err(|error| {
@@ -1634,7 +1502,8 @@ fn saf_projection_scopes(kind: SafProjectionMutationKind) -> Vec<lomo_core::Inva
         SafProjectionMutationKind::HistoryRestore => MemoCommandKind::HistoryRestore,
         SafProjectionMutationKind::Delete => MemoCommandKind::Delete,
         SafProjectionMutationKind::Restore => MemoCommandKind::Restore,
-        SafProjectionMutationKind::PermanentDelete => MemoCommandKind::PermanentDelete,
+        SafProjectionMutationKind::PermanentDelete
+        | SafProjectionMutationKind::PermanentDeleteMany => MemoCommandKind::PermanentDelete,
         SafProjectionMutationKind::Pin => MemoCommandKind::Pin,
         SafProjectionMutationKind::Unpin => MemoCommandKind::Unpin,
     })
@@ -2447,9 +2316,8 @@ pub fn run_rebuild(
             }
         }
 
-        // Apply durable .lomo state (pin/trash/tags) and history projections.
-        // apply_lomo_state is idempotent (INSERT OR REPLACE / OR IGNORE).
-        checkpoint.isolated = apply_lomo_state(&conn, &paths)?;
+        // Durable trash markers are authoritative after memo files so a stale physical
+        // `trash/{id}.md` cannot outrank the checksummed record.
         apply_trash_record_state(&conn, &trash_records)?;
         recompute_stats(&conn)?;
         drop(conn);
@@ -3552,187 +3420,6 @@ fn validate_scanned_projection(memo: &ScannedMemoProjection) -> Result<(), lomo_
     }
 
     Ok(())
-}
-
-fn apply_lomo_state(conn: &Connection, paths: &LomoPaths) -> Result<u64, lomo_core::LomoError> {
-    let mut isolated = 0u64;
-    isolated += apply_state_dir(conn, paths)?;
-    isolated += apply_history_dir(conn, paths)?;
-    Ok(isolated)
-}
-
-fn apply_state_dir(conn: &Connection, paths: &LomoPaths) -> Result<u64, lomo_core::LomoError> {
-    let mut isolated = 0u64;
-    if !paths.state.exists() {
-        return Ok(0);
-    }
-    for entry in fs::read_dir(&paths.state).map_err(|err| {
-        storage(
-            "lomo_state_list_failed",
-            &format!("cannot list state: {err}"),
-        )
-    })? {
-        let entry = entry.map_err(|err| {
-            storage(
-                "lomo_state_list_failed",
-                &format!("cannot read state entry: {err}"),
-            )
-        })?;
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("rec") {
-            continue;
-        }
-        match read_record(&path) {
-            Ok(record) if record.payload.kind == LomoRecordKind::State => {
-                let body: StateBody =
-                    serde_json::from_str(&record.payload.body_json).map_err(|err| {
-                        corruption(
-                            "lomo_state_payload_invalid",
-                            &format!("state payload invalid: {err}"),
-                        )
-                    })?;
-                rehydrate_state_body(conn, &body)?;
-            }
-            Ok(_) => {}
-            Err(_) => {
-                drop(isolate_corrupt_record(&path)?);
-                isolated += 1;
-            }
-        }
-    }
-    Ok(isolated)
-}
-
-fn rehydrate_state_body(conn: &Connection, body: &StateBody) -> Result<(), lomo_core::LomoError> {
-    if body.pinned {
-        let pinned_at_ms = body.pinned_at_ms.ok_or_else(|| {
-            corruption(
-                "lomo_state_timestamp_missing",
-                "pinned state must carry a positive timestamp",
-            )
-        })?;
-        if pinned_at_ms <= 0 {
-            return Err(corruption(
-                "lomo_state_timestamp_invalid",
-                "pinned state timestamp must be positive",
-            ));
-        }
-        conn.execute(
-            "INSERT OR REPLACE INTO memo_pin(memo_id, pinned_at_ms) VALUES(?1, ?2)",
-            params![body.memo_id, pinned_at_ms],
-        )
-        .map_err(|err| from_sqlite(&err))?;
-        conn.execute(
-            "UPDATE memo SET is_pinned=1 WHERE memo_id=?1",
-            params![body.memo_id],
-        )
-        .map_err(|err| from_sqlite(&err))?;
-    } else {
-        conn.execute(
-            "UPDATE memo SET is_pinned=0 WHERE memo_id=?1",
-            params![body.memo_id],
-        )
-        .map_err(|err| from_sqlite(&err))?;
-    }
-    if body.trashed {
-        let trashed_at_ms = body.trashed_at_ms.ok_or_else(|| {
-            corruption(
-                "lomo_state_timestamp_missing",
-                "trashed state must carry a positive timestamp",
-            )
-        })?;
-        if trashed_at_ms <= 0 {
-            return Err(corruption(
-                "lomo_state_timestamp_invalid",
-                "trashed state timestamp must be positive",
-            ));
-        }
-        conn.execute(
-            "INSERT OR REPLACE INTO memo_trash(memo_id, trashed_at_ms) VALUES(?1, ?2)",
-            params![body.memo_id, trashed_at_ms],
-        )
-        .map_err(|err| from_sqlite(&err))?;
-        conn.execute(
-            "UPDATE memo SET is_trashed=1 WHERE memo_id=?1",
-            params![body.memo_id],
-        )
-        .map_err(|err| from_sqlite(&err))?;
-    } else {
-        conn.execute(
-            "UPDATE memo SET is_trashed=0 WHERE memo_id=?1",
-            params![body.memo_id],
-        )
-        .map_err(|err| from_sqlite(&err))?;
-    }
-    // Durable tags are authoritative when present. Empty durable tags leave content-indexed tags
-    // (import / plain Markdown without a prior state write).
-    if !body.tags.is_empty() {
-        conn.execute(
-            "DELETE FROM memo_tag WHERE memo_id = ?1",
-            params![body.memo_id],
-        )
-        .map_err(|err| from_sqlite(&err))?;
-        for tag in &body.tags {
-            rehydrate_tag(conn, &body.memo_id, tag)?;
-        }
-    }
-    Ok(())
-}
-
-fn apply_history_dir(conn: &Connection, paths: &LomoPaths) -> Result<u64, lomo_core::LomoError> {
-    let mut isolated = 0u64;
-    if !paths.history.exists() {
-        return Ok(0);
-    }
-    for entry in fs::read_dir(&paths.history).map_err(|err| {
-        storage(
-            "lomo_history_list_failed",
-            &format!("cannot list history: {err}"),
-        )
-    })? {
-        let entry = entry.map_err(|err| {
-            storage(
-                "lomo_history_list_failed",
-                &format!("cannot read history entry: {err}"),
-            )
-        })?;
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("rec") {
-            continue;
-        }
-        match read_record(&path) {
-            Ok(record) if record.payload.kind == LomoRecordKind::History => {
-                let body: HistoryBody =
-                    serde_json::from_str(&record.payload.body_json).map_err(|err| {
-                        corruption(
-                            "lomo_history_payload_invalid",
-                            &format!("history payload invalid: {err}"),
-                        )
-                    })?;
-                let rev = i64::try_from(body.revision).unwrap_or(i64::MAX);
-                conn.execute(
-                    "INSERT OR REPLACE INTO revision_index( \
-                     memo_id,revision,history_record_id,created_at_ms,content,file_fingerprint \
-                     ) VALUES(?1,?2,?3,?4,?5,?6)",
-                    params![
-                        body.memo_id,
-                        rev,
-                        record.payload.record_id,
-                        body.created_at_ms,
-                        body.content,
-                        body.file_fingerprint,
-                    ],
-                )
-                .map_err(|err| from_sqlite(&err))?;
-            }
-            Ok(_) => {}
-            Err(_) => {
-                drop(isolate_corrupt_record(&path)?);
-                isolated += 1;
-            }
-        }
-    }
-    Ok(isolated)
 }
 
 fn rehydrate_tag(conn: &Connection, memo_id: &str, tag: &str) -> Result<(), lomo_core::LomoError> {

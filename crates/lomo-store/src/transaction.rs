@@ -238,33 +238,6 @@ pub struct MemoCommitResult {
     pub idempotent_replay: bool,
 }
 
-/// CAS facts supplied to a direct-store batch permanent delete.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PermanentDeleteTarget {
-    pub memo_id: String,
-    pub source_path: String,
-    pub expected_revision: u64,
-    pub expected_fingerprint: String,
-}
-
-/// One memo's reminder identities captured before its durable row is removed.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PermanentDeleteMemoResult {
-    pub memo_id: String,
-    pub reminder_ids: Vec<String>,
-}
-
-/// One atomic direct-store batch publication.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PermanentDeleteManyResult {
-    pub operation_id: String,
-    pub deleted: Vec<PermanentDeleteMemoResult>,
-    pub core_revision: CoreRevision,
-    pub event_sequence: EventSequence,
-    pub scopes: Vec<InvalidationScope>,
-    pub idempotent_replay: bool,
-}
-
 /// Store write mode gate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WriteGate {
@@ -297,26 +270,6 @@ pub fn apply_memo_command(
         *event_sequence,
         crash_point,
     )
-}
-
-/// Fails closed: batch permanent delete belongs to `WorkspaceSession`, not Store Direct.
-///
-/// # Errors
-///
-/// Always `session_owns_document_writes`.
-pub fn permanent_delete_many(
-    _workspace_root: &Path,
-    _connection: &Connection,
-    _gate: WriteGate,
-    _operation_id: &OperationId,
-    _targets: &[PermanentDeleteTarget],
-    _high_water_revision: &mut u64,
-    _event_sequence: &mut u64,
-) -> Result<PermanentDeleteManyResult, lomo_core::LomoError> {
-    Err(validation(
-        "session_owns_document_writes",
-        "Store Direct must not batch-delete documents; WorkspaceSession owns permanent delete",
-    ))
 }
 
 fn apply_memo_command_inner(

@@ -1,8 +1,9 @@
 //! Behavior Contract (P3-06)
 //!
-//! Capability: rebuild enters read-only (mutations rejected), scans Markdown + `.lomo` into a
-//! temporary database with checkpoints, integrity/compare, atomic `SQLite` replace; process-death
-//! resume continues; `SQLite` damage never deletes `.lomo`.
+//! Capability: rebuild enters read-only (mutations rejected), scans Markdown + durable
+//! `TrashRecordV1` markers into a temporary database with checkpoints, integrity/compare, atomic
+//! `SQLite` replace; process-death resume continues; `SQLite` damage never deletes `.lomo`.
+//! Retired `.lomo/state` and `.lomo/history` trees are migration-owned and are not rebuild inputs.
 //!
 //! Scenarios:
 //! - Given memos on disk, when rebuild runs, then projections restore and queries succeed.
@@ -13,7 +14,8 @@
 //! - Given phase=`replacing` with temp already gone (crash after temp→live), when rebuild resumes,
 //!   then the good live DB is not destroyed and the store is usable / gate Ready.
 //! - Given a memo with tags, when `SQLite` is wiped and rebuild runs, then the tag filter finds it.
-//! - Given trash then pin, when durable state and rebuild are inspected, then both flags survive.
+//! - Given a durable trash record, when `SQLite` is wiped and rebuild runs, then trash and tags
+//!   are restored from the record.
 //! - Given active rebuild gate, when a mutation is submitted, then it is rejected with
 //!   `store_rebuilding`.
 //! - Given `SQLite` file deleted while `.lomo` remains, when rebuild runs, then `.lomo` is intact.
@@ -56,13 +58,14 @@ mod tests {
 
     use lomo_core::{ErrorCategory, OperationId, PageSize};
     use lomo_store::{
-        LomoPaths, LomoPayload, LomoRecordKind, MemoCommand, MemoCommandKind, MemoFilters,
-        MemoQuery, RebuildPhase, SafPermanentDeleteTarget, SafProjectionMutation,
-        SafProjectionMutationKind, SafProjectionRebuild, ScannedHistoryProjection,
-        ScannedMemoProjection, ScannedTrashProjection, StateBody, Store, WriteGate,
-        ensure_writable, fingerprint_content, project_reminder_references, read_record,
-        rebuild_scanned_projection, run_rebuild, write_gate_for_checkpoint, write_record_atomic,
+        LomoPaths, MemoCommand, MemoCommandKind, MemoFilters, MemoQuery, RebuildPhase,
+        SafPermanentDeleteTarget, SafProjectionMutation, SafProjectionMutationKind,
+        SafProjectionRebuild, ScannedHistoryProjection, ScannedMemoProjection,
+        ScannedTrashProjection, Store, WriteGate, ensure_writable, fingerprint_content,
+        project_reminder_references, rebuild_scanned_projection, run_rebuild,
+        write_gate_for_checkpoint,
     };
+    use lomo_workspace::trash_record_relative_path;
     use tempfile::tempdir;
 
     fn seed_memo(root: &Path, memo: &str, content: &str, tags: &[&str]) {
@@ -76,27 +79,37 @@ mod tests {
         fs::write(dir.join(format!("{memo}.md")), body).expect("write memo");
     }
 
-    fn seed_state(root: &Path, memo: &str, pinned: bool, trashed: bool) {
-        let paths = LomoPaths::for_workspace(root);
-        paths.ensure_layout().expect("layout");
-        let body = StateBody {
-            memo_id: memo.to_owned(),
-            pinned,
-            trashed,
-            pinned_at_ms: pinned.then_some(1_700_000_000_000),
-            trashed_at_ms: trashed.then_some(1_700_000_000_001),
-            tags: Vec::new(),
-        };
-        let body_json = serde_json::to_string(&body).expect("state json");
-        write_record_atomic(
-            &paths.state.join(format!("{memo}.rec")),
-            &LomoPayload {
-                kind: LomoRecordKind::State,
-                record_id: memo.to_owned(),
-                body_json,
-            },
+    /// Seeds the canonical durable trash marker; `run_rebuild` rehydrates the trashed projection
+    /// from this record alone. Pin state belongs to the session-owned V2 state graph and is not
+    /// an input of this indexer.
+    fn seed_trash_record(root: &Path, memo_id: &str, body: &str, tags: &[&str]) {
+        let time_part = lomo_workspace::MemoIdentity::parse(memo_id).map_or_else(
+            |_| memo_id.to_owned(),
+            |identity| identity.time_part().to_owned(),
+        );
+        let record = lomo_workspace::TrashRecordV1::try_new(lomo_workspace::TrashRecordCreate {
+            memo_id: memo_id.to_owned(),
+            source_path: format!("memos/{memo_id}.md"),
+            time_part,
+            source_fingerprint: fingerprint_content(body),
+            chronology_epoch_ms: 1_700_000_000_000,
+            trashed_at_ms: 1_700_000_000_001,
+            body: body.to_owned(),
+            tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
+            attachments: Vec::new(),
+            reminders: project_reminder_references(body, memo_id).expect("reminders"),
+            has_todo: false,
+            has_url: false,
+        })
+        .expect("trash record");
+        let relative = trash_record_relative_path(memo_id).expect("record path");
+        let marker = root.join(relative.as_str());
+        fs::create_dir_all(marker.parent().expect("trash parent")).expect("trash dir");
+        fs::write(
+            &marker,
+            lomo_workspace::encode_trash_record(&record).expect("encode"),
         )
-        .expect("write state");
+        .expect("write marker");
     }
 
     fn indexed_store(root: &Path) -> Store {
@@ -142,6 +155,7 @@ mod tests {
                 expected_fingerprint: Some(fingerprint.to_owned()),
                 projection: None,
                 trashed_at_ms: None,
+                batch_targets: Vec::new(),
             })
             .expect("pin projection");
         assert_eq!(pinned.content_revision, 2);
@@ -154,6 +168,7 @@ mod tests {
                 expected_fingerprint: Some(fingerprint.to_owned()),
                 projection: None,
                 trashed_at_ms: None,
+                batch_targets: Vec::new(),
             })
             .expect("pin replay");
         assert!(pin_replay.idempotent_replay);
@@ -169,6 +184,7 @@ mod tests {
                 expected_fingerprint: Some(fingerprint.to_owned()),
                 projection: Some(updated),
                 trashed_at_ms: Some(1_754_300_200_000),
+                batch_targets: Vec::new(),
             })
             .expect("delete projection");
         assert!(!projection_root.join("2026-08-04.md").exists());
@@ -287,6 +303,7 @@ mod tests {
                 expected_fingerprint: Some(old.file_fingerprint.clone()),
                 projection: Some(updated.clone()),
                 trashed_at_ms: None,
+                batch_targets: Vec::new(),
             })
             .expect("projection update");
         assert_eq!(commit.content_revision, 2);
@@ -302,6 +319,7 @@ mod tests {
                 expected_fingerprint: Some(old.file_fingerprint),
                 projection: Some(updated.clone()),
                 trashed_at_ms: None,
+                batch_targets: Vec::new(),
             })
             .expect("idempotent replay");
         assert!(replay.idempotent_replay);
@@ -318,6 +336,7 @@ mod tests {
                 expected_fingerprint: Some(commit.file_fingerprint.clone()),
                 projection: None,
                 trashed_at_ms: Some(1_754_300_100_000),
+                batch_targets: Vec::new(),
             })
             .expect_err("one operation id cannot identify two SAF mutations");
         assert_eq!(conflicting_replay.code(), "saf_operation_conflict");
@@ -364,6 +383,7 @@ mod tests {
                 expected_fingerprint: Some(original.file_fingerprint),
                 projection: Some(restored),
                 trashed_at_ms: None,
+                batch_targets: Vec::new(),
             })
             .expect("history restore projection");
         let page = store
@@ -409,6 +429,7 @@ mod tests {
                 expected_fingerprint: Some(memo.file_fingerprint),
                 projection: Some(updated.clone()),
                 trashed_at_ms: None,
+                batch_targets: Vec::new(),
             })
             .expect("commit update");
         drop(store);
@@ -465,6 +486,7 @@ mod tests {
             expected_fingerprint: None,
             projection: Some(projection),
             trashed_at_ms: None,
+            batch_targets: Vec::new(),
         };
         let mut store = Store::open_projection(projection_root.path()).expect("open projection");
 
@@ -523,6 +545,7 @@ mod tests {
                 expected_fingerprint: Some(old_fingerprint),
                 projection: Some(updated),
                 trashed_at_ms: None,
+                batch_targets: Vec::new(),
             })
             .expect("commit shared document update");
 
@@ -583,6 +606,7 @@ mod tests {
                 expected_fingerprint: Some(old_fingerprint),
                 projection: Some(deletion_projection),
                 trashed_at_ms: Some(1_754_305_000_000),
+                batch_targets: Vec::new(),
             })
             .expect("commit verified delete");
 
@@ -638,6 +662,7 @@ mod tests {
             expected_fingerprint: Some(original_fingerprint.clone()),
             projection: Some(target.clone()),
             trashed_at_ms: Some(1_755_063_000_000),
+            batch_targets: Vec::new(),
         };
 
         store
@@ -652,6 +677,7 @@ mod tests {
                 expected_fingerprint: Some(original_fingerprint.clone()),
                 projection: Some(target.clone()),
                 trashed_at_ms: None,
+                batch_targets: Vec::new(),
             })
             .expect("restore");
         assert!(
@@ -678,6 +704,7 @@ mod tests {
                     ..target.clone()
                 }),
                 trashed_at_ms: None,
+                batch_targets: Vec::new(),
             })
             .expect("permanent delete");
 
@@ -821,6 +848,7 @@ mod tests {
                 expected_fingerprint: None,
                 projection: Some(live.clone()),
                 trashed_at_ms: None,
+                batch_targets: Vec::new(),
             })
             .expect("commit verified live mutation");
         drop(store);
@@ -948,7 +976,7 @@ mod tests {
     fn rebuild_restores_projections_without_deleting_lomo() {
         let dir = tempdir().expect("tempdir");
         seed_memo(dir.path(), "r1", "rebuild me 你好", &["x"]);
-        seed_state(dir.path(), "r1", true, false);
+        seed_trash_record(dir.path(), "tr1", "durable trash body", &["x"]);
         let store = indexed_store(dir.path());
 
         let lomo = LomoPaths::for_workspace(dir.path());
@@ -983,21 +1011,14 @@ mod tests {
             .expect("query");
         assert_eq!(page.items.len(), 1);
         assert_eq!(page.items.first().map(|m| m.memo_id.as_str()), Some("r1"));
-        let pin_page = store
-            .query_memos(
-                &MemoQuery {
-                    search_text: None,
-                    filters: MemoFilters {
-                        pinned_only: true,
-                        ..MemoFilters::default()
-                    },
-                    sort: lomo_store::MemoSort::default(),
-                },
-                None,
-                PageSize::new(10).expect("page"),
-            )
-            .expect("pin query");
-        assert_eq!(pin_page.items.len(), 1);
+        let trashed = store
+            .get_memo_projection("tr1")
+            .expect("projection")
+            .expect("trashed memo");
+        assert!(
+            trashed.is_trashed,
+            "durable trash record must restore the trashed projection after a full wipe"
+        );
     }
 
     #[test]
@@ -1033,6 +1054,10 @@ mod tests {
         let body = "batch reminder @2026-09-03-09:30";
         let fingerprint = fingerprint_content(body);
         let reminders = project_reminder_references(body, memo_id).expect("reminder facts");
+        let reminder_ids: Vec<String> = reminders
+            .iter()
+            .map(|reminder| reminder.opaque_id.clone())
+            .collect();
         let projection = ScannedMemoProjection {
             memo_id: memo_id.to_owned(),
             source_path: "2026_09_03.md".to_owned(),
@@ -1054,6 +1079,7 @@ mod tests {
                 expected_fingerprint: None,
                 projection: Some(projection.clone()),
                 trashed_at_ms: None,
+                batch_targets: Vec::new(),
             })
             .expect("create projection");
         store
@@ -1065,6 +1091,7 @@ mod tests {
                 expected_fingerprint: Some(fingerprint.clone()),
                 projection: Some(projection),
                 trashed_at_ms: Some(1_756_876_300_000),
+                batch_targets: Vec::new(),
             })
             .expect("trash projection");
         let target = SafPermanentDeleteTarget {
@@ -1073,19 +1100,32 @@ mod tests {
             expected_revision: 1,
             expected_fingerprint: fingerprint,
             result_fingerprint: "0".repeat(64),
+            // Reminder facts are frozen into the mutation so the replay receipt reconstructs them
+            // without re-reading the deleted projection row.
+            reminder_ids,
+        };
+        let batch = SafProjectionMutation {
+            operation_id: "saf-batch-purge".to_owned(),
+            kind: SafProjectionMutationKind::PermanentDeleteMany,
+            memo_id: memo_id.to_owned(),
+            expected_revision: 1,
+            expected_fingerprint: Some(target.expected_fingerprint.clone()),
+            projection: None,
+            trashed_at_ms: None,
+            batch_targets: vec![target],
         };
 
         let first = store
-            .commit_saf_permanent_delete_many("saf-batch-purge", std::slice::from_ref(&target))
+            .commit_saf_projection_mutation(&batch)
             .expect("first batch commit");
-        let first_deleted = first.deleted.first().expect("deleted memo");
+        let first_deleted = first.deleted_memos.first().expect("deleted memo");
         assert_eq!(first_deleted.reminder_ids.len(), 1);
 
         let replay = store
-            .commit_saf_permanent_delete_many("saf-batch-purge", std::slice::from_ref(&target))
+            .commit_saf_projection_mutation(&batch)
             .expect("batch replay");
         assert!(replay.idempotent_replay);
-        assert_eq!(replay.deleted, first.deleted);
+        assert_eq!(replay.deleted_memos, first.deleted_memos);
     }
 
     #[test]
@@ -1150,20 +1190,47 @@ mod tests {
     }
 
     #[test]
-    fn trash_then_pin_preserves_both_in_durable_state_and_rebuild() {
+    fn trash_record_restores_trash_and_tags_after_sqlite_wipe() {
         let dir = tempdir().expect("tempdir");
-        seed_memo(dir.path(), "tp1", "trash pin body", &["keep"]);
-        seed_state(dir.path(), "tp1", true, true);
-        let store = indexed_store(dir.path());
+        // Canonical trash semantics: a trashed memo has no workspace file; the durable record
+        // carries the body/tag snapshot. Seeding both would be the both-files conflict the
+        // rebuild comparator rejects.
+        seed_trash_record(dir.path(), "tp1", "trash pin body #keep", &["keep"]);
+        let mut store = indexed_store(dir.path());
+        let snap = store
+            .get_memo_projection("tp1")
+            .expect("projection")
+            .expect("memo");
+        store
+            .commit_saf_projection_mutation(&SafProjectionMutation {
+                operation_id: "op-pin-tp1".to_owned(),
+                kind: SafProjectionMutationKind::Pin,
+                memo_id: "tp1".to_owned(),
+                expected_revision: snap.content_revision,
+                expected_fingerprint: Some(snap.file_fingerprint),
+                projection: None,
+                trashed_at_ms: None,
+                batch_targets: Vec::new(),
+            })
+            .expect("pin publication");
         assert_pin_and_trash_live(&store);
-        assert_durable_pin_trash_tags(dir.path(), "tp1", "keep");
+        // The durable trash record — not a retired v1 state file — is the rebuild authority.
+        let relative = trash_record_relative_path("tp1").expect("record path");
+        assert!(dir.path().join(relative.as_str()).is_file());
 
         let db_path = store.open_info().database_path;
         drop(store);
         wipe_sqlite(&db_path);
         run_rebuild(dir.path(), 4).expect("rebuild");
         let store = Store::open(dir.path()).expect("reopen");
-        assert_pin_and_trash_live(&store);
+        let trashed = store
+            .get_memo_projection("tp1")
+            .expect("projection")
+            .expect("memo");
+        assert!(
+            trashed.is_trashed,
+            "trash record must restore the trashed flag"
+        );
         let tag_hits = store
             .query_memos(
                 &MemoQuery {
@@ -1203,14 +1270,6 @@ mod tests {
         let item = page.items.first().expect("item");
         assert!(item.is_trashed);
         assert!(item.is_pinned);
-    }
-
-    fn assert_durable_pin_trash_tags(root: &Path, memo_id: &str, _tag: &str) {
-        let paths = LomoPaths::for_workspace(root);
-        let record = read_record(&paths.state.join(format!("{memo_id}.rec"))).expect("state");
-        let body: StateBody = serde_json::from_str(&record.payload.body_json).expect("state body");
-        assert!(body.pinned, "durable state must remain pinned");
-        assert!(body.trashed, "durable state must remain trashed after pin");
     }
 
     #[test]
@@ -1457,13 +1516,16 @@ mod tests {
     }
 
     #[test]
-    fn rebuild_isolates_corrupt_lomo_state_and_history_without_deleting_tree() {
+    fn rebuild_leaves_retired_lomo_dirs_untouched() {
         let dir = tempdir().expect("tempdir");
         seed_memo(dir.path(), "iso1", "updated isolation body", &["iso"]);
         let store = indexed_store(dir.path());
         let db_path = store.open_info().database_path;
         drop(store);
 
+        // Retired `.lomo/state` and `.lomo/history` record trees are migration-owned and no
+        // longer rebuild inputs: even unreadable leftovers must be ignored, never moved or
+        // deleted by the projection indexer.
         let paths = LomoPaths::for_workspace(dir.path());
         fs::create_dir_all(&paths.state).expect("state dir");
         fs::create_dir_all(&paths.history).expect("history dir");
@@ -1476,20 +1538,15 @@ mod tests {
         .expect("bad history");
 
         wipe_sqlite(&db_path);
-        let result = run_rebuild(dir.path(), 4).expect("rebuild with isolation");
-        assert!(
-            result.corrupt_lomo_isolated >= 2,
-            "state+history corrupt must isolate: {:?}",
-            result.corrupt_lomo_isolated
+        let result = run_rebuild(dir.path(), 4).expect("rebuild ignores retired record trees");
+        assert_eq!(
+            result.corrupt_lomo_isolated, 0,
+            "retired .lomo record trees are not consumed or isolated"
         );
-        assert!(paths.root.exists(), ".lomo root must survive isolation");
+        assert!(paths.root.exists(), ".lomo root must survive rebuild");
         assert!(
-            !state_path.exists(),
-            "corrupt state must be renamed away from live path"
-        );
-        assert!(
-            state_path.with_extension("corrupt").exists(),
-            "isolated sibling must exist"
+            state_path.exists(),
+            "a retired state leftover is not a rebuild input and must stay put"
         );
 
         let store = Store::open(dir.path()).expect("reopen");

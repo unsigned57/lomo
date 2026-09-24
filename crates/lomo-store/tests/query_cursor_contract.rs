@@ -31,7 +31,7 @@ mod support;
     reason = "contract tests fail closed with panics on missing facts; matrix is intentionally long"
 )]
 mod tests {
-    use super::support::{indexed_store, publish_pin, seed_memo, seed_state};
+    use super::support::{indexed_store, publish_pin, seed_memo};
     use lomo_core::{ErrorCategory, PageSize};
     use lomo_store::{
         MemoFilters, MemoQuery, MemoQueryBoundary, MemoQueryStart, MemoSort, MemoSortField,
@@ -50,8 +50,8 @@ mod tests {
         );
         seed_memo(dir.path(), "b", "plain note", &["life"]);
         seed_memo(dir.path(), "c", "another", &["work"]);
-        seed_state(dir.path(), "b", true, false);
         let mut store = indexed_store(dir.path());
+        publish_pin(&mut store, "b", "op-pin-b");
 
         let todo_page = store
             .query_memos(
@@ -256,8 +256,8 @@ mod tests {
         drop(store);
 
         seed_memo(dir.path(), "new-head", "new", &[]);
-        seed_state(dir.path(), "new-head", true, false);
-        let store = indexed_store(dir.path());
+        let mut store = indexed_store(dir.path());
+        publish_pin(&mut store, "new-head", "op-pin-new-head");
 
         let bounded = store
             .query_memos_with_boundary(

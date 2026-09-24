@@ -15,7 +15,7 @@
 //!   to live (previous generation intact).
 //! - Given mid-activate where restore also fails, when activate runs, then exact
 //!   `archive_activate_restore_failed` is observed (fail-closed, no silent empty live claim).
-//! - Given export→import staging green, when `archive_import_activate_rebuild` runs, then live
+//! - Given export→import staging green, when activate + `run_rebuild` run, then live
 //!   holds archive contents and rebuild yields a non-zero store projection generation.
 //!
 //! Observable outcomes: manifest schema, error codes, activate swap, live-root immutability,
@@ -37,8 +37,7 @@ mod tests {
     use lomo_store::{
         ARCHIVE_MANIFEST_ENTRY, ARCHIVE_MANIFEST_SCHEMA_V2, ArchiveManifestEntry,
         ArchiveManifestV2, MemoFilters, MemoQuery, Store, archive_activate,
-        archive_activate_with_rename, archive_export, archive_import,
-        archive_import_activate_rebuild, archive_inspect,
+        archive_activate_with_rename, archive_export, archive_import, archive_inspect, run_rebuild,
     };
     use sha2::{Digest, Sha256};
     use tempfile::tempdir;
@@ -558,8 +557,9 @@ mod tests {
         fs::create_dir_all(&live).expect("live");
         fs::write(live.join("stale.md"), b"stale-generation").expect("stale");
 
-        let rebuild = archive_import_activate_rebuild(&archive, &staging, &live, &backup, 32)
-            .expect("import activate rebuild");
+        archive_import(&archive, &staging).expect("import");
+        archive_activate(&staging, &live, &backup).expect("activate");
+        let rebuild = run_rebuild(&live, 32).expect("rebuild");
         assert!(
             rebuild.memos_indexed >= 1,
             "rebuild must project at least the seeded memo; got {}",

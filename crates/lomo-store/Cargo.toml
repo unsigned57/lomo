@@ -71,7 +71,7 @@ path = "tests/reminder_core_contract.rs"
 lomo-core = { path = "../lomo-core" }
 lomo-workspace = { path = "../lomo-workspace" }
 lomo-media = { path = "../lomo-media" }
-rustix = { workspace = true, features = ["rand"] }
+getrandom.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true

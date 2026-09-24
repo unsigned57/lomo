@@ -248,9 +248,18 @@ impl SnoozeStore {
                 || "reminder_snooze.v1.json".to_owned(),
                 |n| n.to_string_lossy().into_owned(),
             );
+            // behavior-contract: identity-mint-ok: this file owns the snooze namespace; the
+            // stamp is a quarantine-filename uniqueness suffix minted by its owner, never a
+            // generation/fence/identity claim.
             let stamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_millis());
+                .map_err(|_error| {
+                    reminder_storage(
+                        "snooze_quarantine_clock_failed",
+                        "system clock is before the unix epoch",
+                    )
+                })?
+                .as_millis();
             let quarantine = path.with_file_name(format!("{name}.corrupt-{stamp}"));
             fs::rename(path, &quarantine).map_err(|err| {
                 reminder_storage(

@@ -29,7 +29,7 @@ pub use archive::{
     ARCHIVE_MANIFEST_ENTRY, ARCHIVE_MANIFEST_SCHEMA_V2, ArchiveEntryKind, ArchiveExportResult,
     ArchiveInspectResult, ArchiveManifestEntry, ArchiveManifestV2, MAX_COMPRESSION_RATIO,
     MAX_ENTRY_UNCOMPRESSED_BYTES, archive_activate, archive_activate_with_rename, archive_export,
-    archive_import, archive_import_activate_rebuild, archive_inspect,
+    archive_import, archive_inspect,
 };
 pub use content_facts::{
     BODY_PREVIEW_MAX_CHARS, ContentFacts, aggregate_memo_digest, body_preview, count_characters,
@@ -38,36 +38,36 @@ pub use content_facts::{
 };
 pub use cursor::{PageCursor, fingerprint_plan, fingerprint_query};
 pub use history_refs::{
-    DEFAULT_HISTORY_MEDIA_RETENTION_REVISIONS, HistoryAttachmentRef, MemoHistoryPage,
-    MemoHistoryRevision, list_history_attachment_refs, list_history_attachment_refs_with_retention,
-    list_memo_history,
+    DEFAULT_HISTORY_MEDIA_RETENTION_REVISIONS, HistoryRevisionBody, MemoHistoryPage,
+    MemoHistoryRevision, list_history_revision_bodies, list_memo_history,
 };
 pub use lomo_format::{
-    BatchDeleteReminderSet, BatchDeleteTarget, HistoryBody, LOMO_CODEC_SCHEMA, LOMO_MAGIC,
-    LomoLayoutVersion, LomoPaths, LomoPayload, LomoRecord, LomoRecordKind, MemoCommandKind,
-    OperationIntent, OperationStatus, StateBody, decode_record, encode_record,
-    isolate_corrupt_record, read_record, write_record_atomic,
+    BatchDeleteReminderSet, BatchDeleteTarget, LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoLayoutVersion,
+    LomoPaths, LomoPayload, LomoRecord, LomoRecordKind, MemoCommandKind, OperationIntent,
+    OperationStatus, decode_record, encode_record, isolate_corrupt_record, read_record,
+    write_record_atomic,
 };
 pub use open::{OpenedStore, SQLITE_DIR_NAME, SQLITE_FILE_NAME, database_path, open_store};
 pub use publication::{DocumentPublication, ProjectionClock};
 pub use query::{
     MemoFilters, MemoPage, MemoQuery, MemoQueryBoundary, MemoQueryStart, MemoSnapshot, MemoSort,
-    MemoSortField, MemoStatisticsRow, MemoSummary, SIDEBAR_PROJECTION_SCHEMA, SidebarDateCount,
-    SidebarProjection, SidebarTagCount, SortDirection, StoreStats, TagSelectionMode,
-    active_memo_ids_for_source_path, get_memo, get_memo_projection, get_projected_memo,
-    query_count, query_memo_statistics_rows, query_memos, query_memos_starting_at,
-    query_memos_with_boundary, query_sidebar_projection, query_stats, source_document_fingerprint,
+    MemoSortField, MemoStatisticsRow, MemoSummary, ProjectedAttachmentRef,
+    SIDEBAR_PROJECTION_SCHEMA, SidebarDateCount, SidebarProjection, SidebarTagCount, SortDirection,
+    StoreStats, TagSelectionMode, active_memo_ids_for_source_path, get_memo, get_memo_projection,
+    get_projected_memo, get_projected_memos, list_projected_attachment_refs, query_count,
+    query_memo_statistics_rows, query_memos, query_memos_starting_at, query_memos_with_boundary,
+    query_sidebar_projection, query_stats, source_document_fingerprint,
 };
 pub use reader::StoreReader;
 mod reader_pool;
 pub use reader_pool::{ReaderPoolOptions, StoreReaderLease, StoreReaderPool};
 pub use rebuild::{
     RebuildCheckpoint, RebuildPhase, RebuildResult, SafMemoCreateBegin, SafMemoCreateBeginResult,
-    SafMemoPublication, SafPermanentDeleteManyResult, SafPermanentDeleteMemoResult,
-    SafPermanentDeleteTarget, SafProjectionCommitResult, SafProjectionMutation,
-    SafProjectionMutationKind, SafProjectionRebuild, ScannedHistoryProjection,
-    ScannedMemoProjection, ScannedPinProjection, ScannedTrashProjection, ensure_writable,
-    rebuild_scanned_projection, run_rebuild, write_gate_for_checkpoint,
+    SafMemoPublication, SafPermanentDeleteMemoResult, SafPermanentDeleteTarget,
+    SafProjectionCommitResult, SafProjectionMutation, SafProjectionMutationKind,
+    SafProjectionRebuild, ScannedHistoryProjection, ScannedMemoProjection, ScannedPinProjection,
+    ScannedTrashProjection, ensure_writable, rebuild_scanned_projection, run_rebuild,
+    write_gate_for_checkpoint,
 };
 pub use reminder::{
     PlannedAlarm, REMINDER_ROLLING_WINDOW, ReminderCommand, ReminderCommandResult, ReminderPlan,
@@ -88,15 +88,14 @@ pub use tokenizer::{
     query_plan, tokenizer_version,
 };
 pub use transaction::{
-    CrashPoint, MemoCommand, MemoCommitResult, PermanentDeleteManyResult,
-    PermanentDeleteMemoResult, PermanentDeleteTarget, WriteGate, apply_memo_command,
-    cleanup_expired_operations, create_received_memo, permanent_delete_many,
-    refuse_v1_writers_on_layout_v2, select_pending_promotes,
+    CrashPoint, MemoCommand, MemoCommitResult, WriteGate, apply_memo_command,
+    cleanup_expired_operations, create_received_memo, refuse_v1_writers_on_layout_v2,
+    select_pending_promotes,
 };
 
 use crate::rebuild::{
-    begin_saf_memo_create_on_connection, commit_saf_permanent_delete_many_on_connection,
-    commit_saf_projection_mutation_on_connection, rollback_saf_memo_create_on_connection,
+    begin_saf_memo_create_on_connection, commit_saf_projection_mutation_on_connection,
+    rollback_saf_memo_create_on_connection,
 };
 
 use std::path::{Path, PathBuf};
@@ -337,48 +336,6 @@ impl Store {
         Ok(result)
     }
 
-    /// Fails closed: batch permanent delete belongs to `WorkspaceSession`.
-    ///
-    /// # Errors
-    ///
-    /// See [`permanent_delete_many`].
-    pub fn permanent_delete_many(
-        &mut self,
-        operation_id: &lomo_core::OperationId,
-        targets: &[PermanentDeleteTarget],
-    ) -> Result<PermanentDeleteManyResult, LomoError> {
-        let gate = self.write_gate();
-        permanent_delete_many(
-            &self.workspace_root,
-            &self.opened.connection,
-            gate,
-            operation_id,
-            targets,
-            &mut self.high_water_revision,
-            &mut self.event_sequence,
-        )
-    }
-
-    /// Commits verified SAF permanent-delete results through this store's resident connection.
-    ///
-    /// # Errors
-    ///
-    /// Returns validation, conflict, corruption, or projection storage errors.
-    pub fn commit_saf_permanent_delete_many(
-        &mut self,
-        operation_id: &str,
-        targets: &[SafPermanentDeleteTarget],
-    ) -> Result<SafPermanentDeleteManyResult, LomoError> {
-        let result = commit_saf_permanent_delete_many_on_connection(
-            &self.opened.connection,
-            operation_id,
-            targets,
-        )?;
-        self.high_water_revision = result.core_revision;
-        self.event_sequence = result.event_sequence;
-        Ok(result)
-    }
-
     /// Allocates and creates one received memo using its original timestamp and next ordinal.
     ///
     /// # Errors
@@ -499,6 +456,15 @@ impl Store {
     /// See [`get_projected_memo`].
     pub fn get_projected_memo(&self, memo_id: &str) -> Result<Option<MemoSnapshot>, LomoError> {
         get_projected_memo(&self.opened.connection, memo_id)
+    }
+
+    /// Complete memo snapshots for a candidate set in bounded batched statements.
+    ///
+    /// # Errors
+    ///
+    /// See [`get_projected_memos`].
+    pub fn get_projected_memos(&self, memo_ids: &[String]) -> Result<Vec<MemoSnapshot>, LomoError> {
+        get_projected_memos(&self.opened.connection, memo_ids)
     }
 
     /// Counts rows matching this query without transferring them (O(1) materialized count).
@@ -658,15 +624,6 @@ impl Store {
             self.event_sequence = publication.event_sequence;
         }
         Ok(result)
-    }
-
-    /// Attachment paths still referenced by durable history revision bodies (D6 orphan keep-set).
-    ///
-    /// # Errors
-    ///
-    /// See [`list_history_attachment_refs`].
-    pub fn list_history_attachment_refs(&self) -> Result<Vec<HistoryAttachmentRef>, LomoError> {
-        list_history_attachment_refs(&self.workspace_root)
     }
 
     /// Aggregate stats.

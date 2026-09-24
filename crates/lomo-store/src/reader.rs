@@ -11,10 +11,11 @@ use rusqlite::{Connection, OpenFlags};
 use crate::error::{from_sqlite, storage, validation};
 use crate::open::{SQLITE_DIR_NAME, SQLITE_FILE_NAME, database_path};
 use crate::{
-    HistoryAttachmentRef, MemoHistoryPage, MemoPage, MemoQuery, MemoQueryBoundary, MemoQueryStart,
-    MemoSnapshot, MemoStatisticsRow, MemoSummary, PageCursor, SidebarProjection, StoreStats,
-    active_memo_ids_for_source_path, get_memo, get_memo_projection, get_projected_memo,
-    list_history_attachment_refs, list_memo_history, query_count, query_memo_statistics_rows,
+    HistoryRevisionBody, MemoHistoryPage, MemoPage, MemoQuery, MemoQueryBoundary, MemoQueryStart,
+    MemoSnapshot, MemoStatisticsRow, MemoSummary, PageCursor, ProjectedAttachmentRef,
+    SidebarProjection, StoreStats, active_memo_ids_for_source_path, get_memo, get_memo_projection,
+    get_projected_memo, get_projected_memos, list_history_revision_bodies, list_memo_history,
+    list_projected_attachment_refs, query_count, query_memo_statistics_rows,
     query_memos_starting_at, query_memos_with_boundary, query_sidebar_projection, query_stats,
     source_document_fingerprint,
 };
@@ -179,6 +180,15 @@ impl StoreReader {
         self.snapshot(|connection, _revision| get_projected_memo(connection, memo_id))
     }
 
+    /// Loads complete memo snapshots for a candidate set inside one consistent snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns projection storage or incomplete-projection validation errors.
+    pub fn get_projected_memos(&self, memo_ids: &[String]) -> Result<Vec<MemoSnapshot>, LomoError> {
+        self.snapshot(|connection, _revision| get_projected_memos(connection, memo_ids))
+    }
+
     /// Counts rows matching a query without transferring summaries.
     ///
     /// # Errors
@@ -255,13 +265,27 @@ impl StoreReader {
         self.snapshot(|connection, _revision| list_memo_history(connection, memo_id, cursor, limit))
     }
 
-    /// Reads the history attachment keep-set.  The set is a durable workspace fact; no writable
-    /// store connection is needed, but the call still travels through the bounded reader owner.
+    /// Lists every projected attachment reference (all types, live and trashed owners) in one scan.
     ///
     /// # Errors
     ///
-    /// Returns workspace history storage or corruption errors.
-    pub fn list_history_attachment_refs(&self) -> Result<Vec<HistoryAttachmentRef>, LomoError> {
-        list_history_attachment_refs(&self.workspace_root)
+    /// Returns projection storage errors.
+    pub fn list_projected_attachment_refs(&self) -> Result<Vec<ProjectedAttachmentRef>, LomoError> {
+        self.snapshot(|connection, _revision| list_projected_attachment_refs(connection))
+    }
+
+    /// Reads the in-window history revision bodies for the media keep-set in one query.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation for a zero window and corruption when an in-window revision has no
+    /// projected body.
+    pub fn list_history_revision_bodies(
+        &self,
+        retention_revisions: usize,
+    ) -> Result<Vec<HistoryRevisionBody>, LomoError> {
+        self.snapshot(|connection, _revision| {
+            list_history_revision_bodies(connection, retention_revisions)
+        })
     }
 }

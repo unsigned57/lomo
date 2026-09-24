@@ -810,28 +810,3 @@ pub fn archive_activate_with_rename(
     }
     Ok(())
 }
-
-/// Import archive into staging, atomically activate as live, then rebuild `SQLite` projections.
-///
-/// Observable generation switch: after Ok, `live_root` holds archive contents and a fresh store
-/// projection (rebuild result). Failures before activate leave live untouched; activate failures
-/// follow [`archive_activate`] restore rules; rebuild failures leave activated files in place
-/// (`SQLite` can be rebuilt again).
-///
-/// # Errors
-///
-/// Import/inspect validation, activate storage/validation, or rebuild errors.
-pub fn archive_import_activate_rebuild(
-    archive_path: &Path,
-    staging_root: &Path,
-    live_root: &Path,
-    backup_root: &Path,
-    batch_size: usize,
-) -> Result<crate::RebuildResult, LomoError> {
-    let _inspected = archive_import(archive_path, staging_root)?;
-    archive_activate(staging_root, live_root, backup_root)?;
-    let store = crate::Store::open(live_root)?;
-    let batch = if batch_size == 0 { 64 } else { batch_size };
-    let (_store, result) = store.rebuild(batch)?;
-    Ok(result)
-}

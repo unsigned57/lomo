@@ -110,6 +110,7 @@ mod tests {
                 reminders: Vec::new(),
             }),
             trashed_at_ms: None,
+            batch_targets: Vec::new(),
         }
     }
 

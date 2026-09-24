@@ -134,6 +134,95 @@ mod tests {
     }
 
     #[test]
+    fn statistics_rows_carry_memo_identity_and_tag_facts() {
+        let dir = tempdir().expect("tempdir");
+        seed_memo(dir.path(), "m1", "alpha beta", &["work", "home"]);
+        seed_memo(dir.path(), "m2", "untagged body", &[]);
+        let store = indexed_store(dir.path());
+
+        let rows = store.memo_statistics_rows().expect("rows");
+        assert_eq!(2, rows.len(), "one fact row per active memo");
+        let m1 = rows
+            .iter()
+            .find(|row| row.memo_id == "m1")
+            .expect("m1 row keyed by memo identity");
+        assert_eq!(
+            vec!["home".to_owned(), "work".to_owned()],
+            m1.tags,
+            "tag facts travel with the materialized statistics row in canonical order"
+        );
+        let m2 = rows
+            .iter()
+            .find(|row| row.memo_id == "m2")
+            .expect("m2 row keyed by memo identity");
+        assert!(m2.tags.is_empty(), "untagged memos carry no tag facts");
+    }
+
+    #[test]
+    fn statistics_rows_never_require_body_bytes() {
+        let dir = tempdir().expect("tempdir");
+        seed_memo(dir.path(), "m1", "alpha beta beta", &["work"]);
+        seed_memo(dir.path(), "m2", "second memo body", &[]);
+        let store = indexed_store(dir.path());
+
+        // A legacy/incomplete projection may hold NULL bodies; statistics must stay servable
+        // purely from materialized columns.
+        let database = rusqlite::Connection::open(dir.path().join(".lomo-sqlite").join("store.db"))
+            .expect("open store database");
+        database
+            .execute("UPDATE memo SET body = NULL", [])
+            .expect("null out projection bodies");
+        drop(database);
+
+        let rows = store.memo_statistics_rows().expect("rows");
+        assert_eq!(2, rows.len(), "statistics rows do not touch body bytes");
+        assert!(
+            rows.iter().all(|row| row.word_count > 0),
+            "materialized counts survive absent bodies"
+        );
+    }
+
+    #[test]
+    fn projected_memos_batch_hydrates_a_candidate_set() {
+        let dir = tempdir().expect("tempdir");
+        seed_memo(dir.path(), "m1", "first body #work", &[]);
+        seed_memo(dir.path(), "m2", "second body", &[]);
+        seed_memo(dir.path(), "m3", "third body", &[]);
+        let store = indexed_store(dir.path());
+
+        let snapshots = store
+            .get_projected_memos(&["m1".to_owned(), "m3".to_owned()])
+            .expect("batch hydrate");
+        assert_eq!(2, snapshots.len(), "one snapshot per requested memo");
+        let m1 = snapshots
+            .iter()
+            .find(|snapshot| snapshot.summary.memo_id == "m1")
+            .expect("m1 snapshot");
+        assert_eq!(
+            "first body #work", m1.body,
+            "body travels with the snapshot"
+        );
+        assert_eq!(
+            vec!["work".to_owned()],
+            m1.summary.tags,
+            "tag facts attach to batched summaries"
+        );
+        let m3 = snapshots
+            .iter()
+            .find(|snapshot| snapshot.summary.memo_id == "m3")
+            .expect("m3 snapshot");
+        assert_eq!("third body", m3.body, "every requested memo hydrates once");
+
+        let missing = store
+            .get_projected_memos(&["ghost".to_owned()])
+            .expect("missing set");
+        assert!(
+            missing.is_empty(),
+            "unknown memo ids yield no snapshot rows instead of inventing facts"
+        );
+    }
+
+    #[test]
     fn body_preview_cuts_on_block_boundaries_and_never_inside_a_fence() {
         // Short body is preserved verbatim.
         assert_eq!("short", body_preview("short"));

@@ -7,13 +7,17 @@ use serde::{Deserialize, Serialize};
 
 // Re-export codec surface so existing `lomo_store::…` call sites keep compiling.
 pub use lomo_workspace::{
-    HistorySnapshotV1 as HistoryBody, LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoLayoutVersion, LomoPaths,
-    LomoPayload, LomoRecord, LomoRecordKind, decode_record, encode_record, isolate_corrupt_record,
-    read_record, write_record_atomic,
+    LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoLayoutVersion, LomoPaths, LomoPayload, LomoRecord,
+    LomoRecordKind, decode_record, encode_record, isolate_corrupt_record, read_record,
+    write_record_atomic,
 };
 
 /// Operation intent body (step 2 durable journal).
+///
+/// Deserialization shares [`OperationIntent::validate`]: a journal record with an empty operation
+/// or memo identity cannot become a durable intent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "OperationIntentJson")]
 pub struct OperationIntent {
     pub operation_id: String,
     pub command: MemoCommandKind,
@@ -61,6 +65,85 @@ pub struct OperationIntent {
     pub trashed_at_ms: Option<i64>,
 }
 
+#[derive(Deserialize)]
+struct OperationIntentJson {
+    operation_id: String,
+    command: MemoCommandKind,
+    memo_id: String,
+    expected_revision: u64,
+    expected_fingerprint: Option<String>,
+    content: Option<String>,
+    tags: Vec<String>,
+    pin: Option<bool>,
+    #[serde(default)]
+    created_at_ms: Option<i64>,
+    status: OperationStatus,
+    content_revision_after: Option<u64>,
+    file_fingerprint_after: Option<String>,
+    #[serde(default)]
+    core_revision_after: Option<u64>,
+    #[serde(default)]
+    event_sequence_after: Option<u64>,
+    #[serde(default)]
+    pending_promotes: Vec<lomo_media::PromotePlan>,
+    #[serde(default)]
+    batch_targets: Vec<BatchDeleteTarget>,
+    #[serde(default)]
+    batch_deleted_files: Vec<String>,
+    #[serde(default)]
+    batch_reminder_sets: Vec<BatchDeleteReminderSet>,
+    #[serde(default)]
+    trashed_at_ms: Option<i64>,
+}
+
+impl TryFrom<OperationIntentJson> for OperationIntent {
+    type Error = lomo_core::LomoError;
+
+    fn try_from(json: OperationIntentJson) -> Result<Self, lomo_core::LomoError> {
+        let intent = Self {
+            operation_id: json.operation_id,
+            command: json.command,
+            memo_id: json.memo_id,
+            expected_revision: json.expected_revision,
+            expected_fingerprint: json.expected_fingerprint,
+            content: json.content,
+            tags: json.tags,
+            pin: json.pin,
+            created_at_ms: json.created_at_ms,
+            status: json.status,
+            content_revision_after: json.content_revision_after,
+            file_fingerprint_after: json.file_fingerprint_after,
+            core_revision_after: json.core_revision_after,
+            event_sequence_after: json.event_sequence_after,
+            pending_promotes: json.pending_promotes,
+            batch_targets: json.batch_targets,
+            batch_deleted_files: json.batch_deleted_files,
+            batch_reminder_sets: json.batch_reminder_sets,
+            trashed_at_ms: json.trashed_at_ms,
+        };
+        intent.validate()?;
+        Ok(intent)
+    }
+}
+
+impl OperationIntent {
+    /// Validates the durable intent fields.
+    ///
+    /// # Errors
+    ///
+    /// Corruption when `operation_id` or `memo_id` is empty — the journal cannot bind a fact to an
+    /// empty identity.
+    pub fn validate(&self) -> Result<(), lomo_core::LomoError> {
+        if self.operation_id.is_empty() || self.memo_id.is_empty() {
+            return Err(crate::error::corruption(
+                "operation_intent_invalid",
+                "operation intent requires non-empty operation and memo identities",
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// CAS facts required to permanently delete one memo as part of a batch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BatchDeleteTarget {
@@ -98,19 +181,4 @@ pub enum OperationStatus {
     FilesCommitted,
     ProjectionCommitted,
     Committed,
-}
-
-/// Pin/trash/tag durable state body (`SQLite` projections rehydrate from this).
-///
-/// v1 mutable single-file form. v2 state revisions live in `lomo-workspace::StateRevisionV2`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StateBody {
-    pub memo_id: String,
-    pub pinned: bool,
-    pub trashed: bool,
-    pub pinned_at_ms: Option<i64>,
-    pub trashed_at_ms: Option<i64>,
-    /// Durable tag names for the memo (rebuildable into `tag` / `memo_tag`).
-    #[serde(default)]
-    pub tags: Vec<String>,
 }
