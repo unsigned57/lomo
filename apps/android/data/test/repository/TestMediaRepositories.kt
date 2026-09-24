@@ -2,6 +2,7 @@ package com.lomo.data.repository
 
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
+import com.lomo.domain.model.MediaImageDescriptor
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MediaRepository
 import kotlinx.coroutines.flow.Flow
@@ -46,7 +47,7 @@ internal object ThrowingMediaRepository : MediaRepository {
         unexpected("removeImage")
     }
 
-    override fun observeImageLocations(): Flow<Map<MediaEntryId, StorageLocation>> =
+    override fun observeImageLocations(): Flow<Map<MediaEntryId, MediaImageDescriptor>> =
         unexpected("observeImageLocations")
 
     override suspend fun refreshImageLocations() {
@@ -78,32 +79,16 @@ internal object ThrowingMediaRepository : MediaRepository {
     }
 }
 
-internal object ThrowingWorkspaceMediaAccess : WorkspaceMediaAccess {
-    override suspend fun listFiles(category: WorkspaceMediaCategory): List<WorkspaceMediaDescriptor> =
-        unexpected("WorkspaceMediaAccess.listFiles")
+internal class RecordingCommittedMediaLocationSink : CommittedMediaLocationSink {
+    val published = mutableListOf<com.lomo.data.engine.media.MediaPromotePlan>()
 
-    override suspend fun listFilenames(category: WorkspaceMediaCategory): List<String> =
-        unexpected("WorkspaceMediaAccess.listFilenames")
-
-    override suspend fun readFileToStream(
-        category: WorkspaceMediaCategory,
-        filename: String,
-        destination: OutputStream,
-    ): Boolean =
-        unexpected("WorkspaceMediaAccess.readFileToStream")
-
-    override suspend fun writeFileFromStream(
-        category: WorkspaceMediaCategory,
-        filename: String,
-        source: suspend (OutputStream) -> Unit,
-    ) {
-        unexpected("WorkspaceMediaAccess.writeFileFromStream")
+    override fun publishCommittedMedia(plans: List<com.lomo.data.engine.media.MediaPromotePlan>) {
+        published += plans
     }
-
 }
 
 internal class RecordingMediaRepository : MediaRepository {
-    private val locations = MutableStateFlow<Map<MediaEntryId, StorageLocation>>(emptyMap())
+    private val locations = MutableStateFlow<Map<MediaEntryId, MediaImageDescriptor>>(emptyMap())
 
     var refreshImageLocationsCallCount: Int = 0
         private set
@@ -126,7 +111,8 @@ internal class RecordingMediaRepository : MediaRepository {
         locations.value = locations.value - entryId
     }
 
-    override fun observeImageLocations(): Flow<Map<MediaEntryId, StorageLocation>> = locations.asStateFlow()
+    override fun observeImageLocations(): Flow<Map<MediaEntryId, MediaImageDescriptor>> =
+        locations.asStateFlow()
 
     override suspend fun refreshImageLocations() {
         refreshImageLocationsCallCount += 1
@@ -208,20 +194,14 @@ internal class NoOpMediaPort : com.lomo.data.engine.media.MediaPort {
         humanNameHint: String,
     ): com.lomo.data.engine.media.MediaStagedFacts = error("finalizeRecording is not expected")
 
-    override fun promoteMedia(
+    override fun queryMediaManifest(
         workspaceRoot: String,
-        plan: com.lomo.data.engine.media.MediaPromotePlan,
-    ): com.lomo.data.engine.media.MediaPromoteResult = error("promoteMedia is not expected")
-
-    override fun queryMediaManifest(workspaceRoot: String): com.lomo.data.engine.media.MediaManifest =
+        verifiedEntries: List<com.lomo.data.engine.media.MediaCommittedEntry>,
+    ): com.lomo.data.engine.media.MediaManifest =
         error("queryMediaManifest is not expected")
 
-    override fun mediaOrphanSweep(
-        mediaRoot: String,
-        committed: List<com.lomo.data.engine.media.MediaCommittedEntry>,
-        refs: List<com.lomo.data.engine.media.MediaAttachmentRef>,
-        existingTrash: List<com.lomo.data.engine.media.MediaTrashEntry>,
+    override fun sessionMediaOrphanSweep(
         nowMs: Long?,
         recoveryWindowMs: Long,
-    ): com.lomo.data.engine.media.MediaOrphanSweepResult = error("mediaOrphanSweep is not expected")
+    ): com.lomo.data.engine.media.MediaSweepReport = error("sessionMediaOrphanSweep is not expected")
 }

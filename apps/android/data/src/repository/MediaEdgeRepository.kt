@@ -3,14 +3,12 @@ package com.lomo.data.repository
 import android.content.Context
 import android.net.Uri
 import androidx.core.net.toUri
-import com.lomo.data.engine.media.MediaAttachmentRef
-import com.lomo.data.engine.media.MediaCommittedEntry
 import com.lomo.data.engine.media.MediaPort
+import com.lomo.data.engine.media.MediaPromotePlan
 import com.lomo.data.engine.media.MediaSourceKind
 import com.lomo.data.engine.media.MediaStageRootProvider
 import com.lomo.data.engine.media.PendingMediaStageRegistry
 import com.lomo.data.engine.media.WorkspaceFilesystemRoot
-import com.lomo.data.engine.store.StoreMemoFilters
 import com.lomo.data.engine.store.StoreMemoQuery
 import com.lomo.data.engine.store.StorePort
 import com.lomo.data.source.MediaStorageDataSource
@@ -20,6 +18,7 @@ import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
+import com.lomo.domain.model.MediaImageDescriptor
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.WorkspaceMutationLease
@@ -43,8 +42,8 @@ private const val MEDIA_REFERENCE_PAGE_SIZE = 256
  *
  * D4 import/recording law: importImage and finalizeVoiceCapture = stage+verify only.
  * Staged facts are held in [PendingMediaStageRegistry] until memo save promotes under
- * the same operation-id. Standalone [MediaPort.promoteMedia] is recovery-only and is not
- * used on production import or recording paths.
+ * the same operation-id via `StoreMemoCommand.pendingPromotes`; there is no standalone
+ * workspace promote on production import, inbox, or recording paths.
  *
  * D8: sync recorders never observe staged media. Committed upsert is emitted only after
  * memo-bound promote succeeds (see [StoreMemoMutationRepository]).
@@ -78,7 +77,7 @@ constructor(
     private val pendingStages: PendingMediaStageRegistry,
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
     limits: MediaEdgeRepositoryLimits = MediaEdgeRepositoryLimits(),
-) : MediaRepository {
+) : MediaRepository, CommittedMediaLocationSink {
     private val context: Context = dependencies.context
     private val workspaceConfigSource: WorkspaceConfigSource = dependencies.workspaceConfigSource
     private val mediaStorageDataSource: MediaStorageDataSource = dependencies.mediaStorageDataSource
@@ -91,7 +90,12 @@ constructor(
     private val recoveryWindowMs: Long = limits.recoveryWindowMs
     private val maxStageBytes: Long = limits.maxStageBytes
 
-    private val imageLocationMap = MutableStateFlow<Map<MediaEntryId, StorageLocation>>(emptyMap())
+    private val imageLocationMap = MutableStateFlow<Map<MediaEntryId, MediaImageDescriptor>>(emptyMap())
+
+    // behavior-contract: stateful-var-ok: last witnessed manifest entries are an in-memory
+    // digest-reuse hint fed back to Rust on the next walk; Rust re-verifies path/size/mtime
+    // before trusting any hint, so stale facts are never authoritative.
+    private var lastManifestEntries: List<com.lomo.data.engine.media.MediaCommittedEntry> = emptyList()
 
     override suspend fun importImage(
         source: StorageLocation,
@@ -122,7 +126,10 @@ constructor(
                 imageLocationMap.update { current ->
                     current + (
                         MediaEntryId(basename) to
-                            StorageLocation(fileLocationRaw(stagingFile))
+                            MediaImageDescriptor(
+                                location = StorageLocation(fileLocationRaw(stagingFile)),
+                                contentId = record.digest,
+                            )
                     )
                 }
                 // Markdown destinations use the owner-resolved relative path (never hash basename).
@@ -157,7 +164,32 @@ constructor(
         }
     }
 
-    override fun observeImageLocations(): Flow<Map<MediaEntryId, StorageLocation>> = imageLocationMap.asStateFlow()
+    override fun observeImageLocations(): Flow<Map<MediaEntryId, MediaImageDescriptor>> =
+        imageLocationMap.asStateFlow()
+
+    /**
+     * Commit-receipt publication: a successful memo command already carries the promoted
+     * artifacts' final relative paths and witnessed digests, so the location owner learns each
+     * final location directly instead of re-walking the manifest. The staged preview entry keyed
+     * by the same basename is replaced by the final location under the same content identity.
+     */
+    override fun publishCommittedMedia(plans: List<MediaPromotePlan>) {
+        if (plans.isEmpty()) return
+        val root = workspaceRoot.absolutePathOrNull() ?: return
+        imageLocationMap.update { current ->
+            val next = current.toMutableMap()
+            for (plan in plans) {
+                val finalFile = File(root, plan.finalRelativePath)
+                if (!finalFile.isFile) continue
+                next[MediaEntryId(plan.finalRelativePath.substringAfterLast('/'))] =
+                    MediaImageDescriptor(
+                        location = StorageLocation(fileLocationRaw(finalFile)),
+                        contentId = plan.staged.digest,
+                    )
+            }
+            next
+        }
+    }
 
     /**
      * Path-cache refresh from Rust media manifest (digest + absolute path).
@@ -177,9 +209,11 @@ constructor(
                     providerFiles = fromStorage,
                     attachmentPaths = storePort.currentAttachmentPaths(),
                 )
+            lastManifestEntries = emptyList()
             return
         }
-        val manifest = mediaPort.queryMediaManifest(root)
+        val manifest = mediaPort.queryMediaManifest(root, lastManifestEntries)
+        lastManifestEntries = manifest.entries
         val fromManifest =
             manifest.entries.mapNotNull { entry ->
                 val file = File(entry.absolutePath)
@@ -190,7 +224,11 @@ constructor(
                 ) {
                     return@mapNotNull null
                 }
-                MediaEntryId(file.name) to StorageLocation(fileLocationRaw(file))
+                MediaEntryId(file.name) to
+                    MediaImageDescriptor(
+                        location = StorageLocation(fileLocationRaw(file)),
+                        contentId = entry.digest,
+                    )
             }
         imageLocationMap.value = fromManifest.toMap()
     }
@@ -266,82 +304,22 @@ constructor(
     }
 
     /**
-     * Deterministic D6 orphan reclaim at operation boundary (delete / maintenance).
-     * Builds committed map from Rust manifest and live refs from store attachment paths
-     * (basename → digest via manifest) including durable history revision bodies.
-     * Empty refs + committed digests → media-trash.
+     * Session-owned two-phase orphan sweep at an operation boundary (delete / maintenance).
+     *
+     * The Rust session enumerates `media/` candidates, then inside its transaction lock recomputes
+     * the complete protection set — live and trashed bodies, in-window history revisions, conflict
+     * drafts, frozen transactions, and stage-ledger leases — before moving unreferenced objects to
+     * media-trash and purging expired entries. Kotlin supplies no reference facts; wrapping the
+     * call in `mediaWrite` keeps the sweep inside the workspace mutation lease so a workspace
+     * transition drains it like every other writer.
      */
     override suspend fun runOrphanSweepAtOperationBoundary() {
-        val root = workspaceRoot.absolutePathOrNull() ?: return
-        withContext(dispatcherProvider.io) {
-            val manifest = mediaPort.queryMediaManifest(root)
-            val committed =
-                manifest.entries.map { entry ->
-                    MediaCommittedEntry(digest = entry.digest, absolutePath = entry.absolutePath)
-                }
-            val digestByBasename =
-                committed.associate { entry ->
-                    File(entry.absolutePath).name to entry.digest
-                }
-            val refs = collectAttachmentRefs(digestByBasename)
-            // existingTrash empty → Rust auto-lists on-disk media-trash (durable across restarts).
-            mediaPort.mediaOrphanSweep(
-                mediaRoot = root,
-                committed = committed,
-                refs = refs,
-                existingTrash = emptyList(),
+        mediaWrite {
+            mediaPort.sessionMediaOrphanSweep(
                 nowMs = clockMs(),
                 recoveryWindowMs = recoveryWindowMs,
             )
         }
-    }
-
-    private fun collectAttachmentRefs(digestByBasename: Map<String, String>): List<MediaAttachmentRef> {
-        val refs = mutableListOf<MediaAttachmentRef>()
-        // Current + trash memos (includeTrash). Store imageUrls cover live body attachments.
-        var cursor: com.lomo.data.engine.store.StorePageCursor? = null
-        do {
-            val page =
-                // behavior-contract: loop-io-ok: no bulk queryMemos API; each iteration is one bounded page
-                storePort.queryMemos(
-                    query =
-                        StoreMemoQuery(
-                            filters =
-                                StoreMemoFilters(
-                                    includeTrash = true,
-                                    trashOnly = false,
-                                ),
-                        ),
-                    cursor = cursor,
-                    pageSize = STORE_PAGE_SIZE,
-                )
-            for (item in page.items) {
-                val source = if (item.isTrashed) "trash" else "current"
-                for (path in item.imageUrls) {
-                    val basename = path.substringAfterLast('/').substringAfterLast('\\')
-                    val digest = digestByBasename[basename] ?: continue
-                    refs +=
-                        MediaAttachmentRef(
-                            digest = digest,
-                            ownerKey = item.memoId,
-                            source = source,
-                        )
-                }
-            }
-            cursor = page.nextCursor
-        } while (cursor != null)
-        // D6: in-window history revision bodies keep digests live after current body unlinks them.
-        for (hist in storePort.listHistoryAttachmentRefs()) {
-            val basename = hist.relativePath.substringAfterLast('/').substringAfterLast('\\')
-            val digest = digestByBasename[basename] ?: continue
-            refs +=
-                MediaAttachmentRef(
-                    digest = digest,
-                    ownerKey = hist.ownerKey,
-                    source = "history",
-                )
-        }
-        return refs
     }
 
     /**
@@ -546,7 +524,6 @@ constructor(
         private const val IMAGE_DIRECTORY_NAME = "images"
         private const val VOICE_DIRECTORY_NAME = "voice"
         private const val MEDIA_TRASH_DIR_SEGMENT = ".lomo" + "-media-trash"
-        private const val STORE_PAGE_SIZE = 200
         private const val COPY_BUFFER_BYTES = 64 * 1024
 
         /** Matches Rust media DEFAULT_RECOVERY_WINDOW_MS (30 days). */
@@ -560,20 +537,26 @@ constructor(
 private fun buildProviderImageLocationMap(
     providerFiles: List<Pair<String, String>>,
     attachmentPaths: Set<String>,
-): Map<MediaEntryId, StorageLocation> {
+): Map<MediaEntryId, MediaImageDescriptor> {
     val index =
         MediaReferenceIndex.build(
             providerFiles.map { (name, location) -> ProviderMediaLocation(name, location) },
         )
     val resolved =
         providerFiles.associate { (name, location) ->
-            MediaEntryId(name) to StorageLocation(location)
+            // Provider listing has no digest witness; location-only descriptors never claim identity.
+            MediaEntryId(name) to
+                MediaImageDescriptor(location = StorageLocation(location), contentId = null)
         }.toMutableMap()
     attachmentPaths.forEach { reference ->
         when (val resolution = index.resolve(reference)) {
             is MediaReferenceResolution.Resolved -> {
                 val basename = reference.replace('\\', '/').substringAfterLast('/')
-                resolved[MediaEntryId(basename)] = StorageLocation(resolution.location)
+                resolved[MediaEntryId(basename)] =
+                    MediaImageDescriptor(
+                        location = StorageLocation(resolution.location),
+                        contentId = null,
+                    )
             }
             MediaReferenceResolution.Ambiguous,
             MediaReferenceResolution.Missing,

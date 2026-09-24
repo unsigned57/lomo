@@ -18,54 +18,18 @@ internal class BoltFfiArchivePort(
         )
     }
 
-    override fun archiveInspect(
+    override fun archiveImportRebuild(
+        workspaceRoot: String,
         archivePath: String,
         stagingRoot: String,
-    ): ArchiveInspectResult {
-        val result = bridge.archiveInspect(archivePath, stagingRoot)
-        return ArchiveInspectResult(
-            stagingRoot = result.stagingRoot,
-            schemaVersion = result.schemaVersion.toInt(),
-            entryCount = result.entryCount.toLong(),
-        )
-    }
-
-    override fun archiveImport(
-        archivePath: String,
-        stagingRoot: String,
-    ): ArchiveInspectResult {
-        val result = bridge.archiveImport(archivePath, stagingRoot)
-        return ArchiveInspectResult(
-            stagingRoot = result.stagingRoot,
-            schemaVersion = result.schemaVersion.toInt(),
-            entryCount = result.entryCount.toLong(),
-        )
-    }
-
-    override fun archiveActivate(
-        stagingRoot: String,
-        liveRoot: String,
-        backupRoot: String,
-    ) {
-        bridge.archiveActivate(stagingRoot, liveRoot, backupRoot)
-    }
-
-    override fun archiveImportActivateRebuild(
-        archivePath: String,
-        stagingRoot: String,
-        liveRoot: String,
-        backupRoot: String,
-        rebuildBatchSize: Int,
-    ): ArchiveImportActivateRebuildResult {
+    ): ArchiveImportRebuildResult {
         val rebuild =
-            bridge.archiveImportActivateRebuild(
+            bridge.sessionImportArchive(
+                workspaceRoot,
                 archivePath,
                 stagingRoot,
-                liveRoot,
-                backupRoot,
-                rebuildBatchSize.toUInt(),
             )
-        return ArchiveImportActivateRebuildResult(
+        return ArchiveImportRebuildResult(
             memosIndexed = rebuild.memosIndexed.toLong(),
             fileCount = rebuild.fileCount.toLong(),
             attachmentCount = rebuild.attachmentCount.toLong(),

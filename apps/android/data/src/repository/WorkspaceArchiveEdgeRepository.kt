@@ -59,18 +59,14 @@ constructor(
                 File(context.cacheDir, "lomo-archive-import-${UUID.randomUUID()}").apply {
                     mkdirs()
                 }
-            val backup =
-                File(context.cacheDir, "lomo-archive-backup-${UUID.randomUUID()}").apply {
-                    mkdirs()
-                }
+            // The session-owned switch keeps the previous generation at "<staging>.previous".
+            val previousGeneration = File(staging.absolutePath + ".previous")
             try {
                 val rebuild =
-                    archivePort.archiveImportActivateRebuild(
+                    archivePort.archiveImportRebuild(
+                        workspaceRoot = root,
                         archivePath = archiveFile.absolutePath,
                         stagingRoot = staging.absolutePath,
-                        liveRoot = root,
-                        backupRoot = backup.absolutePath,
-                        rebuildBatchSize = 256,
                     )
                 // The projection was replaced, not advanced: re-anchor so a lower imported high-water
                 // does not make every later commit look stale to the publication clock.
@@ -84,7 +80,7 @@ constructor(
             } finally {
                 archiveFile.delete()
                 staging.deleteRecursively()
-                backup.deleteRecursively()
+                previousGeneration.deleteRecursively()
             }
         }
 

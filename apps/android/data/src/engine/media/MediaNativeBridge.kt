@@ -1,18 +1,14 @@
 package com.lomo.data.engine.media
 
-import com.lomo.nativebridge.MediaAttachmentRefDto as BridgeAttachmentRef
 import com.lomo.nativebridge.MediaCommittedEntryDto as BridgeCommitted
 import com.lomo.nativebridge.MediaManifestDto as BridgeManifest
-import com.lomo.nativebridge.MediaOrphanSweepResultDto as BridgeSweep
-import com.lomo.nativebridge.MediaPromotePlanDto as BridgePromotePlan
-import com.lomo.nativebridge.MediaPromoteResultDto as BridgePromoteResult
 import com.lomo.nativebridge.MediaSourceKind as BridgeSourceKind
 import com.lomo.nativebridge.MediaStageLeaseDto as BridgeStageLease
 import com.lomo.nativebridge.MediaStageOwnerKindDto as BridgeStageOwnerKind
 import com.lomo.nativebridge.MediaStageRecordDto as BridgeStageRecord
 import com.lomo.nativebridge.MediaStageReleaseDto as BridgeStageRelease
 import com.lomo.nativebridge.MediaStagedDto as BridgeStaged
-import com.lomo.nativebridge.MediaTrashEntryDto as BridgeTrash
+import com.lomo.nativebridge.SessionMediaSweepReportDto as BridgeSweepReport
 
 /**
  * True FFI edge for media operations.
@@ -63,19 +59,17 @@ internal interface MediaNativeBridge {
         humanNameHint: String,
     ): BridgeStaged
 
-    fun promoteMedia(
+    fun queryMediaManifest(
         workspaceRoot: String,
-        plan: BridgePromotePlan,
-    ): BridgePromoteResult
+        verifiedEntries: List<BridgeCommitted>,
+    ): BridgeManifest
 
-    fun queryMediaManifest(workspaceRoot: String): BridgeManifest
-
-    fun mediaOrphanSweep(
-        mediaRoot: String,
-        committed: List<BridgeCommitted>,
-        refs: List<BridgeAttachmentRef>,
-        existingTrash: List<BridgeTrash>,
+    /**
+     * Session-owned two-phase media orphan sweep; the Rust session proves the protection set
+     * inside its transaction lock and reports candidates/protections/moves/deletions/failures.
+     */
+    fun sessionMediaOrphanSweep(
         nowMs: ULong?,
         recoveryWindowMs: ULong,
-    ): BridgeSweep
+    ): BridgeSweepReport
 }

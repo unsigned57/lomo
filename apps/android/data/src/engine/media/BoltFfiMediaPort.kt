@@ -1,21 +1,18 @@
 package com.lomo.data.engine.media
 
-import com.lomo.nativebridge.MediaAttachmentRefDto as BridgeAttachmentRef
 import com.lomo.nativebridge.MediaCommittedEntryDto as BridgeCommitted
-import com.lomo.nativebridge.MediaPromotePlanDto as BridgePromotePlan
 import com.lomo.nativebridge.MediaSourceKind as BridgeSourceKind
 import com.lomo.nativebridge.MediaStageLeaseDto as BridgeStageLease
 import com.lomo.nativebridge.MediaStageOwnerKindDto as BridgeStageOwnerKind
 import com.lomo.nativebridge.MediaStageRecordDto as BridgeStageRecord
 import com.lomo.nativebridge.MediaStagedDto as BridgeStaged
-import com.lomo.nativebridge.MediaTrashEntryDto as BridgeTrash
 
 /**
  * Production [MediaPort] over [MediaNativeBridge] (ManagedEngineSession / BoltFFI).
  *
- * Mapping only — identity/digest/mime/orphan rules stay in Rust.
- * Standalone [promoteMedia] is recovery-only and requires a non-blank operationId (D4);
- * production import/recording never call it — memo-bound pendingPromotes own promote.
+ * Mapping only — identity/digest/mime/orphan rules stay in Rust. Memo save promotes staged
+ * media through `StoreMemoCommand.pendingPromotes` under the same operation-id; there is no
+ * standalone promote surface.
  */
 internal class BoltFfiMediaPort(
     private val bridge: MediaNativeBridge,
@@ -83,35 +80,15 @@ internal class BoltFfiMediaPort(
             .finalizeRecording(mediaRoot, recordingPath, humanNameHint)
             .toFacts()
 
-    override fun promoteMedia(
+    override fun queryMediaManifest(
         workspaceRoot: String,
-        plan: MediaPromotePlan,
-    ): MediaPromoteResult {
-        val operationId = plan.operationId.trim()
-        require(operationId.isNotEmpty()) {
-            "promoteMedia requires non-blank operationId (recovery-only; never mint UUID)"
-        }
-        val result =
-            bridge.promoteMedia(
+        verifiedEntries: List<MediaCommittedEntry>,
+    ): MediaManifest {
+        val manifest =
+            bridge.queryMediaManifest(
                 workspaceRoot,
-                BridgePromotePlan(
-                    operationId = operationId,
-                    staged = plan.staged.toBridge(),
-                    finalRelativePath = plan.finalRelativePath,
-                ),
+                verifiedEntries.map { entry -> entry.toBridge() },
             )
-        return MediaPromoteResult(
-            operationId = result.operationId,
-            digest = result.digest,
-            mime = result.mime,
-            size = result.size.toLong(),
-            finalAbsolutePath = result.finalAbsolutePath,
-            finalRelativePath = result.finalRelativePath,
-        )
-    }
-
-    override fun queryMediaManifest(workspaceRoot: String): MediaManifest {
-        val manifest = bridge.queryMediaManifest(workspaceRoot)
         return MediaManifest(
             stageDirName = manifest.stageDirName,
             entries =
@@ -119,47 +96,32 @@ internal class BoltFfiMediaPort(
                     MediaCommittedEntry(
                         digest = entry.digest,
                         absolutePath = entry.absolutePath,
+                        size = entry.size.toLong(),
+                        modifiedMs = entry.modifiedMs.toLong(),
                     )
                 },
         )
     }
 
-    override fun mediaOrphanSweep(
-        mediaRoot: String,
-        committed: List<MediaCommittedEntry>,
-        refs: List<MediaAttachmentRef>,
-        existingTrash: List<MediaTrashEntry>,
+    override fun sessionMediaOrphanSweep(
         nowMs: Long?,
         recoveryWindowMs: Long,
-    ): MediaOrphanSweepResult {
+    ): MediaSweepReport {
         val result =
-            bridge.mediaOrphanSweep(
-                mediaRoot = mediaRoot,
-                committed =
-                    committed.map { entry ->
-                        BridgeCommitted(digest = entry.digest, absolutePath = entry.absolutePath)
-                    },
-                refs =
-                    refs.map { ref ->
-                        BridgeAttachmentRef(
-                            digest = ref.digest,
-                            ownerKey = ref.ownerKey,
-                            source = ref.source,
-                        )
-                    },
-                existingTrash =
-                    existingTrash.map { trash ->
-                        BridgeTrash(
-                            digest = trash.digest,
-                            trashPath = trash.trashPath,
-                            trashedAtMs = trash.trashedAtMs.toULong(),
-                            expiresAtMs = trash.expiresAtMs.toULong(),
-                        )
-                    },
+            bridge.sessionMediaOrphanSweep(
                 nowMs = nowMs?.toULong(),
                 recoveryWindowMs = recoveryWindowMs.toULong(),
             )
-        return MediaOrphanSweepResult(
+        return MediaSweepReport(
+            candidates = result.candidates.toLong(),
+            protections =
+                result.protections.map { protection ->
+                    MediaSweepProtection(
+                        relativePath = protection.relativePath,
+                        source = protection.source,
+                        ownerKey = protection.ownerKey,
+                    )
+                },
             movedToTrash =
                 result.movedToTrash.map { trash ->
                     MediaTrashEntry(
@@ -171,8 +133,24 @@ internal class BoltFfiMediaPort(
                 },
             permanentlyDeletedDigests = result.permanentlyDeletedDigests,
             keptLive = result.keptLive.toLong(),
+            failures =
+                result.failures.map { failure ->
+                    MediaSweepFailure(
+                        relativePath = failure.relativePath,
+                        code = failure.code,
+                        message = failure.message,
+                    )
+                },
         )
     }
+
+    private fun MediaCommittedEntry.toBridge(): BridgeCommitted =
+        BridgeCommitted(
+            digest = digest,
+            absolutePath = absolutePath,
+            size = size.toULong(),
+            modifiedMs = modifiedMs.toULong(),
+        )
 
     private fun MediaSourceKind.toBridge(): BridgeSourceKind =
         when (this) {

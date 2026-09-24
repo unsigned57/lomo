@@ -70,30 +70,16 @@ data class MediaStageRelease(
     val bytesDeleted: Boolean,
 )
 
-data class MediaPromoteResult(
-    val operationId: String,
-    val digest: String,
-    val mime: String,
-    val size: Long,
-    val finalAbsolutePath: String,
-    val finalRelativePath: String,
-)
-
 data class MediaCommittedEntry(
     val digest: String,
     val absolutePath: String,
+    val size: Long,
+    val modifiedMs: Long,
 )
 
 data class MediaManifest(
     val stageDirName: String,
     val entries: List<MediaCommittedEntry>,
-)
-
-data class MediaAttachmentRef(
-    val digest: String,
-    val ownerKey: String,
-    /** `current` | `trash` | `history` */
-    val source: String,
 )
 
 data class MediaTrashEntry(
@@ -103,10 +89,33 @@ data class MediaTrashEntry(
     val expiresAtMs: Long,
 )
 
-data class MediaOrphanSweepResult(
+/** Why one media candidate survived the session-owned sweep. */
+data class MediaSweepProtection(
+    val relativePath: String,
+    /** `current` | `trash` | `history` | `draft` | `pending_operation` | `stage_lease` */
+    val source: String,
+    val ownerKey: String,
+)
+
+/** One candidate or trash entry the sweep refused to touch. */
+data class MediaSweepFailure(
+    val relativePath: String,
+    val code: String,
+    val message: String,
+)
+
+/**
+ * Observable result of the Rust session-owned two-phase media orphan sweep. The protection set is
+ * recomputed inside the Rust transaction lock before any move/delete, so this report is the
+ * complete record: candidates, protections, moves, purges, and per-candidate failures.
+ */
+data class MediaSweepReport(
+    val candidates: Long,
+    val protections: List<MediaSweepProtection>,
     val movedToTrash: List<MediaTrashEntry>,
     val permanentlyDeletedDigests: List<String>,
     val keptLive: Long,
+    val failures: List<MediaSweepFailure>,
 )
 
 enum class MediaSourceKind {
@@ -164,22 +173,23 @@ interface MediaPort {
     ): MediaStagedFacts
 
     /**
-     * Recovery / dark-surface promote. Production import must not call this: memo save promotes
-     * via [com.lomo.data.engine.store.StoreMemoCommand.pendingPromotes] under the same operation-id.
+     * Walks the committed media tree. `verifiedEntries` are facts from the previous manifest this
+     * host already holds: Rust reuses their digest only while path, size and mtime still match, so
+     * passing stale entries is safe — a stat mismatch always rehashes.
      */
-    fun promoteMedia(
+    fun queryMediaManifest(
         workspaceRoot: String,
-        plan: MediaPromotePlan,
-    ): MediaPromoteResult
+        verifiedEntries: List<MediaCommittedEntry>,
+    ): MediaManifest
 
-    fun queryMediaManifest(workspaceRoot: String): MediaManifest
-
-    fun mediaOrphanSweep(
-        mediaRoot: String,
-        committed: List<MediaCommittedEntry>,
-        refs: List<MediaAttachmentRef>,
-        existingTrash: List<MediaTrashEntry>,
+    /**
+     * Session-owned two-phase orphan sweep. The Rust session enumerates `media/` candidates,
+     * recomputes the full protection set (live/trash bodies, in-window history, drafts, pending
+     * transactions, stage leases) inside the transaction lock, then moves unreferenced objects to
+     * media-trash and purges expired entries. Kotlin supplies no reference facts.
+     */
+    fun sessionMediaOrphanSweep(
         nowMs: Long?,
         recoveryWindowMs: Long,
-    ): MediaOrphanSweepResult
+    ): MediaSweepReport
 }

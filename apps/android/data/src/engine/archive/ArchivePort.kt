@@ -10,13 +10,7 @@ data class ArchiveExportResult(
     val entryCount: Long,
 )
 
-data class ArchiveInspectResult(
-    val stagingRoot: String,
-    val schemaVersion: Int,
-    val entryCount: Long,
-)
-
-data class ArchiveImportActivateRebuildResult(
+data class ArchiveImportRebuildResult(
     val memosIndexed: Long,
     val fileCount: Long,
     val attachmentCount: Long,
@@ -32,27 +26,9 @@ interface ArchivePort {
         archivePath: String,
     ): ArchiveExportResult
 
-    fun archiveInspect(
+    fun archiveImportRebuild(
+        workspaceRoot: String,
         archivePath: String,
         stagingRoot: String,
-    ): ArchiveInspectResult
-
-    fun archiveImport(
-        archivePath: String,
-        stagingRoot: String,
-    ): ArchiveInspectResult
-
-    fun archiveActivate(
-        stagingRoot: String,
-        liveRoot: String,
-        backupRoot: String,
-    )
-
-    fun archiveImportActivateRebuild(
-        archivePath: String,
-        stagingRoot: String,
-        liveRoot: String,
-        backupRoot: String,
-        rebuildBatchSize: Int,
-    ): ArchiveImportActivateRebuildResult
+    ): ArchiveImportRebuildResult
 }

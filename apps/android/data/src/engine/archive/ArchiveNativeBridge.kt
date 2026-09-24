@@ -1,7 +1,6 @@
 package com.lomo.data.engine.archive
 
 import com.lomo.nativebridge.ArchiveExportResultDto as BridgeExport
-import com.lomo.nativebridge.ArchiveInspectResultDto as BridgeInspect
 import com.lomo.nativebridge.StoreRebuildResult as BridgeRebuild
 
 /**
@@ -13,27 +12,9 @@ internal interface ArchiveNativeBridge {
         archivePath: String,
     ): BridgeExport
 
-    fun archiveInspect(
+    fun sessionImportArchive(
+        workspaceRoot: String,
         archivePath: String,
         stagingRoot: String,
-    ): BridgeInspect
-
-    fun archiveImport(
-        archivePath: String,
-        stagingRoot: String,
-    ): BridgeInspect
-
-    fun archiveActivate(
-        stagingRoot: String,
-        liveRoot: String,
-        backupRoot: String,
-    )
-
-    fun archiveImportActivateRebuild(
-        archivePath: String,
-        stagingRoot: String,
-        liveRoot: String,
-        backupRoot: String,
-        rebuildBatchSize: UInt,
     ): BridgeRebuild
 }
