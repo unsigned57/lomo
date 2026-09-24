@@ -365,7 +365,9 @@ mod tests {
                 PlatformAction::EnsureDirectory { .. } => self.execute_ensure_directory(action),
                 PlatformAction::Delete { .. } => self.execute_delete(action),
                 PlatformAction::Move { .. } => self.execute_move(action),
-                PlatformAction::Stat { .. } => panic!("unexpected action in harness: {action:?}"),
+                PlatformAction::Stat { .. } | PlatformAction::ArtifactWrite { .. } => {
+                    panic!("unexpected action in harness: {action:?}")
+                }
             }
         }
 

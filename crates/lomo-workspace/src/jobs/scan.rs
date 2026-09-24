@@ -26,12 +26,52 @@ use super::shared::{
 pub const SCAN_DRIVER_KIND: &str = "workspace-scan-v1";
 
 /// Public scan request accepted by the engine driver (JSON).
+///
+/// Deserialization and host construction share [`WorkspaceScanRequest::validate`]: an over-budget
+/// page size or malformed root path cannot become a scan request.
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(try_from = "WorkspaceScanRequestJson")]
 pub struct WorkspaceScanRequest {
     pub page_size: u32,
     pub cursor: Option<String>,
     /// Optional subdirectory relative path; omit/null means workspace root.
     pub root_path: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct WorkspaceScanRequestJson {
+    page_size: u32,
+    cursor: Option<String>,
+    root_path: Option<String>,
+}
+
+impl TryFrom<WorkspaceScanRequestJson> for WorkspaceScanRequest {
+    type Error = LomoError;
+
+    fn try_from(json: WorkspaceScanRequestJson) -> Result<Self, LomoError> {
+        let request = Self {
+            page_size: json.page_size,
+            cursor: json.cursor,
+            root_path: json.root_path,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+}
+
+impl WorkspaceScanRequest {
+    /// Validates the frozen scan request before the driver can run it.
+    ///
+    /// # Errors
+    /// Resource-limit when the page size exceeds the scan budget; validation when `root_path` is
+    /// present but not a workspace-relative path.
+    pub fn validate(&self) -> Result<(), LomoError> {
+        ResourceBudget::check_workspace_scan_page_size(self.page_size)?;
+        if let Some(path) = self.root_path.as_deref() {
+            let _root_path = WorkspaceRelativePath::parse(path)?;
+        }
+        Ok(())
+    }
 }
 
 /// Typed reference to complete memo content in the application-private exchange directory.
@@ -178,10 +218,6 @@ impl JobDriver for ScanDriver {
                     "workspace scan request JSON is invalid",
                 )
             })?;
-        ResourceBudget::check_workspace_scan_page_size(request.page_size)?;
-        if let Some(path) = request.root_path.as_deref() {
-            let _root_path = WorkspaceRelativePath::parse(path)?;
-        }
 
         let (list_cursor, pending_documents, pending_index, current_file, emitted_total) =
             if let Some(raw) = request.cursor.as_deref() {

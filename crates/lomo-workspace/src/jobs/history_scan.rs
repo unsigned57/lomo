@@ -24,10 +24,44 @@ pub const HISTORY_SCAN_DRIVER_KIND: &str = "workspace-history-scan-v1";
 const HISTORY_RECORD_DIRECTORY: &str = ".lomo/history/v1";
 const MAX_HISTORY_LIST_PAGE_SIZE: u32 = 63;
 
+/// Public history scan request accepted by the engine driver (JSON).
+///
+/// Deserialization and host construction share [`HistoryScanRequest::validate`]: an over-budget
+/// page size cannot become a scan request.
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(try_from = "HistoryScanRequestJson")]
 pub struct HistoryScanRequest {
     pub page_size: u32,
     pub cursor: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct HistoryScanRequestJson {
+    page_size: u32,
+    cursor: Option<String>,
+}
+
+impl TryFrom<HistoryScanRequestJson> for HistoryScanRequest {
+    type Error = LomoError;
+
+    fn try_from(json: HistoryScanRequestJson) -> Result<Self, LomoError> {
+        let request = Self {
+            page_size: json.page_size,
+            cursor: json.cursor,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+}
+
+impl HistoryScanRequest {
+    /// Validates the frozen scan request before the driver can run it.
+    ///
+    /// # Errors
+    /// Resource-limit when the page size exceeds the scan budget.
+    pub fn validate(&self) -> Result<(), LomoError> {
+        ResourceBudget::check_workspace_scan_page_size(self.page_size)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -164,7 +198,6 @@ impl JobDriver for HistoryScanDriver {
                 "workspace history scan request JSON is invalid",
             )
         })?;
-        ResourceBudget::check_workspace_scan_page_size(request.page_size)?;
         let cursor = request
             .cursor
             .as_deref()

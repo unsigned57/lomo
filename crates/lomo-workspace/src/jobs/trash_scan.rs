@@ -23,10 +23,44 @@ use super::shared::{
 
 pub const TRASH_SCAN_DRIVER_KIND: &str = "workspace-trash-scan-v1";
 
+/// Public trash scan request accepted by the engine driver (JSON).
+///
+/// Deserialization and host construction share [`TrashScanRequest::validate`]: an over-budget
+/// page size cannot become a scan request.
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(try_from = "TrashScanRequestJson")]
 pub struct TrashScanRequest {
     pub page_size: u32,
     pub cursor: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TrashScanRequestJson {
+    page_size: u32,
+    cursor: Option<String>,
+}
+
+impl TryFrom<TrashScanRequestJson> for TrashScanRequest {
+    type Error = LomoError;
+
+    fn try_from(json: TrashScanRequestJson) -> Result<Self, LomoError> {
+        let request = Self {
+            page_size: json.page_size,
+            cursor: json.cursor,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+}
+
+impl TrashScanRequest {
+    /// Validates the frozen scan request before the driver can run it.
+    ///
+    /// # Errors
+    /// Resource-limit when the page size exceeds the scan budget.
+    pub fn validate(&self) -> Result<(), LomoError> {
+        ResourceBudget::check_workspace_scan_page_size(self.page_size)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -166,7 +200,6 @@ impl JobDriver for TrashScanDriver {
                 "workspace trash scan request JSON is invalid",
             )
         })?;
-        ResourceBudget::check_workspace_scan_page_size(request.page_size)?;
         let cursor = request
             .cursor
             .as_deref()

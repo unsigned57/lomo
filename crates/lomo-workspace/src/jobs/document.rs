@@ -33,13 +33,76 @@ use super::shared::{
 pub const DOCUMENT_COMMAND_DRIVER_KIND: &str = "workspace-document-command-v1";
 
 /// Document command request accepted by the engine driver (JSON).
+///
+/// Deserialization and host construction share [`DocumentCommandRequest::validate`]: a malformed
+/// path, fingerprint, identity, command shape, history write, or expected-state pairing cannot
+/// become a document command.
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(try_from = "DocumentCommandRequestJson")]
 pub struct DocumentCommandRequest {
     pub path: String,
     pub expected_state: DocumentExpectedState,
     pub command: DocumentCommandKind,
     #[serde(default)]
     pub history: Option<DocumentHistoryWrite>,
+}
+
+#[derive(Deserialize)]
+struct DocumentCommandRequestJson {
+    path: String,
+    expected_state: DocumentExpectedState,
+    command: DocumentCommandKind,
+    #[serde(default)]
+    history: Option<DocumentHistoryWrite>,
+}
+
+impl TryFrom<DocumentCommandRequestJson> for DocumentCommandRequest {
+    type Error = LomoError;
+
+    fn try_from(json: DocumentCommandRequestJson) -> Result<Self, LomoError> {
+        let request = Self {
+            path: json.path,
+            expected_state: json.expected_state,
+            command: json.command,
+            history: json.history,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+}
+
+impl DocumentCommandRequest {
+    /// Validates the frozen command request before the driver can plan it.
+    ///
+    /// # Errors
+    /// Validation when the path, expected fingerprint, command identity, or history write is
+    /// malformed, or when `Create` is not paired with an absent target / an edit lacks the
+    /// matching fingerprint.
+    pub fn validate(&self) -> Result<(), LomoError> {
+        let _path = WorkspaceRelativePath::parse(&self.path)?;
+        let fingerprint = match &self.expected_state {
+            DocumentExpectedState::Absent => None,
+            DocumentExpectedState::Match { fingerprint } => {
+                Some(SourceFingerprint::parse(fingerprint)?)
+            }
+        };
+        validate_command_shape(&self.command, fingerprint.as_ref())?;
+        validate_history_write(self.history.as_ref(), &self.command)?;
+        if matches!(self.command, DocumentCommandKind::Create { .. }) {
+            if !matches!(self.expected_state, DocumentExpectedState::Absent) {
+                return Err(validation(
+                    "invalid_document_expected_state",
+                    "create requires an absent target",
+                ));
+            }
+        } else if fingerprint.is_none() {
+            return Err(validation(
+                "invalid_document_expected_state",
+                "editing an existing document requires a matching fingerprint",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -217,16 +280,8 @@ impl JobDriver for DocumentCommandDriver {
                 Some(SourceFingerprint::parse(fingerprint)?)
             }
         };
-        validate_command_shape(&request.command, fingerprint.as_ref())?;
-        validate_history_write(request.history.as_ref(), &request.command)?;
 
         if matches!(request.command, DocumentCommandKind::Create { .. }) {
-            if !matches!(request.expected_state, DocumentExpectedState::Absent) {
-                return Err(validation(
-                    "invalid_document_expected_state",
-                    "create requires an absent target",
-                ));
-            }
             return start_create(ctx, request, &path);
         }
         let expected_fingerprint = fingerprint.ok_or_else(|| {

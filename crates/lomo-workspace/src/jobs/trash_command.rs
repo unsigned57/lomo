@@ -33,11 +33,63 @@ use super::shared::{
 
 pub const TRASH_COMMAND_DRIVER_KIND: &str = "workspace-trash-command-v1";
 
+/// Trash command request accepted by the engine driver (JSON).
+///
+/// Deserialization and host construction share [`TrashCommandRequest::validate`]: a malformed
+/// path, fingerprint, memo identity, or trash chronology cannot become a trash command.
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(try_from = "TrashCommandRequestJson")]
 pub struct TrashCommandRequest {
     pub path: String,
     pub expected_fingerprint: String,
     pub command: TrashCommandKind,
+}
+
+#[derive(Deserialize)]
+struct TrashCommandRequestJson {
+    path: String,
+    expected_fingerprint: String,
+    command: TrashCommandKind,
+}
+
+impl TryFrom<TrashCommandRequestJson> for TrashCommandRequest {
+    type Error = LomoError;
+
+    fn try_from(json: TrashCommandRequestJson) -> Result<Self, LomoError> {
+        let request = Self {
+            path: json.path,
+            expected_fingerprint: json.expected_fingerprint,
+            command: json.command,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+}
+
+impl TrashCommandRequest {
+    /// Validates the frozen command request before the driver can plan it.
+    ///
+    /// # Errors
+    /// Validation when the path, expected fingerprint, or memo identity is malformed, the trash
+    /// record path cannot be derived, or a `Trash` command carries a non-positive chronology.
+    pub fn validate(&self) -> Result<(), LomoError> {
+        let _path = WorkspaceRelativePath::parse(&self.path)?;
+        let _expected = SourceFingerprint::parse(&self.expected_fingerprint)?;
+        let _identity = MemoIdentity::parse(self.command.identity())?;
+        let _marker_path = trash_record_relative_path(self.command.identity())?;
+        if let TrashCommandKind::Trash {
+            chronology_epoch_ms,
+            ..
+        } = self.command
+            && chronology_epoch_ms <= 0
+        {
+            return Err(validation(
+                "invalid_trash_chronology",
+                "trash memo chronology must be a positive epoch millisecond",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -164,20 +216,6 @@ impl JobDriver for TrashCommandDriver {
                 )
             })?;
         let path = WorkspaceRelativePath::parse(&request.path)?;
-        let _expected = SourceFingerprint::parse(&request.expected_fingerprint)?;
-        let _identity = MemoIdentity::parse(request.command.identity())?;
-        let _marker_path = trash_record_relative_path(request.command.identity())?;
-        if let TrashCommandKind::Trash {
-            chronology_epoch_ms,
-            ..
-        } = request.command
-            && chronology_epoch_ms <= 0
-        {
-            return Err(validation(
-                "invalid_trash_chronology",
-                "trash memo chronology must be a positive epoch millisecond",
-            ));
-        }
 
         let source_read_token = exchange_token_for(
             ctx.workspace.identity().as_str(),
