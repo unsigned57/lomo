@@ -144,15 +144,13 @@ internal class WorkspaceCandidatePreparer(
     private fun selectionFor(location: StorageLocation): PreparedSelection {
         val raw = location.raw.trim()
         return if (isContentUri(raw)) {
-            val token = "cap-${java.util.UUID.randomUUID()}"
-            val grant = capabilityRegistry.register(token = token, treeUri = raw)
+            val grant = capabilityRegistry.register(treeUri = raw)
             PreparedSelection(
                 workspace = NativeWorkspaceSelection.Saf(grant),
                 capabilityToken = grant.capabilityToken,
             )
         } else {
-            val token = "cap-${java.util.UUID.randomUUID()}"
-            val grant = capabilityRegistry.registerDirect(token = token, rootPath = File(raw))
+            val grant = capabilityRegistry.registerDirect(rootPath = File(raw))
             PreparedSelection(
                 workspace = NativeWorkspaceSelection.Direct(grant),
                 capabilityToken = grant.capabilityToken,
@@ -162,10 +160,22 @@ internal class WorkspaceCandidatePreparer(
 
     private fun openWorkspaceAdapter(selection: PreparedSelection): RustEngineAdapter =
         runCatching {
+            // Stage root follows the candidate selection, not the currently active workspace: a
+            // Direct workspace stages beside its root while SAF workspaces share the app-private
+            // host stage root.
+            val stageRoot =
+                when (val workspace = selection.workspace) {
+                    is NativeWorkspaceSelection.Direct -> workspace.rootPath
+                    is NativeWorkspaceSelection.Saf ->
+                        File(filesDir, com.lomo.data.engine.media.HOST_MEDIA_STAGE_ROOT_NAME)
+                }
             openAdapter(
                 NativeEngineOpenRequest
                     .forAppFilesDir(filesDir)
-                    .copy(workspace = selection.workspace),
+                    .copy(
+                        workspace = selection.workspace,
+                        mediaStageRoot = stageRoot,
+                    ),
             )
         }.onFailure { selection.capabilityToken?.let(capabilityRegistry::revoke) }
             .getOrThrow()

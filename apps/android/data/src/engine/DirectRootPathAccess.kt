@@ -79,11 +79,13 @@ internal class DirectRootPathAccess {
         val attributes =
             Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
         val directory = attributes.isDirectory
-        val fileBytes =
+        // A supplied array digests in place; an unsupplied file digests by stream so
+        // observation never buffers whole documents into memory.
+        val digest =
             when {
                 directory -> null
-                bytes != null -> bytes
-                else -> Files.readAllBytes(path)
+                bytes != null -> bytes.sha256Hex()
+                else -> Files.newInputStream(path).use { input -> input.sha256Hex() }
             }
         return PlatformDocumentSnapshot(
             target = target,
@@ -94,10 +96,15 @@ internal class DirectRootPathAccess {
                     path.fileName.toString().endsWith(".md", ignoreCase = true) -> "text/markdown"
                     else -> "application/octet-stream"
                 },
-            length = fileBytes?.run { size.toULong() } ?: 0uL,
+            length =
+                when {
+                    directory -> 0uL
+                    bytes != null -> bytes.size.toULong()
+                    else -> attributes.size().toULong()
+                },
             lastModifiedEpochMillis = attributes.lastModifiedTime().toMillis().coerceAtLeast(0L),
             documentId = documentId(path, attributes),
-            digest = fileBytes?.sha256Hex(),
+            digest = digest,
         )
     }
 

@@ -21,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -36,11 +37,12 @@ import kotlin.concurrent.write
 /**
  * Sole production owner of the Rust engine lifecycle for the process.
  *
- * Construction publishes [EngineReadiness.Opening]. When [ownsNativeEngine] owns the engine, one owned
- * coroutine opens a persisted workspace engine directly, or a bootstrap engine only when no
- * workspace is configured / restore is skipped. Projection-only processes (Glance) construct
- * the session without that coroutine so widget wakes do not pay restore and rebuild. Native
- * acquisition therefore never runs on the constructing thread. A bootstrap engine that cannot
+ * Construction publishes [EngineReadiness.Opening]. When [ownsNativeEngine] owns the engine, an
+ * explicit [requestEngineStart] launches one owned coroutine that opens a persisted workspace
+ * engine directly, or a bootstrap engine only when no workspace is configured / restore is
+ * skipped. Projection-only processes (Glance) never open native, so widget wakes do not pay
+ * restore and rebuild. Native acquisition therefore never runs on the constructing thread and
+ * never follows graph resolution alone. A bootstrap engine that cannot
  * be acquired leaves the session in structured `ReadOnlyRecovery` with no adapter rather than
  * failing graph construction. When a Direct/SAF
  * root is selected (or restored once from persisted settings), [activateWorkspace] runs Prepared →
@@ -110,12 +112,24 @@ internal class ManagedEngineSession(
         )
     }
 
-    init {
-        if (ownsNativeEngine.ownsNativeEngine) {
+    private val engineStartRequested = AtomicBoolean(false)
+
+    /**
+     * Explicit engine start: idempotent across repeated requests and no-op for projection-only
+     * processes, so a transient caller (tile, widget, recording state read) can never mount the
+     * vault merely by resolving the graph.
+     */
+    override suspend fun requestEngineStart(): EngineReadiness {
+        check(!closed.get()) { "Managed engine session is closed" }
+        if (!ownsNativeEngine.ownsNativeEngine) {
+            return readiness.value
+        }
+        if (engineStartRequested.compareAndSet(false, true)) {
             appScope.launch {
                 startOwnedEngine()
             }
         }
+        return readiness.first { it !is EngineReadiness.Opening }
     }
 
     override val readiness: StateFlow<EngineReadiness> = _readiness.asStateFlow()
@@ -161,6 +175,8 @@ internal class ManagedEngineSession(
 
     override suspend fun rebuildDerivedIndex(): DerivedIndexRebuildSummary {
         check(!closed.get()) { "Managed engine session is closed" }
+        check(ownsNativeEngine.ownsNativeEngine) { "Projection-only process must not open a workspace engine" }
+        engineStartRequested.set(true)
         return activationMutex.withLock {
             val recovery =
                 _readiness.value as? EngineReadiness.ReadOnlyRecovery
@@ -195,6 +211,8 @@ internal class ManagedEngineSession(
 
     override suspend fun activateWorkspace(location: StorageLocation) {
         check(!closed.get()) { "Managed engine session is closed" }
+        check(ownsNativeEngine.ownsNativeEngine) { "Projection-only process must not open a workspace engine" }
+        engineStartRequested.set(true)
         require(location.raw.isNotBlank()) { "Workspace location must be non-blank" }
         activationMutex.withLock {
             check(!closed.get()) { "Managed engine session is closed" }
@@ -286,6 +304,8 @@ internal class ManagedEngineSession(
 
     override suspend fun clearWorkspace() {
         if (closed.get()) return
+        check(ownsNativeEngine.ownsNativeEngine) { "Projection-only process must not open a workspace engine" }
+        engineStartRequested.set(true)
         activationMutex.withLock {
             if (closed.get()) return
             // Reselect / failed first selection: open awaiting engine under the activation mutex.
@@ -321,12 +341,6 @@ internal class ManagedEngineSession(
 
     override fun rebuildActiveStore(batchSize: UInt): com.lomo.nativebridge.StoreRebuildResult =
         withActiveWorkspaceAdapter { adapter -> adapter.startRebuild(batchSize) }
-
-    protected override fun applyActiveMemoCommand(
-        command: com.lomo.nativebridge.StoreMemoCommand,
-        onPublication: (com.lomo.nativebridge.StoreMemoCommit) -> Unit,
-    ): com.lomo.nativebridge.StoreMemoCommit =
-        withActiveWorkspaceAdapter { adapter -> adapter.applyMemoCommand(command, onPublication) }
 
     /**
      * RetiringPrevious → Committed: the outgoing owner is released first and only a complete

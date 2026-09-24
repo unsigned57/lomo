@@ -10,6 +10,8 @@ import com.lomo.data.engine.sync.RemoteSyncRetryDisposition
 import com.lomo.data.engine.sync.RemoteSyncRetryHint
 import com.lomo.data.engine.sync.RustSyncSecretSupplier
 import com.lomo.domain.model.CredentialReadAuthorization
+import com.lomo.domain.model.EngineReadiness
+import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.SecuritySessionPolicy
 import timber.log.Timber
 
@@ -80,6 +82,7 @@ class RustSyncWorker(
     private val secretSupplier: RustSyncSecretSupplier,
     private val workExecutor: RustSyncWorkExecutor,
     private val securitySessionPolicy: SecuritySessionPolicy,
+    private val engineReadiness: EngineReadinessRepository,
     private val deferredLockStore: DeferredLockWorkStore,
     /**
      * Host-test stop probe. Production uses WorkManager [isStopped] only; tests inject true to
@@ -107,6 +110,12 @@ class RustSyncWorker(
                 return Result.success()
             }
             CredentialReadAuthorization.Authorized -> Unit
+        }
+
+        val settled = engineReadiness.requestEngineStart()
+        if (settled !is EngineReadiness.Ready) {
+            Timber.i("%s deferred: engine settled at %s", WORKER_NAME, settled::class.simpleName)
+            return resultFor(RemoteSyncRetryHint(disposition = RemoteSyncRetryDisposition.Transient))
         }
 
         var issuedLeaseId: String? = null
@@ -176,7 +185,7 @@ class RustSyncWorker(
                 Timber.e("%s missing identity material for field", WORKER_NAME)
                 return null
             }
-            next = next.copy(usernameOrAccessKey = identity)
+            next = next.copy(identity = identity)
         }
         val secretFieldKey = next.secretFieldKey
         if (secretFieldKey.isNullOrBlank()) {
@@ -238,9 +247,12 @@ class RustSyncWorker(
             workspaceRoot: String,
             backendKind: String,
             endpointUrl: String = "",
-            bucket: String = "",
-            prefix: String = "",
-            region: String = "",
+            s3Bucket: String = "",
+            s3Prefix: String = "",
+            s3Region: String = "",
+            gitBranch: String = "",
+            gitAuthorName: String = "",
+            gitAuthorEmail: String = "",
             remoteDatasetId: String = "",
             identityFieldKey: String? = null,
             secretFieldKey: String? = null,
@@ -253,9 +265,12 @@ class RustSyncWorker(
                     .putString(RustSyncWorkRequest.INPUT_WORKSPACE_ROOT, workspaceRoot)
                     .putString(RustSyncWorkRequest.INPUT_BACKEND_KIND, backendKind)
                     .putString(RustSyncWorkRequest.INPUT_ENDPOINT_URL, endpointUrl)
-                    .putString(RustSyncWorkRequest.INPUT_BUCKET, bucket)
-                    .putString(RustSyncWorkRequest.INPUT_PREFIX, prefix)
-                    .putString(RustSyncWorkRequest.INPUT_REGION, region)
+                    .putString(RustSyncWorkRequest.INPUT_S3_BUCKET, s3Bucket)
+                    .putString(RustSyncWorkRequest.INPUT_S3_PREFIX, s3Prefix)
+                    .putString(RustSyncWorkRequest.INPUT_S3_REGION, s3Region)
+                    .putString(RustSyncWorkRequest.INPUT_GIT_BRANCH, gitBranch)
+                    .putString(RustSyncWorkRequest.INPUT_GIT_AUTHOR_NAME, gitAuthorName)
+                    .putString(RustSyncWorkRequest.INPUT_GIT_AUTHOR_EMAIL, gitAuthorEmail)
                     .putString(RustSyncWorkRequest.INPUT_REMOTE_DATASET_ID, remoteDatasetId)
                     .putLong(RustSyncWorkRequest.INPUT_LEASE_TTL_MILLIS, leaseTtlMillis)
                     .putBoolean(RustSyncWorkRequest.INPUT_APPLY_REMOTE, applyRemote)
@@ -279,9 +294,14 @@ class RustSyncWorker(
                 inputData.getString(RustSyncWorkRequest.INPUT_BACKEND_KIND).orEmpty()
             val endpointUrl =
                 inputData.getString(RustSyncWorkRequest.INPUT_ENDPOINT_URL).orEmpty()
-            val bucket = inputData.getString(RustSyncWorkRequest.INPUT_BUCKET).orEmpty()
-            val prefix = inputData.getString(RustSyncWorkRequest.INPUT_PREFIX).orEmpty()
-            val region = inputData.getString(RustSyncWorkRequest.INPUT_REGION).orEmpty()
+            val s3Bucket = inputData.getString(RustSyncWorkRequest.INPUT_S3_BUCKET).orEmpty()
+            val s3Prefix = inputData.getString(RustSyncWorkRequest.INPUT_S3_PREFIX).orEmpty()
+            val s3Region = inputData.getString(RustSyncWorkRequest.INPUT_S3_REGION).orEmpty()
+            val gitBranch = inputData.getString(RustSyncWorkRequest.INPUT_GIT_BRANCH).orEmpty()
+            val gitAuthorName =
+                inputData.getString(RustSyncWorkRequest.INPUT_GIT_AUTHOR_NAME).orEmpty()
+            val gitAuthorEmail =
+                inputData.getString(RustSyncWorkRequest.INPUT_GIT_AUTHOR_EMAIL).orEmpty()
             val remoteDatasetId =
                 inputData.getString(RustSyncWorkRequest.INPUT_REMOTE_DATASET_ID).orEmpty()
             val identityFieldKey =
@@ -304,9 +324,12 @@ class RustSyncWorker(
                 workspaceRoot = workspaceRoot,
                 backendKind = backendKind,
                 endpointUrl = endpointUrl,
-                bucket = bucket,
-                prefix = prefix,
-                region = region,
+                s3Bucket = s3Bucket,
+                s3Prefix = s3Prefix,
+                s3Region = s3Region,
+                gitBranch = gitBranch,
+                gitAuthorName = gitAuthorName,
+                gitAuthorEmail = gitAuthorEmail,
                 remoteDatasetId = remoteDatasetId,
                 identityFieldKey = identityFieldKey,
                 secretFieldKey = secretFieldKey,

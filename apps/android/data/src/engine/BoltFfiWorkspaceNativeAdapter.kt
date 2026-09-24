@@ -67,19 +67,6 @@ internal fun WorkspaceNativeExpectedState.toBridge(): com.lomo.nativebridge.Work
             com.lomo.nativebridge.WorkspaceDocumentExpectedState.Match(fingerprint)
     }
 
-internal fun WorkspaceNativeTrashCommandSpec.toBridge(): com.lomo.nativebridge.WorkspaceTrashCommandKind =
-    when (this) {
-        is WorkspaceNativeTrashCommandSpec.Trash ->
-            com.lomo.nativebridge.WorkspaceTrashCommandKind.Trash(
-                identity = identity,
-                chronologyEpochMs = chronologyEpochMs,
-            )
-        is WorkspaceNativeTrashCommandSpec.Restore ->
-            com.lomo.nativebridge.WorkspaceTrashCommandKind.Restore(identity = identity)
-        is WorkspaceNativeTrashCommandSpec.PermanentDelete ->
-            com.lomo.nativebridge.WorkspaceTrashCommandKind.PermanentDelete(identity = identity)
-    }
-
 private fun WorkspaceReminderReferenceSnapshot.toBridge(): WorkspaceReminderReference =
     WorkspaceReminderReference(
         opaqueId = opaqueId,

@@ -1,6 +1,7 @@
 package com.lomo.data.engine
 
 import com.lomo.nativebridge.ActionOutcome
+import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.ExpectedFingerprint
 import com.lomo.nativebridge.PlatformAction
 import com.lomo.nativebridge.PlatformActionOutput
@@ -64,6 +65,47 @@ internal object PlatformActionPostconditions {
         if (reason != null) {
             throw postconditionMismatch(reason)
         }
+    }
+
+    /**
+     * The three artifact-write states: the target already holds the declared digest (satisfied),
+     * the baseline matches the frozen expectation (publish proceeds), or a third party changed
+     * the target (fail closed). Returns the satisfied outcome or null; throws on conflict.
+     */
+    fun classifyArtifactWrite(
+        action: PlatformAction.ArtifactWrite,
+        existing: PlatformDocumentSnapshot?,
+    ): ActionOutcome? {
+        if (existing != null &&
+            existing.kind == DocumentKind.FILE &&
+            existing.length == action.source.length &&
+            existing.digest == action.source.digest
+        ) {
+            return ActionOutcome.AlreadySatisfied(
+                PlatformActionOutput.WriteComplete(metadata = existing.toMetadata()),
+            )
+        }
+        val reason =
+            when (val expected = action.expectedTarget) {
+                is ExpectedFingerprint.Absent ->
+                    if (existing != null) {
+                        "Artifact target already exists without the declared digest"
+                    } else {
+                        null
+                    }
+                is ExpectedFingerprint.Match ->
+                    when {
+                        existing == null ->
+                            "Expected artifact target baseline but the document is absent"
+                        existing.toEvidence() != expected.evidence ->
+                            "Artifact target fingerprint does not match the expected baseline"
+                        else -> null
+                    }
+            }
+        if (reason != null) {
+            throw postconditionMismatch(reason)
+        }
+        return null
     }
 
     fun alreadySatisfiedMove(

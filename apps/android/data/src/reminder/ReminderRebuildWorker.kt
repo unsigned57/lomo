@@ -15,7 +15,9 @@ class ReminderRebuildWorker(
     private val engineReadiness: EngineReadinessRepository,
 ) : CoroutineWorker(appContext, workerParams) {
     override suspend fun doWork(): Result {
-        if (engineReadiness.readiness.value !is EngineReadiness.Ready ||
+        // Reminder rebuild needs the mounted workspace, so the worker issues the explicit engine
+        // start request itself instead of relying on Application.onCreate side effects.
+        if (engineReadiness.requestEngineStart() !is EngineReadiness.Ready ||
             engineReadiness.workspaceAuthority.value == null
         ) {
             Timber.i("%s deferred: workspace session is not ready", WORKER_NAME)

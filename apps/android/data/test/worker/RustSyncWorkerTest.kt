@@ -120,6 +120,10 @@ private class InMemoryDeferredLockWorkStore : DeferredLockWorkStore {
     }
 
     override fun take(): androidx.work.Data? = saved.also { saved = null }
+
+    override fun clear() {
+        saved = null
+    }
 }
 
 private fun rustSyncWorker(
@@ -128,6 +132,8 @@ private fun rustSyncWorker(
     supplier: RustSyncSecretSupplier,
     executor: RustSyncWorkExecutor,
     session: com.lomo.domain.repository.SecuritySessionPolicy = AuthorizedCredentialReadSessionPolicy,
+    engineReadiness: com.lomo.domain.repository.EngineReadinessRepository =
+        com.lomo.data.testing.fakes.FakeEngineReadinessRepository(),
     deferred: DeferredLockWorkStore = InMemoryDeferredLockWorkStore(),
     stopProbe: () -> Boolean = { false },
 ): RustSyncWorker =
@@ -137,6 +143,7 @@ private fun rustSyncWorker(
         secretSupplier = supplier,
         workExecutor = executor,
         securitySessionPolicy = session,
+        engineReadiness = engineReadiness,
         deferredLockStore = deferred,
         stopProbe = stopProbe,
     )
@@ -557,7 +564,7 @@ class RustSyncWorkerTest : FunSpec({
             val worker = rustSyncWorker(workerParams.context, workerParams.params, supplier, executor)
             worker.doWork()
 
-            executor.lastRequest?.usernameOrAccessKey shouldBe identity
+            executor.lastRequest?.identity shouldBe identity
             workerParams.params.inputData.keyValueMap.values.none { value ->
                 value.toString() == identity
             } shouldBe true

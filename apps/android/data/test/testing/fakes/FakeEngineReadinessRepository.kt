@@ -37,6 +37,8 @@ class FakeEngineReadinessRepository(
             ),
         )
     private var activateCount = 0
+    var engineStartRequests = 0
+        private set
     override val readiness: StateFlow<EngineReadiness> = _readiness.asStateFlow()
     override val mount: StateFlow<WorkspaceMount> = _mount.asStateFlow()
     override val activeWorkspaceLocation: StateFlow<StorageLocation?> =
@@ -67,6 +69,11 @@ class FakeEngineReadinessRepository(
     }
 
     override fun resnapshot() = Unit
+
+    override suspend fun requestEngineStart(): EngineReadiness {
+        engineStartRequests += 1
+        return readiness.value
+    }
 
     override suspend fun createRecoveryDiagnosticReport(): RecoveryDiagnosticReport {
         val recovery = readiness.value as? EngineReadiness.ReadOnlyRecovery

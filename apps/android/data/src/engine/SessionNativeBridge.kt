@@ -1,15 +1,11 @@
 package com.lomo.data.engine
 
 import com.lomo.nativebridge.PlatformBatchHost
-import com.lomo.nativebridge.SessionCivilDate
 import com.lomo.nativebridge.SessionCreateMemoRequest
 import com.lomo.nativebridge.SessionDeleteMemoRequest
-import com.lomo.nativebridge.SessionFireReminderRequest
-import com.lomo.nativebridge.SessionMemoView
 import com.lomo.nativebridge.SessionPinMemoRequest
 import com.lomo.nativebridge.SessionRestoreRequest
 import com.lomo.nativebridge.SessionRestoreRevisionRequest
-import com.lomo.nativebridge.SessionReviewCandidate
 import com.lomo.nativebridge.SessionSearchOutcome
 import com.lomo.nativebridge.SessionSearchRequest
 import com.lomo.nativebridge.SessionStatistics
@@ -17,9 +13,12 @@ import com.lomo.nativebridge.SessionStatisticsSnapshot
 import com.lomo.nativebridge.SessionTaskItem
 import com.lomo.nativebridge.SessionToggleTaskRequest
 import com.lomo.nativebridge.SessionUpdateMemoRequest
+import com.lomo.nativebridge.StoreMemoBatchCommit
+import com.lomo.nativebridge.StoreMemoBatchDelete
 import com.lomo.nativebridge.StoreMemoCommit
 import com.lomo.nativebridge.StoreMemoHistoryPage
 import com.lomo.nativebridge.StoreReminderPlan
+import com.lomo.nativebridge.SyncBackendConfigDto
 import com.lomo.nativebridge.SyncCyclePlanSummaryDto
 
 /**
@@ -36,6 +35,7 @@ internal interface SessionNativeBridge {
     fun openWorkspaceSession(
         host: PlatformBatchHost,
         timeZone: String,
+        mediaStageRoot: String,
     ): String = error("workspace session open is not expected")
 
     fun sessionCreateMemo(request: SessionCreateMemoRequest): StoreMemoCommit =
@@ -50,8 +50,6 @@ internal interface SessionNativeBridge {
     fun sessionPinMemo(request: SessionPinMemoRequest): StoreMemoCommit =
         error("session pin is not expected")
 
-    fun sessionGetMemo(memoId: String): SessionMemoView? = error("session get is not expected")
-
     fun sessionSearch(request: SessionSearchRequest): SessionSearchOutcome =
         error("session search is not expected")
 
@@ -59,19 +57,6 @@ internal interface SessionNativeBridge {
 
     fun sessionToggleTask(request: SessionToggleTaskRequest): StoreMemoCommit =
         error("session toggle task is not expected")
-
-    fun sessionReviewCandidates(
-        zone: String,
-        date: SessionCivilDate,
-    ): List<SessionReviewCandidate> = error("session review is not expected")
-
-    fun sessionCompleteReview(
-        zone: String,
-        date: SessionCivilDate,
-        memoId: String,
-    ) {
-        error("session complete review is not expected")
-    }
 
     fun sessionStatistics(snapshot: SessionStatisticsSnapshot): SessionStatistics =
         error("session statistics are not expected")
@@ -91,11 +76,11 @@ internal interface SessionNativeBridge {
     fun sessionPermanentlyDeleteMemo(request: SessionRestoreRequest): StoreMemoCommit =
         error("session permanent delete is not expected")
 
+    fun sessionPermanentlyDeleteMany(request: StoreMemoBatchDelete): StoreMemoBatchCommit =
+        error("session permanent delete batch is not expected")
+
     fun sessionReminderPlan(nowUtcMs: Long?): StoreReminderPlan =
         error("session reminder plan is not expected")
-
-    fun sessionRecordReminderFired(request: SessionFireReminderRequest): StoreMemoCommit =
-        error("session reminder fire is not expected")
 
     fun sessionSnoozeReminder(
         opaqueId: String,
@@ -104,26 +89,13 @@ internal interface SessionNativeBridge {
         error("session reminder snooze is not expected")
     }
 
-    fun sessionClearReminderSnooze(opaqueId: String) {
-        error("session reminder clear-snooze is not expected")
-    }
-
-    fun sessionReminderSnoozeRecoveryPending(): Boolean =
-        error("session reminder snooze recovery query is not expected")
-
     fun sessionRecoverReminderSnooze() {
         error("session reminder snooze recovery is not expected")
     }
 
     fun syncRunCycle(
         workspaceRoot: String,
-        backendKind: String,
-        endpointUrl: String,
-        usernameOrAccessKey: String,
-        bucket: String,
-        prefix: String,
-        region: String = "",
-        remoteDatasetId: String = "",
+        config: SyncBackendConfigDto,
         secretLeaseId: String = "",
         applyRemote: Boolean = false,
     ): SyncCyclePlanSummaryDto = error("session sync cycle is not expected")

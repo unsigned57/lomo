@@ -116,6 +116,7 @@ private fun PlatformAction.actionId(): String =
         is PlatformAction.EnsureDirectory -> actionId
         is PlatformAction.ReadToExchange -> actionId
         is PlatformAction.WriteFromExchange -> actionId
+        is PlatformAction.ArtifactWrite -> actionId
         is PlatformAction.Move -> actionId
         is PlatformAction.Delete -> actionId
     }

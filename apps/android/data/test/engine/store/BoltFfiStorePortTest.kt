@@ -30,6 +30,9 @@ package com.lomo.data.engine.store
  *   receives those plans and store applyMemoCommand is not called.
  * - Given restore or permanent-delete, when applyMemoCommand / permanentDeleteMany run, then
  *   coreRevision, eventSequence, contentRevision, and scopes come from the session commit DTO.
+ * - Given an unsorted trash target list, when permanentDeleteMany runs, then one session batch call
+ *   carries canonically sorted CAS facts and the deleted reminder facts map back with no per-memo
+ *   getMemo hydration.
  * - Given a rebuild result, when startRebuild runs, then counters map to domain longs
  *   including whether SQLite was rewritten.
  * - Given a Rust reminder plan, when queryReminderPlan runs, then sessionReminderPlan receives
@@ -122,6 +125,16 @@ private class RecordingStoreNativeBridge : StoreNativeBridge, SessionNativeBridg
     var lastSessionRestoreRevision: SessionRestoreRevisionRequest? = null
     var lastSessionPermanentDelete: SessionRestoreRequest? = null
     val sessionPermanentDeletes = mutableListOf<SessionRestoreRequest>()
+    var lastPermanentDeleteMany: com.lomo.nativebridge.StoreMemoBatchDelete? = null
+    var batchCommit: com.lomo.nativebridge.StoreMemoBatchCommit =
+        com.lomo.nativebridge.StoreMemoBatchCommit(
+            operationId = "op",
+            deleted = emptyList(),
+            coreRevision = 1uL,
+            eventSequence = 2uL,
+            scopes = listOf(com.lomo.nativebridge.StoreInvalidationScope.MEMO_LIST),
+            idempotentReplay = false,
+        )
     var lastRebuildBatch: UInt? = null
 
     var page: BridgeMemoPage =
@@ -186,28 +199,7 @@ private class RecordingStoreNativeBridge : StoreNativeBridge, SessionNativeBridg
         return 0uL
     }
 
-    override fun selectMemoPromotePlans(
-        content: String,
-        candidates: List<com.lomo.nativebridge.MediaPromotePlanDto>,
-    ): List<com.lomo.nativebridge.MediaPromotePlanDto> {
-        failure?.let { throw it }
-        return candidates
-    }
 
-    override fun memoStatisticsRows(): List<com.lomo.nativebridge.StoreMemoStatisticsRow> {
-        failure?.let { throw it }
-        return emptyList()
-    }
-
-    override fun listHistoryAttachmentRefs(): List<com.lomo.nativebridge.StoreHistoryAttachmentRef> =
-        emptyList()
-
-    override fun listMemoHistory(
-        memoId: String,
-        cursor: String?,
-        limit: UInt,
-    ): com.lomo.nativebridge.StoreMemoHistoryPage =
-        com.lomo.nativebridge.StoreMemoHistoryPage(items = emptyList(), nextCursor = null)
 
     override fun getMemo(memoId: String): BridgeMemoSnapshot? {
         lastGetMemoId = memoId
@@ -215,20 +207,10 @@ private class RecordingStoreNativeBridge : StoreNativeBridge, SessionNativeBridg
         return snapshot
     }
 
-    override fun sourceDocumentFingerprint(sourcePath: String): String? = null
-
     var reminderPlan: com.lomo.nativebridge.StoreReminderPlan? = null
 
     override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection = sidebar
 
-    override fun applyMemoCommand(
-        command: BridgeMemoCommand,
-        onPublication: (BridgeMemoCommit) -> Unit,
-    ): BridgeMemoCommit {
-        lastCommand = command
-        failure?.let { throw it }
-        return commit
-    }
 
     override fun sessionCreateMemo(request: SessionCreateMemoRequest): BridgeMemoCommit {
         lastSessionCreate = request
@@ -271,6 +253,14 @@ private class RecordingStoreNativeBridge : StoreNativeBridge, SessionNativeBridg
         sessionPermanentDeletes += request
         failure?.let { throw it }
         return commit
+    }
+
+    override fun sessionPermanentlyDeleteMany(
+        request: com.lomo.nativebridge.StoreMemoBatchDelete,
+    ): com.lomo.nativebridge.StoreMemoBatchCommit {
+        lastPermanentDeleteMany = request
+        failure?.let { throw it }
+        return batchCommit
     }
 
     var lastSessionReminderNowUtcMs: Long? = null
@@ -690,16 +680,18 @@ class BoltFfiStorePortTest : FunSpec({
         bridge.lastSessionCreate?.pendingPromotes?.single()?.operationId shouldBe "op-promote"
     }
 
-    test("permanentDeleteMany routes each target through session not store batch delete") {
+    test("permanentDeleteMany issues one session batch call without per-memo hydration") {
         val bridge = RecordingStoreNativeBridge()
-        bridge.commit =
-            BridgeMemoCommit(
+        bridge.batchCommit =
+            com.lomo.nativebridge.StoreMemoBatchCommit(
                 operationId = "op-batch",
-                memoId = "m-b",
+                deleted =
+                    listOf(
+                        com.lomo.nativebridge.StoreMemoDeletedMemo("m-a", listOf("r-a")),
+                        com.lomo.nativebridge.StoreMemoDeletedMemo("m-b", listOf("r-b1", "r-b2")),
+                    ),
                 coreRevision = 9uL,
                 eventSequence = 11uL,
-                contentRevision = 0uL,
-                fileFingerprint = "ff",
                 scopes = listOf(com.lomo.nativebridge.StoreInvalidationScope.FULL),
                 idempotentReplay = false,
             )
@@ -723,14 +715,22 @@ class BoltFfiStorePortTest : FunSpec({
                     ),
             )
         bridge.lastCommand.shouldBeNull()
-        bridge.sessionPermanentDeletes.map { request -> request.memoId } shouldBe listOf("m-a", "m-b")
-        bridge.sessionPermanentDeletes.map { request -> request.operationId } shouldBe
-            listOf("op-batch/m-a", "op-batch/m-b")
+        bridge.lastGetMemoId.shouldBeNull()
+        bridge.sessionPermanentDeletes shouldBe emptyList()
+        val request = bridge.lastPermanentDeleteMany
+        request.shouldNotBeNull()
+        request.operationId shouldBe "op-batch"
+        request.targets.map { it.memoId } shouldBe listOf("m-a", "m-b")
+        request.targets.map { it.expectedRevision } shouldBe listOf(1uL, 2uL)
+        request.targets.map { it.expectedFingerprint } shouldBe listOf("ff-a", "ff-b")
         commit.operationId shouldBe "op-batch"
         commit.deleted.map { memo -> memo.memoId } shouldBe listOf("m-a", "m-b")
+        commit.deleted.map { memo -> memo.reminderIds } shouldBe
+            listOf(listOf("r-a"), listOf("r-b1", "r-b2"))
         commit.coreRevision shouldBe 9L
         commit.eventSequence shouldBe 11L
         commit.scopes shouldBe listOf(StoreInvalidationScope.Full)
+        commit.idempotentReplay shouldBe false
     }
 
     test("startRebuild maps counters digests and batch size") {

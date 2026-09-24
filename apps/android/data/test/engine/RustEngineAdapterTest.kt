@@ -75,6 +75,7 @@ package com.lomo.data.engine
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.engine.lan.LanChunkSend
 import com.lomo.data.engine.lan.LanDeviceIdentity
 import com.lomo.data.engine.lan.LanBatchPreview
 import com.lomo.data.engine.lan.LanDiscoveredPeer
@@ -115,22 +116,6 @@ class RustEngineAdapterTest : DataFunSpec() {
 
             adapter.readiness.value shouldBe EngineReadiness.Ready
             native.stateReads shouldBe 1
-            adapter.close()
-        }
-
-        test("given SAF provider fingerprint when memo projection is empty then provider fact wins") {
-            val native = FakeNativeEnginePort(NativeEngineSnapshot.Ready(coreRevision = 4uL, eventSequence = 9uL))
-            val emptyDocumentFingerprint = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-            val adapter =
-                testRustEngineAdapter(
-                    native = native,
-                    sourceDocumentFingerprintProbe = { path ->
-                        path shouldBe "2026_08_25.md"
-                        emptyDocumentFingerprint
-                    },
-                )
-
-            adapter.sourceDocumentFingerprint("2026_08_25.md") shouldBe emptyDocumentFingerprint
             adapter.close()
         }
 
@@ -327,12 +312,8 @@ private class FakeNativeEnginePort(
 ) : WorkspaceNativeEnginePort {
     var lanReceivedItemCommit: com.lomo.nativebridge.StoreMemoCommit? = null
     var toggleTaskCommit: com.lomo.nativebridge.StoreMemoCommit? = null
-    val projectionPages = ArrayDeque<WorkspaceProjectionScanPageSnapshot>()
-    val trashProjectionPages = ArrayDeque<WorkspaceTrashProjectionScanPageSnapshot>()
-    val historyProjectionPages = ArrayDeque<WorkspaceHistoryProjectionScanPageSnapshot>()
-    val projectionScanRequests = mutableListOf<Pair<UInt, String?>>()
-    val trashProjectionScanRequests = mutableListOf<Pair<UInt, String?>>()
     val polledJobIds = mutableListOf<String>()
+
     override fun updateLanNetworkSnapshot(snapshot: LanNetworkFacts) = error("LAN not expected")
 
     override fun updateLanDiscoverySnapshot(snapshot: LanDiscoveryFacts) = error("LAN not expected")
@@ -359,10 +340,6 @@ private class FakeNativeEnginePort(
     override fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait =
         error("LAN not expected")
 
-    override fun pollLanListener(nowMs: Long): LanRuntimeInbox = error("LAN not expected")
-
-    override fun lanRuntimeInbox(): LanRuntimeInbox = error("LAN not expected")
-
     override fun lanPairingChallenge(pairingId: String): LanPairingChallenge = error("LAN not expected")
 
     override fun confirmLanPairing(
@@ -379,9 +356,6 @@ private class FakeNativeEnginePort(
         ttlMs: Long,
     ): LanSessionChallenge = error("LAN not expected")
 
-    override fun lanSessionChallenge(sessionId: String): LanSessionChallenge =
-        error("LAN not expected")
-
     override fun confirmLanSession(
         sessionId: String,
         signature: ByteArray,
@@ -396,8 +370,6 @@ private class FakeNativeEnginePort(
         items: List<LanSendItemPlan>,
     ) = error("LAN not expected")
 
-    override fun lanBatchPreview(batchId: String): LanBatchPreview = error("LAN not expected")
-
     override fun approveLanBatch(
         sessionId: String,
         batchId: String,
@@ -411,14 +383,7 @@ private class FakeNativeEnginePort(
         rejectedAtMs: Long,
     ) = error("LAN not expected")
 
-    override fun sendLanBatchChunk(
-        sessionId: String,
-        batchId: String,
-        itemIndex: UInt,
-        attachmentSlot: UInt,
-        chunkIndex: UInt,
-        plaintext: ByteArray,
-    ) = error("LAN not expected")
+    override fun sendLanBatchChunks(chunks: List<LanChunkSend>) = error("LAN not expected")
 
     override fun lanUnconfirmedBatchChunks(
         batchId: String,
@@ -432,6 +397,12 @@ private class FakeNativeEnginePort(
         nowMs: Long,
     ): com.lomo.nativebridge.StoreMemoCommit =
         lanReceivedItemCommit ?: error("LAN not expected")
+
+    override fun failReceivedLanItem(
+        batchId: String,
+        itemIndex: UInt,
+        code: String,
+    ) = Unit
 
     override fun sessionToggleTask(
         request: com.lomo.nativebridge.SessionToggleTaskRequest,
@@ -508,34 +479,23 @@ private class FakeNativeEnginePort(
     ): com.lomo.nativebridge.MediaStagedDto =
         stageMedia(mediaRoot, com.lomo.nativebridge.MediaSourceKind.STAGED_TEMP, recordingPath, humanNameHint)
 
-    override fun promoteMedia(
+    override fun queryMediaManifest(
         workspaceRoot: String,
-        plan: com.lomo.nativebridge.MediaPromotePlanDto,
-    ): com.lomo.nativebridge.MediaPromoteResultDto =
-        com.lomo.nativebridge.MediaPromoteResultDto(
-            operationId = plan.operationId,
-            digest = plan.staged.digest,
-            mime = plan.staged.mime,
-            size = plan.staged.size,
-            finalAbsolutePath = "$workspaceRoot/${plan.finalRelativePath}",
-            finalRelativePath = plan.finalRelativePath,
-        )
-
-    override fun queryMediaManifest(workspaceRoot: String): com.lomo.nativebridge.MediaManifestDto =
+        verifiedEntries: List<com.lomo.nativebridge.MediaCommittedEntryDto>,
+    ): com.lomo.nativebridge.MediaManifestDto =
         com.lomo.nativebridge.MediaManifestDto(stageDirName = "stage", entries = emptyList())
 
-    override fun mediaOrphanSweep(
-        mediaRoot: String,
-        committed: List<com.lomo.nativebridge.MediaCommittedEntryDto>,
-        refs: List<com.lomo.nativebridge.MediaAttachmentRefDto>,
-        existingTrash: List<com.lomo.nativebridge.MediaTrashEntryDto>,
+    override fun sessionMediaOrphanSweep(
         nowMs: ULong?,
         recoveryWindowMs: ULong,
-    ): com.lomo.nativebridge.MediaOrphanSweepResultDto =
-        com.lomo.nativebridge.MediaOrphanSweepResultDto(
+    ): com.lomo.nativebridge.SessionMediaSweepReportDto =
+        com.lomo.nativebridge.SessionMediaSweepReportDto(
+            candidates = 0uL,
+            protections = emptyList(),
             movedToTrash = emptyList(),
             permanentlyDeletedDigests = emptyList(),
             keptLive = 0uL,
+            failures = emptyList(),
         )
 
     override fun archiveExport(
@@ -548,33 +508,10 @@ private class FakeNativeEnginePort(
             entryCount = 0uL,
         )
 
-    override fun archiveInspect(
+    override fun sessionImportArchive(
+        workspaceRoot: String,
         archivePath: String,
         stagingRoot: String,
-    ): com.lomo.nativebridge.ArchiveInspectResultDto =
-        com.lomo.nativebridge.ArchiveInspectResultDto(
-            stagingRoot = stagingRoot,
-            schemaVersion = 2u,
-            entryCount = 0uL,
-        )
-
-    override fun archiveImport(
-        archivePath: String,
-        stagingRoot: String,
-    ): com.lomo.nativebridge.ArchiveInspectResultDto = archiveInspect(archivePath, stagingRoot)
-
-    override fun archiveActivate(
-        stagingRoot: String,
-        liveRoot: String,
-        backupRoot: String,
-    ) = Unit
-
-    override fun archiveImportActivateRebuild(
-        archivePath: String,
-        stagingRoot: String,
-        liveRoot: String,
-        backupRoot: String,
-        rebuildBatchSize: UInt,
     ): com.lomo.nativebridge.StoreRebuildResult =
         com.lomo.nativebridge.StoreRebuildResult(
             memosIndexed = 0uL,
@@ -622,57 +559,8 @@ private class FakeNativeEnginePort(
         schemaVersion: UInt,
     ): com.lomo.domain.model.markdown.MarkdownRenderDocument = error("render not expected")
 
-    override fun startWorkspaceScan(
-        pageSize: UInt,
-        cursor: String?,
-        rootPath: String?,
-        deadlineMillis: ULong,
-    ): String {
-        projectionScanRequests += pageSize to cursor
-        return "projection-scan"
-    }
 
-    override fun readWorkspaceScanPage(jobId: String): WorkspaceScanPageSnapshot =
-        error("scan page not expected")
 
-    override fun readWorkspaceProjectionScanPage(jobId: String): WorkspaceProjectionScanPageSnapshot =
-        projectionPages.removeFirstOrNull() ?: WorkspaceProjectionScanPageSnapshot(emptyList(), null)
-
-    override fun startWorkspaceTrashScan(
-        pageSize: UInt,
-        cursor: String?,
-        deadlineMillis: ULong,
-    ): String {
-        trashProjectionScanRequests += pageSize to cursor
-        pollResults.putIfAbsent(
-            "trash-projection-scan",
-            ArrayDeque(listOf(NativeJobStep.Completed)),
-        )
-        return "trash-projection-scan"
-    }
-
-    override fun readWorkspaceTrashProjectionScanPage(
-        jobId: String,
-    ): WorkspaceTrashProjectionScanPageSnapshot =
-        trashProjectionPages.removeFirstOrNull() ?: WorkspaceTrashProjectionScanPageSnapshot(emptyList(), null)
-
-    override fun startWorkspaceHistoryScan(
-        pageSize: UInt,
-        cursor: String?,
-        deadlineMillis: ULong,
-    ): String {
-        pollResults.putIfAbsent(
-            "history-projection-scan",
-            ArrayDeque(listOf(NativeJobStep.Completed)),
-        )
-        return "history-projection-scan"
-    }
-
-    override fun readWorkspaceHistoryProjectionScanPage(
-        jobId: String,
-    ): WorkspaceHistoryProjectionScanPageSnapshot =
-        historyProjectionPages.removeFirstOrNull()
-            ?: WorkspaceHistoryProjectionScanPageSnapshot(emptyList(), null)
 
     override fun startWorkspaceDocumentCommand(
         path: String,
@@ -683,16 +571,6 @@ private class FakeNativeEnginePort(
 
     override fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot =
         error("document result not expected")
-
-    override fun startWorkspaceTrashCommand(
-        path: String,
-        expectedFingerprint: String,
-        command: WorkspaceNativeTrashCommandSpec,
-        deadlineMillis: ULong,
-    ): String = error("trash command not expected")
-
-    override fun readWorkspaceTrashCommandResult(jobId: String): WorkspaceNativeTrashCommandResultSnapshot =
-        error("trash result not expected")
 
     override fun queryMemos(
         query: com.lomo.nativebridge.StoreMemoQuery,
@@ -705,41 +583,14 @@ private class FakeNativeEnginePort(
     override fun queryCount(query: com.lomo.nativebridge.StoreMemoQuery): ULong =
         error("store count not expected")
 
-    override fun selectMemoPromotePlans(
-        content: String,
-        candidates: List<com.lomo.nativebridge.MediaPromotePlanDto>,
-    ): List<com.lomo.nativebridge.MediaPromotePlanDto> =
-        error("store promote selection not expected")
-
-    override fun memoStatisticsRows(): List<com.lomo.nativebridge.StoreMemoStatisticsRow> =
-        error("store statistics not expected")
-
     override fun sessionReminderPlan(nowUtcMs: Long?): com.lomo.nativebridge.StoreReminderPlan =
         error("reminder plan not expected")
-
-    override fun listHistoryAttachmentRefs(): List<com.lomo.nativebridge.StoreHistoryAttachmentRef> =
-        emptyList()
-
-    override fun listMemoHistory(
-        memoId: String,
-        cursor: String?,
-        limit: UInt,
-    ): com.lomo.nativebridge.StoreMemoHistoryPage =
-        error("memo history not expected")
 
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
         error("store get not expected")
 
-    override fun sourceDocumentFingerprint(sourcePath: String): String? =
-        error("source document fingerprint not expected")
-
     override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection =
         error("sidebar projection not expected")
-
-    override fun applyMemoCommand(
-        command: com.lomo.nativebridge.StoreMemoCommand,
-        onPublication: (com.lomo.nativebridge.StoreMemoCommit) -> Unit,
-    ): com.lomo.nativebridge.StoreMemoCommit = error("store apply not expected")
 
     override fun commitWorkspaceDocumentFacts(
         command: com.lomo.nativebridge.StoreMemoCommand,
@@ -758,7 +609,6 @@ private fun testRustEngineAdapter(
     native: FakeNativeEnginePort,
     platformBatchRunner: PlatformBatchRunner? = null,
     invalidation: StoreInvalidationBus = StoreInvalidationBus(),
-    sourceDocumentFingerprintProbe: ((String) -> String?)? = null,
 ): RustEngineAdapter =
     RustEngineAdapter.acquire(
         native = native,
@@ -771,7 +621,6 @@ private fun testRustEngineAdapter(
                     ),
             ),
         invalidation = invalidation,
-        sourceDocumentFingerprintProbe = sourceDocumentFingerprintProbe,
     )
 
 private class AdapterProjectionPagingSource : PagingSource<Int, String>() {

@@ -1,12 +1,11 @@
 package com.lomo.data.engine
 
 import com.lomo.data.repository.StoreInvalidationBus
-import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.EngineConfig
 import com.lomo.nativebridge.LomoEngine
+import com.lomo.nativebridge.PlatformActionBatch
 import com.lomo.nativebridge.PlatformBatchHost
 import com.lomo.nativebridge.WorkspaceDescriptor
-import com.lomo.nativebridge.WorkspaceTarget
 import java.io.File
 import java.time.ZoneId
 
@@ -26,71 +25,36 @@ internal object BoltFfiNativeEngineFactory {
      */
     fun openAdapter(
         request: NativeEngineOpenRequest,
-        exchangeResolver: ExchangeResolver,
         executor: AndroidPlatformActionExecutor,
-        documents: PlatformDocumentsGateway,
         invalidation: StoreInvalidationBus,
     ): RustEngineAdapter {
-        val port = openPort(request, exchangeResolver)
+        val port = openPort(request)
         if (request.workspace != null) {
             port.openWorkspaceSession(
-                host = PlatformBatchHost { batch -> executor.execute(batch) },
+                host = SessionPlatformBatchHost(executor),
                 timeZone = ZoneId.systemDefault().id,
+                mediaStageRoot = request.mediaStageRoot.absolutePath,
             )
         }
-        val safGrant = (request.workspace as? NativeWorkspaceSelection.Saf)?.grant
-        val directGrant = (request.workspace as? NativeWorkspaceSelection.Direct)?.grant
         return RustEngineAdapter.acquire(
             native = port,
             platformBatchRunner = PlatformBatchRunner(native = port, executor = executor),
             invalidation = invalidation,
-            sourceDocumentFingerprintProbe =
-                when {
-                    safGrant != null -> { path ->
-                        val snapshot =
-                            documents.stat(
-                                safGrant.treeUri,
-                                WorkspaceTarget.Relative(path),
-                            )
-                        when {
-                            snapshot == null -> null
-                            snapshot.kind != DocumentKind.FILE ->
-                                error("Workspace document path is not a file: $path")
-                            else -> snapshot.digest
-                        }
-                    }
-                    directGrant != null -> { path ->
-                        val snapshot =
-                            DirectRootDocumentsGateway().stat(
-                                directGrant,
-                                WorkspaceTarget.Relative(path),
-                            )
-                        when {
-                            snapshot == null -> null
-                            snapshot.kind != DocumentKind.FILE ->
-                                error("Workspace document path is not a file: $path")
-                            else -> snapshot.digest
-                        }
-                    }
-                    else -> null
-                },
-            safMediaPromoter =
-                safGrant?.let { grant ->
-                    { promotes, operationId ->
-                        promoteSafMediaToWorkspace(
-                            treeUri = grant.treeUri,
-                            documents = documents,
-                            promotes = promotes,
-                            operationId = operationId,
-                        )
-                    }
-                },
         )
+    }
+
+    /**
+     * Named callback so the generated-binding reachability contract records an explicit
+     * `PlatformBatchHost.execute` override edge; a SAM lambda is invisible to the symbol model.
+     */
+    private class SessionPlatformBatchHost(
+        private val executor: AndroidPlatformActionExecutor,
+    ) : PlatformBatchHost {
+        override fun execute(batch: PlatformActionBatch) = executor.execute(batch)
     }
 
     fun openPort(
         request: NativeEngineOpenRequest,
-        exchangeResolver: ExchangeResolver,
     ): BoltFfiNativeEnginePort {
         val engine =
             LomoEngine.open(
@@ -101,7 +65,7 @@ internal object BoltFfiNativeEngineFactory {
                     bootstrapDeadlineMillis = request.bootstrapDeadlineMillis,
                 ),
             )
-        return BoltFfiNativeEnginePort(engine, exchangeResolver)
+        return BoltFfiNativeEnginePort(engine)
     }
 }
 
@@ -113,6 +77,7 @@ internal object BoltFfiNativeEngineFactory {
 internal data class NativeEngineOpenRequest(
     val controlRoot: File,
     val exchangeRoot: File,
+    val mediaStageRoot: File,
     val workspace: NativeWorkspaceSelection? = null,
     val bootstrapDeadlineMillis: ULong = DEFAULT_BOOTSTRAP_DEADLINE_MILLIS,
 ) {
@@ -132,6 +97,11 @@ internal data class NativeEngineOpenRequest(
             return NativeEngineOpenRequest(
                 controlRoot = File(base, "control"),
                 exchangeRoot = File(base, "exchange"),
+                mediaStageRoot =
+                    File(
+                        filesDir,
+                        com.lomo.data.engine.media.HOST_MEDIA_STAGE_ROOT_NAME,
+                    ),
                 workspace = null,
             )
         }

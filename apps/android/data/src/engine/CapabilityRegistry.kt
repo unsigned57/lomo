@@ -19,20 +19,23 @@ internal class CapabilityRegistry {
     private val grants = ConcurrentHashMap<String, RootCapabilityGrant>()
 
     fun register(
-        token: String,
         treeUri: String,
+        token: String = newCapabilityToken(),
     ): SafCapabilityGrant {
         val grant = SafCapabilityGrant.bind(token = token, treeUri = treeUri)
         return putGrant(grant) as SafCapabilityGrant
     }
 
     fun registerDirect(
-        token: String,
         rootPath: File,
+        token: String = newCapabilityToken(),
     ): DirectCapabilityGrant {
         val grant = DirectCapabilityGrant.bind(token = token, rootPath = rootPath)
         return putGrant(grant) as DirectCapabilityGrant
     }
+
+    // The registry owns capability-token identity: tokens are minted here, never by callers.
+    private fun newCapabilityToken(): String = "cap-${java.util.UUID.randomUUID()}"
 
     fun revoke(token: String) {
         grants.remove(token)

@@ -54,6 +54,7 @@ import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.ExpectedFingerprint
 import com.lomo.nativebridge.PlatformAction
 import com.lomo.nativebridge.PlatformActionOutput
+import com.lomo.nativebridge.StagedArtifactSource
 import com.lomo.nativebridge.WorkspaceTarget
 import com.lomo.nativebridge.WriteMode
 import com.lomo.nativebridge.ExchangeArtifact
@@ -66,7 +67,7 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
     init {
         test("given present file when Stat runs then typed metadata evidence is returned") {
             val fixture = Fixture()
-            fixture.registry.register(CAPABILITY, TREE_URI)
+            fixture.registry.register(treeUri = TREE_URI, token = CAPABILITY)
             fixture.gateway.seedFile("memo.md", content = "hello", documentId = "doc-memo")
 
             val outcome = fixture.access.execute(
@@ -90,7 +91,7 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
 
         test("given target already absent when delete is replayed then AlreadySatisfied without side effect") {
             val fixture = Fixture()
-            fixture.registry.register(CAPABILITY, TREE_URI)
+            fixture.registry.register(treeUri = TREE_URI, token = CAPABILITY)
             // Side effect already completed: path is gone. Replay verifies absence only.
             fixture.gateway.exists("trash/memo.md") shouldBe false
 
@@ -111,7 +112,7 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
 
         test("given present target with matching preimage when delete runs then Applied removes the file") {
             val fixture = Fixture()
-            fixture.registry.register(CAPABILITY, TREE_URI)
+            fixture.registry.register(treeUri = TREE_URI, token = CAPABILITY)
             fixture.gateway.seedFile("trash/memo.md", content = "gone", documentId = "doc-trash")
             val evidence =
                 fixture.currentEvidence(
@@ -137,7 +138,7 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
 
         test("given mismatched expected fingerprint when write runs then conflict without side effect") {
             val fixture = Fixture()
-            fixture.registry.register(CAPABILITY, TREE_URI)
+            fixture.registry.register(treeUri = TREE_URI, token = CAPABILITY)
             fixture.gateway.seedFile("memo.md", content = "old", documentId = "doc-memo")
             val exchange = fixture.resolver.resolveFile("exchange-write")
             exchange.writeBytes("new-bytes".toByteArray())
@@ -188,7 +189,7 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
 
         test("given readable source when ReadToExchange runs then exchange artifact matches stream") {
             val fixture = Fixture()
-            fixture.registry.register(CAPABILITY, TREE_URI)
+            fixture.registry.register(treeUri = TREE_URI, token = CAPABILITY)
             fixture.gateway.seedFile("memo.md", content = "stream-me", documentId = "doc-memo")
 
             val outcome =
@@ -213,7 +214,7 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
 
         test("given listed document handle when ReadToExchange runs then path lookup is bypassed") {
             val fixture = Fixture()
-            fixture.registry.register(CAPABILITY, TREE_URI)
+            fixture.registry.register(treeUri = TREE_URI, token = CAPABILITY)
             fixture.gateway.seedFile("memo.md", content = "stream-me", documentId = "doc-memo")
 
             val outcome =
@@ -237,7 +238,7 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
 
         test("given escaped exchange token when ReadToExchange runs then validation fails closed") {
             val fixture = Fixture()
-            fixture.registry.register(CAPABILITY, TREE_URI)
+            fixture.registry.register(treeUri = TREE_URI, token = CAPABILITY)
             fixture.gateway.seedFile("memo.md", content = "x", documentId = "doc")
 
             val outcome =
@@ -263,7 +264,7 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
             try {
                 File(root, "memo.md").writeText("hello")
                 val fixture = Fixture()
-                fixture.registry.registerDirect(DIRECT_CAPABILITY, root)
+                fixture.registry.registerDirect(rootPath = root, token = DIRECT_CAPABILITY)
 
                 val outcome =
                     fixture.access.execute(
@@ -298,7 +299,7 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
             val root = kotlin.io.path.createTempDirectory("lomo-direct-write").toFile()
             try {
                 val fixture = Fixture()
-                fixture.registry.registerDirect(DIRECT_CAPABILITY, root)
+                fixture.registry.registerDirect(rootPath = root, token = DIRECT_CAPABILITY)
                 val bytes = "hello-direct".toByteArray()
                 fixture.resolver.resolveFile("exchange-direct-write").writeBytes(bytes)
 
@@ -326,6 +327,151 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
             }
         }
 
+        test("given staged artifact when ArtifactWrite runs then source streams into the capability tree") {
+            val fixture = Fixture()
+            fixture.registry.register(treeUri = TREE_URI, token = CAPABILITY)
+            val staged = File(fixture.exchangeRoot, "staged-photo.bin")
+            val bytes = "artifact-bytes".toByteArray()
+            staged.writeBytes(bytes)
+
+            val outcome =
+                fixture.access.execute(
+                    PlatformAction.ArtifactWrite(
+                        "action-artifact",
+                        CAPABILITY,
+                        StagedArtifactSource(
+                            path = staged.absolutePath,
+                            length = bytes.size.toULong(),
+                            digest = sha256Hex(bytes),
+                        ),
+                        "media/photo.bin",
+                        ExpectedFingerprint.Absent,
+                    ),
+                )
+
+            outcome.shouldBeInstanceOf<ActionOutcome.Applied>()
+            fixture.gateway.read("media/photo.bin") shouldBe bytes
+            fixture.gateway.sideEffectCount shouldBe 1
+        }
+
+        test("given target already holding declared digest when ArtifactWrite replays then AlreadySatisfied") {
+            val fixture = Fixture()
+            fixture.registry.register(treeUri = TREE_URI, token = CAPABILITY)
+            val bytes = "artifact-bytes".toByteArray()
+            fixture.gateway.seedFile("media/photo.bin", content = "artifact-bytes", documentId = "doc-media")
+            val staged = File(fixture.exchangeRoot, "staged-photo.bin")
+            staged.writeBytes(bytes)
+
+            val outcome =
+                fixture.access.execute(
+                    PlatformAction.ArtifactWrite(
+                        "action-artifact",
+                        CAPABILITY,
+                        StagedArtifactSource(
+                            path = staged.absolutePath,
+                            length = bytes.size.toULong(),
+                            digest = sha256Hex(bytes),
+                        ),
+                        "media/photo.bin",
+                        ExpectedFingerprint.Absent,
+                    ),
+                )
+
+            outcome.shouldBeInstanceOf<ActionOutcome.AlreadySatisfied>()
+            fixture.gateway.sideEffectCount shouldBe 0
+        }
+
+        test("given third-party target when ArtifactWrite runs then conflict fails closed before publish") {
+            val fixture = Fixture()
+            fixture.registry.register(treeUri = TREE_URI, token = CAPABILITY)
+            fixture.gateway.seedFile("media/photo.bin", content = "other-bytes", documentId = "doc-media")
+            val staged = File(fixture.exchangeRoot, "staged-photo.bin")
+            val bytes = "artifact-bytes".toByteArray()
+            staged.writeBytes(bytes)
+
+            val outcome =
+                fixture.access.execute(
+                    PlatformAction.ArtifactWrite(
+                        "action-artifact",
+                        CAPABILITY,
+                        StagedArtifactSource(
+                            path = staged.absolutePath,
+                            length = bytes.size.toULong(),
+                            digest = sha256Hex(bytes),
+                        ),
+                        "media/photo.bin",
+                        ExpectedFingerprint.Absent,
+                    ),
+                )
+
+            val failed = outcome.shouldBeInstanceOf<ActionOutcome.Failed>()
+            failed.failure.category shouldBe "conflict"
+            failed.failure.code shouldBe "platform_postcondition_mismatch"
+            fixture.gateway.sideEffectCount shouldBe 0
+            fixture.gateway.read("media/photo.bin") shouldBe "other-bytes".toByteArray()
+        }
+
+        test("given staged source disagreeing with declared digest when ArtifactWrite runs then fails closed") {
+            val fixture = Fixture()
+            fixture.registry.register(treeUri = TREE_URI, token = CAPABILITY)
+            val staged = File(fixture.exchangeRoot, "staged-photo.bin")
+            staged.writeBytes("real-bytes".toByteArray())
+
+            val outcome =
+                fixture.access.execute(
+                    PlatformAction.ArtifactWrite(
+                        "action-artifact",
+                        CAPABILITY,
+                        StagedArtifactSource(
+                            path = staged.absolutePath,
+                            length = 99uL,
+                            digest = "0".repeat(64),
+                        ),
+                        "media/photo.bin",
+                        ExpectedFingerprint.Absent,
+                    ),
+                )
+
+            val failed = outcome.shouldBeInstanceOf<ActionOutcome.Failed>()
+            failed.failure.code shouldBe "artifact_source_missing"
+            fixture.gateway.exists("media/photo.bin") shouldBe false
+            fixture.gateway.sideEffectCount shouldBe 0
+        }
+
+        test("given registered Direct root when ArtifactWrite runs then file bytes persist without SAF IO") {
+            val root = kotlin.io.path.createTempDirectory("lomo-direct-artifact").toFile()
+            val staged = kotlin.io.path.createTempFile("lomo-staged-artifact").toFile()
+            try {
+                File(root, "media").mkdirs()
+                val bytes = "direct-artifact-bytes".toByteArray()
+                staged.writeBytes(bytes)
+                val fixture = Fixture()
+                fixture.registry.registerDirect(rootPath = root, token = DIRECT_CAPABILITY)
+
+                val outcome =
+                    fixture.access.execute(
+                        PlatformAction.ArtifactWrite(
+                            "action-artifact",
+                            DIRECT_CAPABILITY,
+                            StagedArtifactSource(
+                                path = staged.absolutePath,
+                                length = bytes.size.toULong(),
+                                digest = sha256Hex(bytes),
+                            ),
+                            "media/photo.bin",
+                            ExpectedFingerprint.Absent,
+                        ),
+                    )
+
+                outcome.shouldBeInstanceOf<ActionOutcome.Applied>()
+                File(root, "media/photo.bin").readBytes() shouldBe bytes
+                fixture.gateway.sideEffectCount shouldBe 0
+            } finally {
+                staged.delete()
+                root.deleteRecursively()
+            }
+        }
+
         test("given Direct root with symlink child when ListChildren runs then enumeration is incomplete") {
             val root = kotlin.io.path.createTempDirectory("lomo-direct-list").toFile()
             val outside = kotlin.io.path.createTempFile("lomo-direct-list-outside", ".md")
@@ -333,7 +479,7 @@ class AndroidPlatformActionAccessTest : DataFunSpec() {
                 java.nio.file.Files.writeString(outside, "secret-outside")
                 java.nio.file.Files.createSymbolicLink(root.toPath().resolve("escape.md"), outside)
                 val fixture = Fixture()
-                fixture.registry.registerDirect(DIRECT_CAPABILITY, root)
+                fixture.registry.registerDirect(rootPath = root, token = DIRECT_CAPABILITY)
 
                 val outcome =
                     fixture.access.execute(

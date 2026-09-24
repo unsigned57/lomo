@@ -205,72 +205,6 @@ class BoltFfiWorkspaceNativeAdapterTest : FunSpec({
         }.code shouldBe "render_action_span_incomplete"
     }
 
-    test("given typed scan content reference when converted then full exact content is resolved") {
-        val root = kotlin.io.path.createTempDirectory("lomo-scan-content").toFile()
-        try {
-            val resolver = ExchangeResolver(root)
-            val content = "prefix-${"界🙂".repeat(180)}-suffix"
-            val bytes = content.encodeToByteArray()
-            resolver.resolveFile("ex.scope.memo-0").writeBytes(bytes)
-            val page =
-                WorkspaceScanPage(
-                    items =
-                        listOf(
-                            WorkspaceMemoSummary(
-                                path = "2024-01-01.md",
-                                identity = "2024-01-01_10:00:00_0",
-                                timePart = "10:00:00",
-                                fingerprint = "a".repeat(64),
-                                tags = listOf("tag"),
-                                attachments = emptyList(),
-                                reminders =
-                                    listOf(
-                                        WorkspaceReminderReference(
-                                            opaqueId = "reminder-id",
-                                            revision = "a".repeat(64),
-                                            memoIdentity = "2024-01-01_10:00:00_0",
-                                            sourceStart = 11uL,
-                                            sourceEnd = 33uL,
-                                            tokenFingerprint = "b".repeat(64),
-                                            fingerprintOrdinal = 0u,
-                                            embeddedId = null,
-                                            token = "@2024-01-01-09:30x2",
-                                            dueAtLocal = "2024-01-01-09:30",
-                                            repeatCount = 2u,
-                                            firedCount = 0u,
-                                            done = false,
-                                            intervalMinutes = 10u,
-                                            recurrenceCode = "",
-                                        ),
-                                    ),
-                                hasTodo = false,
-                                hasUrl = false,
-                                content =
-                                    WorkspaceMemoContentReference(
-                                        exchangeToken = "ex.scope.memo-0",
-                                        length = bytes.size.toULong(),
-                                        digest = testSha256Hex(bytes),
-                                    ),
-                                bodyStart = 11uL,
-                                bodyEnd = 12uL + bytes.size.toULong(),
-                                startLine = 1u,
-                                endLine = 2u,
-                            ),
-                        ),
-                    nextCursor = null,
-                )
-
-            val snapshot = page.toSnapshot(resolver)
-
-            snapshot.items.single().content shouldBe content
-            snapshot.items.single().bodyStart shouldBe 11uL
-            snapshot.items.single().reminders.single().opaqueId shouldBe "reminder-id"
-            snapshot.items.single().reminders.single().dueAtLocal shouldBe "2024-01-01-09:30"
-        } finally {
-            root.deleteRecursively()
-        }
-    }
-
     test("given affected memo facts when command result converts then projection facts are preserved") {
         val result =
             WorkspaceDocumentCommandResult(
@@ -308,64 +242,6 @@ class BoltFfiWorkspaceNativeAdapterTest : FunSpec({
             )
     }
 
-    test("given durable trash DTOs when converted then timestamp body reference and facts are preserved") {
-        val facts =
-            WorkspaceDocumentMemoFacts(
-                path = "2026_08_10.md",
-                identity = "2026_08_10_09:30:00_0",
-                timePart = "09:30:00",
-                fingerprint = "a".repeat(64),
-                tags = listOf("trash"),
-                attachments = listOf("images/recover.png"),
-                reminders = emptyList(),
-                hasTodo = true,
-                hasUrl = false,
-                content = null,
-            )
-        val command =
-            WorkspaceTrashCommandResult(
-                path = facts.path,
-                resultFingerprint = facts.fingerprint,
-                affectedMemo = facts,
-                trashedAtMs = 1_754_812_600_000L,
-            )
-        val page =
-            WorkspaceTrashScanPage(
-                items =
-                    listOf(
-                        WorkspaceTrashMemoSummary(
-                            memoId = facts.identity,
-                            sourcePath = facts.path,
-                            timePart = facts.timePart,
-                            sourceFingerprint = facts.fingerprint,
-                            chronologyEpochMs = 1_754_812_200_000L,
-                            trashedAtMs = 1_754_812_600_000L,
-                            tags = facts.tags,
-                            attachments = facts.attachments,
-                            reminders = emptyList(),
-                            hasTodo = facts.hasTodo,
-                            hasUrl = facts.hasUrl,
-                            content =
-                                WorkspaceMemoContentReference(
-                                    exchangeToken = "ex.${"b".repeat(64)}.trash",
-                                    length = 12uL,
-                                    digest = "b".repeat(64),
-                                ),
-                        ),
-                    ),
-                nextCursor = "next-trash",
-            )
-
-        val commandSnapshot = command.toSnapshot()
-        val pageSnapshot = page.toProjectionSnapshot()
-
-        commandSnapshot.trashedAtMs shouldBe 1_754_812_600_000L
-        commandSnapshot.affectedMemo.identity shouldBe facts.identity
-        pageSnapshot.nextCursor shouldBe "next-trash"
-        pageSnapshot.items.single().trashedAtMs shouldBe 1_754_812_600_000L
-        pageSnapshot.items.single().content.token shouldBe "ex.${"b".repeat(64)}.trash"
-        pageSnapshot.items.single().attachmentPaths shouldBe listOf("images/recover.png")
-    }
 })
 
 private fun testSha256Hex(bytes: ByteArray): String =

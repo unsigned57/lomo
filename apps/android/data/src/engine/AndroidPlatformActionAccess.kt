@@ -35,6 +35,7 @@ internal class AndroidPlatformActionAccess(
                 is PlatformAction.EnsureDirectory -> executeEnsureDirectory(action)
                 is PlatformAction.ReadToExchange -> executeReadToExchange(action)
                 is PlatformAction.WriteFromExchange -> executeWriteFromExchange(action)
+                is PlatformAction.ArtifactWrite -> executeArtifactWrite(action)
                 is PlatformAction.Move -> executeMove(action)
                 is PlatformAction.Delete -> executeDelete(action)
             }
@@ -195,6 +196,40 @@ internal class AndroidPlatformActionAccess(
                 mode = action.mode,
                 mimeType = "application/octet-stream",
             )
+        return ActionOutcome.Applied(
+            PlatformActionOutput.WriteComplete(metadata = written.toMetadata()),
+        )
+    }
+
+    private fun executeArtifactWrite(action: PlatformAction.ArtifactWrite): ActionOutcome {
+        val tree = boundTree(action.capabilityToken)
+        validateWorkspacePath(action.path)
+        // The staged source lives outside the capability root by contract; its declared
+        // length and digest are re-verified at the write receipt, never trusted.
+        val sourceFile = java.io.File(action.source.path)
+        if (!sourceFile.isFile || sourceFile.length().toULong() != action.source.length) {
+            throw PlatformActionAccessException(
+                category = "storage",
+                code = "artifact_source_missing",
+                diagnostic = "staged artifact source is missing or disagrees with the frozen length",
+            )
+        }
+        val existing = tree.stat(WorkspaceTarget.Relative(action.path))
+        PlatformActionPostconditions.classifyArtifactWrite(action, existing)?.let { return it }
+        val written =
+            tree.writeFromFile(
+                path = action.path,
+                source = sourceFile,
+                mode = if (existing == null) WriteMode.CREATE else WriteMode.REPLACE,
+                mimeType = "application/octet-stream",
+            )
+        if (written.digest != action.source.digest || written.length != action.source.length) {
+            throw PlatformActionAccessException(
+                category = "conflict",
+                code = "write_postcondition_mismatch",
+                diagnostic = "artifact write receipt differs from the declared source",
+            )
+        }
         return ActionOutcome.Applied(
             PlatformActionOutput.WriteComplete(metadata = written.toMetadata()),
         )

@@ -29,6 +29,10 @@ internal class StoreMemoTaskRepository(
             }
         }
 
+    // The repository is the command origin for task toggles; operation ids are minted here,
+    // once per invocation, never at the engine adapter call boundary.
+    private fun newOperationId(): String = UUID.randomUUID().toString()
+
     override suspend fun toggleTask(
         task: MemoTask,
         done: Boolean,
@@ -38,7 +42,7 @@ internal class StoreMemoTaskRepository(
                 withEngineFailureConversion {
                     session.sessionToggleTask(
                         SessionToggleTaskRequest(
-                            operationId = UUID.randomUUID().toString(),
+                            operationId = newOperationId(),
                             memoId = task.memoId,
                             lineIndex = task.lineIndex.toUInt(),
                             done = done,

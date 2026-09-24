@@ -84,18 +84,8 @@ private class FakeStorePort : StorePort {
 
     override fun queryCount(query: StoreMemoQuery): Long = 0L
 
-    override fun memoStatisticsRows(): List<StoreMemoStatisticsRow> = emptyList()
-
     override fun sidebarProjection(): StoreSidebarProjection =
         StoreSidebarProjection(1u, 0, emptyList(), emptyList())
-
-    override fun listHistoryAttachmentRefs(): List<StoreHistoryAttachmentRef> = emptyList()
-
-    override fun listMemoHistory(
-        memoId: String,
-        cursor: String?,
-        limit: Int,
-    ): StoreMemoHistoryPage = StoreMemoHistoryPage(emptyList(), null)
 
     override fun queryReminderPlan(nowUtcMs: Long): StoreReminderPlan =
         StoreReminderPlan(emptyList(), 0, "gen-test")
@@ -119,12 +109,6 @@ private class FakeStorePort : StorePort {
         opaqueId: String,
         snoozeDurationMs: Long,
     ) = error("reminder snooze is not expected")
-
-    override fun clearReminderSnooze(opaqueId: String) =
-        error("reminder clear-snooze is not expected")
-
-    override fun reminderSnoozeRecoveryPending(): Boolean =
-        error("reminder snooze recovery query is not expected")
 
     override fun recoverReminderSnooze() = error("reminder snooze recovery is not expected")
 

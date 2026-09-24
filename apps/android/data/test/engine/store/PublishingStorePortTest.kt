@@ -27,6 +27,12 @@ package com.lomo.data.engine.store
  *
  * Excludes:
  * - JNI, Compose, and repository reminder/media side effects.
+ * Test Change Justification:
+ * - Reason category: dead production surface removed.
+ * - Old behavior/assertion being replaced: fake overrides for retired StorePort read methods.
+ * - Why old assertion is no longer correct: the port interface no longer declares those members.
+ * - Coverage preserved by: remaining publish-path assertions on the live port surface.
+ * - Why this is not fitting the test to the implementation: it only deletes overrides of deleted interface members.
  */
 
 import androidx.paging.PagingSource
@@ -142,17 +148,7 @@ private class RecordingWritePort(
 
     override fun queryCount(query: StoreMemoQuery): Long = error("read not expected")
 
-    override fun memoStatisticsRows(): List<StoreMemoStatisticsRow> = error("read not expected")
-
     override fun sidebarProjection(): StoreSidebarProjection = error("read not expected")
-
-    override fun listHistoryAttachmentRefs(): List<StoreHistoryAttachmentRef> = error("read not expected")
-
-    override fun listMemoHistory(
-        memoId: String,
-        cursor: String?,
-        limit: Int,
-    ): StoreMemoHistoryPage = error("read not expected")
 
     override fun queryReminderPlan(nowUtcMs: Long): StoreReminderPlan = error("read not expected")
 
@@ -177,12 +173,6 @@ private class RecordingWritePort(
         opaqueId: String,
         snoozeDurationMs: Long,
     ) = error("reminder snooze is not expected")
-
-    override fun clearReminderSnooze(opaqueId: String) =
-        error("reminder clear-snooze is not expected")
-
-    override fun reminderSnoozeRecoveryPending(): Boolean =
-        error("reminder snooze recovery query is not expected")
 
     override fun recoverReminderSnooze() = error("reminder snooze recovery is not expected")
 

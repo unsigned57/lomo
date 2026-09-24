@@ -123,8 +123,10 @@ class StoreMemoQueryRepository(
                 }
         }
 
-    override fun observeListProjection(): Flow<Unit> =
-        invalidation.publications.map { Unit }
+    override fun observeListProjection(): Flow<com.lomo.domain.model.MemoProjectionPublication> =
+        invalidation.publications.map { publication ->
+            com.lomo.domain.model.MemoProjectionPublication(coreRevision = publication.coreRevision)
+        }
 
     override suspend fun getMemoCount(): Int =
         withContext(dispatcherProvider.io) {
@@ -239,10 +241,16 @@ class StoreMemoQueryRepository(
         )
 
     override suspend fun rankInDefaultMainList(id: String): Int? =
+        rankInMainListQuery(MemoQuerySpec(), id)
+
+    override suspend fun rankInMainListQuery(
+        spec: MemoQuerySpec,
+        id: String,
+    ): Int? =
         withContext(dispatcherProvider.io) {
             val page =
                 port.queryMemos(
-                    query = StoreMemoQuery(),
+                    query = spec.toStoreQuery(),
                     cursor = null,
                     pageSize = 1,
                     startMemoId = id,
@@ -272,16 +280,16 @@ class StoreMemoQueryRepository(
 }
 
 
-class StoreMemoMutationRepository(
-    private val port: StorePort,
-    private val queryRepository: MemoQueryRepository,
-    private val reminderScheduler: MemoMutationReminderScheduler,
-    private val writeLease: WorkspaceMutationLease,
-    private val invalidation: StoreInvalidationBus,
-    private val diagnostics: EngineDiagnosticsRecorder,
-    private val pendingStages: PendingMediaStageRegistry,
-    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
-) : MemoMutationRepository {
+class StoreMemoMutationRepository
+    internal constructor(
+        private val port: StorePort,
+        private val reminderScheduler: MemoMutationReminderScheduler,
+        private val writeLease: WorkspaceMutationLease,
+        private val invalidation: StoreInvalidationBus,
+        private val diagnostics: EngineDiagnosticsRecorder,
+        private val mediaCommit: MemoMediaCommitPipeline,
+        private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+    ) : MemoMutationRepository {
     override suspend fun refreshMemos() {
         withContext(dispatcherProvider.io) {
             val started = TimeSource.Monotonic.markNow()
@@ -349,7 +357,7 @@ class StoreMemoMutationRepository(
         return mutate("memo.create") {
             val opId = attempt.operationId.value
             // Transfer this draft's stage leases to the frozen operation and build the promote plans.
-            val promotes = pendingStages.plansForOperation(opId, attempt.draftId)
+            val promotes = mediaCommit.plansForOperation(opId, attempt.draftId)
             val commit =
                 port.applyMemoCommand(
                     StoreMemoCommand(
@@ -363,12 +371,10 @@ class StoreMemoMutationRepository(
                     ),
                     onPublication = {},
                 )
-            // D8: journal committed media only after memo-bound promote succeeds. Releasing the
-            // operation lease deletes staged bytes only when no other draft still holds them.
-            pendingStages.releaseOperation(promotes)
             val memo =
                 port.getMemo(commit.memoId)?.toDomainMemo()
                     ?: error("create commit succeeded but get_memo returned null for ${commit.memoId}")
+            mediaCommit.publishCommittedMedia(promotes)
             reminderScheduler.syncForMemo(memo.id)
             memo
         }
@@ -380,7 +386,7 @@ class StoreMemoMutationRepository(
         mutate("memo.update") {
             val baseline = attempt.snapshot.baseline
             val opId = attempt.operationId.value
-            val promotes = pendingStages.plansForOperation(opId, attempt.draftId)
+            val promotes = mediaCommit.plansForOperation(opId, attempt.draftId)
             port.applyMemoCommand(
                 StoreMemoCommand(
                     operationId = opId,
@@ -393,7 +399,7 @@ class StoreMemoMutationRepository(
                 ),
                 onPublication = {},
             )
-            pendingStages.releaseOperation(promotes)
+            mediaCommit.publishCommittedMedia(promotes)
             reminderScheduler.syncForMemo(baseline.memoId)
         }
     }
@@ -460,7 +466,7 @@ class StoreMemoMutationRepository(
                 ),
                 onPublication = {},
             )
-            val restored = queryRepository.getMemoById(currentMemo.id)
+            val restored = port.getMemo(currentMemo.id)?.toDomainMemo()
             if (restored == null) {
                 reminderScheduler.cancelForMemo(currentMemo.id, previousReminderIds)
             } else {

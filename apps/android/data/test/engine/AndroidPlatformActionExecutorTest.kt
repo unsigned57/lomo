@@ -296,6 +296,7 @@ private fun PlatformAction.actionId(): String =
         is PlatformAction.EnsureDirectory -> actionId
         is PlatformAction.ReadToExchange -> actionId
         is PlatformAction.WriteFromExchange -> actionId
+        is PlatformAction.ArtifactWrite -> actionId
         is PlatformAction.Move -> actionId
         is PlatformAction.Delete -> actionId
     }
@@ -337,6 +338,19 @@ private fun PlatformAction.output(): PlatformActionOutput {
                         ActionEvidence(
                             length = artifact.length,
                             digest = ContentDigest.Verified(artifact.digest),
+                            fingerprint = "fingerprint-android",
+                        ),
+                ),
+            )
+        is PlatformAction.ArtifactWrite ->
+            PlatformActionOutput.WriteComplete(
+                metadata(
+                    target = WorkspaceTarget.Relative(path),
+                    kind = DocumentKind.FILE,
+                    evidence =
+                        ActionEvidence(
+                            length = source.length,
+                            digest = ContentDigest.Verified(source.digest),
                             fingerprint = "fingerprint-android",
                         ),
                 ),

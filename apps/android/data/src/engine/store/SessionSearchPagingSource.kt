@@ -37,6 +37,17 @@ internal class SessionSearchPagingSource(
     override suspend fun load(params: LoadParams<String>): LoadResult<String, Memo> =
         withContext(dispatcherProvider.io) {
             try {
+                // Refresh keys are viewport identities, not page cursors; a forward-only
+                // search page rejects prepend instead of reinterpreting the key.
+                val cursor =
+                    when (params) {
+                        is LoadParams.Refresh -> null
+                        is LoadParams.Append -> BridgePageCursor(params.key)
+                        is LoadParams.Prepend ->
+                            return@withContext LoadResult.Error(
+                                IllegalStateException("session search paging is forward-only"),
+                            )
+                    }
                 val pageSize = params.loadSize.coerceIn(1, SESSION_SEARCH_MAX_PAGE_SIZE)
                 val outcome =
                     withEngineFailureConversion {
@@ -46,7 +57,7 @@ internal class SessionSearchPagingSource(
                                 filters = filters.toNativeFilters(),
                                 mode = SessionSearchMode.FUZZY,
                                 text = text,
-                                cursor = params.key?.let { encoded -> BridgePageCursor(encoded) },
+                                cursor = cursor,
                                 pageSize = pageSize.toUInt(),
                             ),
                         )

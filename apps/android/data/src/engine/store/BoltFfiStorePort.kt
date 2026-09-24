@@ -125,15 +125,6 @@ internal class BoltFfiStorePort(
             ),
         ).toStoreLong("query_count")
 
-    override fun memoStatisticsRows(): List<StoreMemoStatisticsRow> =
-        bridge.memoStatisticsRows().map { row ->
-            StoreMemoStatisticsRow(
-                createdAtMs = row.createdAtMs,
-                wordCount = row.wordCount,
-                charCount = row.charCount,
-            )
-        }
-
     override fun sidebarProjection(): StoreSidebarProjection {
         val projection = bridge.sidebarProjection()
         require(projection.schemaVersion == 1u) { "Unsupported sidebar projection schema ${projection.schemaVersion}" }
@@ -148,31 +139,6 @@ internal class BoltFfiStorePort(
                 projection.tagCounts.map {
                     StoreSidebarTagCount(it.name, it.count.toSidebarCount("tag_count"))
                 },
-        )
-    }
-
-    override fun listHistoryAttachmentRefs(): List<StoreHistoryAttachmentRef> =
-        bridge.listHistoryAttachmentRefs().map { ref ->
-            StoreHistoryAttachmentRef(
-                memoId = ref.memoId,
-                revision = ref.revision.toLong(),
-                relativePath = ref.relativePath,
-                ownerKey = ref.ownerKey,
-            )
-        }
-
-    override fun listMemoHistory(memoId: String, cursor: String?, limit: Int): StoreMemoHistoryPage {
-        val page = bridge.listMemoHistory(memoId, cursor, limit.coerceIn(1, 256).toUInt())
-        return StoreMemoHistoryPage(
-            items = page.items.map {
-                StoreMemoHistoryRevision(
-                    it.revision.toLong(),
-                    it.createdAtMs,
-                    it.content,
-                    it.fileFingerprint,
-                )
-            },
-            nextCursor = page.nextCursor,
         )
     }
 
@@ -199,12 +165,6 @@ internal class BoltFfiStorePort(
         opaqueId: String,
         snoozeDurationMs: Long,
     ) = withEngineFailureConversion { session.sessionSnoozeReminder(opaqueId, snoozeDurationMs) }
-
-    override fun clearReminderSnooze(opaqueId: String) =
-        withEngineFailureConversion { session.sessionClearReminderSnooze(opaqueId) }
-
-    override fun reminderSnoozeRecoveryPending(): Boolean =
-        withEngineFailureConversion { session.sessionReminderSnoozeRecoveryPending() }
 
     override fun recoverReminderSnooze() =
         withEngineFailureConversion { session.sessionRecoverReminderSnooze() }
@@ -331,38 +291,40 @@ internal class BoltFfiStorePort(
     ): StoreMemoBatchCommit {
         require(operationId.isNotBlank()) { "permanent delete batch operationId must be non-blank" }
         require(targets.isNotEmpty()) { "permanent delete batch must contain at least one target" }
-        return withEngineFailureConversion {
-            val deleted = mutableListOf<StoreMemoDeletedMemo>()
-            var lastCommit: StoreMemoCommit? = null
-            for (target in targets.sortedBy(StoreMemoDeleteTarget::memoId)) {
-                require(target.memoId.isNotBlank()) {
-                    "permanent delete target memoId must be non-blank"
-                }
-                val reminderIds =
-                    // behavior-contract: loop-io-ok: no bulk reminder lookup; each target is one memo
-                    bridge.getMemo(target.memoId)
-                        ?.run {
-                            summary.reminders.map { reminder -> reminder.opaqueId }
-                        }
-                        .orEmpty()
-                val itemOperationId = "$operationId/${target.memoId}"
-                val result =
-                    session.sessionPermanentlyDeleteMemo(
-                        SessionRestoreRequest(itemOperationId, target.memoId),
-                    )
-                deleted += StoreMemoDeletedMemo(target.memoId, reminderIds)
-                lastCommit = result.toStoreCommit()
-            }
-            val commit = lastCommit ?: error("permanent delete batch produced no commit")
-            StoreMemoBatchCommit(
-                operationId = operationId,
-                deleted = deleted,
-                coreRevision = commit.coreRevision,
-                eventSequence = commit.eventSequence,
-                scopes = commit.scopes,
-                idempotentReplay = commit.idempotentReplay,
-            )
+        require(targets.all { it.memoId.isNotBlank() }) {
+            "permanent delete target memoId must be non-blank"
         }
+        // One session call owns the whole target list: Rust splits it into durable child batches,
+        // deletes the trash records, and commits each batch's projection rows in one transaction.
+        // Reminder facts travel back on the batch receipt, so no per-memo re-read is needed.
+        val result =
+            withEngineFailureConversion {
+                session.sessionPermanentlyDeleteMany(
+                    com.lomo.nativebridge.StoreMemoBatchDelete(
+                        operationId = operationId,
+                        targets =
+                            targets.sortedBy(StoreMemoDeleteTarget::memoId).map { target ->
+                                com.lomo.nativebridge.StoreMemoDeleteTarget(
+                                    memoId = target.memoId,
+                                    sourcePath = target.sourcePath,
+                                    expectedRevision = target.expectedRevision.toULong(),
+                                    expectedFingerprint = target.expectedFingerprint,
+                                )
+                            },
+                    ),
+                )
+            }
+        return StoreMemoBatchCommit(
+            operationId = result.operationId,
+            deleted =
+                result.deleted.map { deleted ->
+                    StoreMemoDeletedMemo(deleted.memoId, deleted.reminderIds)
+                },
+            coreRevision = result.coreRevision.toStoreLong("core_revision"),
+            eventSequence = result.eventSequence.toStoreLong("event_sequence"),
+            scopes = result.scopes.map { scope -> scope.toStoreInvalidationScope() },
+            idempotentReplay = result.idempotentReplay,
+        )
     }
 
     override fun commitDocumentMutation(

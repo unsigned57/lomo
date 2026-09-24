@@ -1,27 +1,5 @@
 package com.lomo.data.engine
 
-internal fun RustEngineAdapter.executeDocumentCommand(
-    path: String,
-    expectedState: WorkspaceNativeExpectedState,
-    command: WorkspaceNativeCommandSpec,
-): WorkspaceNativeCommandResultSnapshot =
-    withEngineFailureConversion {
-        val jobId = startWorkspaceDocumentCommand(path, expectedState, command)
-        driveToCompletion(jobId)
-        readWorkspaceDocumentCommandResult(jobId)
-    }
-
-internal fun RustEngineAdapter.executeTrashCommand(
-    path: String,
-    expectedFingerprint: String,
-    command: WorkspaceNativeTrashCommandSpec,
-): WorkspaceNativeTrashCommandResultSnapshot =
-    withEngineFailureConversion {
-        val jobId = startWorkspaceTrashCommand(path, expectedFingerprint, command)
-        driveToCompletion(jobId)
-        readWorkspaceTrashCommandResult(jobId)
-    }
-
 internal fun WorkspaceNativeCommandResultSnapshot.requireAffectedMemo(
     path: String,
     identity: String? = null,
@@ -38,20 +16,4 @@ internal fun WorkspaceNativeCommandResultSnapshot.requireAffectedMemo(
         require(affected.identity == expected) { "Affected memo identity does not match the mutation target" }
     }
     return affected
-}
-
-internal fun WorkspaceNativeTrashCommandResultSnapshot.requireAffectedMemo(
-    path: String,
-    identity: String,
-    expectedSourceFingerprint: String,
-): WorkspaceDocumentMemoFactsSnapshot {
-    require(this.path == path) { "Trash result path does not match the planned mutation path" }
-    require(affectedMemo.path == path) { "Trash affected memo path does not match the command result" }
-    require(affectedMemo.fingerprint == expectedSourceFingerprint) {
-        "Trash affected memo fingerprint does not match the verified command source"
-    }
-    require(affectedMemo.identity == identity) {
-        "Trash affected memo identity does not match the mutation target"
-    }
-    return affectedMemo
 }

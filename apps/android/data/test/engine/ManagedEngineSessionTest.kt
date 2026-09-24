@@ -154,6 +154,7 @@ import com.lomo.domain.model.ProjectionFreshness
 
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.engine.lan.LanBindCandidate
+import com.lomo.data.engine.lan.LanChunkSend
 import com.lomo.data.engine.lan.LanBatchPreview
 import com.lomo.data.engine.lan.LanBatchRecovery
 import com.lomo.data.engine.lan.LanDeviceIdentity
@@ -165,6 +166,7 @@ import com.lomo.data.engine.lan.LanPairingChallenge
 import com.lomo.data.engine.lan.LanPendingBatch
 import com.lomo.data.engine.lan.LanPeerPage
 import com.lomo.data.engine.lan.LanReceivedBatchDecision
+import com.lomo.data.engine.lan.LanReceivedBatchDrive
 import com.lomo.data.engine.lan.LanReceivedItemRecovery
 import com.lomo.data.engine.lan.LanRuntimeInbox
 import com.lomo.data.engine.lan.LanInboxWait
@@ -238,6 +240,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                             isContentUri = { false },
                         )
+
+                    session.requestEngineStart()
 
                     val repository: MarkdownWorkspaceRepository = session
                     repository.renderMarkdown("hello").plainText shouldBe "rendered:hello"
@@ -371,6 +375,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             isContentUri = { false },
                         )
 
+                    session.requestEngineStart()
+
                     session.readiness.value shouldBe EngineReadiness.AwaitingWorkspaceSelection
                     opens.single().workspace shouldBe null
                     session.close()
@@ -380,7 +386,7 @@ class ManagedEngineSessionTest : DataFunSpec() {
             }
         }
 
-        test("given a paused dispatcher when the session is constructed then no native engine is opened") {
+        test("given an owned process when the session is constructed then native opens only after an explicit start request") {
             runTest {
                 val filesDir = kotlin.io.path.createTempDirectory("managed-engine-opening").toFile()
                 try {
@@ -406,8 +412,45 @@ class ManagedEngineSessionTest : DataFunSpec() {
 
                     advanceUntilIdle()
 
-                    session.readiness.value shouldBe EngineReadiness.AwaitingWorkspaceSelection
+                    // Construction and graph resolution alone never mount the vault.
+                    session.readiness.value shouldBe EngineReadiness.Opening
+                    opens shouldBe emptyList()
+
+                    session.requestEngineStart() shouldBe EngineReadiness.AwaitingWorkspaceSelection
                     opens.single().workspace shouldBe null
+                    session.close()
+                } finally {
+                    filesDir.deleteRecursively()
+                }
+            }
+        }
+
+        test("given repeated explicit start requests then the engine opens exactly once") {
+            runTest {
+                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-start-once").toFile()
+                try {
+                    val opens = mutableListOf<NativeEngineOpenRequest>()
+                    val session =
+                        ManagedEngineSession(
+                            invalidation = com.lomo.data.repository.StoreInvalidationBus(),
+                            filesDir = filesDir,
+                            capabilityRegistry = CapabilityRegistry(),
+                            openAdapter = { request ->
+                                opens += request
+                                testRustEngineAdapter(
+                                    SessionFakeNativeEnginePort(NativeEngineSnapshot.AwaitingWorkspaceSelection),
+                                )
+                            },
+                            directorySettingsRepository = InMemoryDirectorySettingsRepository(),
+                            appScope = CoroutineScope(StandardTestDispatcher(testScheduler)),
+                            isContentUri = { false },
+                        )
+
+                    session.requestEngineStart() shouldBe EngineReadiness.AwaitingWorkspaceSelection
+                    session.requestEngineStart() shouldBe EngineReadiness.AwaitingWorkspaceSelection
+                    advanceUntilIdle()
+
+                    opens.size shouldBe 1
                     session.close()
                 } finally {
                     filesDir.deleteRecursively()
@@ -436,6 +479,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             isContentUri = { false },
                             ownsNativeEngine = WorkspaceProcessDuty.PROJECTION_ONLY,
                         )
+
+                    session.requestEngineStart()
 
                     advanceUntilIdle()
 
@@ -480,10 +525,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                     session.readiness.value shouldBe EngineReadiness.Opening
                     opens shouldBe emptyList()
 
-                    advanceUntilIdle()
+                    session.requestEngineStart() shouldBe EngineReadiness.Ready
 
-                    session.readiness.value shouldBe
-                        EngineReadiness.Ready
                     session.activeWorkspaceLocation.value shouldBe StorageLocation(workspace.absolutePath)
                     val direct = opens.single().workspace.shouldBeInstanceOf<NativeWorkspaceSelection.Direct>()
                     registry
@@ -514,6 +557,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                             isContentUri = { false },
                         )
+
+                    session.requestEngineStart()
 
                     session.updateLanNetworkSnapshot(
                         LanNetworkFacts(
@@ -553,14 +598,14 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             isContentUri = { false },
                         )
 
+                    session.requestEngineStart()
+
                     val challenge = session.beginLanSession("a".repeat(64), 1_000, 60_000)
 
                     challenge shouldBe port.sessionChallenge
                     port.lanSessionBegins shouldBe 1
-                    session.lanRuntimeInbox() shouldBe port.runtimeInbox
-                    session.lanRuntimeInbox().batchRecoveries shouldBe
-                        port.runtimeInbox.batchRecoveries
-                    session.pollLanListener(1_100) shouldBe port.runtimeInbox
+                    session.awaitLanInbox(lastGeneration = 0uL, timeoutMs = 0uL).inbox shouldBe
+                        port.runtimeInbox
                     session.lanSessionState(challenge.sessionId) shouldBe
                         LanSessionState(
                             sessionId = challenge.sessionId,
@@ -593,6 +638,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                             isContentUri = { false },
                         )
+
+                    session.requestEngineStart()
                     val item =
                         LanSendItemPlan(
                             timestampMs = 1_700_000_000_000,
@@ -605,16 +652,19 @@ class ManagedEngineSessionTest : DataFunSpec() {
                     session.prepareLanBatch("b".repeat(32), "batch-managed", listOf(item))
 
                     port.preparedLanBatchId shouldBe "batch-managed"
-                    session.lanBatchPreview("batch-managed") shouldBe port.batchPreview
                     session.lanUnconfirmedBatchChunks("batch-managed", 0u, 65_535u) shouldBe
                         listOf(0u)
-                    session.sendLanBatchChunk(
-                        "b".repeat(32),
-                        "batch-managed",
-                        0u,
-                        65_535u,
-                        0u,
-                        byteArrayOf(1, 2, 3, 4),
+                    session.sendLanBatchChunks(
+                        listOf(
+                            LanChunkSend(
+                                "b".repeat(32),
+                                "batch-managed",
+                                0u,
+                                65_535u,
+                                0u,
+                                byteArrayOf(1, 2, 3, 4),
+                            ),
+                        ),
                     )
                     port.sentLanChunk shouldBe byteArrayOf(1, 2, 3, 4)
                     session.commitReceivedLanItem("batch-managed", 0u, 1_500).memoId shouldBe "memo-received"
@@ -645,6 +695,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                             isContentUri = { false },
                         )
+
+                    session.requestEngineStart()
 
                     val recovery =
                         session.readiness.value.shouldBeInstanceOf<EngineReadiness.ReadOnlyRecovery>()
@@ -682,6 +734,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                             isContentUri = { false },
                         )
+
+                    session.requestEngineStart()
 
                     val recovery =
                         session.readiness.value.shouldBeInstanceOf<EngineReadiness.ReadOnlyRecovery>()
@@ -744,6 +798,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                             isContentUri = { false },
                         )
+
+                    session.requestEngineStart()
                     advanceUntilIdle()
                     session.readiness.value
                         .shouldBeInstanceOf<EngineReadiness.ReadOnlyRecovery>()
@@ -790,6 +846,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                             isContentUri = { false },
                         )
+
+                    session.requestEngineStart()
 
                     session.activateWorkspace(StorageLocation(workspace.absolutePath))
 
@@ -851,6 +909,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             invalidation = bus,
                         )
 
+                    session.requestEngineStart()
+
                     session.activateWorkspace(StorageLocation(firstRoot.absolutePath))
                     session.activateWorkspace(StorageLocation(secondRoot.absolutePath))
                     bus.publish(
@@ -904,6 +964,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                             isContentUri = { false },
                         )
+
+                    session.requestEngineStart()
                     session.activateWorkspace(StorageLocation(workspace.absolutePath))
                     checkNotNull(session.workspaceAuthority.value)
 
@@ -952,6 +1014,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             isContentUri = { false },
                         )
 
+                    session.requestEngineStart()
+
                     val error =
                         shouldThrow<IllegalStateException> {
                             session.activateWorkspace(StorageLocation(candidate.absolutePath))
@@ -992,6 +1056,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                             isContentUri = { it.startsWith("content://") },
                         )
+
+                    session.requestEngineStart()
 
                     val treeUri = "content://com.lomo.documents/tree/primary%3ALomo"
                     session.activateWorkspace(StorageLocation(treeUri))
@@ -1037,6 +1103,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                         appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                         isContentUri = { it.startsWith("content://") },
                     )
+
+                session.requestEngineStart()
                 try {
                     session.activateWorkspace(tree)
 
@@ -1077,6 +1145,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                         appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                         isContentUri = { it.startsWith("content://") },
                     )
+
+                session.requestEngineStart()
                 try {
                     session.activateWorkspace(
                         StorageLocation("content://com.lomo.documents/tree/primary%3ABlocked"),
@@ -1117,6 +1187,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                         appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                         isContentUri = { it.startsWith("content://") },
                     )
+
+                session.requestEngineStart()
                 val mounts = mutableListOf<WorkspaceMount>()
                 val collector =
                     launch(UnconfinedTestDispatcher(testScheduler)) {
@@ -1184,6 +1256,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                         appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                         isContentUri = { it.startsWith("content://") },
                     )
+
+                session.requestEngineStart()
                 val mounts = mutableListOf<WorkspaceMount>()
                 val collector =
                     launch(UnconfinedTestDispatcher(testScheduler)) {
@@ -1237,6 +1311,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                         appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                         isContentUri = { false },
                     )
+
+                session.requestEngineStart()
                 try {
                     session.activateWorkspace(StorageLocation(firstRoot.absolutePath))
                     val firstAuthority = checkNotNull(session.workspaceAuthority.value)
@@ -1290,6 +1366,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             isContentUri = { it.startsWith("content://") },
                         )
 
+                    session.requestEngineStart()
+
                     val tree =
                         StorageLocation("content://com.lomo.documents/tree/primary%3ALomo")
                     session.activateWorkspace(tree)
@@ -1342,8 +1420,7 @@ class ManagedEngineSessionTest : DataFunSpec() {
                                             safToken = request.workspace.capabilityToken
                                             SessionFakeNativeEnginePort(
                                                 NativeEngineSnapshot.Ready(coreRevision = 11uL, eventSequence = 13uL),
-                                            ).apply {
-                                                                    }
+                                            )
                                         }
                                     }
                                 ports += port
@@ -1353,6 +1430,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                             isContentUri = { it.startsWith("content://") },
                         )
+
+                    session.requestEngineStart()
                     session.activateWorkspace(StorageLocation(previousRoot.absolutePath))
                     val previousAuthority = checkNotNull(session.workspaceAuthority.value)
 
@@ -1408,6 +1487,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             isContentUri = { false },
                         )
 
+                    session.requestEngineStart()
+
                     // Unconfined dispatcher runs cold-restore launch immediately.
                     session.readiness.value shouldBe
                         EngineReadiness.Ready
@@ -1452,6 +1533,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                         appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                         isContentUri = { it.startsWith("content://") },
                     )
+
+                session.requestEngineStart()
                 try {
                     session.readiness.value shouldBe
                         EngineReadiness.Ready
@@ -1505,6 +1588,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                         appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                         isContentUri = { it.startsWith("content://") },
                     )
+
+                session.requestEngineStart()
                 try {
                     val recovery =
                         session.readiness.value.shouldBeInstanceOf<EngineReadiness.ReadOnlyRecovery>()
@@ -1546,6 +1631,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                             isContentUri = { false },
                         )
+
+                    session.requestEngineStart()
 
                     session.activeWorkspaceLocation.value shouldBe null
                     session.readiness.value shouldBe EngineReadiness.AwaitingWorkspaceSelection
@@ -1597,6 +1684,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                             isContentUri = { false },
                         )
+
+                    session.requestEngineStart()
                     session.activateWorkspace(StorageLocation(previousRoot.absolutePath))
                     session.readiness.value shouldBe
                         EngineReadiness.Ready
@@ -1655,6 +1744,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             isContentUri = { it.startsWith("content://") },
                         )
 
+                    session.requestEngineStart()
+
                     val error =
                         shouldThrow<WorkspaceActivationException> {
                             session.activateWorkspace(
@@ -1697,6 +1788,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                             isContentUri = { it.startsWith("content://") },
                         )
+
+                    session.requestEngineStart()
                     session.activateWorkspace(
                         StorageLocation("content://com.lomo.documents/tree/primary%3AFirst"),
                     )
@@ -1751,6 +1844,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
                             isContentUri = { it.startsWith("content://") },
                         )
+
+                    session.requestEngineStart()
                     session.activateWorkspace(
                         StorageLocation("content://com.lomo.documents/tree/primary%3ALomo"),
                     )
@@ -1790,6 +1885,8 @@ class ManagedEngineSessionTest : DataFunSpec() {
                             isContentUri = { false },
                         )
 
+                    session.requestEngineStart()
+
                     val recovery = session.readiness.value.shouldBeInstanceOf<EngineReadiness.ReadOnlyRecovery>()
                     recovery.category shouldBe EngineFailureCategory.VALIDATION
                     recovery.code shouldBe "workspace_root_not_directory"
@@ -1808,112 +1905,6 @@ class ManagedEngineSessionTest : DataFunSpec() {
             }
         }
 
-        test("given Ready session when scan is routed then the same active port owns every call") {
-            runTest {
-                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-route").toFile()
-                val workspace = kotlin.io.path.createTempDirectory("ws-route").toFile()
-                try {
-                    val openedPorts = mutableListOf<SessionFakeNativeEnginePort>()
-                    val session =
-                        ManagedEngineSession(
-                            invalidation = com.lomo.data.repository.StoreInvalidationBus(),
-                            filesDir = filesDir,
-                            capabilityRegistry = CapabilityRegistry(),
-                            openAdapter = { request ->
-                                val port =
-                                    SessionFakeNativeEnginePort(
-                                        if (request.workspace == null) {
-                                            NativeEngineSnapshot.AwaitingWorkspaceSelection
-                                        } else {
-                                            NativeEngineSnapshot.Ready(1uL, 2uL)
-                                        },
-                                    )
-                                openedPorts += port
-                                testRustEngineAdapter(port)
-                            },
-                            directorySettingsRepository = InMemoryDirectorySettingsRepository(),
-                            appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
-                            isContentUri = { false },
-                        )
-                    session.activateWorkspace(StorageLocation(workspace.absolutePath))
-
-                    val jobId = session.startWorkspaceScan(pageSize = 16u)
-                    session.driveJob(jobId) shouldBe NativeJobStep.Completed
-                    session.readWorkspaceScanPage(jobId).items shouldBe emptyList()
-
-                    openedPorts.size shouldBe 2 // bootstrap + selected workspace; never a scan engine
-                    openedPorts.first().workspaceCalls shouldBe emptyList()
-                    openedPorts.last().workspaceCalls shouldBe
-                        listOf("start-scan", "poll:$jobId", "read-scan:$jobId")
-                    session.close()
-                } finally {
-                    filesDir.deleteRecursively()
-                    workspace.deleteRecursively()
-                }
-            }
-        }
-
-        test("given in-flight scan when workspace switches then previous port closes after lease release") {
-            runTest {
-                val filesDir = kotlin.io.path.createTempDirectory("managed-engine-lease").toFile()
-                val firstRoot = kotlin.io.path.createTempDirectory("ws-lease-first").toFile()
-                val secondRoot = kotlin.io.path.createTempDirectory("ws-lease-second").toFile()
-                try {
-                    val openedPorts = mutableListOf<SessionFakeNativeEnginePort>()
-                    val candidateReturned = CountDownLatch(1)
-                    val session =
-                        ManagedEngineSession(
-                            invalidation = com.lomo.data.repository.StoreInvalidationBus(),
-                            filesDir = filesDir,
-                            capabilityRegistry = CapabilityRegistry(),
-                            openAdapter = { request ->
-                                val port =
-                                    SessionFakeNativeEnginePort(
-                                        if (request.workspace == null) {
-                                            NativeEngineSnapshot.AwaitingWorkspaceSelection
-                                        } else {
-                                            NativeEngineSnapshot.Ready(1uL, 1uL)
-                                        },
-                                    )
-                                openedPorts += port
-                                testRustEngineAdapter(port).also {
-                                    if (openedPorts.size == 3) candidateReturned.countDown()
-                                }
-                            },
-                            directorySettingsRepository = InMemoryDirectorySettingsRepository(),
-                            appScope = CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
-                            isContentUri = { false },
-                        )
-                    session.activateWorkspace(StorageLocation(firstRoot.absolutePath))
-                    val previous = openedPorts[1]
-                    val scanEntered = CountDownLatch(1)
-                    val scanRelease = CountDownLatch(1)
-                    previous.scanGate = ScanGate(scanEntered, scanRelease)
-                    val scanThread = Thread { session.startWorkspaceScan(pageSize = 16u) }
-                    scanThread.start()
-                    scanEntered.await(5, TimeUnit.SECONDS) shouldBe true
-
-                    val switching =
-                        async(Dispatchers.Default) {
-                            session.activateWorkspace(StorageLocation(secondRoot.absolutePath))
-                        }
-                    candidateReturned.await(5, TimeUnit.SECONDS) shouldBe true
-
-                    previous.portCloseCount shouldBe 0
-                    switching.isCompleted shouldBe false
-                    scanRelease.countDown()
-                    scanThread.join(5_000)
-                    switching.await()
-
-                    previous.portCloseCount shouldBe 1
-                    session.close()
-                } finally {
-                    filesDir.deleteRecursively()
-                    firstRoot.deleteRecursively()
-                    secondRoot.deleteRecursively()
-                }
-            }
-        }
     }
 }
 
@@ -2041,6 +2032,8 @@ private class SessionFakeNativeEnginePort(
                         sessionId = sessionChallenge.sessionId,
                         preview = batchPreview,
                         decision = LanReceivedBatchDecision.Approved,
+                        drive = LanReceivedBatchDrive.ReadyToCommit,
+                        confirmedBytes = 0uL,
                         items =
                             listOf(
                                 LanReceivedItemRecovery.Committed(
@@ -2071,7 +2064,8 @@ private class SessionFakeNativeEnginePort(
 
     override fun listLanDiscoveredPeers(): List<LanDiscoveredPeer> = emptyList()
 
-    override fun lanTransferShape(): LanTransferShape = LanTransferShape(bodySlot = 0u, chunkPlaintextBytes = 0u)
+    override fun lanTransferShape(): LanTransferShape =
+        LanTransferShape(bodySlot = 0u, chunkPlaintextBytes = 0u, maxInflightChunks = 4u)
 
     override fun lanProtocolLimits(): LanProtocolLimits =
         LanProtocolLimits(
@@ -2091,11 +2085,12 @@ private class SessionFakeNativeEnginePort(
     ): LanPairingChallenge = error("pairing not expected")
 
     override fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait =
-        LanInboxWait(lastGeneration, runtimeInbox)
-
-    override fun pollLanListener(nowMs: Long): LanRuntimeInbox = runtimeInbox
-
-    override fun lanRuntimeInbox(): LanRuntimeInbox = runtimeInbox
+        LanInboxWait(
+            generation = lastGeneration,
+            inbox = runtimeInbox,
+            rejectedConnectionCount = 0uL,
+            lastRejectionDiagnostic = null,
+        )
 
     override fun lanPairingChallenge(pairingId: String): LanPairingChallenge =
         error("pairing not expected")
@@ -2116,8 +2111,6 @@ private class SessionFakeNativeEnginePort(
         lanSessionBegins += 1
         return sessionChallenge
     }
-
-    override fun lanSessionChallenge(sessionId: String): LanSessionChallenge = sessionChallenge
 
     override fun confirmLanSession(
         sessionId: String,
@@ -2140,8 +2133,6 @@ private class SessionFakeNativeEnginePort(
         preparedLanBatchId = batchId
     }
 
-    override fun lanBatchPreview(batchId: String): LanBatchPreview = batchPreview
-
     override fun approveLanBatch(
         sessionId: String,
         batchId: String,
@@ -2157,15 +2148,8 @@ private class SessionFakeNativeEnginePort(
         rejectedLanBatchId = batchId
     }
 
-    override fun sendLanBatchChunk(
-        sessionId: String,
-        batchId: String,
-        itemIndex: UInt,
-        attachmentSlot: UInt,
-        chunkIndex: UInt,
-        plaintext: ByteArray,
-    ) {
-        sentLanChunk = plaintext
+    override fun sendLanBatchChunks(chunks: List<LanChunkSend>) {
+        sentLanChunk = chunks.lastOrNull()?.plaintext
     }
 
     override fun lanUnconfirmedBatchChunks(
@@ -2183,6 +2167,12 @@ private class SessionFakeNativeEnginePort(
         committedLanItemIndex = itemIndex
         return nativeLanCommit()
     }
+
+    override fun failReceivedLanItem(
+        batchId: String,
+        itemIndex: UInt,
+        code: String,
+    ) = Unit
 
     override fun listLanPeers(): LanPeerPage = LanPeerPage(emptyList(), 0u)
 
@@ -2255,34 +2245,23 @@ private class SessionFakeNativeEnginePort(
     ): com.lomo.nativebridge.MediaStagedDto =
         stageMedia(mediaRoot, com.lomo.nativebridge.MediaSourceKind.STAGED_TEMP, recordingPath, humanNameHint)
 
-    override fun promoteMedia(
+    override fun queryMediaManifest(
         workspaceRoot: String,
-        plan: com.lomo.nativebridge.MediaPromotePlanDto,
-    ): com.lomo.nativebridge.MediaPromoteResultDto =
-        com.lomo.nativebridge.MediaPromoteResultDto(
-            operationId = plan.operationId,
-            digest = plan.staged.digest,
-            mime = plan.staged.mime,
-            size = plan.staged.size,
-            finalAbsolutePath = "$workspaceRoot/${plan.finalRelativePath}",
-            finalRelativePath = plan.finalRelativePath,
-        )
-
-    override fun queryMediaManifest(workspaceRoot: String): com.lomo.nativebridge.MediaManifestDto =
+        verifiedEntries: List<com.lomo.nativebridge.MediaCommittedEntryDto>,
+    ): com.lomo.nativebridge.MediaManifestDto =
         com.lomo.nativebridge.MediaManifestDto(stageDirName = "stage", entries = emptyList())
 
-    override fun mediaOrphanSweep(
-        mediaRoot: String,
-        committed: List<com.lomo.nativebridge.MediaCommittedEntryDto>,
-        refs: List<com.lomo.nativebridge.MediaAttachmentRefDto>,
-        existingTrash: List<com.lomo.nativebridge.MediaTrashEntryDto>,
+    override fun sessionMediaOrphanSweep(
         nowMs: ULong?,
         recoveryWindowMs: ULong,
-    ): com.lomo.nativebridge.MediaOrphanSweepResultDto =
-        com.lomo.nativebridge.MediaOrphanSweepResultDto(
+    ): com.lomo.nativebridge.SessionMediaSweepReportDto =
+        com.lomo.nativebridge.SessionMediaSweepReportDto(
+            candidates = 0uL,
+            protections = emptyList(),
             movedToTrash = emptyList(),
             permanentlyDeletedDigests = emptyList(),
             keptLive = 0uL,
+            failures = emptyList(),
         )
 
     override fun archiveExport(
@@ -2295,33 +2274,10 @@ private class SessionFakeNativeEnginePort(
             entryCount = 0uL,
         )
 
-    override fun archiveInspect(
+    override fun sessionImportArchive(
+        workspaceRoot: String,
         archivePath: String,
         stagingRoot: String,
-    ): com.lomo.nativebridge.ArchiveInspectResultDto =
-        com.lomo.nativebridge.ArchiveInspectResultDto(
-            stagingRoot = stagingRoot,
-            schemaVersion = 2u,
-            entryCount = 0uL,
-        )
-
-    override fun archiveImport(
-        archivePath: String,
-        stagingRoot: String,
-    ): com.lomo.nativebridge.ArchiveInspectResultDto = archiveInspect(archivePath, stagingRoot)
-
-    override fun archiveActivate(
-        stagingRoot: String,
-        liveRoot: String,
-        backupRoot: String,
-    ) = Unit
-
-    override fun archiveImportActivateRebuild(
-        archivePath: String,
-        stagingRoot: String,
-        liveRoot: String,
-        backupRoot: String,
-        rebuildBatchSize: UInt,
     ): com.lomo.nativebridge.StoreRebuildResult =
         com.lomo.nativebridge.StoreRebuildResult(
             memosIndexed = 0uL,
@@ -2339,14 +2295,9 @@ private class SessionFakeNativeEnginePort(
     var closeFailure: Throwable? = null
     var renderCallCount: Int = 0
     val workspaceCalls = mutableListOf<String>()
-    var scanGate: ScanGate? = null
-    var scanPages: ArrayDeque<WorkspaceScanPageSnapshot> = ArrayDeque()
-    var projectionPages: ArrayDeque<WorkspaceProjectionScanPageSnapshot> = ArrayDeque()
-    var trashProjectionPages: ArrayDeque<WorkspaceTrashProjectionScanPageSnapshot> = ArrayDeque()
     var documentTerminal: NativeJobStep = NativeJobStep.Completed
     var lastDocumentCommand: WorkspaceNativeCommandSpec? = null
     val commandEvents = mutableListOf<String>()
-    var lastTrashCommand: WorkspaceNativeTrashCommandSpec? = null
     var lastExpectedState: WorkspaceNativeExpectedState? = null
     var lastExpectedFingerprint: String? = null
     var documentResult: WorkspaceNativeCommandResultSnapshot =
@@ -2356,26 +2307,7 @@ private class SessionFakeNativeEnginePort(
             bytesWritten = 22uL,
             affectedMemo = null,
         )
-    var trashResult: WorkspaceNativeTrashCommandResultSnapshot =
-        WorkspaceNativeTrashCommandResultSnapshot(
-            path = "2026-07-20.md",
-            resultFingerprint = "b".repeat(64),
-            affectedMemo =
-                WorkspaceDocumentMemoFactsSnapshot(
-                    path = "2026-07-20.md",
-                    identity = "2026-07-20_10:00:00_0",
-                    timePart = "10:00:00",
-                    fingerprint = "b".repeat(64),
-                    tags = emptyList(),
-                    attachments = emptyList(),
-                    reminders = emptyList(),
-                    hasTodo = false,
-                    hasUrl = false,
-                ),
-            trashedAtMs = null,
-        )
     val memoSnapshots = mutableMapOf<String, com.lomo.nativebridge.StoreMemoSnapshot>()
-    val sourceDocumentFingerprints = mutableMapOf<String, String>()
     var documentCommandFailure: Throwable? = null
     var rebuildCount: Int = 0
     var onRebuild: (() -> Unit)? = null
@@ -2408,50 +2340,7 @@ private class SessionFakeNativeEnginePort(
         )
     }
 
-    override fun startWorkspaceScan(
-        pageSize: UInt,
-        cursor: String?,
-        rootPath: String?,
-        deadlineMillis: ULong,
-    ): String {
-        workspaceCalls += "start-scan"
-        scanGate?.let { gate ->
-            gate.entered.countDown()
-            check(gate.release.await(5, TimeUnit.SECONDS)) { "scan lease was not released" }
-        }
-        return "scan-job"
-    }
 
-    override fun readWorkspaceScanPage(jobId: String): WorkspaceScanPageSnapshot {
-        workspaceCalls += "read-scan:$jobId"
-        return scanPages.removeFirstOrNull()
-            ?: WorkspaceScanPageSnapshot(items = emptyList(), nextCursor = null)
-    }
-
-    override fun readWorkspaceProjectionScanPage(jobId: String): WorkspaceProjectionScanPageSnapshot =
-        projectionPages.removeFirstOrNull() ?: WorkspaceProjectionScanPageSnapshot(emptyList(), null)
-
-    override fun startWorkspaceTrashScan(
-        pageSize: UInt,
-        cursor: String?,
-        deadlineMillis: ULong,
-    ): String = "trash-projection-scan"
-
-    override fun readWorkspaceTrashProjectionScanPage(
-        jobId: String,
-    ): WorkspaceTrashProjectionScanPageSnapshot =
-        trashProjectionPages.removeFirstOrNull() ?: WorkspaceTrashProjectionScanPageSnapshot(emptyList(), null)
-
-    override fun startWorkspaceHistoryScan(
-        pageSize: UInt,
-        cursor: String?,
-        deadlineMillis: ULong,
-    ): String = "history-projection-scan"
-
-    override fun readWorkspaceHistoryProjectionScanPage(
-        jobId: String,
-    ): WorkspaceHistoryProjectionScanPageSnapshot =
-        WorkspaceHistoryProjectionScanPageSnapshot(emptyList(), null)
 
     override fun startWorkspaceDocumentCommand(
         path: String,
@@ -2469,20 +2358,6 @@ private class SessionFakeNativeEnginePort(
 
     override fun readWorkspaceDocumentCommandResult(jobId: String): WorkspaceNativeCommandResultSnapshot =
         documentResult
-
-    override fun startWorkspaceTrashCommand(
-        path: String,
-        expectedFingerprint: String,
-        command: WorkspaceNativeTrashCommandSpec,
-        deadlineMillis: ULong,
-    ): String {
-        lastExpectedFingerprint = expectedFingerprint
-        lastTrashCommand = command
-        return "trash-command-job"
-    }
-
-    override fun readWorkspaceTrashCommandResult(jobId: String): WorkspaceNativeTrashCommandResultSnapshot =
-        trashResult
 
     override fun queryMemos(
         query: com.lomo.nativebridge.StoreMemoQuery,
@@ -2509,22 +2384,6 @@ private class SessionFakeNativeEnginePort(
     override fun queryCount(query: com.lomo.nativebridge.StoreMemoQuery): ULong =
         memoSnapshots.values.count { !it.summary.isTrashed }.toULong()
 
-    override fun selectMemoPromotePlans(
-        content: String,
-        candidates: List<com.lomo.nativebridge.MediaPromotePlanDto>,
-    ): List<com.lomo.nativebridge.MediaPromotePlanDto> = candidates
-
-    override fun memoStatisticsRows(): List<com.lomo.nativebridge.StoreMemoStatisticsRow> =
-        memoSnapshots.values.map { snapshot ->
-            com.lomo.nativebridge.StoreMemoStatisticsRow(
-                createdAtMs = snapshot.summary.createdAtMs,
-                wordCount = snapshot.body.trim().split(Regex("\\s+")).let { words ->
-                    if (snapshot.body.isBlank()) 0L else words.size.toLong()
-                },
-                charCount = snapshot.body.length.toLong(),
-            )
-        }
-
     override fun sessionReminderPlan(nowUtcMs: Long?): com.lomo.nativebridge.StoreReminderPlan =
         com.lomo.nativebridge.StoreReminderPlan(
             alarms = emptyList(),
@@ -2532,29 +2391,11 @@ private class SessionFakeNativeEnginePort(
             workspaceGeneration = "gen-test",
         )
 
-    override fun listHistoryAttachmentRefs(): List<com.lomo.nativebridge.StoreHistoryAttachmentRef> =
-        emptyList()
-
-    override fun listMemoHistory(
-        memoId: String,
-        cursor: String?,
-        limit: UInt,
-    ): com.lomo.nativebridge.StoreMemoHistoryPage =
-        com.lomo.nativebridge.StoreMemoHistoryPage(items = emptyList(), nextCursor = null)
-
     override fun getMemo(memoId: String): com.lomo.nativebridge.StoreMemoSnapshot? =
         memoSnapshots[memoId]
 
-    override fun sourceDocumentFingerprint(sourcePath: String): String? =
-        sourceDocumentFingerprints[sourcePath]
-
     override fun sidebarProjection(): com.lomo.nativebridge.StoreSidebarProjection =
         error("sidebar projection not expected")
-
-    override fun applyMemoCommand(
-        command: com.lomo.nativebridge.StoreMemoCommand,
-        onPublication: (com.lomo.nativebridge.StoreMemoCommit) -> Unit,
-    ): com.lomo.nativebridge.StoreMemoCommit = fakeCommit(command)
 
     override fun commitWorkspaceDocumentFacts(
         command: com.lomo.nativebridge.StoreMemoCommand,
@@ -2596,132 +2437,6 @@ private class SessionFakeNativeEnginePort(
     }
 }
 
-private data class ScanGate(
-    val entered: CountDownLatch,
-    val release: CountDownLatch,
-)
-
-private fun bridgeMemoCommand(
-    operationId: String,
-    kind: com.lomo.nativebridge.StoreMemoCommandKind,
-    memoId: String,
-    expectedRevision: ULong,
-    expectedFingerprint: String? = null,
-    content: String? = null,
-    pin: Boolean? = null,
-    pendingPromotes: List<com.lomo.nativebridge.MediaPromotePlanDto> = emptyList(),
-    chronologyEpochMs: Long? = null,
-): com.lomo.nativebridge.StoreMemoCommand =
-    com.lomo.nativebridge.StoreMemoCommand(
-        operationId = operationId,
-        kind = kind,
-        memoId = memoId,
-        expectedRevision = expectedRevision,
-        expectedFingerprint = expectedFingerprint,
-        content = content,
-        tags = emptyList(),
-        pin = pin,
-        pendingPromotes = pendingPromotes,
-        chronologyEpochMs = chronologyEpochMs,
-    )
-
-private fun workspaceSnapshot(
-    path: String,
-    identity: String,
-    fingerprint: String,
-    content: String,
-    timePart: String = "10:00:00",
-): WorkspaceMemoSummarySnapshot =
-    WorkspaceMemoSummarySnapshot(
-        path = path,
-        identity = identity,
-        timePart = timePart,
-        fingerprint = fingerprint,
-        tags = emptyList(),
-        attachments = emptyList(),
-        reminders = emptyList(),
-        content = content,
-        bodyStart = 0uL,
-        bodyEnd = content.encodeToByteArray().size.toULong(),
-        startLine = 0u,
-        endLine = 1u,
-    )
-
-private fun commandResult(
-    snapshot: WorkspaceMemoSummarySnapshot,
-    resultFingerprint: String = snapshot.fingerprint,
-): WorkspaceNativeCommandResultSnapshot =
-    WorkspaceNativeCommandResultSnapshot(
-        path = snapshot.path,
-        resultFingerprint = resultFingerprint,
-        bytesWritten = snapshot.content.encodeToByteArray().size.toULong(),
-        affectedMemo =
-            WorkspaceDocumentMemoFactsSnapshot(
-                path = snapshot.path,
-                identity = snapshot.identity,
-                timePart = snapshot.timePart,
-                fingerprint = resultFingerprint,
-                tags = snapshot.tags,
-                attachments = snapshot.attachments,
-                reminders = snapshot.reminders,
-                hasTodo = snapshot.hasTodo,
-                hasUrl = snapshot.hasUrl,
-            ),
-    )
-
-private fun trashCommandResult(
-    snapshot: WorkspaceMemoSummarySnapshot,
-    resultFingerprint: String = snapshot.fingerprint,
-    trashedAtMs: Long?,
-): WorkspaceNativeTrashCommandResultSnapshot =
-    WorkspaceNativeTrashCommandResultSnapshot(
-        path = snapshot.path,
-        resultFingerprint = resultFingerprint,
-        affectedMemo =
-            WorkspaceDocumentMemoFactsSnapshot(
-                path = snapshot.path,
-                identity = snapshot.identity,
-                timePart = snapshot.timePart,
-                fingerprint = snapshot.fingerprint,
-                tags = snapshot.tags,
-                attachments = snapshot.attachments,
-                reminders = snapshot.reminders,
-                hasTodo = snapshot.hasTodo,
-                hasUrl = snapshot.hasUrl,
-            ),
-        trashedAtMs = trashedAtMs,
-    )
-
-private fun storeSnapshot(
-    snapshot: WorkspaceMemoSummarySnapshot,
-    contentRevision: ULong,
-    isTrashed: Boolean = false,
-): com.lomo.nativebridge.StoreMemoSnapshot =
-    com.lomo.nativebridge.StoreMemoSnapshot(
-        summary =
-            com.lomo.nativebridge.StoreMemoSummary(
-                memoId = snapshot.identity,
-                sourcePath = snapshot.path,
-                fileFingerprint = snapshot.fingerprint,
-                updatedAtMs = requireChronologyEpochMs(snapshot.identity, snapshot.timePart),
-                createdAtMs = requireChronologyEpochMs(snapshot.identity, snapshot.timePart),
-                hasTodo = snapshot.hasTodo,
-                hasUrl = snapshot.hasUrl,
-                hasAttachment = snapshot.attachments.isNotEmpty(),
-                isPinned = false,
-                isTrashed = isTrashed,
-                bodyPreview = snapshot.content,
-                contentRevision = contentRevision,
-                rank = null,
-                tags = snapshot.tags,
-                imageUrls = snapshot.attachments,
-                reminders = emptyList(),
-                isPending = false,
-                charCount = snapshot.content.length.toLong(),
-            ),
-        body = snapshot.content,
-    )
-
 /**
  * Bootstrap requests get an Awaiting port; SAF candidate requests record their rotated token and
  * build the scenario's candidate port.
@@ -2740,7 +2455,6 @@ private fun safCandidatePort(
 
 private fun testRustEngineAdapter(
     port: SessionFakeNativeEnginePort,
-    safMediaPromoter: ((List<com.lomo.nativebridge.MediaPromotePlanDto>, String) -> Unit)? = null,
     invalidation: StoreInvalidationBus = StoreInvalidationBus(),
 ): RustEngineAdapter =
     RustEngineAdapter.acquire(
@@ -2755,7 +2469,6 @@ private fun testRustEngineAdapter(
                     ),
             ),
         invalidation = invalidation,
-        safMediaPromoter = safMediaPromoter,
     )
 
 private fun nativeLanCommit(
@@ -2772,35 +2485,75 @@ private fun nativeLanCommit(
         idempotentReplay = false,
     )
 
+private fun storeMemoSnapshot(
+    memoId: String,
+    body: String,
+    hasTodo: Boolean,
+    reminders: List<com.lomo.nativebridge.WorkspaceReminderReference> = emptyList(),
+): com.lomo.nativebridge.StoreMemoSnapshot =
+    com.lomo.nativebridge.StoreMemoSnapshot(
+        summary =
+            com.lomo.nativebridge.StoreMemoSummary(
+                memoId = memoId,
+                sourcePath = "2026-07-20.md",
+                fileFingerprint = "a".repeat(64),
+                updatedAtMs = 1L,
+                createdAtMs = 1L,
+                hasTodo = hasTodo,
+                hasUrl = false,
+                hasAttachment = false,
+                isPinned = false,
+                isTrashed = false,
+                bodyPreview = body,
+                contentRevision = 1uL,
+                rank = null,
+                tags = emptyList(),
+                imageUrls = emptyList(),
+                reminders = reminders,
+                isPending = false,
+                charCount = body.length.toLong(),
+            ),
+        body = body,
+    )
+
+private fun documentFacts(
+    fingerprint: String,
+    content: String,
+    hasTodo: Boolean = false,
+    reminders: List<WorkspaceReminderReferenceSnapshot> = emptyList(),
+): WorkspaceDocumentMemoFactsSnapshot =
+    WorkspaceDocumentMemoFactsSnapshot(
+        path = "2026-07-20.md",
+        identity = "2026-07-20_10:00:00_0",
+        timePart = "10:00:00",
+        fingerprint = fingerprint,
+        tags = emptyList(),
+        attachments = emptyList(),
+        reminders = reminders,
+        hasTodo = hasTodo,
+        hasUrl = false,
+        content = content,
+    )
+
 private fun readyTaskPort(): SessionFakeNativeEnginePort =
     SessionFakeNativeEnginePort(
         NativeEngineSnapshot.Ready(coreRevision = 1uL, eventSequence = 1uL),
     ).also { port ->
-        val common =
-            WorkspaceMemoSummarySnapshot(
-                path = "2026-07-20.md",
-                identity = "2026-07-20_10:00:00_0",
-                timePart = "10:00:00",
-                fingerprint = "a".repeat(64),
-                tags = emptyList(),
-                attachments = emptyList(),
-                reminders = emptyList(),
+        port.memoSnapshots["2026-07-20_10:00:00_0"] =
+            storeMemoSnapshot(
+                memoId = "2026-07-20_10:00:00_0",
+                body = "- [ ] task",
                 hasTodo = true,
-                content = "- [ ] task",
-                bodyStart = 11uL,
-                bodyEnd = 22uL,
-                startLine = 0u,
-                endLine = 1u,
             )
-        port.memoSnapshots[common.identity] = common.toStoreSnapshot(body = "- [ ] task")
         port.documentResult =
             port.documentResult.copy(
-                path = common.path,
+                path = "2026-07-20.md",
                 resultFingerprint = "b".repeat(64),
                 affectedMemo =
-                    common.toDocumentFacts(
+                    documentFacts(
                         fingerprint = "b".repeat(64),
                         content = "- [x] task",
+                        hasTodo = true,
                     ),
             )
     }
@@ -2809,80 +2562,24 @@ private fun readyReminderPort(): SessionFakeNativeEnginePort =
     SessionFakeNativeEnginePort(
         NativeEngineSnapshot.Ready(coreRevision = 1uL, eventSequence = 1uL),
     ).also { port ->
-        val scanned =
-            WorkspaceMemoSummarySnapshot(
-                path = "2026-07-20.md",
-                identity = "2026-07-20_10:00:00_0",
-                timePart = "10:00:00",
-                fingerprint = "a".repeat(64),
-                tags = emptyList(),
-                attachments = emptyList(),
-                reminders = listOf(reminderSnapshot()),
-                content = "@2026-07-20-09:30x2",
-                bodyStart = 11uL,
-                bodyEnd = 33uL,
-                startLine = 0u,
-                endLine = 1u,
+        port.memoSnapshots["2026-07-20_10:00:00_0"] =
+            storeMemoSnapshot(
+                memoId = "2026-07-20_10:00:00_0",
+                body = "@2026-07-20-09:30x2",
+                hasTodo = false,
+                reminders = listOf(reminderSnapshot().toBridgeForTest()),
             )
-        port.memoSnapshots[scanned.identity] = scanned.toStoreSnapshot(body = scanned.content)
         port.documentResult =
             port.documentResult.copy(
-                path = scanned.path,
+                path = "2026-07-20.md",
                 resultFingerprint = "b".repeat(64),
                 affectedMemo =
-                    scanned.toDocumentFacts(
+                    documentFacts(
                         fingerprint = "b".repeat(64),
                         content = "done",
-                        reminders = emptyList(),
                     ),
             )
     }
-
-private fun WorkspaceMemoSummarySnapshot.toStoreSnapshot(
-    body: String,
-): com.lomo.nativebridge.StoreMemoSnapshot =
-    com.lomo.nativebridge.StoreMemoSnapshot(
-        summary =
-            com.lomo.nativebridge.StoreMemoSummary(
-                memoId = identity,
-                sourcePath = path,
-                fileFingerprint = fingerprint,
-                updatedAtMs = 1L,
-                createdAtMs = 1L,
-                hasTodo = hasTodo,
-                hasUrl = hasUrl,
-                hasAttachment = attachments.isNotEmpty(),
-                isPinned = false,
-                isTrashed = false,
-                bodyPreview = content,
-                contentRevision = 1uL,
-                rank = null,
-                tags = tags,
-                imageUrls = attachments,
-                reminders = reminders.map { reminder -> reminder.toBridgeForTest() },
-                isPending = false,
-                charCount = content.length.toLong(),
-            ),
-        body = body,
-    )
-
-private fun WorkspaceMemoSummarySnapshot.toDocumentFacts(
-    fingerprint: String,
-    content: String,
-    reminders: List<WorkspaceReminderReferenceSnapshot> = this.reminders,
-): WorkspaceDocumentMemoFactsSnapshot =
-    WorkspaceDocumentMemoFactsSnapshot(
-        path = path,
-        identity = identity,
-        timePart = timePart,
-        fingerprint = fingerprint,
-        tags = tags,
-        attachments = attachments,
-        reminders = reminders,
-        hasTodo = hasTodo,
-        hasUrl = hasUrl,
-        content = content,
-    )
 
 private fun WorkspaceReminderReferenceSnapshot.toBridgeForTest(): com.lomo.nativebridge.WorkspaceReminderReference =
     com.lomo.nativebridge.WorkspaceReminderReference(
@@ -2923,7 +2620,7 @@ private fun reminderSnapshot(): WorkspaceReminderReferenceSnapshot =
     )
 
 @OptIn(ExperimentalCoroutinesApi::class)
-private fun readySession(
+private suspend fun readySession(
     filesDir: java.io.File,
     port: SessionFakeNativeEnginePort,
     scheduler: kotlinx.coroutines.test.TestCoroutineScheduler,
@@ -2936,4 +2633,6 @@ private fun readySession(
         directorySettingsRepository = InMemoryDirectorySettingsRepository(),
         appScope = CoroutineScope(UnconfinedTestDispatcher(scheduler)),
         isContentUri = { false },
-    )
+    ).apply {
+        requestEngineStart()
+    }

@@ -34,9 +34,9 @@ import org.koin.dsl.module
  * Generated BoltFFI classes stay inside `data.engine`; domain only sees
  * [EngineReadinessRepository] and [WorkspaceCandidateValidator]. Close runs through Koin `onClose`
  * so process teardown releases native handles. Workspace activation is performed by the session
- * after selection / cold restore. Native engine open is started by the session itself on
- * ApplicationScope (IO) only when the process owns the workspace engine, never as a
- * constructor side effect of a Koin consumption chain.
+ * after selection / cold restore. Native engine open only follows an explicit
+ * [EngineReadinessRepository.requestEngineStart] on ApplicationScope (IO) when the process owns
+ * the workspace engine — never as a constructor side effect of a Koin consumption chain.
  */
 val engineModule =
     module {
@@ -84,8 +84,6 @@ val engineModule =
             val filesDir = androidContext().filesDir
             val registry = get<CapabilityRegistry>()
             val executor = get<AndroidPlatformActionExecutor>()
-            val exchangeResolver = get<ExchangeResolver>()
-            val documents = get<com.lomo.data.engine.PlatformDocumentsGateway>()
             val invalidation = get<StoreInvalidationBus>()
             ManagedEngineSession(
                 filesDir = filesDir,
@@ -93,9 +91,7 @@ val engineModule =
                 openAdapter = { request ->
                     BoltFfiNativeEngineFactory.openAdapter(
                         request,
-                        exchangeResolver,
                         executor,
-                        documents,
                         invalidation,
                     )
                 },

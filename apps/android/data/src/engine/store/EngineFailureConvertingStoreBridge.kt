@@ -1,13 +1,11 @@
 package com.lomo.data.engine.store
 
 import com.lomo.data.engine.withEngineFailureConversion
-import com.lomo.nativebridge.StoreHistoryAttachmentRef as BridgeHistoryAttachmentRef
 import com.lomo.nativebridge.StoreMemoCommand as BridgeMemoCommand
 import com.lomo.nativebridge.StoreMemoCommit as BridgeMemoCommit
 import com.lomo.nativebridge.StoreMemoPage as BridgeMemoPage
 import com.lomo.nativebridge.StoreMemoQuery as BridgeMemoQuery
 import com.lomo.nativebridge.StoreMemoSnapshot as BridgeMemoSnapshot
-import com.lomo.nativebridge.StoreMemoStatisticsRow as BridgeMemoStatisticsRow
 import com.lomo.nativebridge.StoreSidebarProjection as BridgeSidebarProjection
 import com.lomo.nativebridge.StorePageCursor as BridgePageCursor
 import com.lomo.nativebridge.StoreRebuildResult as BridgeRebuildResult
@@ -39,35 +37,8 @@ internal class EngineFailureConvertingStoreBridge(
     override fun queryCount(query: BridgeMemoQuery): ULong =
         withEngineFailureConversion { delegate.queryCount(query) }
 
-    override fun selectMemoPromotePlans(
-        content: String,
-        candidates: List<com.lomo.nativebridge.MediaPromotePlanDto>,
-    ): List<com.lomo.nativebridge.MediaPromotePlanDto> =
-        withEngineFailureConversion { delegate.selectMemoPromotePlans(content, candidates) }
-
-    override fun memoStatisticsRows(): List<BridgeMemoStatisticsRow> =
-        withEngineFailureConversion { delegate.memoStatisticsRows() }
-
-    override fun sourceDocumentFingerprint(sourcePath: String): String? =
-        withEngineFailureConversion { delegate.sourceDocumentFingerprint(sourcePath) }
-
     override fun sidebarProjection(): BridgeSidebarProjection =
         withEngineFailureConversion { delegate.sidebarProjection() }
-
-    override fun listHistoryAttachmentRefs(): List<BridgeHistoryAttachmentRef> =
-        withEngineFailureConversion { delegate.listHistoryAttachmentRefs() }
-
-    override fun listMemoHistory(
-        memoId: String,
-        cursor: String?,
-        limit: UInt,
-    ): com.lomo.nativebridge.StoreMemoHistoryPage =
-        withEngineFailureConversion { delegate.listMemoHistory(memoId, cursor, limit) }
-
-    override fun applyMemoCommand(
-        command: BridgeMemoCommand,
-        onPublication: (BridgeMemoCommit) -> Unit,
-    ): BridgeMemoCommit = withEngineFailureConversion { delegate.applyMemoCommand(command, onPublication) }
 
     override fun commitWorkspaceDocumentFacts(
         command: BridgeMemoCommand,

@@ -44,7 +44,7 @@ package com.lomo.data.reminder
  *   keying are the product contract.
  */
 
-import com.lomo.domain.usecase.FakeDispatcherProvider
+import com.lomo.domain.usecase.SingleDispatcherProvider
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
@@ -87,7 +87,7 @@ private class FakeAlarmSchedulePort(
 }
 
 private fun ledgerAt(dir: File): ReminderExecutionLedger =
-    ReminderExecutionLedger(dir, FakeDispatcherProvider(Dispatchers.Unconfined))
+    ReminderExecutionLedger(dir, SingleDispatcherProvider(Dispatchers.Unconfined))
 
 private fun alarm(
     occurrenceId: String,

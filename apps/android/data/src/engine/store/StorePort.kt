@@ -91,13 +91,6 @@ data class StoreMemoSnapshot(
     val body: String,
 )
 
-/** Compact materialized statistics row; no memo body crosses the repository boundary. */
-data class StoreMemoStatisticsRow(
-    val createdAtMs: Long,
-    val wordCount: Long,
-    val charCount: Long,
-)
-
 /** Rust-owned projection domains attached to each committed store mutation. */
 enum class StoreInvalidationScope {
     MemoList,
@@ -144,8 +137,6 @@ data class StoreMemoDeleteTarget(
     val sourcePath: String,
     val expectedRevision: Long,
     val expectedFingerprint: String,
-    /** Filled only after a verified SAF provider mutation; Direct leaves this null. */
-    val resultFingerprint: String? = null,
 )
 
 data class StoreMemoDeletedMemo(
@@ -202,26 +193,6 @@ data class StoreRebuildResult(
     val rewritten: Boolean,
 )
 
-/** History-window attachment path for D6 orphan keep-set (store-owned projection). */
-data class StoreHistoryAttachmentRef(
-    val memoId: String,
-    val revision: Long,
-    val relativePath: String,
-    val ownerKey: String,
-)
-
-data class StoreMemoHistoryRevision(
-    val revision: Long,
-    val createdAtMs: Long,
-    val content: String,
-    val fileFingerprint: String,
-)
-
-data class StoreMemoHistoryPage(
-    val items: List<StoreMemoHistoryRevision>,
-    val nextCursor: String?,
-)
-
 data class StorePlannedAlarm(
     /** Durable occurrence identity (`generation␟reminder␟triggerMs`) issued by the Rust plan. */
     val occurrenceId: String,
@@ -257,15 +228,7 @@ interface StoreReadPort {
     /** Counts the exact query predicate without transferring page rows. */
     fun queryCount(query: StoreMemoQuery): Long
 
-    /** Reads compact materialized statistics rows without loading memo bodies. */
-    fun memoStatisticsRows(): List<StoreMemoStatisticsRow>
-
     fun sidebarProjection(): StoreSidebarProjection
-
-    /** Attachment paths still referenced by durable history revision bodies. */
-    fun listHistoryAttachmentRefs(): List<StoreHistoryAttachmentRef>
-
-    fun listMemoHistory(memoId: String, cursor: String?, limit: Int): StoreMemoHistoryPage
 
     /** Builds the bounded next-trigger/catch-up plan from Rust-owned reminder semantics. */
     fun queryReminderPlan(nowUtcMs: Long): StoreReminderPlan
@@ -307,12 +270,6 @@ interface StoreWritePort {
         opaqueId: String,
         snoozeDurationMs: Long,
     )
-
-    /** Clears the durable snooze binding for one reminder definition. */
-    fun clearReminderSnooze(opaqueId: String)
-
-    /** True when durable snooze state is quarantined and scheduling is paused pending recovery. */
-    fun reminderSnoozeRecoveryPending(): Boolean
 
     /** Explicitly recovers corrupt durable snooze state (quarantine + fresh store). */
     fun recoverReminderSnooze()
