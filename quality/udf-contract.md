@@ -53,6 +53,9 @@ comment cannot change it.
 | `NoWriteOnlyStateFlow` | `write-only-flow-ok` | Checks real read references, not comments or strings |
 | `NoCollaboratorDefaultArg` | `collaborator-default-ok` | Do not create an independent Bus/Registry/Coordinator inside a default argument |
 | `NoInSituRevisionBypass` | `in-situ-read-ok` | Do not bypass the session CAS by re-reading in situ |
+| `NoMutableStatePayload` | `mutable-payload-ok` | A state payload reaching the UI is an immutable snapshot; a ViewModel must not hold a mutable container or mutable holder type |
+| `NoWriteInFlowDerivation` | `derivation-write-ok` | A flow-producing derivation is a pure projection; a write hidden inside it turns observation into mutation. Sink-terminated subscriptions are the legal event path |
+| `NoInferredMutableStatePayload` | `mutable-payload-ok` | Resolved cross-file check of the same immutable-payload invariant on public flow signatures |
 
 An exception must be a real comment next to the associated declaration or expression:
 

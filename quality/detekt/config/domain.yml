@@ -203,3 +203,27 @@ lomo-architecture:
     active: true
   NoUnboundedFlowSharing:
     active: true
+  NoMintedIdentity:
+    active: true
+  NoErrorMessageControlFlow:
+    active: true
+  NoPlaceholderCollaborator:
+    active: true
+  NoCapabilitySeam:
+    active: true
+  NoSecretInWorkPayload:
+    active: true
+  NoNamePredicateDelete:
+    active: true
+  NoCorruptionEmptyReset:
+    active: true
+  NoDomainClock:
+    active: true
+  NoConstantStatusValue:
+    active: true
+  NoMutableStatePayload:
+    active: true
+  NoWriteInFlowDerivation:
+    active: true
+  NoInferredMutableStatePayload:
+    active: true

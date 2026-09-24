@@ -49,12 +49,16 @@ for file in \
 done
 
 require_text Justfile 'cargo run --manifest-path Cargo.toml --locked -p lomo-xtask --'
-for command in bootstrap fmt test preflight check check-linux tui package-linux native android ci deps perf cache rust-toolchain-bump; do
+for command in bootstrap fmt dev check bindings native android ci deps perf cache rust-toolchain-bump install-tui; do
   grep -Eq -- "^${command}([[:space:]].*)?:$" Justfile || fail "Justfile recipe missing: $command"
 done
-if grep -Eq '^(device-smoke|sync-provider-smoke)([[:space:]].*)?:$' Justfile; then
-  fail "retired smoke recipes remain in Justfile"
-fi
+require_text Justfile '_preflight'
+for retired in test tui package-linux mutants check-linux usecase-reachability \
+  device-smoke sync-provider-smoke; do
+  if grep -Eq -- "^${retired}([[:space:]].*)?:$" Justfile; then
+    fail "retired recipe remains in Justfile: ${retired}"
+  fi
+done
 if grep -Fq 'native-smoke' Justfile apps/android/project.yaml .gitignore; then
   fail "native-smoke composition root remains in the public command or module surface"
 fi
@@ -110,7 +114,7 @@ require_text apps/android/native-bindings/module.yaml 'allWarningsAsErrors: true
 require_text .gitignore '/apps/android/native-bindings/src/'
 require_text .gitignore '/apps/android/app/jniLibs/'
 require_text .githooks/pre-commit 'preflight'
-require_text .githooks/pre-push 'preflight push'
+require_text .githooks/pre-push 'preflight'
 if grep -Eq 'just ci' .githooks/pre-commit .githooks/pre-push; then
   fail "hooks must not invoke full just ci"
 fi

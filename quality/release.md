@@ -77,3 +77,41 @@ Before shipping backup, migration, credential, or restore changes:
 1. Inspect the merged release manifest for backup and extraction attributes.
 2. Record whether cloud backup and device transfer are intentionally disabled or scoped.
 3. Re-check every credential, sync, migration, and workspace setting that would enter that scope.
+
+## TUI Release (Desktop)
+
+`v*` tags belong to Android. TUI releases use `tui-v<semver>` tags and the
+`TUI Release` workflow, which runs the `ci-rust fast` host gate once on Linux, then
+builds and packages `lomo-tui` natively per target. Each matrix job runs the
+`lomo-platform-fs` contract suite on the real kernel before packaging, so a backend
+that only compiles cannot ship.
+
+| Artifact | Runner | Target |
+| --- | --- | --- |
+| `lomo-<ver>-x86_64-unknown-linux-gnu.tar.gz` | `ubuntu-latest` | `x86_64-unknown-linux-gnu` |
+| `lomo-<ver>-x86_64-apple-darwin.tar.gz` | `macos-13` | `x86_64-apple-darwin` |
+| `lomo-<ver>-aarch64-apple-darwin.tar.gz` | `macos-latest` | `aarch64-apple-darwin` |
+| `lomo-<ver>-x86_64-pc-windows-msvc.zip` | `windows-latest` | `x86_64-pc-windows-msvc` |
+
+Every archive carries the binary, `LICENSE`, shell completions (bash/zsh/fish,
+plus PowerShell on Windows), and a `<file>.sha256` checksum; the `publish` job
+attaches all of them to the GitHub Release.
+
+```bash
+git tag tui-v0.1.0 && git push origin tui-v0.1.0
+```
+
+`workflow_dispatch` repackages the Cargo.toml version without publishing a release.
+macOS archives are unsigned — Gatekeeper quarantine is cleared by the user
+(`xattr -d com.apple.quarantine lomo`); notarization is a future step, not a gate.
+
+`apps/tui/packaging/arch/lomo-bin/PKGBUILD` (`lomo-bin`) repackages that tarball. After each
+release bump `pkgver` and refresh `sha256sums` with `updpkgsums` (pacman-contrib) before pushing
+to AUR.
+
+`apps/tui/packaging/arch/lomo-local/PKGBUILD` (`lomo-local`) packages the worktree build at
+`target/release/lomo` for local iteration — `pkgver()` tracks `HEAD`, no network fetch:
+
+```bash
+just install-tui
+```

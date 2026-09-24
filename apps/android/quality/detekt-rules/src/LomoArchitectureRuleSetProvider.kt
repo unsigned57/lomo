@@ -93,6 +93,18 @@ class LomoArchitectureRuleSetProvider : RuleSetProvider {
                 RuleName("PagingDataCachedIn") to ::PagingDataCachedInRule,
                 RuleName("NoWriteOnlyStateFlow") to ::NoWriteOnlyStateFlowRule,
                 RuleName("NoCollaboratorDefaultArg") to ::NoCollaboratorDefaultArgRule,
+                RuleName("NoMintedIdentity") to ::NoMintedIdentityRule,
+                RuleName("NoErrorMessageControlFlow") to ::NoErrorMessageControlFlowRule,
+                RuleName("NoPlaceholderCollaborator") to ::NoPlaceholderCollaboratorRule,
+                RuleName("NoCapabilitySeam") to ::NoCapabilitySeamRule,
+                RuleName("NoSecretInWorkPayload") to ::NoSecretInWorkPayloadRule,
+                RuleName("NoNamePredicateDelete") to ::NoNamePredicateDeleteRule,
+                RuleName("NoCorruptionEmptyReset") to ::NoCorruptionEmptyResetRule,
+                RuleName("NoDomainClock") to ::NoDomainClockRule,
+                RuleName("NoConstantStatusValue") to ::NoConstantStatusValueRule,
+                RuleName("NoMutableStatePayload") to ::NoMutableStatePayloadRule,
+                RuleName("NoWriteInFlowDerivation") to ::NoWriteInFlowDerivationRule,
+                RuleName("NoInferredMutableStatePayload") to ::NoInferredMutableStatePayloadRule,
             ),
         )
 }
