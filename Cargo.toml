@@ -38,7 +38,7 @@ rusqlite = { version = "=0.40.1", default-features = false, features = ["bundled
 pulldown-cmark = { version = "=0.13.4", default-features = false }
 # Network feasibility: Rustls only (no native TLS). Used by tooling probes, not production.
 reqwest = { version = "=0.13.4", default-features = false, features = ["rustls", "blocking"] }
-rustls = { version = "=0.23.37", default-features = false, features = ["aws-lc-rs", "std", "tls12"] }
+rustls = { version = "=0.23.45", default-features = false, features = ["aws-lc-rs", "std", "tls12"] }
 rustls-pki-types = "=1.14.0"
 # Stage-5 dark S3 rclone crypt (P5-06): audited RustCrypto primitives only (no custom cipher).
 aes = { version = "=0.8.4", default-features = false }
@@ -49,7 +49,7 @@ crypto_secretbox = { version = "=0.1.1", default-features = false, features = ["
 # LAN (stage 6) crypto provider: already linked for four ABIs through rustls/reqwest. Supplies
 # X25519 agreement, HKDF-SHA256, ChaCha20-Poly1305 AEAD, ECDSA P-256 verify and the system CSPRNG,
 # so `lomo-lan` adds no second crypto generation and no new native code.
-aws-lc-rs = { version = "=1.17.3", default-features = false, features = ["alloc", "aws-lc-sys"] }
+aws-lc-rs = { version = "=1.18.1", default-features = false, features = ["alloc", "aws-lc-sys"] }
 rcgen = { version = "=0.13.2", default-features = false, features = ["crypto", "pem", "aws_lc_rs"] }
 # Git feasibility: approved non-pure-Rust exception (vendored libgit2 + openssl + zlib-ng).
 # Android BoltFFI links a Rust staticlib into JNI and has no custom system-library hook; vendoring
@@ -65,6 +65,8 @@ boltffi = { path = "crates/boltffi-facade" }
 boltffi_core = { package = "boltffi_core", git = "https://github.com/boltffi/boltffi", rev = "2e6320a6d92cb591d22b908477f3a47da7ebc9bc", default-features = false }
 tempfile = "=3.27.0"
 rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs", "event"] }
+# Cross-platform OS CSPRNG (Linux, macOS, Windows, *BSD). rustix::rand is Linux-only.
+getrandom = "=0.4.3"
 zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
 pinyin = { version = "=0.10.0", default-features = false, features = ["plain"] }
 

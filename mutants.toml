@@ -1,0 +1,5 @@
+# cargo-mutants workspace defaults. The verification DAG passes --in-diff/--in-place
+# itself; manual `cargo mutants` runs keep the safe copy-mode default.
+test_tool = "nextest"
+additional_cargo_args = ["--locked"]
+additional_cargo_test_args = ["--locked"]

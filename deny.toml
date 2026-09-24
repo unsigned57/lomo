@@ -21,6 +21,8 @@ skip = [
     { name = "hashbrown", version = "0.15" },
     # unicode-truncate 1.1 still depends on unicode-width 0.1 while ratatui uses 0.2.
     { name = "unicode-width", version = "0.1" },
+    # clap_derive 4.6 moved to syn 3 while the rest of the proc-macro graph stays on 2.
+    { name = "syn", version = "3" },
 ]
 
 [licenses]
