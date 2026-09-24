@@ -1,5 +1,7 @@
 package com.lomo.data.repository
 
+import com.lomo.data.engine.sync.RustSyncCycleStatusStore
+import com.lomo.data.engine.sync.toWebDavSyncState
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.webdav.WebDavCredentialStore
 import com.lomo.domain.model.CredentialField
@@ -17,8 +19,6 @@ import com.lomo.domain.repository.WebDavSyncConfigurationMutationRepository
 import com.lomo.domain.repository.WebDavSyncConfigurationRepository
 import com.lomo.domain.repository.WebDavSyncStateRepository
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.transform
@@ -27,6 +27,7 @@ class WebDavSyncConfigurationRepositoryImpl(
     private val dataStore: LomoDataStore,
     private val credentialRepository: CredentialRepository,
     private val securitySessionPolicy: SecuritySessionPolicy,
+    private val cycleStatus: RustSyncCycleStatusStore,
 ) : WebDavSyncConfigurationRepository {
     override fun isWebDavSyncEnabled(): Flow<Boolean> = dataStore.webDavSyncEnabled
 
@@ -50,8 +51,12 @@ class WebDavSyncConfigurationRepositoryImpl(
 
     override fun getSyncOnRefreshEnabled(): Flow<Boolean> = dataStore.webDavSyncOnRefresh
 
+    /**
+     * Last-successful sync timestamp from the durable cycle record (`cycle_state.rec`).
+     * The `webDavLastSyncTime` DataStore write path is retired.
+     */
     override fun observeLastSyncTimeMillis(): Flow<Long?> =
-        dataStore.webDavLastSyncTime.map { stored -> stored.takeIf { it > 0L } }
+        cycleStatus.observe().map { status -> status?.lastSuccessfulAtMs }
 }
 
 class WebDavSyncConfigurationMutationRepositoryImpl(
@@ -114,10 +119,12 @@ class WebDavSyncConfigurationMutationRepositoryImpl(
     }
 }
 
-class WebDavSyncStateRepositoryImpl : WebDavSyncStateRepository {
-    private val state = MutableStateFlow<WebDavSyncState>(WebDavSyncState.Idle)
-
-    override fun syncState(): Flow<WebDavSyncState> = state.asStateFlow()
+/** Durable sync state for WebDAV — real cycle-record reads, never an in-memory `Idle` seed. */
+class WebDavSyncStateRepositoryImpl(
+    private val cycleStatus: RustSyncCycleStatusStore,
+) : WebDavSyncStateRepository {
+    override fun syncState(): Flow<WebDavSyncState> =
+        cycleStatus.observe().map { status -> status.toWebDavSyncState() }
 }
 
 internal val WebDavProvider.preferenceValue: String

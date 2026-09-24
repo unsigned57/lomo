@@ -35,21 +35,35 @@ class GitCredentialStore private constructor(
 
     internal fun readToken(): SecureStringReadResult = prefs.readString(KEY_GITHUB_PAT)
 
+    internal fun readUsername(): SecureStringReadResult = prefs.readString(KEY_GIT_USERNAME)
+
     internal val tokenStatus: StoredCredentialStatus
         get() = prefs.credentialStatus(KEY_GITHUB_PAT)
+
+    internal val usernameStatus: StoredCredentialStatus
+        get() = prefs.credentialStatus(KEY_GIT_USERNAME)
 
     internal val credentialState: CredentialState
         get() =
             CredentialState(
                 provider = CredentialProvider.GIT,
-                fields = listOf(CredentialFieldState(CredentialField.GIT_TOKEN, tokenStatus)),
+                fields =
+                    listOf(
+                        CredentialFieldState(CredentialField.GIT_TOKEN, tokenStatus),
+                        CredentialFieldState(CredentialField.GIT_USERNAME, usernameStatus),
+                    ),
             )
 
     internal fun setToken(token: String?) {
         prefs.putString(KEY_GITHUB_PAT, token)
     }
 
+    internal fun setUsername(username: String?) {
+        prefs.putString(KEY_GIT_USERNAME, username)
+    }
+
     companion object {
         private const val KEY_GITHUB_PAT = "github_pat"
+        private const val KEY_GIT_USERNAME = "git_username"
     }
 }

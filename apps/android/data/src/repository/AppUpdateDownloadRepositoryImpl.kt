@@ -100,6 +100,8 @@ class AppUpdateDownloadRepositoryImpl internal constructor(
                             emit(AppUpdateInstallState.Downloading(progress))
                         }
                     val downloadedPath = targetFile.absolutePath
+                    // Terminal record — the loop above already emitted measured per-byte progress.
+                    // behavior-contract: constant-status-ok: Downloaded carries the completed 100%.
                     attemptStore.save(
                         AppUpdateInstallAttempt(
                             updateInfo = updateInfo,

@@ -139,6 +139,7 @@ constructor(
                 sensitive.putStringIfPresent(SettingsKey.WEBDAV_STORED_USERNAME, username)
             }
             sensitive.putCredentialIfPresent(SettingsKey.GIT_TOKEN, CredentialField.GIT_TOKEN)
+            sensitive.putCredentialIfPresent(SettingsKey.GIT_USERNAME, CredentialField.GIT_USERNAME)
             sensitive.putCredentialIfPresent(SettingsKey.WEBDAV_STORED_USERNAME, CredentialField.WEBDAV_USERNAME)
             sensitive.putCredentialIfPresent(SettingsKey.WEBDAV_PASSWORD, CredentialField.WEBDAV_PASSWORD)
             sensitive.putCredentialIfPresent(SettingsKey.S3_ACCESS_KEY_ID, CredentialField.S3_ACCESS_KEY_ID)
@@ -242,6 +243,7 @@ constructor(
             val sensitiveCredentialFields =
                 listOf(
                     CredentialField.GIT_TOKEN,
+                    CredentialField.GIT_USERNAME,
                     CredentialField.WEBDAV_USERNAME,
                     CredentialField.WEBDAV_PASSWORD,
                     CredentialField.S3_ACCESS_KEY_ID,
@@ -250,6 +252,10 @@ constructor(
                     CredentialField.S3_ENCRYPTION_PASSWORD,
                     CredentialField.S3_ENCRYPTION_PASSWORD2,
                 )
+            // GIT_SYNC_ENABLED/WEBDAV_SYNC_ENABLED/S3_SYNC_ENABLED are intentionally absent:
+            // the keys are retired in favor of SYNC_BACKEND_TYPE, so restoring them would
+            // re-introduce the duplicate facts. Exports still emit the derived values for
+            // older versions reading the same backup format.
             val booleanPreferenceKeys =
                 setOf(
                     SettingsKey.CHECK_UPDATES_ON_STARTUP,
@@ -257,13 +263,10 @@ constructor(
                     SettingsKey.LAN_SHARE_ENABLED,
                     SettingsKey.SYNC_INBOX_ENABLED,
                     SettingsKey.MEMO_SNAPSHOTS_ENABLED,
-                    SettingsKey.GIT_SYNC_ENABLED,
                     SettingsKey.GIT_AUTO_SYNC_ENABLED,
                     SettingsKey.GIT_SYNC_ON_REFRESH,
-                    SettingsKey.WEBDAV_SYNC_ENABLED,
                     SettingsKey.WEBDAV_AUTO_SYNC_ENABLED,
                     SettingsKey.WEBDAV_SYNC_ON_REFRESH,
-                    SettingsKey.S3_SYNC_ENABLED,
                     SettingsKey.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION,
                     SettingsKey.S3_RCLONE_DATA_ENCRYPTION_ENABLED,
                     SettingsKey.S3_AUTO_SYNC_ENABLED,
@@ -303,8 +306,16 @@ constructor(
                     SettingsKey.S3_RCLONE_ENCRYPTED_SUFFIX,
                     SettingsKey.S3_AUTO_SYNC_INTERVAL,
                 )
+            // Retired keys are drained without being restored: GIT/WEBDAV/S3_SYNC_ENABLED were
+            // replaced by SYNC_BACKEND_TYPE, so an older backup may carry them but they must
+            // not resurrect independent flag facts on this version.
             val legacyDrainPreferenceKeys =
-                setOf(SettingsKey.WEBDAV_USERNAME)
+                setOf(
+                    SettingsKey.WEBDAV_USERNAME,
+                    SettingsKey.GIT_SYNC_ENABLED,
+                    SettingsKey.WEBDAV_SYNC_ENABLED,
+                    SettingsKey.S3_SYNC_ENABLED,
+                )
             val nullablePreferenceKeys =
                 setOf(
                     SettingsKey.LAN_SHARE_DEVICE_NAME,

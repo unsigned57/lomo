@@ -3,6 +3,7 @@ package com.lomo.data.di
 import android.content.Context
 
 import com.lomo.data.repository.AppPreferencesSnapshotRepositoryImpl
+import com.lomo.data.repository.CommittedMediaLocationSink
 import com.lomo.data.repository.DailyReviewSessionRepositoryImpl
 import com.lomo.data.repository.DataStoreMigrationSettingsStore
 import com.lomo.data.repository.NativeWorkspaceSyncGenerationProvider
@@ -69,6 +70,7 @@ import com.lomo.domain.repository.SecuritySessionController
 import com.lomo.domain.repository.SecuritySessionPolicy
 import com.lomo.domain.repository.ShareImageRepository
 import com.lomo.domain.repository.SidebarTagOrderPreferencesRepository
+import com.lomo.domain.repository.SyncInboxPreferencesRepository
 import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.SyncStateResetRepository
 import com.lomo.domain.repository.WorkspaceSyncGenerationProvider
@@ -82,8 +84,11 @@ import org.koin.dsl.binds
 val coreDataRepositoryModule = module {
     singleOf(::ShareImageRepositoryImpl) bind ShareImageRepository::class
 
-    single { LomoDataStore(androidContext()) }
+    single { LomoDataStore(androidContext(), get<com.lomo.domain.usecase.DispatcherProvider>().io) }
     single<LomoLanSharePreferencesStore> { get<LomoDataStore>() }
+    single<com.lomo.domain.repository.PreferencesHealthRepository> {
+        com.lomo.data.local.datastore.PreferencesCorruptionRegistry.shared
+    }
 
     // Pref delegates
     single { DirectorySettingsRepositoryImpl(get(), get()) }
@@ -98,7 +103,7 @@ val coreDataRepositoryModule = module {
     single { ShareCardPreferencesRepositoryImpl(get()) }
     single { MemoEditDraftRepositoryImpl(get()) } bind MemoEditDraftRepository::class
     single { MemoCreateDraftRepositoryImpl(get()) } bind MemoCreateDraftRepository::class
-    single { SyncInboxPreferencesRepositoryImpl(get()) }
+    single { SyncInboxPreferencesRepositoryImpl(get()) } bind SyncInboxPreferencesRepository::class
     single { MemoSnapshotPreferencesRepositoryImpl(get()) }
     single { TypographyPreferencesRepositoryImpl(get()) }
     single { ColorSchemePreferencesRepositoryImpl(get()) }
@@ -186,7 +191,7 @@ val coreDataRepositoryModule = module {
             pendingStages = get(),
             dispatcherProvider = get(),
         )
-    } bind MediaRepository::class
+    } binds arrayOf(MediaRepository::class, CommittedMediaLocationSink::class)
     single<ArchivePort> { BoltFfiArchivePort(bridge = get<ManagedEngineSession>()) }
 
     // Credentials / Security
@@ -227,10 +232,11 @@ val coreDataRepositoryModule = module {
                     context = androidContext(),
                     preferencesRepository = get(),
                     workspaceConfigSource = get(),
-                    markdownStorageDataSource = get(),
-                    workspaceMediaAccess = get(),
-                    memoMutationRepository = get(),
                     pendingReviewStore = get(),
+                    storePort = get(),
+                    pendingStages = get(),
+                    workspaceRoot = get(),
+                    committedMediaSink = get(),
                 ),
             writeLease = get(),
             contentProjector = get(),

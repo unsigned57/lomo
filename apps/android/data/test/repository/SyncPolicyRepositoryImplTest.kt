@@ -21,16 +21,24 @@ package com.lomo.data.repository
  * - RED: setRemoteSyncBackend only wrote flags (no cancel, no Rust reset).
  *
  * Excludes: WorkManager device execution; JNI reset of `.lomo/sync/v1`.
+ * Test Change Justification:
+ * - Reason category: product/domain contract changed.
+ * - Old behavior/assertion being replaced: scheduling decisions keyed on the retired tri-flag preference keys.
+ * - Why old assertion is no longer correct: syncBackendType is now the single persisted fact and UNKNOWN is an explicit unavailable state.
+ * - Coverage preserved by: policy cases re-expressed on the single-fact backend model.
+ * - Why this is not fitting the test to the implementation: single-fact backend selection is the audit-required contract.
  */
 
-import android.content.Context
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.sync.GitEndpointSecurityMigration
+import com.lomo.data.worker.CoreSyncScheduler
 import com.lomo.data.worker.RustSyncScheduler
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.repository.SyncStateResetRepository
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CoroutineScope
@@ -53,10 +61,11 @@ class SyncPolicyRepositoryImplTest : FunSpec({
                 }
             val repository =
                 SyncPolicyRepositoryImpl(
-                    context = mockk<Context>(),
                     dataStore = dataStore,
+                    coreSyncScheduler = mockk(),
                     rustSyncScheduler = scheduler,
                     syncStateReset = reset,
+                    gitEndpointSecurityMigration = mockk(),
                 )
 
             repository.setRemoteSyncBackend(SyncBackendType.GIT)
@@ -70,12 +79,7 @@ class SyncPolicyRepositoryImplTest : FunSpec({
         runTest {
             val events = mutableListOf<String>()
             val dataStore = createLomoDataStore(backgroundScope)
-            dataStore.setRemoteSyncBackendFlags(
-                backendType = "git",
-                gitEnabled = true,
-                webdavEnabled = false,
-                s3Enabled = false,
-            )
+            dataStore.setRemoteSyncBackendType("git")
             val scheduler = mockk<RustSyncScheduler>()
             every { scheduler.cancel() } answers { events += "cancel" }
             val reset =
@@ -86,16 +90,41 @@ class SyncPolicyRepositoryImplTest : FunSpec({
                 }
             val repository =
                 SyncPolicyRepositoryImpl(
-                    context = mockk<Context>(),
                     dataStore = dataStore,
+                    coreSyncScheduler = mockk(),
                     rustSyncScheduler = scheduler,
                     syncStateReset = reset,
+                    gitEndpointSecurityMigration = mockk(),
                 )
 
             repository.setRemoteSyncBackend(SyncBackendType.GIT)
 
             events shouldBe emptyList()
             dataStore.syncBackendType.first() shouldBe "git"
+        }
+    }
+
+    test("applyRemoteSyncPolicy sanitizes legacy git endpoints before reading the backend") {
+        runTest {
+            val events = mutableListOf<String>()
+            val dataStore = createLomoDataStore(backgroundScope)
+            dataStore.setRemoteSyncBackendType("git")
+            val scheduler = mockk<RustSyncScheduler>()
+            val migration = mockk<GitEndpointSecurityMigration>()
+            coEvery { migration.migrateIfNeeded() } answers { events += "migrate" }
+            coEvery { scheduler.reschedule() } answers { events += "reschedule" }
+            val repository =
+                SyncPolicyRepositoryImpl(
+                    dataStore = dataStore,
+                    coreSyncScheduler = mockk(),
+                    rustSyncScheduler = scheduler,
+                    syncStateReset = mockk(),
+                    gitEndpointSecurityMigration = migration,
+                )
+
+            repository.applyRemoteSyncPolicy()
+
+            events shouldBe listOf("migrate", "reschedule")
         }
     }
 })

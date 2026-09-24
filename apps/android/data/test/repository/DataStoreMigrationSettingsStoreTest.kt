@@ -141,13 +141,13 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                     shouldThrow<IllegalArgumentException> {
                         fixture.store.restore(
                             MigrationSettingsSnapshot(
-                                preferences = mapOf(SettingsKey.GIT_SYNC_ENABLED to "enabled"),
+                                preferences = mapOf(SettingsKey.GIT_AUTO_SYNC_ENABLED to "enabled"),
                             ),
                         )
                     }
 
                 failure.message.orEmpty() shouldContain "must be a boolean"
-                fixture.dataStore.gitSyncEnabled.first() shouldBe false
+                fixture.dataStore.gitAutoSyncEnabled.first() shouldBe false
             }
         }
 
@@ -249,7 +249,7 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                     fullValidPreferencePayload() +
                         mapOf(
                             "theme_mode" to ThemeMode.DARK.value,
-                            SettingsKey.GIT_SYNC_ENABLED to "enabled",
+                            SettingsKey.GIT_AUTO_SYNC_ENABLED to "enabled",
                         )
 
                 shouldThrow<IllegalArgumentException> {
@@ -257,7 +257,7 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 }
 
                 fixture.dataStore.themeMode.first() shouldBe ThemeMode.SYSTEM.value
-                fixture.dataStore.gitSyncEnabled.first() shouldBe false
+                fixture.dataStore.gitAutoSyncEnabled.first() shouldBe false
                 fixture.preferenceUpdates.updateCallCount shouldBe 0
             }
         }
@@ -302,7 +302,7 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                     )
 
                 report.ordinary.providedOrdinaryKeys shouldBe emptySet()
-                report.ordinary.missingRequiredKeys.contains(SettingsKey.GIT_SYNC_ENABLED) shouldBe true
+                report.ordinary.missingRequiredKeys.contains(SettingsKey.SYNC_BACKEND_TYPE) shouldBe true
                 fixture.store.restore(
                     MigrationSettingsSnapshot(
                         sensitive = mapOf(SettingsKey.S3_ACCESS_KEY_ID to "new-access-key"),
@@ -482,7 +482,7 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                     }
 
                 failure.report.ordinary.providedOrdinaryKeys shouldBe setOf("theme_mode")
-                failure.report.ordinary.missingRequiredKeys.contains(SettingsKey.GIT_SYNC_ENABLED) shouldBe true
+                failure.report.ordinary.missingRequiredKeys.contains(SettingsKey.SYNC_BACKEND_TYPE) shouldBe true
                 fixture.dataStore.themeMode.first() shouldBe ThemeMode.SYSTEM.value
                 fixture.preferenceUpdates.updateCallCount shouldBe 0
             }
@@ -545,7 +545,7 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             runTest {
                 val fixture = setUpStore()
                 fixture.credentials.gitToken = "old-git-token"
-                fixture.dataStore.setRemoteSyncBackendFlags("none", gitEnabled = false, webdavEnabled = false, s3Enabled = false)
+                fixture.dataStore.setRemoteSyncBackendType("none")
                 fixture.preferenceUpdates.reset()
 
                 val failure =
@@ -577,7 +577,7 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 val fixture = setUpStore()
                 fixture.credentials.webDavUsername = "old-dav-user"
                 fixture.credentials.webDavPassword = "old-dav-password"
-                fixture.dataStore.setRemoteSyncBackendFlags("none", gitEnabled = false, webdavEnabled = false, s3Enabled = false)
+                fixture.dataStore.setRemoteSyncBackendType("none")
                 fixture.preferenceUpdates.reset()
 
                 val failure =
@@ -615,7 +615,7 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 val fixture = setUpStore()
                 fixture.credentials.webDavUsername = "old-dav-user"
                 fixture.credentials.webDavPassword = "old-dav-password"
-                fixture.dataStore.setRemoteSyncBackendFlags("none", gitEnabled = false, webdavEnabled = false, s3Enabled = false)
+                fixture.dataStore.setRemoteSyncBackendType("none")
                 fixture.preferenceUpdates.reset()
                 val operationLogBeforeRestore = fixture.operationLog.toList()
 
@@ -655,7 +655,7 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 val fixture = setUpStore()
                 fixture.credentials.s3AccessKeyId = "old-s3-access-key"
                 fixture.credentials.s3SecretAccessKey = "old-s3-secret-key"
-                fixture.dataStore.setRemoteSyncBackendFlags("none", gitEnabled = false, webdavEnabled = false, s3Enabled = false)
+                fixture.dataStore.setRemoteSyncBackendType("none")
                 fixture.preferenceUpdates.reset()
 
                 val failure =
@@ -691,7 +691,7 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
         test("given required credential import fails when restore is attempted then ordinary provider settings are not written") {
             runTest {
                 val fixture = setUpStore()
-                fixture.dataStore.setRemoteSyncBackendFlags("none", gitEnabled = false, webdavEnabled = false, s3Enabled = false)
+                fixture.dataStore.setRemoteSyncBackendType("none")
                 fixture.credentials.webDavPasswordFailures += IllegalStateException("webdav password staging failed")
                 fixture.preferenceUpdates.reset()
 
@@ -1001,6 +1001,7 @@ private class FailingPreferencesDataStore(
 
 private data class CredentialFixtureState(
     var gitToken: String? = null,
+    var gitUsername: String? = null,
     var webDavUsername: String? = null,
     var webDavPassword: String? = null,
     var s3AccessKeyId: String? = null,
@@ -1060,6 +1061,7 @@ private class FakeCredentialRepository(
         operationLog += "credential:${field.name}=${value ?: "<cleared>"}"
         when (field) {
             CredentialField.GIT_TOKEN -> credentials.gitToken = value
+            CredentialField.GIT_USERNAME -> credentials.gitUsername = value
             CredentialField.WEBDAV_USERNAME -> credentials.webDavUsername = value
             CredentialField.WEBDAV_PASSWORD -> credentials.webDavPassword = value
             CredentialField.S3_ACCESS_KEY_ID -> credentials.s3AccessKeyId = value
@@ -1080,6 +1082,7 @@ private class FakeCredentialRepository(
     private fun readValue(field: CredentialField): String? =
         when (field) {
             CredentialField.GIT_TOKEN -> credentials.gitToken
+            CredentialField.GIT_USERNAME -> credentials.gitUsername
             CredentialField.WEBDAV_USERNAME -> credentials.webDavUsername
             CredentialField.WEBDAV_PASSWORD -> credentials.webDavPassword
             CredentialField.S3_ACCESS_KEY_ID -> credentials.s3AccessKeyId
@@ -1091,7 +1094,7 @@ private class FakeCredentialRepository(
 
     private fun fieldsForProvider(provider: CredentialProvider): List<CredentialField> =
         when (provider) {
-            CredentialProvider.GIT -> listOf(CredentialField.GIT_TOKEN)
+            CredentialProvider.GIT -> listOf(CredentialField.GIT_TOKEN, CredentialField.GIT_USERNAME)
             CredentialProvider.WEBDAV -> listOf(CredentialField.WEBDAV_USERNAME, CredentialField.WEBDAV_PASSWORD)
             CredentialProvider.S3 ->
                 listOf(

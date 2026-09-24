@@ -12,6 +12,7 @@ import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceRootTransition
 import com.lomo.domain.model.WorkspaceRootTransitionCorruptionException
 import com.lomo.domain.model.AppLockPreference
+import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.WorkspaceRootTransitionPhase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -52,7 +53,7 @@ internal class WorkspaceRootTransitionStoreImpl(
     ): WorkspaceRootTransition {
         val transition =
             WorkspaceRootTransition(
-                id = UUID.randomUUID().toString(),
+                id = newTransitionId(),
                 previous = previous,
                 candidate = candidate,
                 phase = WorkspaceRootTransitionPhase.PREPARED,
@@ -68,6 +69,9 @@ internal class WorkspaceRootTransitionStoreImpl(
         }
         return transition
     }
+
+    // The transition store owns transition identity; ids are minted here, never by callers.
+    private fun newTransitionId(): String = UUID.randomUUID().toString()
 
     override suspend fun markRootTransitionActivated(transitionId: String): WorkspaceRootTransition {
         var activated: WorkspaceRootTransition? = null
@@ -749,12 +753,17 @@ internal class AppVersionStoreImpl(
 internal class GitSyncBehaviorStoreImpl(
     private val dataStore: DataStore<Preferences>,
 ) : LomoGitSyncBehaviorStore {
-    override val gitSyncEnabled: Flow<Boolean> =
-        dataStore.booleanFlow(
-            key = LomoDataStoreKeys.GIT_SYNC_ENABLED,
-            flowName = "gitSyncEnabled",
-            default = PreferenceKeys.Defaults.GIT_SYNC_ENABLED,
+    override val syncBackendType: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.SYNC_BACKEND_TYPE,
+            flowName = "syncBackendType",
+            default = PreferenceKeys.Defaults.SYNC_BACKEND_TYPE,
         )
+
+    override val gitSyncEnabled: Flow<Boolean> =
+        syncBackendType.map {
+            SyncBackendType.fromStorageValue(it) == SyncBackendType.GIT
+        }
 
     override val gitAutoSyncEnabled: Flow<Boolean> =
         dataStore.booleanFlow(
@@ -777,13 +786,6 @@ internal class GitSyncBehaviorStoreImpl(
             default = PreferenceKeys.Defaults.GIT_SYNC_ON_REFRESH,
         )
 
-    override val syncBackendType: Flow<String> =
-        dataStore.stringFlow(
-            key = LomoDataStoreKeys.SYNC_BACKEND_TYPE,
-            flowName = "syncBackendType",
-            default = PreferenceKeys.Defaults.SYNC_BACKEND_TYPE,
-        )
-
     override suspend fun updateGitAutoSyncEnabled(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.GIT_AUTO_SYNC_ENABLED] = enabled }
     }
@@ -796,17 +798,9 @@ internal class GitSyncBehaviorStoreImpl(
         dataStore.editPreferences { this[LomoDataStoreKeys.GIT_SYNC_ON_REFRESH] = enabled }
     }
 
-    override suspend fun setRemoteSyncBackendFlags(
-        backendType: String,
-        gitEnabled: Boolean,
-        webdavEnabled: Boolean,
-        s3Enabled: Boolean,
-    ) {
+    override suspend fun setRemoteSyncBackendType(backendType: String) {
         dataStore.editPreferences {
             this[LomoDataStoreKeys.SYNC_BACKEND_TYPE] = backendType
-            this[LomoDataStoreKeys.GIT_SYNC_ENABLED] = gitEnabled
-            this[LomoDataStoreKeys.WEBDAV_SYNC_ENABLED] = webdavEnabled
-            this[LomoDataStoreKeys.S3_SYNC_ENABLED] = s3Enabled
         }
     }
 }
@@ -816,6 +810,13 @@ internal class GitIdentityStoreImpl(
 ) : LomoGitIdentityStore {
     override val gitRemoteUrl: Flow<String?> =
         dataStore.nullableStringFlow(LomoDataStoreKeys.GIT_REMOTE_URL, "gitRemoteUrl")
+
+    override val gitBranch: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.GIT_BRANCH,
+            flowName = "gitBranch",
+            default = PreferenceKeys.Defaults.GIT_BRANCH,
+        )
 
     override val gitAuthorName: Flow<String> =
         dataStore.stringFlow(
@@ -835,6 +836,10 @@ internal class GitIdentityStoreImpl(
         dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.GIT_REMOTE_URL, url)
     }
 
+    override suspend fun updateGitBranch(branch: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.GIT_BRANCH] = branch }
+    }
+
     override suspend fun updateGitAuthorName(name: String) {
         dataStore.editPreferences { this[LomoDataStoreKeys.GIT_AUTHOR_NAME] = name }
     }
@@ -844,30 +849,11 @@ internal class GitIdentityStoreImpl(
     }
 }
 
-internal class GitSyncStatusStoreImpl(
-    private val dataStore: DataStore<Preferences>,
-) : LomoGitSyncStatusStore {
-    override val gitLastSyncTime: Flow<Long> =
-        dataStore.longFlow(
-            key = LomoDataStoreKeys.GIT_LAST_SYNC_TIME,
-            flowName = "gitLastSyncTime",
-            default = 0L,
-        )
-
-    override suspend fun updateGitLastSyncTime(timestamp: Long) {
-        dataStore.editPreferences { this[LomoDataStoreKeys.GIT_LAST_SYNC_TIME] = timestamp }
-    }
-}
-
 internal class WebDavConnectionStoreImpl(
     private val dataStore: DataStore<Preferences>,
 ) : LomoWebDavConnectionStore {
     override val webDavSyncEnabled: Flow<Boolean> =
-        dataStore.booleanFlow(
-            key = LomoDataStoreKeys.WEBDAV_SYNC_ENABLED,
-            flowName = "webDavSyncEnabled",
-            default = PreferenceKeys.Defaults.WEBDAV_SYNC_ENABLED,
-        )
+        dataStore.backendEnabledFlow(SyncBackendType.WEBDAV)
 
     override val webDavProvider: Flow<String> =
         dataStore.stringFlow(
@@ -919,13 +905,6 @@ internal class WebDavScheduleStoreImpl(
             default = PreferenceKeys.Defaults.WEBDAV_AUTO_SYNC_INTERVAL,
         )
 
-    override val webDavLastSyncTime: Flow<Long> =
-        dataStore.longFlow(
-            key = LomoDataStoreKeys.WEBDAV_LAST_SYNC_TIME,
-            flowName = "webDavLastSyncTime",
-            default = 0L,
-        )
-
     override val webDavSyncOnRefresh: Flow<Boolean> =
         dataStore.booleanFlow(
             key = LomoDataStoreKeys.WEBDAV_SYNC_ON_REFRESH,
@@ -941,10 +920,6 @@ internal class WebDavScheduleStoreImpl(
         dataStore.editPreferences { this[LomoDataStoreKeys.WEBDAV_AUTO_SYNC_INTERVAL] = interval }
     }
 
-    override suspend fun updateWebDavLastSyncTime(timestamp: Long) {
-        dataStore.editPreferences { this[LomoDataStoreKeys.WEBDAV_LAST_SYNC_TIME] = timestamp }
-    }
-
     override suspend fun updateWebDavSyncOnRefresh(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.WEBDAV_SYNC_ON_REFRESH] = enabled }
     }
@@ -954,11 +929,7 @@ internal class S3ConnectionStoreImpl(
     private val dataStore: DataStore<Preferences>,
 ) : LomoS3ConnectionStore {
     override val s3SyncEnabled: Flow<Boolean> =
-        dataStore.booleanFlow(
-            key = LomoDataStoreKeys.S3_SYNC_ENABLED,
-            flowName = "s3SyncEnabled",
-            default = PreferenceKeys.Defaults.S3_SYNC_ENABLED,
-        )
+        dataStore.backendEnabledFlow(SyncBackendType.S3)
 
     override val s3EndpointUrl: Flow<String?> =
         dataStore.nullableStringFlow(LomoDataStoreKeys.S3_ENDPOINT_URL, "s3EndpointUrl")
@@ -1090,13 +1061,6 @@ internal class S3ScheduleStoreImpl(
             default = PreferenceKeys.Defaults.S3_AUTO_SYNC_INTERVAL,
         )
 
-    override val s3LastSyncTime: Flow<Long> =
-        dataStore.longFlow(
-            key = LomoDataStoreKeys.S3_LAST_SYNC_TIME,
-            flowName = "s3LastSyncTime",
-            default = 0L,
-        )
-
     override val s3SyncOnRefresh: Flow<Boolean> =
         dataStore.booleanFlow(
             key = LomoDataStoreKeys.S3_SYNC_ON_REFRESH,
@@ -1110,10 +1074,6 @@ internal class S3ScheduleStoreImpl(
 
     override suspend fun updateS3AutoSyncInterval(interval: String) {
         dataStore.editPreferences { this[LomoDataStoreKeys.S3_AUTO_SYNC_INTERVAL] = interval }
-    }
-
-    override suspend fun updateS3LastSyncTime(timestamp: Long) {
-        dataStore.editPreferences { this[LomoDataStoreKeys.S3_LAST_SYNC_TIME] = timestamp }
     }
 
     override suspend fun updateS3SyncOnRefresh(enabled: Boolean) {

@@ -1,7 +1,5 @@
 package com.lomo.data.di
 
-import com.lomo.data.repository.DefaultWorkspaceMediaAccess
-import com.lomo.data.repository.WorkspaceMediaAccess
 import com.lomo.data.source.FileDataSourceImpl
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MediaStorageDataSource
@@ -40,6 +38,4 @@ val storageDataSourceModule = module {
             mediaStorageDataSource = get<FileMediaStorageDataSourceDelegate>(),
         )
     }
-
-    singleOf(::DefaultWorkspaceMediaAccess) bind WorkspaceMediaAccess::class
 }

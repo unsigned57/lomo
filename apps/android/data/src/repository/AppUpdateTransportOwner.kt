@@ -8,7 +8,7 @@ import kotlinx.coroutines.isActive
 
 internal class AppUpdateTransportOwner private constructor(
     private val httpClientFactory: () -> HttpClient,
-    initialHttpClient: HttpClient?,
+    initialSlot: ClientSlot?,
 ) : AppUpdateTransportLifecycleRepository,
     AppUpdateHttpClientProvider,
     AutoCloseable {
@@ -16,17 +16,17 @@ internal class AppUpdateTransportOwner private constructor(
         httpClientFactory = {
             error("App update HttpClient cannot be rebuilt without a factory")
         },
-        initialHttpClient = httpClient,
+        initialSlot = ClientSlot(httpClient),
     )
 
     constructor(httpClientFactory: () -> HttpClient) : this(
         httpClientFactory = httpClientFactory,
-        initialHttpClient = null,
+        initialSlot = null,
     )
 
     private val lock = Any()
     // behavior-contract: stateful-var-ok: this is process-owned resource/lease/job handle, not a query cache
-    private var currentClient: ClientSlot? = initialHttpClient?.let(::ClientSlot)
+    private var currentClient: ClientSlot? = initialSlot
 
     fun createDownloader(): AppUpdateApkDownloader = AppUpdateHttpDownloader(this)
 

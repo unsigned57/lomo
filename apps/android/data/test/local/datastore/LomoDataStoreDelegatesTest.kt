@@ -131,40 +131,31 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
             val dataStore = newDataStore(backgroundScope)
             val gitBehaviorStore = GitSyncBehaviorStoreImpl(dataStore)
             val gitIdentityStore = GitIdentityStoreImpl(dataStore)
-            val gitStatusStore = GitSyncStatusStoreImpl(dataStore)
             val webDavConnectionStore = WebDavConnectionStoreImpl(dataStore)
             val webDavScheduleStore = WebDavScheduleStoreImpl(dataStore)
             val s3ConnectionStore = S3ConnectionStoreImpl(dataStore)
             val s3ScheduleStore = S3ScheduleStoreImpl(dataStore)
             val createDraftStore = CreateDraftStoreImpl(dataStore)
 
-            gitBehaviorStore.setRemoteSyncBackendFlags(
-                backendType = "git",
-                gitEnabled = true,
-                webdavEnabled = true,
-                s3Enabled = true,
-            )
+            gitBehaviorStore.setRemoteSyncBackendType("git")
             gitBehaviorStore.updateGitAutoSyncEnabled(true)
             gitBehaviorStore.updateGitAutoSyncInterval("30m")
             gitBehaviorStore.updateGitSyncOnRefresh(true)
             gitIdentityStore.updateGitRemoteUrl("https://example.com/repo.git")
             gitIdentityStore.updateGitAuthorName("Lomo")
             gitIdentityStore.updateGitAuthorEmail("lomo@example.com")
-            gitStatusStore.updateGitLastSyncTime(1234L)
             webDavConnectionStore.updateWebDavProvider("custom")
             webDavConnectionStore.updateWebDavBaseUrl("https://dav.example.com")
             webDavConnectionStore.updateWebDavEndpointUrl("https://dav.example.com/notes")
             webDavConnectionStore.updateWebDavUsername("alice")
             webDavScheduleStore.updateWebDavAutoSyncEnabled(true)
             webDavScheduleStore.updateWebDavAutoSyncInterval("2h")
-            webDavScheduleStore.updateWebDavLastSyncTime(5678L)
             webDavScheduleStore.updateWebDavSyncOnRefresh(true)
             s3ConnectionStore.updateS3EndpointUrl("https://s3.example.com")
             s3ConnectionStore.updateS3Bucket("vault")
             s3ConnectionStore.updateS3LocalSyncDirectory("content://tree/primary%3AObsidian")
             s3ScheduleStore.updateS3AutoSyncEnabled(true)
             s3ScheduleStore.updateS3AutoSyncInterval("6h")
-            s3ScheduleStore.updateS3LastSyncTime(6789L)
             s3ScheduleStore.updateS3SyncOnRefresh(true)
             createDraftStore.updateMemoCreateDraft("draft body")
 
@@ -176,23 +167,20 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
             gitIdentityStore.gitRemoteUrl.first() shouldBe "https://example.com/repo.git"
             gitIdentityStore.gitAuthorName.first() shouldBe "Lomo"
             gitIdentityStore.gitAuthorEmail.first() shouldBe "lomo@example.com"
-            gitStatusStore.gitLastSyncTime.first() shouldBe 1234L
-            (webDavConnectionStore.webDavSyncEnabled.first()).shouldBeTrue()
+            (webDavConnectionStore.webDavSyncEnabled.first()).shouldBeFalse()
             webDavConnectionStore.webDavProvider.first() shouldBe "custom"
             webDavConnectionStore.webDavBaseUrl.first() shouldBe "https://dav.example.com"
             webDavConnectionStore.webDavEndpointUrl.first() shouldBe "https://dav.example.com/notes"
             webDavConnectionStore.webDavUsername.first() shouldBe "alice"
             (webDavScheduleStore.webDavAutoSyncEnabled.first()).shouldBeTrue()
             webDavScheduleStore.webDavAutoSyncInterval.first() shouldBe "2h"
-            webDavScheduleStore.webDavLastSyncTime.first() shouldBe 5678L
             (webDavScheduleStore.webDavSyncOnRefresh.first()).shouldBeTrue()
-            (s3ConnectionStore.s3SyncEnabled.first()).shouldBeTrue()
+            (s3ConnectionStore.s3SyncEnabled.first()).shouldBeFalse()
             s3ConnectionStore.s3EndpointUrl.first() shouldBe "https://s3.example.com"
             s3ConnectionStore.s3Bucket.first() shouldBe "vault"
             s3ConnectionStore.s3LocalSyncDirectory.first() shouldBe "content://tree/primary%3AObsidian"
             (s3ScheduleStore.s3AutoSyncEnabled.first()).shouldBeTrue()
             s3ScheduleStore.s3AutoSyncInterval.first() shouldBe "6h"
-            s3ScheduleStore.s3LastSyncTime.first() shouldBe 6789L
             (s3ScheduleStore.s3SyncOnRefresh.first()).shouldBeTrue()
             createDraftStore.memoCreateDraft.first() shouldBe "draft body"
 

@@ -1,9 +1,12 @@
 package com.lomo.data.repository
 
+import com.lomo.data.engine.sync.RustSyncCycleStatusStore
+import com.lomo.data.engine.sync.toUnifiedSyncState
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.StoredCredentialStatus
+import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.isConfigured
 import com.lomo.domain.repository.CredentialRepository
@@ -11,23 +14,30 @@ import com.lomo.domain.repository.GitSyncConfigurationMutationRepository
 import com.lomo.domain.repository.GitSyncConfigurationRepository
 import com.lomo.domain.repository.GitSyncStateRepository
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 
 class GitSyncConfigurationRepositoryImpl(
     private val dataStore: LomoDataStore,
+    private val cycleStatus: RustSyncCycleStatusStore,
 ) : GitSyncConfigurationRepository {
     override fun isGitSyncEnabled(): Flow<Boolean> = dataStore.gitSyncEnabled
 
     override fun getRemoteUrl(): Flow<String?> = dataStore.gitRemoteUrl
 
+    override fun getBranch(): Flow<String> = dataStore.gitBranch
+
     override fun getAutoSyncEnabled(): Flow<Boolean> = dataStore.gitAutoSyncEnabled
 
     override fun getAutoSyncInterval(): Flow<String> = dataStore.gitAutoSyncInterval
 
+    /**
+     * Last-successful sync timestamp from the durable cycle record (`cycle_state.rec`).
+     *
+     * The `gitLastSyncTime` DataStore write path is retired: the Rust-owned record owns
+     * `last_successful_at_ms`; `null` means no successful apply cycle on record.
+     */
     override fun observeLastSyncTimeMillis(): Flow<Long?> =
-        dataStore.gitLastSyncTime.map { stored -> stored.takeIf { it > 0L } }
+        cycleStatus.observe().map { status -> status?.lastSuccessfulAtMs }
 
     override fun getSyncOnRefreshEnabled(): Flow<Boolean> = dataStore.gitSyncOnRefresh
 }
@@ -38,6 +48,10 @@ class GitSyncConfigurationMutationRepositoryImpl(
 ) : GitSyncConfigurationMutationRepository {
     override suspend fun setRemoteUrl(url: String) {
         dataStore.updateGitRemoteUrl(url)
+    }
+
+    override suspend fun setBranch(branch: String) {
+        dataStore.updateGitBranch(branch)
     }
 
     override suspend fun setToken(token: String) {
@@ -76,8 +90,14 @@ class GitSyncConfigurationMutationRepositoryImpl(
     }
 }
 
-class GitSyncStateRepositoryImpl : GitSyncStateRepository {
-    private val state = MutableStateFlow<UnifiedSyncState>(UnifiedSyncState.Idle)
-
-    override fun syncState(): Flow<UnifiedSyncState> = state.asStateFlow()
+/**
+ * Durable sync state for Git — `syncState()` emits real cycle-record reads, never an
+ * in-memory `Idle` seed. `null` records map to [UnifiedSyncState.Idle] (never synced / no
+ * Direct workspace root).
+ */
+class GitSyncStateRepositoryImpl(
+    private val cycleStatus: RustSyncCycleStatusStore,
+) : GitSyncStateRepository {
+    override fun syncState(): Flow<UnifiedSyncState> =
+        cycleStatus.observe().map { status -> status.toUnifiedSyncState(SyncBackendType.GIT) }
 }

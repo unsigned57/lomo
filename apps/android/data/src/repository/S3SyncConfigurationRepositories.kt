@@ -1,5 +1,7 @@
 package com.lomo.data.repository
 
+import com.lomo.data.engine.sync.RustSyncCycleStatusStore
+import com.lomo.data.engine.sync.toS3SyncState
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.CredentialProvider
@@ -16,12 +18,11 @@ import com.lomo.domain.repository.S3SyncConfigurationMutationRepository
 import com.lomo.domain.repository.S3SyncConfigurationRepository
 import com.lomo.domain.repository.S3SyncStateRepository
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 
 class S3SyncConfigurationRepositoryImpl(
     private val dataStore: LomoDataStore,
+    private val cycleStatus: RustSyncCycleStatusStore,
 ) : S3SyncConfigurationRepository {
     override fun isS3SyncEnabled(): Flow<Boolean> = dataStore.s3SyncEnabled
 
@@ -60,8 +61,12 @@ class S3SyncConfigurationRepositoryImpl(
 
     override fun getSyncOnRefreshEnabled(): Flow<Boolean> = dataStore.s3SyncOnRefresh
 
+    /**
+     * Last-successful sync timestamp from the durable cycle record (`cycle_state.rec`).
+     * The `s3LastSyncTime` DataStore write path is retired.
+     */
     override fun observeLastSyncTimeMillis(): Flow<Long?> =
-        dataStore.s3LastSyncTime.map { stored -> stored.takeIf { it > 0L } }
+        cycleStatus.observe().map { status -> status?.lastSuccessfulAtMs }
 }
 
 class S3SyncConfigurationMutationRepositoryImpl(
@@ -185,10 +190,12 @@ class S3SyncConfigurationMutationRepositoryImpl(
         credentialRepository.credentialState(CredentialProvider.S3)
 }
 
-class S3SyncStateRepositoryImpl : S3SyncStateRepository {
-    private val state = MutableStateFlow<S3SyncState>(S3SyncState.Idle)
-
-    override fun syncState(): Flow<S3SyncState> = state.asStateFlow()
+/** Durable sync state for S3 — real cycle-record reads, never an in-memory `Idle` seed. */
+class S3SyncStateRepositoryImpl(
+    private val cycleStatus: RustSyncCycleStatusStore,
+) : S3SyncStateRepository {
+    override fun syncState(): Flow<S3SyncState> =
+        cycleStatus.observe().map { status -> status.toS3SyncState() }
 }
 
 internal val S3PathStyle.preferenceValue: String

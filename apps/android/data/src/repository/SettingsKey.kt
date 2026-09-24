@@ -67,6 +67,7 @@ internal object SettingsKey {
     const val TYPOGRAPHY_LETTER_SPACING_SCALE = "typographyLetterSpacingScale"
     const val TYPOGRAPHY_PARAGRAPH_SPACING_SCALE = "typographyParagraphSpacingScale"
     const val GIT_TOKEN = "gitToken"
+    const val GIT_USERNAME = "gitUsername"
     const val WEBDAV_STORED_USERNAME = "webDavStoredUsername"
     const val WEBDAV_PASSWORD = "webDavPassword"
     const val S3_ACCESS_KEY_ID = "s3AccessKeyId"

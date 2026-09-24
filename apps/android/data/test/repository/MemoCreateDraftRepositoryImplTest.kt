@@ -10,6 +10,7 @@ import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.MemoCreateDraft
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import java.nio.file.Files
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
@@ -29,6 +30,12 @@ import kotlinx.coroutines.test.runTest
  * - TDD proof: the retired key still carries text before the import, so an unchanged reader would
  *   return no draft at all.
  * - Excludes: the editor UI and the edit-draft slot.
+ * Test Change Justification:
+ * - Reason category: production API signature changed.
+ * - Old behavior/assertion being replaced: the prior create-draft call shape.
+ * - Why old assertion is no longer correct: the draft API surface changed with the session command path.
+ * - Coverage preserved by: the same draft assertions through the updated call shape.
+ * - Why this is not fitting the test to the implementation: it tracks the session-command contract.
  */
 class MemoCreateDraftRepositoryImplTest : DataFunSpec() {
     init {
@@ -65,7 +72,7 @@ class MemoCreateDraftRepositoryImplTest : DataFunSpec() {
 
                 val failure = runCatching { repository.read() }.exceptionOrNull()
 
-                (failure is IllegalStateException) shouldBe true
+                failure.shouldBeInstanceOf<IllegalStateException>()
             }
         }
     }

@@ -93,6 +93,8 @@ internal fun testGitCredentialRepository(
 internal class TestCredentialRepository(
     private val reads: MutableMap<CredentialField, CredentialSecretReadResult>,
 ) : CredentialRepository {
+    val writes = mutableListOf<Pair<CredentialField, String?>>()
+
     fun setRead(
         field: CredentialField,
         result: CredentialSecretReadResult,
@@ -119,7 +121,15 @@ internal class TestCredentialRepository(
     override suspend fun writeSecret(
         field: CredentialField,
         value: String?,
-    ) = Unit
+    ) {
+        writes += field to value
+        reads[field] =
+            if (value == null) {
+                CredentialSecretReadResult.Missing
+            } else {
+                CredentialSecretReadResult.Present(value)
+            }
+    }
 
     private fun credentialStateFor(provider: CredentialProvider): CredentialState =
         CredentialState(
@@ -141,7 +151,7 @@ internal class TestCredentialRepository(
 private val CredentialProvider.fields: List<CredentialField>
     get() =
         when (this) {
-            CredentialProvider.GIT -> listOf(CredentialField.GIT_TOKEN)
+            CredentialProvider.GIT -> listOf(CredentialField.GIT_TOKEN, CredentialField.GIT_USERNAME)
             CredentialProvider.WEBDAV -> listOf(CredentialField.WEBDAV_USERNAME, CredentialField.WEBDAV_PASSWORD)
             CredentialProvider.S3 ->
                 listOf(

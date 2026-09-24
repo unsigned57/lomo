@@ -43,6 +43,7 @@ class DefaultCredentialRepository(
             }
             return when (field) {
                 CredentialField.GIT_TOKEN -> gitCredentialStore.readToken()
+                CredentialField.GIT_USERNAME -> gitCredentialStore.readUsername()
                 CredentialField.WEBDAV_USERNAME -> webDavCredentialStore.readUsername()
                 CredentialField.WEBDAV_PASSWORD -> webDavCredentialStore.readPassword()
                 CredentialField.S3_ACCESS_KEY_ID,
@@ -60,6 +61,7 @@ class DefaultCredentialRepository(
         ) {
             when (field) {
                 CredentialField.GIT_TOKEN -> gitCredentialStore.setToken(value)
+                CredentialField.GIT_USERNAME -> gitCredentialStore.setUsername(value)
                 CredentialField.WEBDAV_USERNAME -> webDavCredentialStore.setUsername(value)
                 CredentialField.WEBDAV_PASSWORD -> webDavCredentialStore.setPassword(value)
                 CredentialField.S3_ACCESS_KEY_ID,

@@ -1,8 +1,9 @@
 package com.lomo.data.repository
-import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.AppUpdateAssetCandidate
 import com.lomo.domain.model.AppUpdateAssetUnsupportedReason
 import com.lomo.domain.model.AppUpdateAssetVerification
+import com.lomo.domain.model.AppUpdateFetchException
+import com.lomo.domain.model.AppUpdateFetchFailure
 import com.lomo.domain.model.LatestAppRelease
 import com.lomo.domain.repository.AppUpdateRepository
 import com.lomo.domain.usecase.DefaultDispatcherProvider
@@ -13,41 +14,64 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import timber.log.Timber
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 class AppUpdateRepositoryImpl(
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
+    private val connector: (String) -> HttpURLConnection = { url ->
+        URL(url).openConnection() as HttpURLConnection
+    },
 ) : AppUpdateRepository {
-        override suspend fun fetchLatestRelease(): LatestAppRelease? =
+        override suspend fun fetchLatestRelease(): LatestAppRelease =
             withContext(dispatcherProvider.io) {
                 var connection: HttpURLConnection? = null
                 try {
-                    runNonFatalCatching {
-                        val url = URL(GITHUB_LATEST_RELEASES_URL)
-                        connection = url.openConnection() as HttpURLConnection
-                        connection.requestMethod = "GET"
-                        connection.connectTimeout = CONNECT_TIMEOUT_MS
-                        connection.readTimeout = READ_TIMEOUT_MS
-                        connection.setRequestProperty("User-Agent", USER_AGENT)
-                        val responseCode = connection.responseCode
-                        if (responseCode != HttpURLConnection.HTTP_OK) {
-                            Timber.w("Update check failed: code=%d", responseCode)
-                            null
-                        } else {
-                            val response = connection.inputStream.bufferedReader().use { it.readText() }
-                            parseLatestReleaseResponse(response)
-                        }
-                    }.getOrElse { error ->
-                        Timber.w(error, "Update check failed")
-                        null
+                    connection = connector(GITHUB_LATEST_RELEASES_URL)
+                    connection.requestMethod = "GET"
+                    connection.connectTimeout = CONNECT_TIMEOUT_MS
+                    connection.readTimeout = READ_TIMEOUT_MS
+                    connection.setRequestProperty("User-Agent", USER_AGENT)
+                    val responseCode = connection.responseCode
+                    if (responseCode != HttpURLConnection.HTTP_OK) {
+                        throw AppUpdateFetchException(
+                            AppUpdateFetchFailure.Http(
+                                code = responseCode,
+                                diagnostic = "release endpoint answered HTTP $responseCode",
+                            ),
+                        )
                     }
+                    val response = connection.inputStream.bufferedReader().use { it.readText() }
+                    try {
+                        parseLatestReleaseResponse(response)
+                    } catch (error: kotlinx.coroutines.CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        throw AppUpdateFetchException(
+                            AppUpdateFetchFailure.MalformedResponse(
+                                diagnostic =
+                                    "unparseable release document: " +
+                                        (error.message ?: error.javaClass.simpleName),
+                            ),
+                            error,
+                        )
+                    }
+                } catch (error: AppUpdateFetchException) {
+                    throw error
+                } catch (error: IOException) {
+                    throw AppUpdateFetchException(
+                        AppUpdateFetchFailure.Network(
+                            diagnostic = error.message ?: error.javaClass.simpleName.orEmpty(),
+                        ),
+                        error,
+                    )
                 } finally {
                     connection?.disconnect()
                 }
             }
         private companion object {
-            const val GITHUB_LATEST_RELEASES_URL = "https://api.github.com/repos/unsigned57/lomo/releases/latest"
+            const val GITHUB_LATEST_RELEASES_URL =
+                "https://api.github.com/repos/unsigned57/lomo/releases/latest"
             const val USER_AGENT = "Lomo-App"
             const val CONNECT_TIMEOUT_MS = 5000
             const val READ_TIMEOUT_MS = 5000
@@ -91,7 +115,11 @@ private fun parseAssetCandidate(
         fileName = fileName,
         downloadUrl = downloadUrl,
         sizeBytes = asset["size"].jsonLongOrNull()?.takeIf { it > 0 },
-        verification = asset.toAppUpdateAssetVerification(downloadUrl = downloadUrl, releaseVersion = releaseVersion),
+        verification =
+            asset.toAppUpdateAssetVerification(
+                downloadUrl = downloadUrl,
+                releaseVersion = releaseVersion,
+            ),
     )
 }
 private fun kotlinx.serialization.json.JsonObject.toAppUpdateAssetVerification(

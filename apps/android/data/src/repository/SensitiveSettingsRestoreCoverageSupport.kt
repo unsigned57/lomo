@@ -38,6 +38,7 @@ internal fun Map<String, String>.legacyWebDavUsernameCredentialValue(): String? 
 internal fun CredentialField.migrationSensitiveKey(): String =
     when (this) {
         CredentialField.GIT_TOKEN -> SettingsKey.GIT_TOKEN
+        CredentialField.GIT_USERNAME -> SettingsKey.GIT_USERNAME
         CredentialField.WEBDAV_USERNAME -> SettingsKey.WEBDAV_STORED_USERNAME
         CredentialField.WEBDAV_PASSWORD -> SettingsKey.WEBDAV_PASSWORD
         CredentialField.S3_ACCESS_KEY_ID -> SettingsKey.S3_ACCESS_KEY_ID

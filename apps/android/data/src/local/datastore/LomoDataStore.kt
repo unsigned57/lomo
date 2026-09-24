@@ -2,25 +2,28 @@ package com.lomo.data.local.datastore
 
 import android.content.Context
 import androidx.datastore.core.DataStore
-import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
+import androidx.datastore.preferences.preferencesDataStoreFile
 import com.lomo.data.util.PreferenceKeys
 import com.lomo.domain.model.SettingDescriptor
+import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SettingValue
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceRootTransition
 
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
@@ -31,12 +34,45 @@ import java.io.IOException
 
 private const val LOMO_DATA_STORE_TAG = "LomoDataStore"
 
-private val Context.dataStore: DataStore<Preferences> by
-    preferencesDataStore(
-        name = PreferenceKeys.PREFS_NAME,
-        produceMigrations = { listOf(UnifyStorageLocationMigration) },
-        corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
-    )
+/**
+ * Process-wide preferences store. Built through [PreferenceDataStoreFactory] (not the
+ * `preferencesDataStore` delegate) because the corruption handler needs the file location to
+ * quarantine evidence — the delegate's handler argument cannot see a Context.
+ */
+private object LomoAppDataStoreHolder {
+    @Volatile
+    private var instance: DataStore<Preferences>? = null
+
+    // behavior-contract: unmanaged-scope-ok: DataStore file ownership is process-wide by
+    // androidx contract — the store must outlive every caller scope, so a SupervisorJob scope
+    // rooted at process lifetime is the correct owner; cancellation is delegated to DataStore
+    fun instance(
+        context: Context,
+        dispatcher: CoroutineDispatcher,
+    ): DataStore<Preferences> =
+        instance ?: synchronized(this) {
+            instance
+                ?: PreferenceDataStoreFactory
+                    .create(
+                        corruptionHandler =
+                            lomoPreferencesCorruptionHandler(
+                                corruptionFile = { context.preferencesFile() },
+                                registry = PreferencesCorruptionRegistry.shared,
+                            ),
+                        migrations =
+                            listOf(
+                                UnifyStorageLocationMigration,
+                                GitSyncPreferenceMigration,
+                                SyncBackendPreferenceMigration,
+                            ),
+                        scope = CoroutineScope(SupervisorJob() + dispatcher),
+                        produceFile = { context.preferencesFile() },
+                    ).also { instance = it }
+        }
+
+    private fun Context.preferencesFile() =
+        applicationContext.preferencesDataStoreFile(PreferenceKeys.PREFS_NAME)
+}
 
 interface LomoRootLocationStore {
     val rootUri: Flow<String?>
@@ -227,6 +263,7 @@ interface LomoAppVersionStore {
 }
 
 interface LomoGitSyncBehaviorStore {
+    /** Derived view: `syncBackendType` is the sole persisted selection; this reports `type == GIT`. */
     val gitSyncEnabled: Flow<Boolean>
     val gitAutoSyncEnabled: Flow<Boolean>
     val gitAutoSyncInterval: Flow<String>
@@ -239,37 +276,27 @@ interface LomoGitSyncBehaviorStore {
 
     suspend fun updateGitSyncOnRefresh(enabled: Boolean)
 
-    /**
-     * Atomically persists the backend type together with the three enabled flags in a single
-     * DataStore transaction, preventing partially-written state if a write fails mid-way.
-     */
-    suspend fun setRemoteSyncBackendFlags(
-        backendType: String,
-        gitEnabled: Boolean,
-        webdavEnabled: Boolean,
-        s3Enabled: Boolean,
-    )
+    /** Persists the sole backend-selection fact. Per-backend enable flags are never written. */
+    suspend fun setRemoteSyncBackendType(backendType: String)
 }
 
 interface LomoGitIdentityStore {
     val gitRemoteUrl: Flow<String?>
+    val gitBranch: Flow<String>
     val gitAuthorName: Flow<String>
     val gitAuthorEmail: Flow<String>
 
     suspend fun updateGitRemoteUrl(url: String?)
+
+    suspend fun updateGitBranch(branch: String)
 
     suspend fun updateGitAuthorName(name: String)
 
     suspend fun updateGitAuthorEmail(email: String)
 }
 
-interface LomoGitSyncStatusStore {
-    val gitLastSyncTime: Flow<Long>
-
-    suspend fun updateGitLastSyncTime(timestamp: Long)
-}
-
 interface LomoWebDavConnectionStore {
+    /** Derived view: reports `syncBackendType == WEBDAV`. */
     val webDavSyncEnabled: Flow<Boolean>
     val webDavProvider: Flow<String>
     val webDavBaseUrl: Flow<String?>
@@ -288,19 +315,17 @@ interface LomoWebDavConnectionStore {
 interface LomoWebDavScheduleStore {
     val webDavAutoSyncEnabled: Flow<Boolean>
     val webDavAutoSyncInterval: Flow<String>
-    val webDavLastSyncTime: Flow<Long>
     val webDavSyncOnRefresh: Flow<Boolean>
 
     suspend fun updateWebDavAutoSyncEnabled(enabled: Boolean)
 
     suspend fun updateWebDavAutoSyncInterval(interval: String)
 
-    suspend fun updateWebDavLastSyncTime(timestamp: Long)
-
     suspend fun updateWebDavSyncOnRefresh(enabled: Boolean)
 }
 
 interface LomoS3ConnectionStateStore {
+    /** Derived view: reports `syncBackendType == S3`. */
     val s3SyncEnabled: Flow<Boolean>
     val s3EndpointUrl: Flow<String?>
     val s3Region: Flow<String?>
@@ -353,14 +378,11 @@ interface LomoS3ConnectionStore :
 interface LomoS3ScheduleStore {
     val s3AutoSyncEnabled: Flow<Boolean>
     val s3AutoSyncInterval: Flow<String>
-    val s3LastSyncTime: Flow<Long>
     val s3SyncOnRefresh: Flow<Boolean>
 
     suspend fun updateS3AutoSyncEnabled(enabled: Boolean)
 
     suspend fun updateS3AutoSyncInterval(interval: String)
-
-    suspend fun updateS3LastSyncTime(timestamp: Long)
 
     suspend fun updateS3SyncOnRefresh(enabled: Boolean)
 }
@@ -427,7 +449,6 @@ class LomoDataStore private constructor(
     LomoAppVersionStore by AppVersionStoreImpl(dataStore),
     LomoGitSyncBehaviorStore by GitSyncBehaviorStoreImpl(dataStore),
     LomoGitIdentityStore by GitIdentityStoreImpl(dataStore),
-    LomoGitSyncStatusStore by GitSyncStatusStoreImpl(dataStore),
     LomoWebDavConnectionStore by WebDavConnectionStoreImpl(dataStore),
     LomoWebDavScheduleStore by WebDavScheduleStoreImpl(dataStore),
     LomoS3ConnectionStore by S3ConnectionStoreImpl(dataStore),
@@ -437,7 +458,8 @@ class LomoDataStore private constructor(
     LomoTypographyPreferencesStore by TypographyPreferencesStoreImpl(dataStore) {
     constructor(
         context: Context,
-    ) : this(context.dataStore)
+        dispatcher: CoroutineDispatcher,
+    ) : this(LomoAppDataStoreHolder.instance(context, dispatcher))
 
     fun settingValueFlow(descriptor: SettingDescriptor): Flow<SettingValue> =
         when (val defaultValue = descriptor.defaultValue) {
@@ -600,11 +622,11 @@ internal object LomoDataStoreKeys {
     val LAST_APP_VERSION = stringPreferencesKey(PreferenceKeys.LAST_APP_VERSION)
     val GIT_SYNC_ENABLED = booleanPreferencesKey(PreferenceKeys.GIT_SYNC_ENABLED)
     val GIT_REMOTE_URL = stringPreferencesKey(PreferenceKeys.GIT_REMOTE_URL)
+    val GIT_BRANCH = stringPreferencesKey(PreferenceKeys.GIT_BRANCH)
     val GIT_AUTHOR_NAME = stringPreferencesKey(PreferenceKeys.GIT_AUTHOR_NAME)
     val GIT_AUTHOR_EMAIL = stringPreferencesKey(PreferenceKeys.GIT_AUTHOR_EMAIL)
     val GIT_AUTO_SYNC_ENABLED = booleanPreferencesKey(PreferenceKeys.GIT_AUTO_SYNC_ENABLED)
     val GIT_AUTO_SYNC_INTERVAL = stringPreferencesKey(PreferenceKeys.GIT_AUTO_SYNC_INTERVAL)
-    val GIT_LAST_SYNC_TIME = longPreferencesKey(PreferenceKeys.GIT_LAST_SYNC_TIME)
     val GIT_SYNC_ON_REFRESH = booleanPreferencesKey(PreferenceKeys.GIT_SYNC_ON_REFRESH)
     val SYNC_BACKEND_TYPE = stringPreferencesKey(PreferenceKeys.SYNC_BACKEND_TYPE)
     val WEBDAV_SYNC_ENABLED = booleanPreferencesKey(PreferenceKeys.WEBDAV_SYNC_ENABLED)
@@ -614,7 +636,6 @@ internal object LomoDataStoreKeys {
     val WEBDAV_USERNAME = stringPreferencesKey(PreferenceKeys.WEBDAV_USERNAME)
     val WEBDAV_AUTO_SYNC_ENABLED = booleanPreferencesKey(PreferenceKeys.WEBDAV_AUTO_SYNC_ENABLED)
     val WEBDAV_AUTO_SYNC_INTERVAL = stringPreferencesKey(PreferenceKeys.WEBDAV_AUTO_SYNC_INTERVAL)
-    val WEBDAV_LAST_SYNC_TIME = longPreferencesKey(PreferenceKeys.WEBDAV_LAST_SYNC_TIME)
     val WEBDAV_SYNC_ON_REFRESH = booleanPreferencesKey(PreferenceKeys.WEBDAV_SYNC_ON_REFRESH)
     val S3_SYNC_ENABLED = booleanPreferencesKey(PreferenceKeys.S3_SYNC_ENABLED)
     val S3_ENDPOINT_URL = stringPreferencesKey(PreferenceKeys.S3_ENDPOINT_URL)
@@ -633,7 +654,6 @@ internal object LomoDataStoreKeys {
     val S3_RCLONE_ENCRYPTED_SUFFIX = stringPreferencesKey(PreferenceKeys.S3_RCLONE_ENCRYPTED_SUFFIX)
     val S3_AUTO_SYNC_ENABLED = booleanPreferencesKey(PreferenceKeys.S3_AUTO_SYNC_ENABLED)
     val S3_AUTO_SYNC_INTERVAL = stringPreferencesKey(PreferenceKeys.S3_AUTO_SYNC_INTERVAL)
-    val S3_LAST_SYNC_TIME = longPreferencesKey(PreferenceKeys.S3_LAST_SYNC_TIME)
     val S3_SYNC_ON_REFRESH = booleanPreferencesKey(PreferenceKeys.S3_SYNC_ON_REFRESH)
     /** Retired plain-text draft key: read once by the create-draft import, then removed. */
     val RETIRED_DRAFT_TEXT = stringPreferencesKey(PreferenceKeys.DRAFT_TEXT)
@@ -644,6 +664,18 @@ internal object LomoDataStoreKeys {
     val TYPOGRAPHY_LETTER_SPACING_SCALE = floatPreferencesKey(PreferenceKeys.TYPOGRAPHY_LETTER_SPACING_SCALE)
     val TYPOGRAPHY_PARAGRAPH_SPACING_SCALE = floatPreferencesKey(PreferenceKeys.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE)
 }
+
+/**
+ * Derived enabled view: reads the sole persisted selection (`sync_backend_type`) and reports
+ * whether it names [type]. An unrecognized stored value parses to [SyncBackendType.UNKNOWN] and
+ * therefore reports `false` for every real backend without rewriting the record.
+ */
+internal fun DataStore<Preferences>.backendEnabledFlow(type: SyncBackendType): Flow<Boolean> =
+    stringFlow(
+        key = LomoDataStoreKeys.SYNC_BACKEND_TYPE,
+        flowName = "${type.storageValue()}SyncEnabled",
+        default = PreferenceKeys.Defaults.SYNC_BACKEND_TYPE,
+    ).map { SyncBackendType.fromStorageValue(it) == type }
 
 internal fun DataStore<Preferences>.nullableStringFlow(
     key: Preferences.Key<String>,

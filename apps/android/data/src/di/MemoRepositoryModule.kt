@@ -5,6 +5,7 @@ import com.lomo.data.engine.ManagedEngineSession
 import com.lomo.data.engine.store.BoltFfiStorePort
 import com.lomo.data.engine.store.PublishingStorePort
 import com.lomo.data.engine.store.StorePort
+import com.lomo.data.repository.MemoMediaCommitPipeline
 import com.lomo.data.repository.StoreMemoMutationRepository
 import com.lomo.data.repository.StoreProjectionObserver
 import com.lomo.data.repository.StoreMemoQueryRepository
@@ -64,12 +65,15 @@ val memoRepositoryModule =
         single {
             StoreMemoMutationRepository(
                 port = get(),
-                queryRepository = get(),
                 reminderScheduler = get(),
                 writeLease = get(),
                 invalidation = get(),
                 diagnostics = get(),
-                pendingStages = get(),
+                mediaCommit =
+                    MemoMediaCommitPipeline(
+                        pendingStages = get(),
+                        committedMediaSink = get(),
+                    ),
                 dispatcherProvider = get(),
             )
         } bind MemoMutationRepository::class
