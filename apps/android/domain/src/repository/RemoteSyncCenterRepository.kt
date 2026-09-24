@@ -10,20 +10,32 @@ import com.lomo.domain.model.RemoteSyncMarkdownConflictFacts
 import com.lomo.domain.model.RemoteSyncSessionProgress
 
 /**
- * Stage-5 dark Sync Center repository contract (P5-10 / Wave-4 adapter).
+ * Sync Center repository contract.
  *
- * Coarse conflict list/resolve + config/session presentation shells + optional detail body ports.
- * Implementations live in `data` (dark unregistered) or host-test fakes. **Not** registered in
- * production DI / navigation until P5-13. App ViewModels depend on this domain port only (never
- * `com.lomo.data.*`).
+ * Coarse conflict list/resolve + config/session projection + optional detail body ports.
+ * Implemented in `data` over the durable Rust cycle/conflict records; host tests use fakes.
+ * App ViewModels depend on this domain port only (never `com.lomo.data.*`).
  *
  * Markdown detail may load base/local/remote UTF-8 bodies when durable artifact refs resolve.
  * Binary detail never invents text preview bodies (MIME/size/digest/source only).
  */
 interface RemoteSyncCenterRepository {
-    fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary
+    /**
+     * Config snapshot + durable cycle-fact projection (attention count, last verified).
+     */
+    suspend fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary
 
-    fun sessionProgress(workspaceRoot: String): RemoteSyncSessionProgress
+    /**
+     * Durable cycle-record projection (`cycle_state.rec` is the sole status authority).
+     */
+    suspend fun sessionProgress(workspaceRoot: String): RemoteSyncSessionProgress
+
+    /**
+     * Persists a durable cancel request bound to the running cycle's identity fence
+     * (`cancel_request.rec` via `sync_request_cancel`). Returns the post-write progress
+     * projection; boundary failures propagate as structured errors.
+     */
+    suspend fun requestCancel(workspaceRoot: String): RemoteSyncSessionProgress
 
     fun listConflicts(
         workspaceRoot: String,

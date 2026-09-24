@@ -1,6 +1,7 @@
 package com.lomo.domain.usecase
 
-import com.lomo.domain.model.AppUpdateInfo
+import com.lomo.domain.model.AppUpdateCheckOutcome
+import com.lomo.domain.model.AppUpdateFetchException
 import com.lomo.domain.repository.AppRuntimeInfoRepository
 import com.lomo.domain.repository.AppUpdateRepository
 import com.lomo.domain.repository.PreferencesRepository
@@ -11,15 +12,26 @@ class CheckStartupAppUpdateUseCase(
     private val appUpdateRepository: AppUpdateRepository,
     private val appRuntimeInfoRepository: AppRuntimeInfoRepository,
 ) {
-    suspend operator fun invoke(): AppUpdateInfo? {
+    /**
+     * Startup checks stay silent by contract, but the returned outcome keeps the full result —
+     * including a typed failure — so callers can keep diagnostics instead of swallowing them.
+     */
+    suspend operator fun invoke(): AppUpdateCheckOutcome {
         if (!preferencesRepository.isCheckUpdatesOnStartupEnabled().first()) {
-            return null
+            return AppUpdateCheckOutcome.UpToDate
         }
-        val latestRelease = appUpdateRepository.fetchLatestRelease() ?: return null
-        return evaluateAppUpdate(
-            release = latestRelease,
-            currentVersionName = appRuntimeInfoRepository.getCurrentVersionName(),
-            currentVersionCode = appRuntimeInfoRepository.getCurrentVersionCode(),
-        )
+        val latestRelease =
+            try {
+                appUpdateRepository.fetchLatestRelease()
+            } catch (error: AppUpdateFetchException) {
+                return AppUpdateCheckOutcome.Failed(error.failure)
+            }
+        val update =
+            evaluateAppUpdate(
+                release = latestRelease,
+                currentVersionName = appRuntimeInfoRepository.getCurrentVersionName(),
+                currentVersionCode = appRuntimeInfoRepository.getCurrentVersionCode(),
+            ) ?: return AppUpdateCheckOutcome.UpToDate
+        return AppUpdateCheckOutcome.Available(update)
     }
 }

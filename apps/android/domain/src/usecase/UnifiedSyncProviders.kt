@@ -7,8 +7,6 @@ import com.lomo.domain.model.S3SyncFailureException
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.SyncConflictResolution
-import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.SyncReviewResolution
 import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.model.toInitialImportReview
@@ -51,16 +49,10 @@ class GitUnifiedSyncProvider(
                     .toUnifiedResult(backendType)
 
             UnifiedSyncOperation.PROCESS_PENDING_CHANGES ->
-                UnifiedSyncResult.Success(
-                    provider = backendType,
-                    message = "No pending Git-only changes to process",
-                )
+                repository
+                    .sync()
+                    .toUnifiedResult(backendType)
         }
-
-    override suspend fun resolveConflicts(
-        resolution: SyncConflictResolution,
-        conflictSet: SyncConflictSet,
-    ): UnifiedSyncResult = repository.resolveConflicts(resolution, conflictSet).toUnifiedResult(backendType)
 
     override suspend fun resolveReview(
         resolution: SyncReviewResolution,
@@ -95,15 +87,18 @@ class WebDavUnifiedSyncProvider(
                     .toUnifiedResult(backendType)
         }
 
-    override suspend fun resolveConflicts(
-        resolution: SyncConflictResolution,
-        conflictSet: SyncConflictSet,
-    ): UnifiedSyncResult = repository.resolveConflicts(resolution, conflictSet).toUnifiedResult(backendType)
-
     override suspend fun resolveReview(
         resolution: SyncReviewResolution,
         review: SyncReviewSession,
-    ): UnifiedSyncResult = repository.resolveReview(resolution, review).toUnifiedResult(backendType)
+    ): UnifiedSyncResult =
+        UnifiedSyncResult.Error(
+            provider = backendType,
+            error =
+                UnifiedSyncError(
+                    provider = backendType,
+                    message = "WebDAV sync has no review session resolver",
+                ),
+        )
 }
 
 class S3UnifiedSyncProvider(
@@ -136,15 +131,18 @@ class S3UnifiedSyncProvider(
                     .toUnifiedResult(backendType)
         }
 
-    override suspend fun resolveConflicts(
-        resolution: SyncConflictResolution,
-        conflictSet: SyncConflictSet,
-    ): UnifiedSyncResult = repository.resolveConflicts(resolution, conflictSet).toUnifiedResult(backendType)
-
     override suspend fun resolveReview(
         resolution: SyncReviewResolution,
         review: SyncReviewSession,
-    ): UnifiedSyncResult = repository.resolveReview(resolution, review).toUnifiedResult(backendType)
+    ): UnifiedSyncResult =
+        UnifiedSyncResult.Error(
+            provider = backendType,
+            error =
+                UnifiedSyncError(
+                    provider = backendType,
+                    message = "S3 sync has no review session resolver",
+                ),
+        )
 }
 
 class InboxUnifiedSyncProvider(
@@ -162,15 +160,6 @@ class InboxUnifiedSyncProvider(
     override suspend fun sync(operation: UnifiedSyncOperation): UnifiedSyncResult =
         syncInboxRepository.sync(operation)
 
-    override suspend fun resolveConflicts(
-        resolution: SyncConflictResolution,
-        conflictSet: SyncConflictSet,
-    ): UnifiedSyncResult =
-        UnifiedSyncResult.Error(
-            provider = backendType,
-            error = UnifiedSyncError(provider = backendType, message = "Sync inbox reviews must use review resolution"),
-        )
-
     override suspend fun resolveReview(
         resolution: SyncReviewResolution,
         review: SyncReviewSession,
@@ -180,6 +169,7 @@ class InboxUnifiedSyncProvider(
 internal fun UnifiedSyncResult.toSyncFailureOrNull(): Exception? =
     when (this) {
         is UnifiedSyncResult.Success -> null
+        is UnifiedSyncResult.Accepted -> null
         is UnifiedSyncResult.Conflict -> SyncConflictException(conflicts)
         is UnifiedSyncResult.Review -> null
         is UnifiedSyncResult.NotConfigured,
@@ -224,6 +214,7 @@ internal fun UnifiedSyncResult.toSyncFailureOrNull(): Exception? =
 
                 SyncBackendType.INBOX,
                 SyncBackendType.NONE,
+                SyncBackendType.UNKNOWN,
                 ->
                     unifiedError.cause as? Exception
                         ?: IllegalStateException(unifiedError.message, unifiedError.cause)
@@ -231,21 +222,12 @@ internal fun UnifiedSyncResult.toSyncFailureOrNull(): Exception? =
         }
     }
 
-internal fun UnifiedSyncResult.toResolutionResult(): SyncConflictResolutionResult =
-    when (this) {
-        is UnifiedSyncResult.Success -> SyncConflictResolutionResult.Resolved
-        is UnifiedSyncResult.Conflict -> SyncConflictResolutionResult.Pending(conflicts)
-        is UnifiedSyncResult.Review -> error("Review result cannot resolve a conflict session")
-        is UnifiedSyncResult.Error,
-        is UnifiedSyncResult.NotConfigured,
-        -> throw toSyncFailureOrNull() ?: IllegalStateException(provider.name)
-    }
-
 internal fun UnifiedSyncResult.toReviewResolutionResult(): SyncReviewResolutionResult =
     when (this) {
         is UnifiedSyncResult.Success -> SyncReviewResolutionResult.Resolved
         is UnifiedSyncResult.Review -> SyncReviewResolutionResult.Pending(review)
         is UnifiedSyncResult.Conflict -> error("Conflict result cannot resolve a review session")
+        is UnifiedSyncResult.Accepted -> error("Accepted enqueue receipt cannot resolve a review session")
         is UnifiedSyncResult.Error,
         is UnifiedSyncResult.NotConfigured,
         -> throw toSyncFailureOrNull() ?: IllegalStateException(provider.name)
@@ -256,6 +238,7 @@ private fun GitSyncResult.toUnifiedResult(
 ): UnifiedSyncResult =
     when (this) {
         is GitSyncResult.Success -> UnifiedSyncResult.Success(provider = provider, message = message)
+        is GitSyncResult.Accepted -> UnifiedSyncResult.Accepted(provider = provider, message = message)
         is GitSyncResult.Error ->
             UnifiedSyncResult.Error(
                 provider = provider,
@@ -299,6 +282,7 @@ private fun WebDavSyncResult.toUnifiedResult(
 ): UnifiedSyncResult =
     when (this) {
         is WebDavSyncResult.Success -> UnifiedSyncResult.Success(provider = provider, message = message)
+        is WebDavSyncResult.Accepted -> UnifiedSyncResult.Accepted(provider = provider, message = message)
         is WebDavSyncResult.Error ->
             UnifiedSyncResult.Error(
                 provider = provider,
@@ -338,6 +322,7 @@ private fun S3SyncResult.toUnifiedResult(
 ): UnifiedSyncResult =
     when (this) {
         is S3SyncResult.Success -> UnifiedSyncResult.Success(provider = provider, message = message)
+        is S3SyncResult.Accepted -> UnifiedSyncResult.Accepted(provider = provider, message = message)
         is S3SyncResult.Error ->
             UnifiedSyncResult.Error(
                 provider = provider,

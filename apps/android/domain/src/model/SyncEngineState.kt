@@ -25,6 +25,14 @@ sealed interface GitSyncResult {
         val message: String,
     ) : GitSyncResult
 
+    /**
+     * WorkManager accepted the enqueue — proves admission only.
+     * The durable Rust cycle record owns the terminal outcome.
+     */
+    data class Accepted(
+        val message: String,
+    ) : GitSyncResult
+
     data class Error(
         val code: GitSyncErrorCode,
         val message: String,

@@ -11,10 +11,6 @@ import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.S3SyncStatus
 import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.SyncConflictResolution
-import com.lomo.domain.model.SyncConflictSet
-import com.lomo.domain.model.SyncReviewResolution
-import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncResult
@@ -30,6 +26,7 @@ import kotlinx.coroutines.flow.asStateFlow
 class FakeGitSyncRepository : GitSyncRepository {
     private val enabled = MutableStateFlow(false)
     private val remoteUrl = MutableStateFlow<String?>(null)
+    private val branch = MutableStateFlow("main")
     private val authorName = MutableStateFlow("")
     private val authorEmail = MutableStateFlow("")
     private val autoSyncEnabled = MutableStateFlow(false)
@@ -39,12 +36,12 @@ class FakeGitSyncRepository : GitSyncRepository {
     private val syncState = MutableStateFlow<UnifiedSyncState>(UnifiedSyncState.Idle)
 
     val remoteUrlWrites = mutableListOf<String>()
+    val branchWrites = mutableListOf<String>()
     val tokenWrites = mutableListOf<String>()
     val authorInfoWrites = mutableListOf<Pair<String, String>>()
     val autoSyncEnabledWrites = mutableListOf<Boolean>()
     val autoSyncIntervalWrites = mutableListOf<String>()
     val syncOnRefreshEnabledWrites = mutableListOf<Boolean>()
-    val resolveRequests = mutableListOf<Pair<SyncConflictResolution, SyncConflictSet>>()
 
     var token: String? = null
     var syncCallCount = 0
@@ -53,19 +50,10 @@ class FakeGitSyncRepository : GitSyncRepository {
         private set
     var resetRepositoryCallCount = 0
         private set
-    var resetLocalBranchToRemoteCallCount = 0
-        private set
-    var forcePushLocalToRemoteCallCount = 0
-        private set
     var nextSyncResult: GitSyncResult = GitSyncResult.Success("synced")
     var syncFailure: Exception? = null
     var nextTestConnectionResult: GitSyncResult = GitSyncResult.Success("connected")
     var nextResetRepositoryResult: GitSyncResult = GitSyncResult.Success("reset")
-    var nextResetLocalBranchToRemoteResult: GitSyncResult = GitSyncResult.Success("remote reset")
-    var resetLocalBranchFailure: Exception? = null
-    var nextForcePushLocalToRemoteResult: GitSyncResult = GitSyncResult.Success("local pushed")
-    var forcePushLocalFailure: Exception? = null
-    var nextResolveConflictsResult: GitSyncResult = GitSyncResult.Success("resolved")
 
     fun setEnabled(value: Boolean) {
         enabled.value = value
@@ -73,6 +61,10 @@ class FakeGitSyncRepository : GitSyncRepository {
 
     fun setRemoteUrlValue(value: String?) {
         remoteUrl.value = value
+    }
+
+    fun setBranchValue(value: String) {
+        branch.value = value
     }
 
     fun setAuthorNameValue(value: String) {
@@ -107,6 +99,8 @@ class FakeGitSyncRepository : GitSyncRepository {
 
     override fun getRemoteUrl(): Flow<String?> = remoteUrl.asStateFlow()
 
+    override fun getBranch(): Flow<String> = branch.asStateFlow()
+
     override fun getAutoSyncEnabled(): Flow<Boolean> = autoSyncEnabled.asStateFlow()
 
     override fun getAutoSyncInterval(): Flow<String> = autoSyncInterval.asStateFlow()
@@ -118,6 +112,11 @@ class FakeGitSyncRepository : GitSyncRepository {
     override suspend fun setRemoteUrl(url: String) {
         remoteUrlWrites += url
         remoteUrl.value = url
+    }
+
+    override suspend fun setBranch(branch: String) {
+        branchWrites += branch
+        this.branch.value = branch
     }
 
     override suspend fun setToken(token: String) {
@@ -181,26 +180,6 @@ class FakeGitSyncRepository : GitSyncRepository {
         return nextResetRepositoryResult
     }
 
-    override suspend fun resetLocalBranchToRemote(): GitSyncResult {
-        resetLocalBranchToRemoteCallCount += 1
-        resetLocalBranchFailure?.let { throw it }
-        return nextResetLocalBranchToRemoteResult
-    }
-
-    override suspend fun forcePushLocalToRemote(): GitSyncResult {
-        forcePushLocalToRemoteCallCount += 1
-        forcePushLocalFailure?.let { throw it }
-        return nextForcePushLocalToRemoteResult
-    }
-
-    override suspend fun resolveConflicts(
-        resolution: SyncConflictResolution,
-        conflictSet: SyncConflictSet,
-    ): GitSyncResult {
-        resolveRequests += resolution to conflictSet
-        return nextResolveConflictsResult
-    }
-
     override fun syncState(): Flow<UnifiedSyncState> = syncState.asStateFlow()
 }
 
@@ -224,8 +203,6 @@ class FakeWebDavSyncRepository : WebDavSyncRepository {
     val autoSyncEnabledWrites = mutableListOf<Boolean>()
     val autoSyncIntervalWrites = mutableListOf<String>()
     val syncOnRefreshEnabledWrites = mutableListOf<Boolean>()
-    val resolveRequests = mutableListOf<Pair<SyncConflictResolution, SyncConflictSet>>()
-    val reviewResolveRequests = mutableListOf<Pair<SyncReviewResolution, SyncReviewSession>>()
 
     var passwordConfigured = false
     var syncCallCount = 0
@@ -234,8 +211,6 @@ class FakeWebDavSyncRepository : WebDavSyncRepository {
     var nextTestConnectionResult: WebDavSyncResult = WebDavSyncResult.Success("connected")
     var testConnectionCallCount = 0
         private set
-    var nextResolveConflictsResult: WebDavSyncResult = WebDavSyncResult.Success("resolved")
-    var nextResolveReviewResult: WebDavSyncResult = WebDavSyncResult.Success("review resolved")
 
     fun setEnabled(value: Boolean) {
         enabled.value = value
@@ -334,22 +309,6 @@ class FakeWebDavSyncRepository : WebDavSyncRepository {
         return nextTestConnectionResult
     }
 
-    override suspend fun resolveConflicts(
-        resolution: SyncConflictResolution,
-        conflictSet: SyncConflictSet,
-    ): WebDavSyncResult {
-        resolveRequests += resolution to conflictSet
-        return nextResolveConflictsResult
-    }
-
-    override suspend fun resolveReview(
-        resolution: SyncReviewResolution,
-        review: SyncReviewSession,
-    ): WebDavSyncResult {
-        reviewResolveRequests += resolution to review
-        return nextResolveReviewResult
-    }
-
     override fun syncState(): Flow<WebDavSyncState> = syncState.asStateFlow()
 }
 
@@ -393,8 +352,6 @@ class FakeS3SyncRepository : S3SyncRepository {
     val autoSyncEnabledWrites = mutableListOf<Boolean>()
     val autoSyncIntervalWrites = mutableListOf<String>()
     val syncOnRefreshEnabledWrites = mutableListOf<Boolean>()
-    val resolveRequests = mutableListOf<Pair<SyncConflictResolution, SyncConflictSet>>()
-    val reviewResolveRequests = mutableListOf<Pair<SyncReviewResolution, SyncReviewSession>>()
 
     var clearLocalSyncDirectoryCallCount = 0
         private set
@@ -409,8 +366,6 @@ class FakeS3SyncRepository : S3SyncRepository {
     var encryptionPassword2Configured = false
     var nextSyncResult: S3SyncResult = S3SyncResult.Success("synced")
     var nextTestConnectionResult: S3SyncResult = S3SyncResult.Success("connected")
-    var nextResolveConflictsResult: S3SyncResult = S3SyncResult.Success("resolved")
-    var nextResolveReviewResult: S3SyncResult = S3SyncResult.Success("review resolved")
     var testConnectionCallCount = 0
         private set
 
@@ -603,22 +558,6 @@ class FakeS3SyncRepository : S3SyncRepository {
     override suspend fun testConnection(): S3SyncResult {
         testConnectionCallCount += 1
         return nextTestConnectionResult
-    }
-
-    override suspend fun resolveConflicts(
-        resolution: SyncConflictResolution,
-        conflictSet: SyncConflictSet,
-    ): S3SyncResult {
-        resolveRequests += resolution to conflictSet
-        return nextResolveConflictsResult
-    }
-
-    override suspend fun resolveReview(
-        resolution: SyncReviewResolution,
-        review: SyncReviewSession,
-    ): S3SyncResult {
-        reviewResolveRequests += resolution to review
-        return nextResolveReviewResult
     }
 
     override fun syncState(): Flow<S3SyncState> = syncState.asStateFlow()

@@ -9,6 +9,8 @@ import com.lomo.domain.testing.fakes.FakeAppRuntimeInfoRepository
 import com.lomo.domain.testing.fakes.FakeAppUpdateRepository
 import com.lomo.domain.testing.fakes.FakePreferencesRepository
 import io.kotest.assertions.assertSoftly
+import com.lomo.domain.model.AppUpdateCheckOutcome
+import com.lomo.domain.model.AppUpdateInfo
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
@@ -60,7 +62,7 @@ class CheckStartupAppUpdateUseCaseTest : DomainFunSpec() {
                         appRuntimeInfoRepository = appRuntimeInfoRepository,
                     ).invoke()
 
-                result.shouldBeNull()
+                result shouldBe AppUpdateCheckOutcome.UpToDate
                 appUpdateRepository.fetchLatestReleaseCallCount shouldBe 0
                 appRuntimeInfoRepository.getCurrentVersionNameCallCount shouldBe 0
             }
@@ -104,6 +106,7 @@ class CheckStartupAppUpdateUseCaseTest : DomainFunSpec() {
                         appUpdateRepository = appUpdateRepository,
                         appRuntimeInfoRepository = appRuntimeInfoRepository,
                     ).invoke()
+                        .updateOrNull()
 
                 result shouldNotBe null
                 assertSoftly(result!!) {
@@ -148,7 +151,7 @@ class CheckStartupAppUpdateUseCaseTest : DomainFunSpec() {
                         appRuntimeInfoRepository = appRuntimeInfoRepository,
                     ).invoke()
 
-                result.shouldBeNull()
+                result shouldBe AppUpdateCheckOutcome.UpToDate
             }
         }
 
@@ -181,11 +184,14 @@ class CheckStartupAppUpdateUseCaseTest : DomainFunSpec() {
                         appRuntimeInfoRepository = appRuntimeInfoRepository,
                     ).invoke()
 
-                result.shouldBeNull()
+                result shouldBe AppUpdateCheckOutcome.UpToDate
             }
         }
     }
 }
+
+private fun AppUpdateCheckOutcome.updateOrNull(): AppUpdateInfo? =
+    (this as? AppUpdateCheckOutcome.Available)?.update
 
 private fun latestRelease(
     tagName: String,

@@ -3,8 +3,6 @@ package com.lomo.domain.repository
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
 import com.lomo.domain.model.StoredCredentialStatus
-import com.lomo.domain.model.SyncConflictResolution
-import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.isConfigured
 import kotlinx.coroutines.flow.Flow
@@ -15,6 +13,8 @@ interface GitSyncConfigurationRepository {
     fun isGitSyncEnabled(): Flow<Boolean>
 
     fun getRemoteUrl(): Flow<String?>
+
+    fun getBranch(): Flow<String>
 
     fun getAutoSyncEnabled(): Flow<Boolean>
 
@@ -32,6 +32,8 @@ interface GitSyncConfigurationRepository {
 
 interface GitSyncConnectionMutationRepository {
     suspend fun setRemoteUrl(url: String)
+
+    suspend fun setBranch(branch: String)
 }
 
 interface GitSyncCredentialMutationRepository {
@@ -71,9 +73,10 @@ interface GitSyncOperationRepository {
     suspend fun initOrClone(): GitSyncResult
 
     /**
-     * Runs a full sync cycle and reports terminal outcomes through [GitSyncResult].
-     * Implementations should return [GitSyncResult.Error] for partial failures too,
-     * such as a git success followed by an index refresh failure.
+     * Enqueues one Rust-owned sync cycle and returns [GitSyncResult.Accepted] on admission.
+     *
+     * The durable cycle record (`syncState()`/`getStatus()`) owns the terminal outcome —
+     * the enqueue receipt never reports completion.
      */
     suspend fun sync(): GitSyncResult
 
@@ -81,18 +84,11 @@ interface GitSyncOperationRepository {
 
     suspend fun testConnection(): GitSyncResult
 
+    /**
+     * Clears the durable sync control tree; the next cycle is a first takeover.
+     * Force-push/reset-to-remote are permanently retired — Sync Center owns recovery.
+     */
     suspend fun resetRepository(): GitSyncResult
-
-    suspend fun resetLocalBranchToRemote(): GitSyncResult
-
-    suspend fun forcePushLocalToRemote(): GitSyncResult
-}
-
-interface GitSyncConflictRepository {
-    suspend fun resolveConflicts(
-        resolution: SyncConflictResolution,
-        conflictSet: SyncConflictSet,
-    ): GitSyncResult
 }
 
 interface GitSyncStateRepository {
@@ -103,5 +99,4 @@ interface GitSyncRepository :
     GitSyncConfigurationRepository,
     GitSyncConfigurationMutationRepository,
     GitSyncOperationRepository,
-    GitSyncConflictRepository,
     GitSyncStateRepository

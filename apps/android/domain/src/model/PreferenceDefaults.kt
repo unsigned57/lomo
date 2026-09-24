@@ -36,6 +36,7 @@ object PreferenceDefaults {
     const val GIT_AUTO_SYNC_INTERVAL = "1h"
     const val GIT_AUTHOR_NAME = "Lomo"
     const val GIT_AUTHOR_EMAIL = ""
+    const val GIT_BRANCH = "main"
     const val GIT_SYNC_ON_REFRESH = false
     const val SYNC_BACKEND_TYPE = "none"
     const val WEBDAV_SYNC_ENABLED = false

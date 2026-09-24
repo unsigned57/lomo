@@ -52,23 +52,20 @@ sealed interface WebDavSyncResult {
         val outcomes: List<WebDavSyncOutcome> = emptyList(),
     ) : WebDavSyncResult
 
+    /**
+     * WorkManager accepted the enqueue — proves admission only.
+     * The durable Rust cycle record owns the terminal outcome.
+     */
+    data class Accepted(
+        val message: String,
+    ) : WebDavSyncResult
+
     data class Error(
         val code: WebDavSyncErrorCode,
         val message: String,
         val exception: Throwable? = null,
         val outcomes: List<WebDavSyncOutcome> = emptyList(),
-    ) : WebDavSyncResult {
-        constructor(
-            message: String,
-            exception: Throwable? = null,
-            outcomes: List<WebDavSyncOutcome> = emptyList(),
-        ) : this(
-            code = webDavSyncErrorCodeFromMessage(message),
-            message = message,
-            exception = exception,
-            outcomes = outcomes,
-        )
-    }
+    ) : WebDavSyncResult
 
     data object NotConfigured : WebDavSyncResult
 
@@ -107,16 +104,7 @@ sealed interface WebDavSyncState {
         val code: WebDavSyncErrorCode,
         val message: String,
         val timestamp: Long,
-    ) : WebDavSyncState {
-        constructor(
-            message: String,
-            timestamp: Long,
-        ) : this(
-            code = webDavSyncErrorCodeFromMessage(message),
-            message = message,
-            timestamp = timestamp,
-        )
-    }
+    ) : WebDavSyncState
 
     data object NotConfigured : WebDavSyncState
 
@@ -134,13 +122,3 @@ class WebDavSyncFailureException(
     message: String,
     cause: Throwable? = null,
 ) : Exception(message, cause)
-
-private fun webDavSyncErrorCodeFromMessage(rawMessage: String?): WebDavSyncErrorCode {
-    val normalized = rawMessage?.trim().orEmpty()
-    return when {
-        normalized.isBlank() -> WebDavSyncErrorCode.UNKNOWN
-        normalized.contains("not configured", ignoreCase = true) -> WebDavSyncErrorCode.NOT_CONFIGURED
-        normalized.contains("connection", ignoreCase = true) -> WebDavSyncErrorCode.CONNECTION_FAILED
-        else -> WebDavSyncErrorCode.UNKNOWN
-    }
-}

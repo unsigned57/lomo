@@ -1,8 +1,6 @@
 package com.lomo.domain.repository
 
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.SyncConflictResolution
-import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.SyncReviewResolution
 import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.model.UnifiedSyncOperation
@@ -21,11 +19,10 @@ interface UnifiedSyncProvider {
 
     suspend fun sync(operation: UnifiedSyncOperation): UnifiedSyncResult
 
-    suspend fun resolveConflicts(
-        resolution: SyncConflictResolution,
-        conflictSet: SyncConflictSet,
-    ): UnifiedSyncResult
-
+    /**
+     * Review-session resolution (Sync Inbox only — remote conflicts resolve exclusively through
+     * the Rust expected-revision port; remote providers never produce review sessions).
+     */
     suspend fun resolveReview(
         resolution: SyncReviewResolution,
         review: SyncReviewSession,

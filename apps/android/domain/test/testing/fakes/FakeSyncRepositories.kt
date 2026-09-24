@@ -1,8 +1,6 @@
 package com.lomo.domain.testing.fakes
 
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.SyncConflictResolution
-import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.SyncReviewResolution
 import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.model.UnifiedSyncOperation
@@ -53,7 +51,6 @@ class FakeUnifiedSyncProvider(
     private val state = MutableStateFlow<UnifiedSyncState>(UnifiedSyncState.Idle)
 
     val syncRequests = mutableListOf<UnifiedSyncOperation>()
-    val resolveRequests = mutableListOf<Pair<SyncConflictResolution, SyncConflictSet>>()
     val reviewResolveRequests = mutableListOf<Pair<SyncReviewResolution, SyncReviewSession>>()
 
     var nextSyncResult: UnifiedSyncResult =
@@ -80,14 +77,6 @@ class FakeUnifiedSyncProvider(
         syncRequests += operation
         syncFailure?.let { throw it }
         return nextSyncResult
-    }
-
-    override suspend fun resolveConflicts(
-        resolution: SyncConflictResolution,
-        conflictSet: SyncConflictSet,
-    ): UnifiedSyncResult {
-        resolveRequests += resolution to conflictSet
-        return nextResolveResult
     }
 
     override suspend fun resolveReview(

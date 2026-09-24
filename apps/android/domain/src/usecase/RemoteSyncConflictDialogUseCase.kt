@@ -23,6 +23,7 @@ class RemoteSyncConflictDialogUseCase(
     private val remoteSyncCenterRepository: RemoteSyncCenterRepository,
     private val memoRepository: MemoMutationRepository,
     private val pageLimit: Int = DEFAULT_PAGE_LIMIT,
+    private val nowEpochMillis: () -> Long = { System.currentTimeMillis() },
 ) {
     data class OpenSession(
         val workspaceRoot: String,
@@ -38,7 +39,7 @@ class RemoteSyncConflictDialogUseCase(
      * Pages are walked until [nextCursor] is exhausted so the dialog sees the full open set
      * (large sets remain a known residual vs Sync Center pagination).
      */
-    fun loadOpenSession(workspaceRoot: String): OpenSession? {
+    suspend fun loadOpenSession(workspaceRoot: String): OpenSession? {
         val root = workspaceRoot.trim()
         if (root.isEmpty()) {
             return null
@@ -58,7 +59,7 @@ class RemoteSyncConflictDialogUseCase(
                 SyncConflictSet(
                     source = backend,
                     files = files,
-                    timestamp = System.currentTimeMillis(),
+                    timestamp = nowEpochMillis(),
                 ),
             conflictRevision = pageWalk.conflictRevision,
             sessionId = pageWalk.sessionId,
@@ -118,7 +119,7 @@ class RemoteSyncConflictDialogUseCase(
      * Pending returns remaining open files only (SkipForNow is durable Rust status, not re-shown
      * as Open). Empty open set after apply → Resolved (+ memo refresh in [resolveSuspending]).
      */
-    fun resolve(
+    suspend fun resolve(
         session: OpenSession,
         resolution: SyncConflictResolution,
     ): DialogResolveResult {
@@ -165,6 +166,7 @@ internal fun RemoteSyncBackendLabel.toSyncBackendType(): SyncBackendType =
         RemoteSyncBackendLabel.Git -> SyncBackendType.GIT
         RemoteSyncBackendLabel.WebDav -> SyncBackendType.WEBDAV
         RemoteSyncBackendLabel.S3 -> SyncBackendType.S3
+        RemoteSyncBackendLabel.Unknown -> SyncBackendType.UNKNOWN
     }
 
 internal fun RemoteSyncConflictPath.toSyncConflictFile(

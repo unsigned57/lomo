@@ -5,10 +5,6 @@ import com.lomo.domain.model.CredentialFieldState
 import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.CredentialState
 import com.lomo.domain.model.StoredCredentialStatus
-import com.lomo.domain.model.SyncConflictResolution
-import com.lomo.domain.model.SyncConflictSet
-import com.lomo.domain.model.SyncReviewResolution
-import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncState
@@ -90,25 +86,15 @@ interface WebDavSyncConfigurationMutationRepository :
     WebDavSyncScheduleMutationRepository
 
 interface WebDavSyncOperationRepository {
+    /**
+     * Enqueues one Rust-owned sync cycle and returns [WebDavSyncResult.Accepted] on admission.
+     * The durable cycle record owns the terminal outcome.
+     */
     suspend fun sync(): WebDavSyncResult
 
     suspend fun getStatus(): WebDavSyncStatus
 
     suspend fun testConnection(): WebDavSyncResult
-}
-
-interface WebDavSyncConflictRepository {
-    suspend fun resolveConflicts(
-        resolution: SyncConflictResolution,
-        conflictSet: SyncConflictSet,
-    ): WebDavSyncResult
-}
-
-interface WebDavSyncReviewRepository {
-    suspend fun resolveReview(
-        resolution: SyncReviewResolution,
-        review: SyncReviewSession,
-    ): WebDavSyncResult
 }
 
 interface WebDavSyncStateRepository {
@@ -119,6 +105,4 @@ interface WebDavSyncRepository :
     WebDavSyncConfigurationRepository,
     WebDavSyncConfigurationMutationRepository,
     WebDavSyncOperationRepository,
-    WebDavSyncConflictRepository,
-    WebDavSyncReviewRepository,
     WebDavSyncStateRepository

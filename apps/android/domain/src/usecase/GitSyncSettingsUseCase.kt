@@ -1,19 +1,19 @@
 package com.lomo.domain.usecase
 
-import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.SyncPolicyRepository
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 
 interface GitSyncSettingsStateObservation {
     fun observeGitSyncEnabled(): Flow<Boolean>
 
     fun observeRemoteUrl(): Flow<String?>
+
+    fun observeBranch(): Flow<String>
 
     fun observeAuthorName(): Flow<String>
 
@@ -36,12 +36,16 @@ interface GitSyncSettingsValidation {
     suspend fun isTokenConfigured(): Boolean
 
     fun isValidRemoteUrl(url: String): Boolean
+
+    fun isValidBranch(branch: String): Boolean
 }
 
 interface GitSyncSettingsMutation {
     suspend fun updateGitSyncEnabled(enabled: Boolean)
 
     suspend fun updateRemoteUrl(url: String)
+
+    suspend fun updateBranch(branch: String)
 
     suspend fun updateToken(token: String)
 
@@ -59,10 +63,6 @@ interface GitSyncSettingsMutation {
 
 interface GitSyncSettingsActions {
     suspend fun triggerSyncNow()
-
-    suspend fun resolveConflictUsingRemote(): GitSyncResult
-
-    suspend fun resolveConflictUsingLocal(): GitSyncResult
 
     suspend fun testConnection(): GitSyncResult
 
@@ -113,6 +113,8 @@ private class GitSyncSettingsStateObservationImpl(
 
     override fun observeRemoteUrl(): Flow<String?> = gitSyncRepository.getRemoteUrl()
 
+    override fun observeBranch(): Flow<String> = gitSyncRepository.getBranch()
+
     override fun observeAuthorName(): Flow<String> = gitSyncRepository.getAuthorName()
 
     override fun observeAuthorEmail(): Flow<String> = gitSyncRepository.getAuthorEmail()
@@ -137,6 +139,8 @@ private class GitSyncSettingsValidationImpl(
     override suspend fun isTokenConfigured(): Boolean = gitSyncRepository.isTokenConfigured()
 
     override fun isValidRemoteUrl(url: String): Boolean = gitRemoteUrlUseCase.isValid(url)
+
+    override fun isValidBranch(branch: String): Boolean = gitRemoteUrlUseCase.isValidBranch(branch)
 }
 
 private class GitSyncSettingsMutationImpl(
@@ -159,6 +163,12 @@ private class GitSyncSettingsMutationImpl(
 
     override suspend fun updateRemoteUrl(url: String) {
         gitSyncRepository.setRemoteUrl(gitRemoteUrlUseCase.normalize(url))
+    }
+
+    override suspend fun updateBranch(branch: String) {
+        val trimmed = branch.trim()
+        require(gitRemoteUrlUseCase.isValidBranch(trimmed)) { "invalid git branch name" }
+        gitSyncRepository.setBranch(trimmed)
     }
 
     override suspend fun updateToken(token: String) {
@@ -199,42 +209,7 @@ private class GitSyncSettingsActionsImpl(
         shared.triggerSyncNow()
     }
 
-    override suspend fun resolveConflictUsingRemote(): GitSyncResult =
-        runGitOperation {
-            when (val result = gitSyncRepository.resetLocalBranchToRemote()) {
-                is GitSyncResult.Error -> result
-                else -> {
-                    syncAndRebuildUseCase(forceSync = false)
-                    result
-                }
-            }
-        }
-
-    override suspend fun resolveConflictUsingLocal(): GitSyncResult =
-        runGitOperation {
-            when (val result = gitSyncRepository.forcePushLocalToRemote()) {
-                is GitSyncResult.Error -> result
-                else -> {
-                    syncAndRebuildUseCase(forceSync = false)
-                    result
-                }
-            }
-        }
-
     override suspend fun testConnection(): GitSyncResult = shared.testConnection()
 
     override suspend fun resetRepository(): GitSyncResult = gitSyncRepository.resetRepository()
-
-    private suspend fun runGitOperation(block: suspend () -> GitSyncResult): GitSyncResult =
-        try {
-            block()
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            GitSyncResult.Error(
-                code = GitSyncErrorCode.UNKNOWN,
-                message = error.message.orEmpty(),
-                exception = error,
-            )
-        }
 }

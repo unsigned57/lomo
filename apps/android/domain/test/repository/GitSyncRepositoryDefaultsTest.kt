@@ -67,6 +67,8 @@ class GitSyncRepositoryDefaultsTest : DomainFunSpec() {
 
         override fun getRemoteUrl(): Flow<String?> = flowOf(null)
 
+        override fun getBranch(): Flow<String> = flowOf("main")
+
         override fun getAutoSyncEnabled(): Flow<Boolean> = flowOf(false)
 
         override fun getAutoSyncInterval(): Flow<String> = flowOf("never")
@@ -76,6 +78,8 @@ class GitSyncRepositoryDefaultsTest : DomainFunSpec() {
         override fun getSyncOnRefreshEnabled(): Flow<Boolean> = flowOf(false)
 
         override suspend fun setRemoteUrl(url: String) = Unit
+
+        override suspend fun setBranch(branch: String) = Unit
 
         override suspend fun setToken(token: String) = Unit
 
@@ -112,15 +116,6 @@ class GitSyncRepositoryDefaultsTest : DomainFunSpec() {
 
         override suspend fun resetRepository(): GitSyncResult = GitSyncResult.NotConfigured
 
-        override suspend fun resetLocalBranchToRemote(): GitSyncResult = GitSyncResult.NotConfigured
-
-        override suspend fun forcePushLocalToRemote(): GitSyncResult = GitSyncResult.NotConfigured
-
         override fun syncState(): Flow<UnifiedSyncState> = flowOf(UnifiedSyncState.Idle)
-
-        override suspend fun resolveConflicts(
-            resolution: com.lomo.domain.model.SyncConflictResolution,
-            conflictSet: com.lomo.domain.model.SyncConflictSet,
-        ): GitSyncResult = GitSyncResult.NotConfigured
     }
 }

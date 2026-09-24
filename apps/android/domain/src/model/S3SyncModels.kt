@@ -83,23 +83,20 @@ sealed interface S3SyncResult {
         val outcomes: List<S3SyncOutcome> = emptyList(),
     ) : S3SyncResult
 
+    /**
+     * WorkManager accepted the enqueue — proves admission only.
+     * The durable Rust cycle record owns the terminal outcome.
+     */
+    data class Accepted(
+        val message: String,
+    ) : S3SyncResult
+
     data class Error(
         val code: S3SyncErrorCode,
         val message: String,
         val exception: Throwable? = null,
         val outcomes: List<S3SyncOutcome> = emptyList(),
-    ) : S3SyncResult {
-        constructor(
-            message: String,
-            exception: Throwable? = null,
-            outcomes: List<S3SyncOutcome> = emptyList(),
-        ) : this(
-            code = s3SyncErrorCodeFromMessage(message),
-            message = message,
-            exception = exception,
-            outcomes = outcomes,
-        )
-    }
+    ) : S3SyncResult
 
     data object NotConfigured : S3SyncResult
 
@@ -138,16 +135,7 @@ sealed interface S3SyncState {
         val code: S3SyncErrorCode,
         val message: String,
         val timestamp: Long,
-    ) : S3SyncState {
-        constructor(
-            message: String,
-            timestamp: Long,
-        ) : this(
-            code = s3SyncErrorCodeFromMessage(message),
-            message = message,
-            timestamp = timestamp,
-        )
-    }
+    ) : S3SyncState
 
     data object NotConfigured : S3SyncState
 
@@ -167,19 +155,3 @@ class S3SyncFailureException(
 ) : Exception(message, cause)
 
 fun S3SyncStatus.observeLastSyncInstantOrNull(): Instant? = lastSyncTime?.let(Instant::ofEpochMilli)
-
-private fun s3SyncErrorCodeFromMessage(rawMessage: String?): S3SyncErrorCode {
-    val normalized = rawMessage?.trim().orEmpty()
-    return when {
-        normalized.isBlank() -> S3SyncErrorCode.UNKNOWN
-        normalized.contains("not configured", ignoreCase = true) -> S3SyncErrorCode.NOT_CONFIGURED
-        normalized.contains("credential", ignoreCase = true) -> S3SyncErrorCode.AUTH_FAILED
-        normalized.contains("auth", ignoreCase = true) -> S3SyncErrorCode.AUTH_FAILED
-        normalized.contains("bucket", ignoreCase = true) -> S3SyncErrorCode.BUCKET_ACCESS_FAILED
-        normalized.contains("layout", ignoreCase = true) -> S3SyncErrorCode.REMOTE_LAYOUT_VIOLATION
-        normalized.contains("encrypt", ignoreCase = true) -> S3SyncErrorCode.ENCRYPTION_FAILED
-        normalized.contains("decrypt", ignoreCase = true) -> S3SyncErrorCode.ENCRYPTION_FAILED
-        normalized.contains("connection", ignoreCase = true) -> S3SyncErrorCode.CONNECTION_FAILED
-        else -> S3SyncErrorCode.UNKNOWN
-    }
-}

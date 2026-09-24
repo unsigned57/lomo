@@ -94,7 +94,7 @@ class CredentialStateTest : DomainFunSpec() {
             CredentialField.S3_ACCESS_KEY_ID.provider shouldBe CredentialProvider.S3
             CredentialProvider.WEBDAV.identityField() shouldBe CredentialField.WEBDAV_USERNAME
             CredentialProvider.S3.identityField() shouldBe CredentialField.S3_ACCESS_KEY_ID
-            CredentialProvider.GIT.identityField() shouldBe null
+            CredentialProvider.GIT.identityField() shouldBe CredentialField.GIT_USERNAME
             CredentialProvider.WEBDAV.secretField() shouldBe CredentialField.WEBDAV_PASSWORD
             CredentialProvider.S3.secretField() shouldBe CredentialField.S3_SECRET_ACCESS_KEY
             CredentialProvider.GIT.secretField() shouldBe CredentialField.GIT_TOKEN

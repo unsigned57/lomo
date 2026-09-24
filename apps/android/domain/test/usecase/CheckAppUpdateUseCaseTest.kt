@@ -1,6 +1,9 @@
 package com.lomo.domain.usecase
 
 import com.lomo.domain.model.AppUpdateAssetCandidate
+import com.lomo.domain.model.AppUpdateCheckOutcome
+import com.lomo.domain.model.AppUpdateInfo
+import com.lomo.domain.model.AppUpdateFetchFailure
 import com.lomo.domain.model.AppUpdateAssetUnsupportedReason
 import com.lomo.domain.model.AppUpdateAssetVerification
 import com.lomo.domain.model.LatestAppRelease
@@ -11,6 +14,7 @@ import io.kotest.assertions.assertSoftly
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlinx.coroutines.test.runTest
 
 /*
@@ -30,6 +34,8 @@ import kotlinx.coroutines.test.runTest
  * - Given a newer release without an APK candidate, when manual update check runs, then no installable update is returned.
  * - Given a same-version or downgrade release, when manual update check runs, then no update is returned even if the APK candidate is verified.
  * - Given a newer release whose APK candidate is unsupported because package metadata is wrong, when manual update check runs, then the candidate does not enter the install path.
+ * - Given a transport or parse failure, when manual update check runs, then a typed Failed
+ *   outcome carries the diagnostic instead of a silent null.
  *
  * Observable outcomes:
  * - Returned AppUpdateInfo or null, selected version, release notes, APK download URL, file name, and size.
@@ -84,6 +90,7 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
                         appUpdateRepository = appUpdateRepository,
                         appRuntimeInfoRepository = appRuntimeInfoRepository,
                     ).invoke()
+                        .updateOrNull()
 
                 result shouldNotBe null
                 assertSoftly(result!!) {
@@ -115,6 +122,7 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
                         appUpdateRepository = appUpdateRepository,
                         appRuntimeInfoRepository = appRuntimeInfoRepository,
                     ).invoke()
+                        .updateOrNull()
 
                 result.shouldBeNull()
             }
@@ -146,6 +154,7 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
                         appUpdateRepository = appUpdateRepository,
                         appRuntimeInfoRepository = appRuntimeInfoRepository,
                     ).invoke()
+                        .updateOrNull()
 
                 result shouldNotBe null
                 result!!.version shouldBe "1.1.0"
@@ -184,6 +193,7 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
                         appUpdateRepository = appUpdateRepository,
                         appRuntimeInfoRepository = appRuntimeInfoRepository,
                     ).invoke()
+                        .updateOrNull()
 
                 result shouldNotBe null
                 assertSoftly(result!!) {
@@ -227,6 +237,7 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
                         appUpdateRepository = appUpdateRepository,
                         appRuntimeInfoRepository = appRuntimeInfoRepository,
                     ).invoke()
+                        .updateOrNull()
 
                 result.shouldBeNull()
             }
@@ -263,6 +274,7 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
                         appUpdateRepository = appUpdateRepository,
                         appRuntimeInfoRepository = appRuntimeInfoRepository,
                     ).invoke()
+                        .updateOrNull()
 
                 result.shouldBeNull()
             }
@@ -299,6 +311,7 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
                         appUpdateRepository = appUpdateRepository,
                         appRuntimeInfoRepository = appRuntimeInfoRepository,
                     ).invoke()
+                        .updateOrNull()
 
                 result shouldNotBe null
                 assertSoftly(result!!) {
@@ -335,6 +348,7 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
                         appUpdateRepository = appUpdateRepository,
                         appRuntimeInfoRepository = appRuntimeInfoRepository,
                     ).invoke()
+                        .updateOrNull()
 
                 result.shouldBeNull()
             }
@@ -369,12 +383,55 @@ class CheckAppUpdateUseCaseTest : DomainFunSpec() {
                         appUpdateRepository = appUpdateRepository,
                         appRuntimeInfoRepository = appRuntimeInfoRepository,
                     ).invoke()
+                        .updateOrNull()
 
                 result.shouldBeNull()
             }
         }
+
+        test("given a fetch failure when checking manually then a typed failed outcome is returned") {
+            runTest {
+                val appUpdateRepository =
+                    FakeAppUpdateRepository(
+                        fetchFailure =
+                            AppUpdateFetchFailure.Network("airplane mode"),
+                    )
+                val appRuntimeInfoRepository = FakeAppRuntimeInfoRepository("1.0.0")
+
+                val result =
+                    CheckAppUpdateUseCase(
+                        appUpdateRepository = appUpdateRepository,
+                        appRuntimeInfoRepository = appRuntimeInfoRepository,
+                    ).invoke()
+
+                val failed = result.shouldBeInstanceOf<AppUpdateCheckOutcome.Failed>()
+                failed.failure.diagnostic shouldBe "airplane mode"
+            }
+        }
+
+        test("given an http rejection when checking manually then the failure carries the status code") {
+            runTest {
+                val appUpdateRepository =
+                    FakeAppUpdateRepository(
+                        fetchFailure = AppUpdateFetchFailure.Http(403, "forbidden"),
+                    )
+                val appRuntimeInfoRepository = FakeAppRuntimeInfoRepository("1.0.0")
+
+                val result =
+                    CheckAppUpdateUseCase(
+                        appUpdateRepository = appUpdateRepository,
+                        appRuntimeInfoRepository = appRuntimeInfoRepository,
+                    ).invoke()
+
+                val failed = result.shouldBeInstanceOf<AppUpdateCheckOutcome.Failed>()
+                (failed.failure as AppUpdateFetchFailure.Http).code shouldBe 403
+            }
+        }
     }
 }
+
+private fun AppUpdateCheckOutcome.updateOrNull(): AppUpdateInfo? =
+    (this as? AppUpdateCheckOutcome.Available)?.update
 
 private fun latestRelease(
     tagName: String,

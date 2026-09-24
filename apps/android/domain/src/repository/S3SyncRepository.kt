@@ -12,10 +12,6 @@ import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.S3SyncStatus
 import com.lomo.domain.model.StoredCredentialStatus
-import com.lomo.domain.model.SyncConflictResolution
-import com.lomo.domain.model.SyncConflictSet
-import com.lomo.domain.model.SyncReviewResolution
-import com.lomo.domain.model.SyncReviewSession
 import com.lomo.domain.model.isConfigured
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -190,6 +186,10 @@ interface S3SyncConfigurationMutationRepository :
     S3SyncBehaviorMutationRepository
 
 interface S3SyncOperationRepository {
+    /**
+     * Enqueues one Rust-owned sync cycle and returns [S3SyncResult.Accepted] on admission.
+     * The durable cycle record owns the terminal outcome.
+     */
     suspend fun sync(): S3SyncResult
 
     suspend fun syncForRefresh(): S3SyncResult = sync()
@@ -197,20 +197,6 @@ interface S3SyncOperationRepository {
     suspend fun getStatus(): S3SyncStatus
 
     suspend fun testConnection(): S3SyncResult
-}
-
-interface S3SyncConflictRepository {
-    suspend fun resolveConflicts(
-        resolution: SyncConflictResolution,
-        conflictSet: SyncConflictSet,
-    ): S3SyncResult
-}
-
-interface S3SyncReviewRepository {
-    suspend fun resolveReview(
-        resolution: SyncReviewResolution,
-        review: SyncReviewSession,
-    ): S3SyncResult
 }
 
 interface S3SyncStateRepository {
@@ -221,6 +207,4 @@ interface S3SyncRepository :
     S3SyncConfigurationRepository,
     S3SyncConfigurationMutationRepository,
     S3SyncOperationRepository,
-    S3SyncConflictRepository,
-    S3SyncReviewRepository,
     S3SyncStateRepository

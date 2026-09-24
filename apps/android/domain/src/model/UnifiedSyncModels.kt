@@ -67,6 +67,17 @@ sealed interface UnifiedSyncResult {
         val message: String,
     ) : UnifiedSyncResult
 
+    /**
+     * The work was accepted by the scheduler — **not** a completed sync.
+     *
+     * Enqueue receipts only prove WorkManager admission; the durable Rust cycle record owns the
+     * real outcome (`com.lomo.data.engine.sync.RemoteSyncCycleStatus` / `syncState()` flows).
+     */
+    data class Accepted(
+        override val provider: SyncBackendType,
+        val message: String,
+    ) : UnifiedSyncResult
+
     data class Error(
         override val provider: SyncBackendType,
         val error: UnifiedSyncError,

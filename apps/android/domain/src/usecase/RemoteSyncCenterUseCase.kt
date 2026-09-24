@@ -19,11 +19,14 @@ import com.lomo.domain.repository.RemoteSyncCenterRepository
 class RemoteSyncCenterUseCase(
     private val repository: RemoteSyncCenterRepository,
 ) {
-    fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary =
+    suspend fun configSummary(workspaceRoot: String): RemoteSyncConfigSummary =
         repository.configSummary(workspaceRoot)
 
-    fun sessionProgress(workspaceRoot: String): RemoteSyncSessionProgress =
+    suspend fun sessionProgress(workspaceRoot: String): RemoteSyncSessionProgress =
         repository.sessionProgress(workspaceRoot)
+
+    suspend fun requestCancel(workspaceRoot: String): RemoteSyncSessionProgress =
+        repository.requestCancel(workspaceRoot)
 
     fun listConflicts(
         workspaceRoot: String,

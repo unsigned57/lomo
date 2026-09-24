@@ -100,6 +100,34 @@ class GitSyncSettingsUseCaseTest : DomainFunSpec() {
             }
         }
 
+        test("branch observation and mutation persist an explicit configured branch") {
+            runTest {
+                gitSyncRepository.setBranchValue("master")
+
+                useCase.observeBranch().first() shouldBe "master"
+                useCase.isValidBranch("release-2") shouldBe true
+
+                useCase.updateBranch(" release-2 ")
+
+                gitSyncRepository.branchWrites shouldBe listOf("release-2")
+                useCase.observeBranch().first() shouldBe "release-2"
+            }
+        }
+
+        test("updateBranch rejects invalid branch names") {
+            runTest {
+                listOf("", "feature/x", "wip.lock", "a..b", "-wip").forEach { invalid ->
+                    try {
+                        useCase.updateBranch(invalid)
+                        fail("Expected rejection for branch=$invalid")
+                    } catch (e: IllegalArgumentException) {
+                        // expected
+                    }
+                }
+                gitSyncRepository.branchWrites shouldBe emptyList()
+            }
+        }
+
         test("auto sync mutations reapply policy while sync-on-refresh only writes flag") {
             runTest {
                 useCase.updateAutoSyncEnabled(enabled = true)
@@ -118,63 +146,6 @@ class GitSyncSettingsUseCaseTest : DomainFunSpec() {
                 useCase.triggerSyncNow()
 
                 memoRepository.refreshMemosCallCount shouldBe 1
-            }
-        }
-
-        test("resolveConflictUsingRemote success triggers follow-up refresh sync") {
-            runTest {
-                val success = GitSyncResult.Success("remote reset")
-                gitSyncRepository.nextResetLocalBranchToRemoteResult = success
-
-                val result = useCase.resolveConflictUsingRemote()
-
-                result shouldBe success
-                gitSyncRepository.resetLocalBranchToRemoteCallCount shouldBe 1
-                memoRepository.refreshMemosCallCount shouldBe 1
-            }
-        }
-
-        test("resolveConflictUsingRemote error result skips follow-up refresh sync") {
-            runTest {
-                val failure = GitSyncResult.Error(
-                    code = GitSyncErrorCode.UNKNOWN,
-                    message = "conflict unresolved",
-                )
-                gitSyncRepository.nextResetLocalBranchToRemoteResult = failure
-
-                val result = useCase.resolveConflictUsingRemote()
-
-                result shouldBe failure
-                gitSyncRepository.resetLocalBranchToRemoteCallCount shouldBe 1
-                memoRepository.refreshMemosCallCount shouldBe 0
-            }
-        }
-
-        test("resolveConflictUsingLocal non-cancellation exception maps to error result") {
-            runTest {
-                val failure = IllegalStateException("push failed")
-                gitSyncRepository.forcePushLocalFailure = failure
-
-                val result = useCase.resolveConflictUsingLocal()
-
-                val error = result.shouldBeInstanceOf<GitSyncResult.Error>()
-                error.message shouldBe "push failed"
-                error.exception shouldBe failure
-                memoRepository.refreshMemosCallCount shouldBe 0
-            }
-        }
-
-        test("resolveConflictUsingLocal cancellation is rethrown") {
-            runTest {
-                val cancellation = CancellationException("cancelled")
-                gitSyncRepository.forcePushLocalFailure = cancellation
-
-                try {
-                    useCase.resolveConflictUsingLocal()
-                    fail("Expected CancellationException")
-                } catch (e: CancellationException) {
-                    e shouldBe cancellation
-                }
             }
         }
 

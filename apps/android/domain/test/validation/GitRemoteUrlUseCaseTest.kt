@@ -41,9 +41,10 @@ import io.kotest.matchers.shouldBe
 class GitRemoteUrlUseCaseTest : DomainFunSpec() {
     private val policy = GitRemoteUrlUseCase()
     init {
-        test("isValid accepts blank for clearing config") {
-            (policy.isValid("")) shouldBe true
-            (policy.isValid("   ")) shouldBe true
+        test("isValid rejects blank — an empty URL is not a valid remote endpoint") {
+            // Clearing stays an explicit dialog affordance; the validator never calls blank valid.
+            (policy.isValid("")) shouldBe false
+            (policy.isValid("   ")) shouldBe false
         }
 
         test("isValid accepts https remote with repository path") {
@@ -53,6 +54,40 @@ class GitRemoteUrlUseCaseTest : DomainFunSpec() {
         test("isValid rejects non-https or missing repo path") {
             (policy.isValid("http://github.com/unsigned57/lomo.git")) shouldBe false
             (policy.isValid("https://github.com")) shouldBe false
+        }
+
+        test("isValid rejects userinfo and ssh-shaped endpoints") {
+            (policy.isValid("https://alice:s3cr3t@github.com/org/repo.git")) shouldBe false
+            (policy.isValid("https://alice@github.com/org/repo.git")) shouldBe false
+            (policy.isValid("git@github.com:org/repo.git")) shouldBe false
+            (policy.isValid("ssh://git@github.com/org/repo.git")) shouldBe false
+            (policy.isValid("file:///srv/repo.git")) shouldBe false
+        }
+
+        test("isValidBranch accepts ordinary short ref names") {
+            (policy.isValidBranch("main")) shouldBe true
+            (policy.isValidBranch("master")) shouldBe true
+            (policy.isValidBranch("dev-2.x")) shouldBe true
+        }
+
+        test("isValidBranch rejects empty and git-ref-unsafe names") {
+            (policy.isValidBranch("")) shouldBe false
+            (policy.isValidBranch("   ")) shouldBe false
+            (policy.isValidBranch("feature/x")) shouldBe false
+            (policy.isValidBranch("-wip")) shouldBe false
+            (policy.isValidBranch(".hidden")) shouldBe false
+            (policy.isValidBranch("trailing.")) shouldBe false
+            (policy.isValidBranch("wip.lock")) shouldBe false
+            (policy.isValidBranch("WIP.LOCK")) shouldBe false
+            (policy.isValidBranch("a..b")) shouldBe false
+            (policy.isValidBranch("a@{b")) shouldBe false
+            (policy.isValidBranch("a?b")) shouldBe false
+            (policy.isValidBranch("a*b")) shouldBe false
+            (policy.isValidBranch("a[b")) shouldBe false
+            (policy.isValidBranch("a~b")) shouldBe false
+            (policy.isValidBranch("a^b")) shouldBe false
+            (policy.isValidBranch("a:b")) shouldBe false
+            (policy.isValidBranch("a\\b")) shouldBe false
         }
 
         test("normalize trims and removes trailing slash") {

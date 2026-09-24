@@ -129,12 +129,16 @@ enum class RemoteSyncBackendLabel {
     Git,
     WebDav,
     S3,
+
+    /** Persisted selection names no backend this build understands — presented as unavailable. */
+    Unknown,
 }
 
 /**
- * Config summary shown in Sync Center and Settings entry (dark shell).
+ * Config summary shown in Sync Center and Settings entry.
  *
- * Schedule / last verified are presentation stubs until production scheduler cutover.
+ * Backend/schedule reflect persisted config; attention/lastVerified project the durable
+ * Rust cycle record (`cycle_state.rec`) — never fabricated.
  */
 data class RemoteSyncConfigSummary(
     val backend: RemoteSyncBackendLabel,
@@ -143,7 +147,7 @@ data class RemoteSyncConfigSummary(
     val schedulePolicyLabel: String?,
 )
 
-/** Session phase surface for Sync Center (presentation shell). */
+/** Session phase surface for Sync Center (projects the durable Rust cycle record). */
 enum class RemoteSyncSessionPhase {
     Idle,
     Preflight,
@@ -154,6 +158,7 @@ enum class RemoteSyncSessionPhase {
     ConflictOpen,
     Cancelling,
     Failed,
+    Cancelled,
     Completed,
 }
 

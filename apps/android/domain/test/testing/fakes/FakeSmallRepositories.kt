@@ -1,5 +1,7 @@
 package com.lomo.domain.testing.fakes
 
+import com.lomo.domain.model.AppUpdateFetchException
+import com.lomo.domain.model.AppUpdateFetchFailure
 import com.lomo.domain.model.AppUpdateInfo
 import com.lomo.domain.model.LatestAppRelease
 import com.lomo.domain.model.SyncConflictFile
@@ -52,13 +54,18 @@ class FakeSyncConflictBackupRepository : SyncConflictBackupRepository {
 
 class FakeAppUpdateRepository(
     var latestRelease: LatestAppRelease? = null,
+    var fetchFailure: AppUpdateFetchFailure? = null,
 ) : AppUpdateRepository {
     var fetchLatestReleaseCallCount = 0
         private set
 
-    override suspend fun fetchLatestRelease(): LatestAppRelease? {
+    override suspend fun fetchLatestRelease(): LatestAppRelease {
         fetchLatestReleaseCallCount += 1
+        fetchFailure?.let { throw AppUpdateFetchException(it) }
         return latestRelease
+            ?: throw AppUpdateFetchException(
+                AppUpdateFetchFailure.MalformedResponse("test fixture: no latest release"),
+            )
     }
 }
 
