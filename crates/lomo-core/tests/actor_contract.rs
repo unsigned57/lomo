@@ -165,6 +165,23 @@ mod tests {
                     .must_succeed("written metadata"),
                 }
             }
+            PlatformAction::ArtifactWrite { source, path, .. } => {
+                let written_evidence = ActionEvidence::verified(
+                    source.length(),
+                    source.digest().clone(),
+                    "root-fingerprint",
+                )
+                .must_succeed("written evidence");
+                PlatformActionOutput::WriteComplete {
+                    metadata: DocumentMetadata::new(
+                        WorkspaceTarget::Relative(path.clone()),
+                        DocumentKind::File,
+                        None,
+                        written_evidence,
+                    )
+                    .must_succeed("written metadata"),
+                }
+            }
             PlatformAction::Move { target, .. } => PlatformActionOutput::MoveComplete {
                 metadata: metadata(
                     WorkspaceTarget::Relative(target.clone()),

@@ -2,6 +2,7 @@
 
 mod engine;
 mod error;
+mod io;
 mod job;
 mod native_task;
 mod platform;
@@ -13,6 +14,7 @@ pub use engine::{
     ShutdownDeadline, ShutdownOutcome, Subscription,
 };
 pub use error::{ErrorCategory, LomoError, RetryDisposition};
+pub use io::{BoundedReadError, read_bounded, read_bounded_reader};
 pub use job::{
     DriverAdvance, DriverStart, JobDriver, JobDriverContext, JobDriverKind, JobDriverRegistry,
     job_driver_context,
@@ -26,7 +28,8 @@ pub use platform::{
     ActionEvidence, ActionOutcome, ActionResult, ContentDigest, DocumentHandle, DocumentKind,
     DocumentLocator, DocumentMetadata, ExchangeArtifact, ExpectedFingerprint, MetadataPage,
     PlatformAction, PlatformActionBatch, PlatformActionExecutor, PlatformActionOutput,
-    PlatformBatchResult, Sha256Digest, VerifiedAbsence, WorkspaceTarget, WriteMode,
+    PlatformBatchResult, Sha256Digest, StagedArtifactSource, VerifiedAbsence, WorkspaceTarget,
+    WriteMode,
 };
 pub use secret::{EphemeralSecretVault, SecretLeaseId, SecretMaterial, SharedSecretVault};
 pub use types::{

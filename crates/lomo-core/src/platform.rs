@@ -216,6 +216,59 @@ pub enum WriteMode {
     Replace,
 }
 
+const MAX_STAGED_SOURCE_PATH_BYTES: usize = 4_096;
+
+/// A durable staged artifact the executor streams without routing its bytes through a plan.
+///
+/// The path names host-private staging outside the capability root; integrity is enforced by
+/// re-verifying `digest` and `length` while streaming and again at the published target.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct StagedArtifactSource {
+    path: String,
+    digest: Sha256Digest,
+    length: u64,
+}
+
+impl StagedArtifactSource {
+    /// Declares a retained staged artifact source.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation when `path` is not an absolute bounded path free of controls.
+    pub fn new(path: &str, length: u64, digest: Sha256Digest) -> Result<Self, LomoError> {
+        if path.is_empty()
+            || path.len() > MAX_STAGED_SOURCE_PATH_BYTES
+            || !path.starts_with('/')
+            || path.chars().any(char::is_control)
+        {
+            return Err(LomoError::validation(
+                "invalid_staged_artifact_source",
+                "staged artifact source must be an absolute bounded path without controls",
+            ));
+        }
+        Ok(Self {
+            path: path.to_owned(),
+            digest,
+            length,
+        })
+    }
+
+    #[must_use]
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    #[must_use]
+    pub const fn digest(&self) -> &Sha256Digest {
+        &self.digest
+    }
+
+    #[must_use]
+    pub const fn length(&self) -> u64 {
+        self.length
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum WorkspaceTarget {
     Root,
@@ -425,6 +478,16 @@ pub enum PlatformAction {
         mode: WriteMode,
         expected_target: ExpectedFingerprint,
     },
+    /// Streams a retained staged artifact to `path`, re-verifying digest and length during the
+    /// transfer and at the published target. `expected_target` is `Absent` for a fresh artifact;
+    /// a target already holding the declared digest is satisfaction, not conflict.
+    ArtifactWrite {
+        action_id: ActionId,
+        capability: CapabilityToken,
+        source: StagedArtifactSource,
+        path: RelativeWorkspacePath,
+        expected_target: ExpectedFingerprint,
+    },
     Move {
         action_id: ActionId,
         capability: CapabilityToken,
@@ -575,6 +638,23 @@ impl PlatformAction {
     }
 
     #[must_use]
+    pub const fn artifact_write(
+        action_id: ActionId,
+        capability: CapabilityToken,
+        source: StagedArtifactSource,
+        path: RelativeWorkspacePath,
+        expected_target: ExpectedFingerprint,
+    ) -> Self {
+        Self::ArtifactWrite {
+            action_id,
+            capability,
+            source,
+            path,
+            expected_target,
+        }
+    }
+
+    #[must_use]
     pub const fn move_path(
         action_id: ActionId,
         capability: CapabilityToken,
@@ -616,6 +696,7 @@ impl PlatformAction {
             | Self::EnsureDirectory { action_id, .. }
             | Self::ReadToExchange { action_id, .. }
             | Self::WriteFromExchange { action_id, .. }
+            | Self::ArtifactWrite { action_id, .. }
             | Self::Move { action_id, .. }
             | Self::Delete { action_id, .. } => action_id,
         }
@@ -1035,6 +1116,7 @@ const fn action_shape(action: &PlatformAction) -> &'static str {
         PlatformAction::EnsureDirectory { .. } => "EnsureDirectory",
         PlatformAction::ReadToExchange { .. } => "ReadToExchange",
         PlatformAction::WriteFromExchange { .. } => "WriteFromExchange",
+        PlatformAction::ArtifactWrite { .. } => "ArtifactWrite",
         PlatformAction::Move { .. } => "Move",
         PlatformAction::Delete { .. } => "Delete",
     }
@@ -1085,22 +1167,23 @@ const fn expect_kind(observed: DocumentKind, expected: DocumentKind) -> Result<(
 
 fn expect_evidence(
     observed: &ActionEvidence,
-    expected: &ExchangeArtifact,
+    expected_length: u64,
+    expected_digest: &Sha256Digest,
 ) -> Result<(), OutputMismatch> {
-    if observed.length() != expected.length() {
+    if observed.length() != expected_length {
         return Err(OutputMismatch::Length {
-            expected: expected.length(),
+            expected: expected_length,
             observed: observed.length(),
         });
     }
     match observed.verified_digest() {
-        Some(digest) if digest == expected.digest() => Ok(()),
+        Some(digest) if digest == expected_digest => Ok(()),
         Some(digest) => Err(OutputMismatch::Digest {
-            expected: brief(expected.digest().as_str()),
+            expected: brief(expected_digest.as_str()),
             observed: brief(digest.as_str()),
         }),
         None => Err(OutputMismatch::Digest {
-            expected: brief(expected.digest().as_str()),
+            expected: brief(expected_digest.as_str()),
             observed: brief("unknown"),
         }),
     }
@@ -1142,7 +1225,14 @@ impl PlatformActionOutput {
                 PlatformAction::WriteFromExchange { artifact, path, .. },
             ) => {
                 expect_relative(metadata.target(), path)?;
-                expect_evidence(metadata.evidence(), artifact)
+                expect_evidence(metadata.evidence(), artifact.length(), artifact.digest())
+            }
+            (
+                Self::WriteComplete { metadata },
+                PlatformAction::ArtifactWrite { source, path, .. },
+            ) => {
+                expect_relative(metadata.target(), path)?;
+                expect_evidence(metadata.evidence(), source.length(), source.digest())
             }
             (Self::MoveComplete { metadata }, PlatformAction::Move { target, .. }) => {
                 expect_relative(metadata.target(), target)
