@@ -922,6 +922,7 @@ fn ndk_host_tag() -> Result<&'static str> {
 
 pub struct AbiStashGuard {
     stashed: Vec<(PathBuf, PathBuf)>,
+    kotlin_build: PathBuf,
 }
 
 impl AbiStashGuard {
@@ -936,10 +937,59 @@ impl AbiStashGuard {
                 "xtask: stashed {} unselected ABI directory(ies) for packaging isolation",
                 stashed.len()
             ));
+            invalidate_derived_packaging(&workspace.kotlin_build)?;
         }
 
-        Ok(Self { stashed })
+        Ok(Self {
+            stashed,
+            kotlin_build: workspace.kotlin_build.clone(),
+        })
     }
+}
+
+/// Gradle's up-to-date tracking does not reliably observe the rename-based jniLibs stash, so
+/// merge/package tasks can stay "up-to-date" against a tree that no longer matches — in either
+/// direction (subset stash or full restore). Once the jniLibs tree changed, every artifact
+/// derived from it is provably stale: merged native-lib intermediates, their incremental
+/// snapshots, and packaged APKs all must be rebuilt against the current selection.
+fn invalidate_derived_packaging(kotlin_build: &Path) -> Result<()> {
+    let tasks = kotlin_build.join("tasks");
+    if !tasks.is_dir() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(&tasks)? {
+        let app_build = entry?.path().join("gradle-project").join("build");
+        if !app_build.is_dir() {
+            continue;
+        }
+        for relative in [
+            "_app/intermediates/merged_jni_libs",
+            "_app/intermediates/merged_native_libs",
+            "_app/intermediates/merged_test_only_native_libs",
+            "_app/intermediates/stripped_native_libs",
+            "_app/outputs",
+        ] {
+            remove_if_exists(&app_build.join(relative))?;
+        }
+        let incremental = app_build.join("_app/intermediates/incremental");
+        if incremental.is_dir() {
+            for sub in fs::read_dir(&incremental)? {
+                let name = sub?.file_name().to_string_lossy().into_owned();
+                if name.contains("JniLibFolders") || name.starts_with("package") {
+                    remove_if_exists(&incremental.join(&name))?;
+                }
+            }
+        }
+    }
+    for apk in crate::util::find_files(&tasks, "apk")? {
+        fs::remove_file(&apk)
+            .with_context(|| format!("failed to remove stale APK {}", apk.display()))?;
+        crate::util::emit_stderr(format_args!(
+            "xtask: invalidated stale APK {} (jniLibs ABI selection changed)",
+            apk.display()
+        ));
+    }
+    Ok(())
 }
 
 fn stash_unselected_in_dir(
@@ -975,6 +1025,7 @@ fn stash_unselected_in_dir(
 
 impl Drop for AbiStashGuard {
     fn drop(&mut self) {
+        let changed_tree = !self.stashed.is_empty();
         for (stashed_path, original_path) in self.stashed.drain(..) {
             if stashed_path.exists() {
                 if let Some(parent) = original_path.parent()
@@ -1001,6 +1052,11 @@ impl Drop for AbiStashGuard {
                     ));
                 }
             }
+        }
+        if changed_tree && let Err(err) = invalidate_derived_packaging(&self.kotlin_build) {
+            crate::util::emit_stderr(format_args!(
+                "xtask: warning: failed to invalidate derived packaging after ABI restore: {err}"
+            ));
         }
     }
 }
