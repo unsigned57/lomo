@@ -31,34 +31,17 @@ rust-toolchain-bump channel *flags:
 fmt mode="staged":
     {{xtask}} fmt {{mode}}
 
-# Run Rust and Kotlin host tests.
-test:
-    {{xtask}} test
-
-# Verify current staged, unstaged, untracked and deleted inputs; --plan prints the task graph.
+# Verify the worktree diff; --plan prints the task graph, --tests-only skips static analysis.
 dev *args:
     {{xtask}} dev {{args}}
 
-# Path-aware commit gate (fmt/meaningful-tests are handled by the git hook). `push` mode
-# compares pushed commits against the remote base and runs on pre-push.
-preflight mode="staged" remote="origin":
-    {{xtask}} preflight {{mode}} {{remote}}
+# Hidden: path-aware push gate, invoked by .githooks/pre-push only.
+_preflight remote="origin":
+    {{xtask}} preflight push {{remote}}
 
 # Run the iterative Rust + Kotlin quality gate.
 check:
     {{xtask}} check
-
-# Run the Linux host quality gate (independent host packages without Android/JNI dependencies).
-check-linux:
-    {{xtask}} check-linux
-
-# Run the Linux TUI. Extra arguments are forwarded to lomo-tui (workspace path, --help, --version).
-tui *args:
-    {{xtask}} tui {{args}}
-
-# Build a generic Linux x86_64 TUI archive under target/lomo/dist/.
-package-linux:
-    {{xtask}} package-linux
 
 # Regenerate Kotlin bindings only.
 bindings:
@@ -84,14 +67,15 @@ deps mode="check":
 perf:
     {{xtask}} perf
 
-# Audit or clean repository-owned generated state.
+# Audit, prune stale Cargo artifacts, or clean repository-owned generated state.
+# `prune` runs automatically inside `_preflight` before every push.
 cache mode="audit":
     {{xtask}} cache {{mode}}
 
-# Verify reachability of domain UseCases from UI/app presentation and production pipelines.
-usecase-reachability:
-    {{xtask}} usecase-reachability
+# Build the TUI and install it as the lomo-local pacman package (prompts for sudo).
+install-tui:
+    RUSTUP_TOOLCHAIN="{{rust_channel}}" cargo build --manifest-path Cargo.toml -p lomo-tui --release --locked
+    cd apps/tui/packaging/arch/lomo-local && makepkg -efi
 
-# Run cargo-mutants mutation testing on Rust storage and workspace core.
-mutants *flags:
-    {{xtask}} mutants {{flags}}
+# Note: the `_preflight` push gate (run by .githooks/pre-push) already runs diff-scoped
+# cargo-mutants on touched Rust crates. A full-workspace sweep is `cargo mutants` directly.

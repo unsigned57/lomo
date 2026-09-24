@@ -6,6 +6,6 @@ repo_root="$(git rev-parse --show-toplevel)"
 # skip the Kotlin gate). A missing remote base falls back to the full iterative surface.
 # Coverage + fat-LTO remain on GitHub Actions / local merge handoff (ci recipe).
 remote="${1:-origin}"
-echo "pre-push: running path-aware push gate (just preflight push ${remote})..."
-just --justfile "$repo_root/Justfile" preflight push "$remote"
+echo "pre-push: running path-aware push gate (just _preflight ${remote})..."
+just --justfile "$repo_root/Justfile" _preflight "$remote"
 echo "pre-push: preflight complete; run the full handoff gate before merge as needed"
