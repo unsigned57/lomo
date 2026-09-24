@@ -26,6 +26,7 @@ class AudioRecorder(
         private var outputFileDescriptor: ParcelFileDescriptor? = null
         // behavior-contract: stateful-var-ok: this is process-owned resource/lease/job handle, not a query cache
         private var isRecording = false
+        private val pendingCaptureFailure = java.util.concurrent.atomic.AtomicReference<Throwable?>()
 
         override suspend fun start(outputLocation: StorageLocation) {
             withContext(dispatcherProvider.io) {
@@ -34,6 +35,12 @@ class AudioRecorder(
                 }
                 val mediaRecorder = createRecorder()
                 try {
+                    pendingCaptureFailure.set(null)
+                    mediaRecorder.setOnErrorListener { _, what, extra ->
+                        pendingCaptureFailure.set(
+                            IllegalStateException("MediaRecorder capture failed: what=$what extra=$extra"),
+                        )
+                    }
                     mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC)
                     mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                     mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
@@ -80,18 +87,24 @@ class AudioRecorder(
             }
         }
 
-        override fun getAmplitude(): Int =
-            runCatching {
-                recorder?.maxAmplitude ?: 0
-            }.getOrElse { error ->
+        override fun sampleAmplitude(): Int? {
+            val activeRecorder = recorder ?: return null
+            return try {
+                activeRecorder.maxAmplitude
+            } catch (error: Exception) {
                 if (error is CancellationException) throw error
+                // behavior-contract: silent-result-ok: amplitude absence is the documented Int?
+                // contract — a failed sample means "no amplitude this tick", never a fake zero
                 Timber.tag(TAG).w(error, "Failed to read recording amplitude")
-                0
+                null
             }
+        }
+
+        override fun captureFailure(): Throwable? = pendingCaptureFailure.get()
 
         // Convert amplitude to decibels for visualization if needed
         fun getDecibels(): Float {
-            val amplitude = getAmplitude()
+            val amplitude = sampleAmplitude() ?: return MIN_DECIBELS
             return if (amplitude > 0) {
                 DECIBELS_MULTIPLIER * log10(amplitude.toDouble()).toFloat()
             } else {

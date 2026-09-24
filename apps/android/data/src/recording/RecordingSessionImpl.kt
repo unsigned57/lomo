@@ -37,8 +37,8 @@ constructor(
         override val state: StateFlow<RecordingSessionState> = _state.asStateFlow()
         private val _durationMillis = MutableStateFlow(0L)
         override val durationMillis: StateFlow<Long> = _durationMillis.asStateFlow()
-        private val _amplitude = MutableStateFlow(0)
-        override val amplitude: StateFlow<Int> = _amplitude.asStateFlow()
+        private val _amplitude = MutableStateFlow<Int?>(null)
+        override val amplitude: StateFlow<Int?> = _amplitude.asStateFlow()
         private val _errorMessage = MutableStateFlow<String?>(null)
         override val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
         internal var recordingTimerDispatcher: CoroutineDispatcher = dispatcherProvider.default
@@ -73,7 +73,7 @@ constructor(
                             draftId = draftId,
                         )
                     _durationMillis.value = 0
-                    _amplitude.value = 0
+                    _amplitude.value = null
                     serviceController.start()
                     startTimer()
                 } catch (cancellation: CancellationException) {
@@ -158,12 +158,14 @@ constructor(
             bestEffortCleanup("Failed to stop recording service after start failure") {
                 serviceController.stop()
             }
-            bestEffortCleanup("Failed to remove voice capture after start failure: ${entryId.raw}") {
-                mediaRepository.removeVoiceCapture(
-                    entryId = entryId,
-                    captureLocation = StorageLocation(captureLocation.orEmpty()),
-                    draftId = draftId,
-                )
+            if (captureLocation != null) {
+                bestEffortCleanup("Failed to remove voice capture after start failure: ${entryId.raw}") {
+                    mediaRepository.removeVoiceCapture(
+                        entryId = entryId,
+                        captureLocation = StorageLocation(captureLocation),
+                        draftId = draftId,
+                    )
+                }
             }
         }
 
@@ -183,7 +185,7 @@ constructor(
             phase = RecordingPhase.Idle
             _state.value = RecordingSessionState.Idle
             _durationMillis.value = 0
-            _amplitude.value = 0
+            _amplitude.value = null
         }
         private fun startTimer() {
             timerJob?.cancel()
@@ -191,11 +193,38 @@ constructor(
                 appScope.launch(recordingTimerDispatcher) {
                     while (isActive) {
                         delay(VISUALIZER_UPDATE_INTERVAL_MILLIS)
+                        // behavior-contract: loop-io-ok: per-tick failure poll; no push channel
+                        val captureFailure = voiceRecordingRepository.captureFailure()
+                        if (captureFailure != null) {
+                            failActiveCapture(captureFailure)
+                            break
+                        }
                         _durationMillis.value += VISUALIZER_UPDATE_INTERVAL_MILLIS
                         // behavior-contract: loop-io-ok: no bulk amplitude API; each iteration is one meter sample
-                        _amplitude.value = voiceRecordingRepository.getAmplitude()
+                        _amplitude.value = voiceRecordingRepository.sampleAmplitude()
                     }
                 }
+        }
+
+        private suspend fun failActiveCapture(failure: Throwable) {
+            transitionMutex.withLock {
+                val recordingState = phase as? RecordingPhase.Recording ?: return
+                phase = RecordingPhase.Stopping
+                // The calling timer loop breaks right after; cancelling it here would abort cleanup.
+                serviceController.stop()
+                _errorMessage.value = "Recording failed: ${failure.message}"
+                bestEffortCleanup("Failed to stop recorder after capture failure") {
+                    voiceRecordingRepository.stop()
+                }
+                bestEffortCleanup("Failed to discard capture after device failure: ${recordingState.filename}") {
+                    mediaRepository.removeVoiceCapture(
+                        entryId = MediaEntryId(recordingState.filename),
+                        captureLocation = StorageLocation(recordingState.captureLocation),
+                        draftId = recordingState.draftId,
+                    )
+                }
+                resetSessionState()
+            }
         }
         private fun stopTimer() {
             timerJob?.cancel()

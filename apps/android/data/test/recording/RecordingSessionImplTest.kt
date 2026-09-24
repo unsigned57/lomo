@@ -96,7 +96,7 @@ class RecordingSessionImplTest : DataFunSpec() {
                 fixture.mediaRepository.finalizeCallCount shouldBe 1
                 fixture.session.state.value.shouldBeInstanceOf<RecordingSessionState.Idle>()
                 fixture.session.durationMillis.value shouldBe 0L
-                fixture.session.amplitude.value shouldBe 0
+                fixture.session.amplitude.value shouldBe null
                 fixture.serviceController.stopCallCount shouldNotBe 0
             }
         }
@@ -131,7 +131,7 @@ class RecordingSessionImplTest : DataFunSpec() {
 
                 fixture.session.state.value.shouldBeInstanceOf<RecordingSessionState.Idle>()
                 fixture.session.durationMillis.value shouldBe 0L
-                fixture.session.amplitude.value shouldBe 0
+                fixture.session.amplitude.value shouldBe null
                 fixture.serviceController.stopCallCount shouldNotBe 0
             }
         }
@@ -212,8 +212,45 @@ class RecordingSessionImplTest : DataFunSpec() {
                 fixture.serviceController.startCallCount shouldBe 0
             }
         }
+
+        test("given an active capture when the recorder reports a mid-capture failure then the session fails closed with timing stopped") {
+            runTest(testDispatcher) {
+                val fixture = createFixture(backgroundScope, testScheduler)
+
+                fixture.session.startRecording()
+                advanceUntilIdle()
+                fixture.session.state.value.shouldBeInstanceOf<RecordingSessionState.Recording>()
+
+                fixture.voiceRecordingRepository.captureFailure = IllegalStateException("encoder died")
+                testScheduler.advanceTimeBy(VISUALIZER_UPDATE_INTERVAL_FOR_TEST + 1)
+                advanceUntilIdle()
+
+                fixture.session.state.value.shouldBeInstanceOf<RecordingSessionState.Idle>()
+                fixture.session.errorMessage.value shouldBe "Recording failed: encoder died"
+                fixture.serviceController.stopCallCount shouldNotBe 0
+                val durationAfterFailure = fixture.session.durationMillis.value
+                testScheduler.advanceTimeBy(VISUALIZER_UPDATE_INTERVAL_FOR_TEST * 4)
+                advanceUntilIdle()
+                fixture.session.durationMillis.value shouldBe durationAfterFailure
+            }
+        }
+
+        test("given an unavailable amplitude device when sampled then the session publishes no amplitude value") {
+            runTest(testDispatcher) {
+                val fixture = createFixture(backgroundScope, testScheduler)
+                fixture.voiceRecordingRepository.amplitudeSample = null
+
+                fixture.session.startRecording()
+                testScheduler.advanceTimeBy(VISUALIZER_UPDATE_INTERVAL_FOR_TEST + 1)
+                advanceUntilIdle()
+
+                fixture.session.amplitude.value shouldBe null
+            }
+        }
     }
 }
+
+private const val VISUALIZER_UPDATE_INTERVAL_FOR_TEST = 50L
 
 private data class RecordingSessionFixture(
     val session: RecordingSessionImpl,
@@ -251,6 +288,8 @@ private class FakeVoiceRecordingRepository : VoiceRecordingRepository {
     var startException: Throwable? = null
     var stopException: Throwable? = null
     var awaitStartCompletion: CompletableDeferred<Unit>? = null
+    var amplitudeSample: Int? = 0
+    var captureFailure: Throwable? = null
     var startCallCount = 0
         private set
 
@@ -264,7 +303,9 @@ private class FakeVoiceRecordingRepository : VoiceRecordingRepository {
         stopException?.let { throw it }
     }
 
-    override fun getAmplitude(): Int = 0
+    override fun sampleAmplitude(): Int? = amplitudeSample
+
+    override fun captureFailure(): Throwable? = captureFailure
 }
 
 private class FakeRecordingServiceController : RecordingServiceController {
