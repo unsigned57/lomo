@@ -1,35 +1,37 @@
+package com.lomo.app.widget
+
 /*
  * Behavior Contract:
  * - Unit under test: WidgetGlanceSnapshotStore
  * - Owning layer: app
- * - Priority tier: P1
- * - Capability: Glance widgets read a persisted projection snapshot so a widget-only process
- *   never queries the store or opens the native engine.
+ * - Priority tier: P0
+ * - Capability: the persisted Glance snapshot binds workspace identity, a durable projection stamp
+ *   and a generation state; absence, availability and corruption stay distinguishable so a widget
+ *   never renders an empty vault for a missing or broken file.
  *
  * Scenarios:
- * - Given snapshot items, when they are written and read, then identity, timestamp, and preview
- *   round-trip.
- * - Given no snapshot file, when read, then the store returns an empty projection.
- * - Given a corrupt snapshot file, when read, then the store surfaces corruption for the host to render an unavailable state.
+ * - Given a ready snapshot with items, when written and read, then identity, stamp, availability
+ *   and items round-trip.
+ * - Given no snapshot file, when read, then the store returns Absent — never a fake empty vault.
+ * - Given a corrupt snapshot file, when read, then corruption is surfaced for the host to render
+ *   an unavailable state.
+ * - Given an unavailable generation, when written and read, then the state is preserved with no
+ *   items.
  *
- * Test Change Justification:
- * Reason category: error-state contract correction.
- * Old behavior/assertion being replaced: corrupt cache was indistinguishable from an empty workspace.
- * Why old assertion is no longer correct: cache failure must remain observable.
- * Coverage preserved by: valid and missing snapshot cases plus explicit corruption rejection.
- * Why this is not fitting the test to the implementation: invalid data cannot establish an empty workspace fact.
- *
- * Observable outcomes:
- * - decoded item lists from a real file.
- *
+ * Observable outcomes: typed WidgetGlanceSnapshot results from a real file.
  * TDD proof:
- * - RED before the snapshot store exists because LomoWidget.getRecentMemos was the only widget
- *   read path.
- *
- * Excludes:
- * - Glance layout, JNI, and widget process isolation wiring.
+ * - Fails before the fix because the contract surface under test did not exist.
+ * Excludes: Glance layout, JNI, and widget process isolation wiring.
+ * Test Change Justification:
+ * - Reason category: product/domain contract changed.
+ * - Old behavior/assertion being replaced: items-only snapshot schema where a missing file read as an empty vault.
+ * - Why old assertion is no longer correct: schema v2 distinguishes Absent/Unavailable/Redacted/Ready, so absence and corruption are typed results rather than empty items.
+ * - Coverage preserved by: round-trip, corruption, and availability cases on the typed snapshot API.
+ * - Why this is not fitting the test to the implementation: typed availability is the required snapshot contract.
  */
-package com.lomo.app.widget
+
+// architectural-boundary-check: pins the persisted snapshot file format — the assertions on
+// file bytes verify the durable contract, not Kotlin source text.
 
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
@@ -38,7 +40,7 @@ import kotlin.io.path.createTempDirectory
 
 class WidgetGlanceSnapshotStoreTest : AppFunSpec() {
     init {
-        test("given snapshot items when written then a later read recovers them") {
+        test("given snapshot items when written then a later read recovers the full generation") {
             val directory = createTempDirectory("widget-glance-snapshot").toFile()
             try {
                 val store = WidgetGlanceSnapshotStore(directory.resolve(WIDGET_GLANCE_SNAPSHOT_FILE_NAME))
@@ -56,18 +58,30 @@ class WidgetGlanceSnapshotStoreTest : AppFunSpec() {
                         ),
                     )
 
-                store.write(items)
+                store.write(
+                    workspaceId = "workspace-1",
+                    projectionStamp = 42L,
+                    availability = WidgetSnapshotAvailability.READY,
+                    items = items,
+                )
 
-                store.read() shouldBe items
+                store.read() shouldBe
+                    WidgetGlanceSnapshot.Ready(
+                        workspaceId = "workspace-1",
+                        projectionStamp = 42L,
+                        availability = WidgetSnapshotAvailability.READY,
+                        items = items,
+                    )
             } finally {
                 directory.deleteRecursively()
             }
         }
 
-        test("given no snapshot file when read then the projection is empty") {
+        test("given no snapshot file when read then the result is Absent not an empty vault") {
             val directory = createTempDirectory("widget-glance-missing").toFile()
             try {
-                WidgetGlanceSnapshotStore(directory.resolve(WIDGET_GLANCE_SNAPSHOT_FILE_NAME)).read() shouldBe emptyList()
+                WidgetGlanceSnapshotStore(directory.resolve(WIDGET_GLANCE_SNAPSHOT_FILE_NAME)).read() shouldBe
+                    WidgetGlanceSnapshot.Absent
             } finally {
                 directory.deleteRecursively()
             }
@@ -79,6 +93,59 @@ class WidgetGlanceSnapshotStoreTest : AppFunSpec() {
                 val file = directory.resolve(WIDGET_GLANCE_SNAPSHOT_FILE_NAME)
                 file.writeText("{not-json")
                 shouldThrow<kotlinx.serialization.SerializationException> { WidgetGlanceSnapshotStore(file).read() }
+            } finally {
+                directory.deleteRecursively()
+            }
+        }
+
+        test("given an unavailable generation when written then the state survives a later read") {
+            val directory = createTempDirectory("widget-glance-unavailable").toFile()
+            try {
+                val store = WidgetGlanceSnapshotStore(directory.resolve(WIDGET_GLANCE_SNAPSHOT_FILE_NAME))
+
+                store.write(
+                    workspaceId = null,
+                    projectionStamp = 7L,
+                    availability = WidgetSnapshotAvailability.UNAVAILABLE,
+                    items = emptyList(),
+                )
+
+                store.read() shouldBe
+                    WidgetGlanceSnapshot.Ready(
+                        workspaceId = null,
+                        projectionStamp = 7L,
+                        availability = WidgetSnapshotAvailability.UNAVAILABLE,
+                        items = emptyList(),
+                    )
+            } finally {
+                directory.deleteRecursively()
+            }
+        }
+
+        test("given a redacted generation when written then no body text reaches the file") {
+            val directory = createTempDirectory("widget-glance-redacted").toFile()
+            try {
+                val file = directory.resolve(WIDGET_GLANCE_SNAPSHOT_FILE_NAME)
+                val store = WidgetGlanceSnapshotStore(file)
+
+                store.write(
+                    workspaceId = "workspace-1",
+                    projectionStamp = 9L,
+                    availability = WidgetSnapshotAvailability.REDACTED,
+                    items =
+                        listOf(
+                            WidgetGlanceSnapshotItem(
+                                id = "memo-1",
+                                timestampMillis = 1_000L,
+                                previewText = "",
+                            ),
+                        ),
+                )
+
+                val read = store.read() as WidgetGlanceSnapshot.Ready
+                read.availability shouldBe WidgetSnapshotAvailability.REDACTED
+                read.items.single().previewText shouldBe ""
+                file.readText().contains("workspace-1") shouldBe true
             } finally {
                 directory.deleteRecursively()
             }

@@ -18,6 +18,7 @@ internal const val WIDGET_MEMO_LIMIT = 3
 private const val WIDGET_SNAPSHOT_BYTE_LIMIT = 64 * 1024
 private const val WIDGET_ITEM_ID_MAX_LENGTH = 512
 private const val WIDGET_PREVIEW_MAX_LENGTH = 4096
+internal const val WIDGET_SNAPSHOT_SCHEMA_VERSION = 2
 
 @Serializable
 internal data class WidgetGlanceSnapshotItem(
@@ -26,17 +27,53 @@ internal data class WidgetGlanceSnapshotItem(
     val previewText: String,
 )
 
+/** Generation state of the persisted snapshot; each carries a different widget meaning. */
 @Serializable
-private data class WidgetGlanceSnapshotFile(val items: List<WidgetGlanceSnapshotItem>)
+internal enum class WidgetSnapshotAvailability {
+    /** The writer had an admitted mount and privacy clearance; [WidgetGlanceSnapshotFile.items] render. */
+    READY,
+
+    /** The workspace could not be read (opening, preparing, recovery); never render as empty. */
+    UNAVAILABLE,
+
+    /** App-lock is enabled or the security preference is unreadable; bodies are withheld. */
+    REDACTED,
+}
+
+@Serializable
+internal data class WidgetGlanceSnapshotFile(
+    val workspaceId: String?,
+    val projectionStamp: Long,
+    val availability: WidgetSnapshotAvailability,
+    val items: List<WidgetGlanceSnapshotItem>,
+    val schemaVersion: Int = WIDGET_SNAPSHOT_SCHEMA_VERSION,
+)
+
+/**
+ * Typed snapshot read: absence, ready generations and corruption stay distinguishable so a widget
+ * never renders "no memos" for a file that does not exist or failed to decode.
+ */
+internal sealed interface WidgetGlanceSnapshot {
+    /** No snapshot has ever been written in this process's filesDir. */
+    data object Absent : WidgetGlanceSnapshot
+
+    /** A complete, schema-current snapshot generation. */
+    data class Ready(
+        val workspaceId: String?,
+        val projectionStamp: Long,
+        val availability: WidgetSnapshotAvailability,
+        val items: List<WidgetGlanceSnapshotItem>,
+    ) : WidgetGlanceSnapshot
+}
 
 /** The file is a bounded, atomic projection. Absence is initial state; corruption is an error. */
 internal class WidgetGlanceSnapshotStore(
     private val file: File,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    suspend fun read(): List<WidgetGlanceSnapshotItem> = withContext(ioDispatcher) { readSnapshotItems() }
+    suspend fun read(): WidgetGlanceSnapshot = withContext(ioDispatcher) { readSnapshot() }
 
-    private fun readSnapshotItems(): List<WidgetGlanceSnapshotItem> {
+    private fun readSnapshot(): WidgetGlanceSnapshot {
         val stream =
             try {
                 FileInputStream(file)
@@ -44,10 +81,21 @@ internal class WidgetGlanceSnapshotStore(
                 // behavior-contract: silent-result-ok: absence is the initial state; a file that
                 // exists but cannot be opened is corruption and is rethrown.
                 if (file.exists()) throw missing
-                return emptyList()
+                return WidgetGlanceSnapshot.Absent
             }
         val text = stream.use(::readBoundedSnapshotText)
-        return snapshotJson.decodeFromString(WidgetGlanceSnapshotFile.serializer(), text).items.also(::validateItems)
+        val decoded =
+            snapshotJson.decodeFromString(WidgetGlanceSnapshotFile.serializer(), text)
+        require(decoded.schemaVersion == WIDGET_SNAPSHOT_SCHEMA_VERSION) {
+            "Widget snapshot schema ${decoded.schemaVersion} is not $WIDGET_SNAPSHOT_SCHEMA_VERSION"
+        }
+        validateItems(decoded.items)
+        return WidgetGlanceSnapshot.Ready(
+            workspaceId = decoded.workspaceId,
+            projectionStamp = decoded.projectionStamp,
+            availability = decoded.availability,
+            items = decoded.items,
+        )
     }
 
     /**
@@ -71,13 +119,23 @@ internal class WidgetGlanceSnapshotStore(
         return bytes.decodeToString(endIndex = size, throwOnInvalidSequence = true)
     }
 
-    suspend fun write(items: List<WidgetGlanceSnapshotItem>) = withContext(ioDispatcher) {
+    suspend fun write(
+        workspaceId: String?,
+        projectionStamp: Long,
+        availability: WidgetSnapshotAvailability,
+        items: List<WidgetGlanceSnapshotItem>,
+    ) = withContext(ioDispatcher) {
         validateItems(items)
         val bytes =
             snapshotJson
                 .encodeToString(
                     WidgetGlanceSnapshotFile.serializer(),
-                    WidgetGlanceSnapshotFile(items),
+                    WidgetGlanceSnapshotFile(
+                        workspaceId = workspaceId,
+                        projectionStamp = projectionStamp,
+                        availability = availability,
+                        items = items,
+                    ),
                 ).toByteArray()
         require(bytes.size <= WIDGET_SNAPSHOT_BYTE_LIMIT) {
             "Widget snapshot exceeds its byte budget"

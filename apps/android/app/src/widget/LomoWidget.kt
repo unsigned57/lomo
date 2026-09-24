@@ -11,6 +11,7 @@ import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
 import androidx.glance.Image
 import androidx.glance.ImageProvider
+import androidx.glance.LocalSize
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.action.actionStartActivity
@@ -35,7 +36,6 @@ import com.lomo.app.MainActivity
 import com.lomo.app.R
 import com.lomo.app.TrustedLaunchIntents
 import com.lomo.app.util.MarkdownCleanupFormatter
-import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import com.lomo.domain.model.Memo
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
@@ -53,15 +53,23 @@ class LomoWidget : GlanceAppWidget() {
         context: Context,
         id: GlanceId,
     ) {
-        // A missing, oversized, or corrupt snapshot renders the unavailable state; the widget
-        // never fabricates memo content from a failed read.
+        // A missing, oversized, corrupt or schema-stale snapshot renders the unavailable state;
+        // the widget never fabricates memo content from a failed read.
         val snapshot =
             try {
-                WidgetSnapshot.Ready(
-                    WidgetGlanceSnapshotStore(
-                        context.filesDir.resolve(WIDGET_GLANCE_SNAPSHOT_FILE_NAME),
-                    ).read().toImmutableList(),
-                )
+                when (
+                    val read =
+                        WidgetGlanceSnapshotStore(
+                            context.filesDir.resolve(WIDGET_GLANCE_SNAPSHOT_FILE_NAME),
+                        ).read()
+                ) {
+                    is WidgetGlanceSnapshot.Absent -> WidgetSnapshot.Unavailable
+                    is WidgetGlanceSnapshot.Ready ->
+                        WidgetSnapshot.Ready(
+                            items = read.items.toImmutableList(),
+                            availability = read.availability,
+                        )
+                }
             } catch (ignoredIoFailure: IOException) {
                 WidgetSnapshot.Unavailable
             } catch (ignoredSerializationFailure: SerializationException) {
@@ -70,17 +78,23 @@ class LomoWidget : GlanceAppWidget() {
                 WidgetSnapshot.Unavailable
             }
 
+        // Trusted click intents are minted at the platform-host stage; composition only consumes.
+        val createMemoIntent =
+            TrustedLaunchIntents.create(context).trustedWidgetCreateMemoIntent()
         val nowMillis = Instant.now().toEpochMilli()
         provideContent {
             GlanceTheme {
-                WidgetContent(context, snapshot, nowMillis)
+                WidgetContent(context, snapshot, createMemoIntent, nowMillis)
             }
         }
     }
 }
 
 private sealed interface WidgetSnapshot {
-    data class Ready(val items: ImmutableList<WidgetGlanceSnapshotItem>) : WidgetSnapshot
+    data class Ready(
+        val items: ImmutableList<WidgetGlanceSnapshotItem>,
+        val availability: WidgetSnapshotAvailability,
+    ) : WidgetSnapshot
     data object Unavailable : WidgetSnapshot
 }
 
@@ -88,8 +102,10 @@ private sealed interface WidgetSnapshot {
 private fun WidgetContent(
     context: Context,
     snapshot: WidgetSnapshot,
+    createMemoIntent: Intent,
     nowMillis: Long,
 ) {
+    val heightDp = LocalSize.current.height.value.toInt()
     Box(
         modifier =
             GlanceModifier
@@ -99,14 +115,21 @@ private fun WidgetContent(
                 .padding(16.dp),
     ) {
         Column(modifier = GlanceModifier.fillMaxSize()) {
-            WidgetHeader(context)
+            WidgetHeader(context, createMemoIntent)
             Spacer(modifier = GlanceModifier.height(12.dp))
             when (snapshot) {
                 is WidgetSnapshot.Ready ->
                     if (snapshot.items.isEmpty()) {
                         WidgetEmptyState(context)
                     } else {
-                        WidgetMemoList(context, snapshot.items, nowMillis)
+                        WidgetMemoList(
+                            context,
+                            snapshot.items
+                                .take(widgetVisibleItemCount(heightDp, snapshot.items.size))
+                                .toImmutableList(),
+                            snapshot.availability,
+                            nowMillis,
+                        )
                     }
 
                 WidgetSnapshot.Unavailable ->
@@ -122,8 +145,20 @@ private fun WidgetContent(
     }
 }
 
+/**
+ * Small-height hosts must not clip rows mid-item: a compact host gets a single row; a full host
+ * gets the snapshot budget.
+ */
+internal fun widgetVisibleItemCount(heightDp: Int, itemCount: Int): Int =
+    itemCount.coerceAtMost(
+        if (heightDp < WIDGET_COMPACT_HEIGHT_DP) WIDGET_COMPACT_ROW_COUNT else WIDGET_MEMO_LIMIT,
+    )
+
 @Composable
-private fun WidgetHeader(context: Context) {
+private fun WidgetHeader(
+    context: Context,
+    createMemoIntent: Intent,
+) {
     Row(
         modifier = GlanceModifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -151,9 +186,7 @@ private fun WidgetHeader(context: Context) {
                     .cornerRadius(16.dp)
                     .background(GlanceTheme.colors.primaryContainer)
                     .clickable(
-                        actionStartActivity(
-                            TrustedLaunchIntents.create(context).trustedWidgetCreateMemoIntent(),
-                        ),
+                        actionStartActivity(createMemoIntent),
                     ),
             contentAlignment = Alignment.Center,
         ) {
@@ -191,11 +224,12 @@ private fun WidgetEmptyState(context: Context) {
 private fun WidgetMemoList(
     context: Context,
     memos: ImmutableList<WidgetGlanceSnapshotItem>,
+    availability: WidgetSnapshotAvailability,
     nowMillis: Long,
 ) {
     Column(modifier = GlanceModifier.fillMaxWidth()) {
         memos.forEachIndexed { index, memo ->
-            MemoItem(context, memo, nowMillis, isLast = index == memos.size - 1)
+            MemoItem(context, memo, availability, nowMillis, isLast = index == memos.size - 1)
         }
     }
 }
@@ -204,6 +238,7 @@ private fun WidgetMemoList(
 private fun MemoItem(
     context: Context,
     memo: WidgetGlanceSnapshotItem,
+    availability: WidgetSnapshotAvailability,
     nowMillis: Long,
     isLast: Boolean = false,
 ) {
@@ -239,7 +274,12 @@ private fun MemoItem(
         )
         Spacer(modifier = GlanceModifier.height(4.dp))
         Text(
-            text = memo.previewText,
+            text =
+                if (availability == WidgetSnapshotAvailability.REDACTED) {
+                    context.getString(R.string.widget_redacted_preview)
+                } else {
+                    memo.previewText
+                },
             style =
                 TextStyle(
                     color = GlanceTheme.colors.onSurface,
@@ -265,7 +305,9 @@ internal fun resolveWidgetMemoItemPresentation(
     memo: Memo,
     nowMillis: Long,
 ): WidgetMemoItemPresentation {
-    val processedContent = stripWidgetMarkdown(memo.content)
+    // memo.content for widget queries is already the engine-owned plain-text preview; the host
+    // only bounds and collapses it, never re-renders markdown in a projection process.
+    val processedContent = MarkdownCleanupFormatter.collapseSpacing(memo.content)
     val previewText =
         processedContent.take(WIDGET_MEMO_PREVIEW_LENGTH).let { preview ->
             if (processedContent.length > WIDGET_MEMO_PREVIEW_LENGTH) "$preview..." else preview
@@ -278,10 +320,6 @@ internal fun resolveWidgetMemoItemPresentation(
     )
 }
 
-private fun stripWidgetMarkdown(content: String): String {
-    val repository = org.koin.core.context.GlobalContext.getOrNull()?.get<MarkdownWorkspaceRepository>()
-    val plain = repository?.run { renderMarkdown(content).plainText } ?: content
-    return MarkdownCleanupFormatter.collapseSpacing(plain)
-}
-
 private const val WIDGET_MEMO_PREVIEW_LENGTH = 100
+private const val WIDGET_COMPACT_HEIGHT_DP = 140
+private const val WIDGET_COMPACT_ROW_COUNT = 1

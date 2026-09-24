@@ -23,6 +23,12 @@
  * Excludes:
  * - Glance rendering, Android DateUtils formatting, widget update scheduling,
  *   and repository fetching.
+ * Test Change Justification:
+ * - Reason category: product/domain contract changed.
+ * - Old behavior/assertion being replaced: widget presentation re-rendered markdown at composition time.
+ * - Why old assertion is no longer correct: the snapshot carries Rust plain-text previews and the host must not re-render markdown.
+ * - Coverage preserved by: the added literal-content presentation case.
+ * - Why this is not fitting the test to the implementation: snapshot-only presentation is the widget privacy contract.
  */
 package com.lomo.app.widget
 
@@ -75,6 +81,37 @@ class LomoWidgetPresentationTest : AppFunSpec() {
                 )
 
             presentation.previewText shouldBe "${"a".repeat(100)}..."
+        }
+
+        test("given projected plain-text content when presentation resolved then the host never re-renders markdown") {
+            val memo =
+                Memo(
+                    id = "memo-1",
+                    timestamp = 1_000L,
+                    content = "# heading stays literal",
+                    rawContent = "# heading stays literal",
+                    dateKey = "2026-05-23",
+                )
+
+            val presentation =
+                resolveWidgetMemoItemPresentation(
+                    memo = memo,
+                    nowMillis = 5_000L,
+                )
+
+            presentation.previewText shouldBe "# heading stays literal"
+        }
+
+        test("given a compact host height when rows are counted then a single row is emitted") {
+            widgetVisibleItemCount(heightDp = 110, itemCount = 3) shouldBe 1
+        }
+
+        test("given a full host height when rows are counted then the snapshot budget is emitted") {
+            widgetVisibleItemCount(heightDp = 180, itemCount = 3) shouldBe 3
+        }
+
+        test("given fewer items than the budget when rows are counted then the item count wins") {
+            widgetVisibleItemCount(heightDp = 180, itemCount = 2) shouldBe 2
         }
     }
 }
