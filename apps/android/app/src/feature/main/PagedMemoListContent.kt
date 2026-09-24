@@ -3,16 +3,21 @@ package com.lomo.app.feature.main
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
@@ -23,8 +28,10 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.paging.compose.LazyPagingItems
+import com.lomo.app.R
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.WithDraggableScrollbar
@@ -57,6 +64,7 @@ private data class MemoPagedListActions(
     val onImageClick: (ImageViewerRequest) -> Unit,
     val onShowMemoMenu: (MemoMenuSelection) -> Unit,
     val onExpandedMemoChange: (String, Boolean) -> Unit,
+    val onExpandRetry: (String) -> Unit,
 )
 
 
@@ -94,7 +102,7 @@ internal fun MemoListContent(
         remember(itemSnapshotList) {
             MemoListLoadedSnapshot(
                 startIndex = itemSnapshotList.placeholdersBefore,
-                memos = itemSnapshotList.items.toImmutableList(),
+                memos = itemSnapshotList.items,
             )
         }
     val preloadWindow =
@@ -107,7 +115,11 @@ internal fun MemoListContent(
     var expandedMemoIds by rememberSaveable(saver = expandedMemoIdsSaver()) {
         mutableStateOf(persistentSetOf<String>())
     }
-    val expandedSnapshots = rememberExpandedMemoSnapshots(expandedMemoIds)
+    val expandPresentation =
+        rememberMemoListExpandStates(
+            expandedMemoIds = expandedMemoIds,
+            previewMemos = rawLoadedSnapshot.memos,
+        )
 
     MemoListPreloadEffect(
         loadedWindow = preloadWindow,
@@ -119,7 +131,8 @@ internal fun MemoListContent(
             pagedMemos = pagedMemos,
             rawLoadedSnapshot = rawLoadedSnapshot,
             expandedMemoIds = expandedMemoIds,
-            expandedSnapshots = expandedSnapshots,
+            expandStates = expandPresentation.states,
+            onExpandRetry = expandPresentation.onRetry,
             onExpandedMemoChange = { memoId, isExpanded ->
                 expandedMemoIds = updateExpandedMemoIds(
                     expandedMemoIds = expandedMemoIds,
@@ -172,7 +185,8 @@ private fun MemoPagedListColumn(
     pagedMemos: LazyPagingItems<MemoUiModel>,
     rawLoadedSnapshot: MemoListLoadedSnapshot<MemoUiModel>,
     expandedMemoIds: ImmutableSet<String>,
-    expandedSnapshots: Map<String, MemoUiModel>,
+    expandStates: Map<String, MemoExpandEntry>,
+    onExpandRetry: (String) -> Unit,
     onExpandedMemoChange: (String, Boolean) -> Unit,
     exitAnimationRegistry: com.lomo.ui.component.common.ExitAnimationRegistry<MemoUiModel>,
     enterAnimationRegistry: EnterAnimationRegistry,
@@ -204,7 +218,7 @@ private fun MemoPagedListColumn(
         if (exitState.overlayIdle) {
             snapshotMemos
         } else {
-            exitState.renderList.map { it.item }.toImmutableList()
+            exitState.renderList.map { it.item }
         }
 
     val onItemExitSettled = exitState.onExitSettled
@@ -239,7 +253,8 @@ private fun MemoPagedListColumn(
         scrollbarItemCount = scrollbarItemCount,
         scrollTargetItemCount = materializedItemCount,
         expandedMemoIds = expandedMemoIds,
-        expandedSnapshots = expandedSnapshots,
+        expandStates = expandStates,
+        onExpandRetry = onExpandRetry,
         listState = listState,
         scrollbarEnabled = scrollbarEnabled,
         listContentPadding = listContentPadding,
@@ -265,12 +280,12 @@ private fun MemoPagedListColumn(
 @Composable
 private fun MemoPagedLazyColumn(
     pagedMemos: LazyPagingItems<MemoUiModel>,
-    visiblePagedMemos: ImmutableList<MemoUiModel>,
+    visiblePagedMemos: List<MemoUiModel>,
     renderList: ImmutableList<LomoListExitRenderEntry<MemoUiModel>>,
     visiblePagedMemoStartIndex: Int,
     renderedItemCount: Int,
     expandedMemoIds: ImmutableSet<String>,
-    expandedSnapshots: Map<String, MemoUiModel>,
+    expandStates: Map<String, MemoExpandEntry>,
     overlayIdle: Boolean,
     listState: LazyListState,
     scrollbarEnabled: Boolean,
@@ -324,7 +339,8 @@ private fun MemoPagedLazyColumn(
                 renderList = renderList,
                 visiblePagedMemos = visiblePagedMemos,
                 overlayIdle = overlayIdle,
-                expandedSnapshots = expandedSnapshots,
+                expandStates = expandStates,
+                onExpandRetry = actions.onExpandRetry,
                 visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
                 renderedItemCount = renderedItemCount,
                 expandedMemoIds = expandedMemoIds,
@@ -344,9 +360,10 @@ private fun MemoPagedListRow(
     index: Int,
     pagedMemos: LazyPagingItems<MemoUiModel>,
     renderList: ImmutableList<LomoListExitRenderEntry<MemoUiModel>>,
-    visiblePagedMemos: ImmutableList<MemoUiModel>,
+    visiblePagedMemos: List<MemoUiModel>,
     overlayIdle: Boolean,
-    expandedSnapshots: Map<String, MemoUiModel>,
+    expandStates: Map<String, MemoExpandEntry>,
+    onExpandRetry: (String) -> Unit,
     visiblePagedMemoStartIndex: Int,
     renderedItemCount: Int,
     expandedMemoIds: ImmutableSet<String>,
@@ -388,8 +405,13 @@ private fun MemoPagedListRow(
     }
 
     val memoId = previewModel.memo.id
-    val isExpanded = memoId in expandedMemoIds
-    val uiModel = if (isExpanded) expandedSnapshots[memoId] ?: previewModel else previewModel
+    val expandRequested = memoId in expandedMemoIds
+    val expandEntry = expandStates[memoId]
+    // Preview and Full never mix: the card only leaves its collapsed preview once a real
+    // full snapshot is published. Loading/Failed keep the capped preview plus an explicit
+    // affordance below the row.
+    val uiModel = (expandEntry as? MemoExpandEntry.Expanded)?.model ?: previewModel
+    val cardExpanded = expandRequested && expandEntry is MemoExpandEntry.Expanded
 
     val anchoredAfterKey = if (index > 0) {
         if (overlayIdle) {
@@ -407,23 +429,43 @@ private fun MemoPagedListRow(
     val exitPhase = entry?.exitPhase
     val isExiting = exitPhase != null
     val isEntering = memoId in enteringIds
-    MemoPagedListItem(
-        uiModel = uiModel,
-        index = index,
-        itemCount = renderedItemCount,
-        expandedMemoIds = expandedMemoIds,
-        displayConfig = displayConfig,
-        actions = actions,
-        exitPhase = exitPhase,
-        onExitSettled = { onItemExitSettled((entry?.snapshotMemo ?: previewModel).memo.id) },
-        isEntering = isEntering,
-        onEnterSettled = { onItemEnterSettled(memoId) },
-        modifier =
-            Modifier
-                .lomoListItemMotion(lazyItemScope, animateAppearance = false, animatePlacement = !isExiting)
-                .fillMaxWidth(),
-        anchoredAfterKey = anchoredAfterKey,
-    )
+    Column(modifier = Modifier.fillMaxWidth()) {
+        MemoPagedListItem(
+            uiModel = uiModel,
+            index = index,
+            itemCount = renderedItemCount,
+            isExpanded = cardExpanded,
+            displayConfig = displayConfig,
+            actions = actions,
+            exitPhase = exitPhase,
+            onExitSettled = { onItemExitSettled((entry?.snapshotMemo ?: previewModel).memo.id) },
+            isEntering = isEntering,
+            onEnterSettled = { onItemEnterSettled(memoId) },
+            modifier =
+                Modifier
+                    .lomoListItemMotion(lazyItemScope, animateAppearance = false, animatePlacement = !isExiting)
+                    .fillMaxWidth(),
+            anchoredAfterKey = anchoredAfterKey,
+        )
+        if (expandRequested && expandEntry !is MemoExpandEntry.Expanded) {
+            when (expandEntry) {
+                is MemoExpandEntry.Failed ->
+                    TextButton(
+                        onClick = { onExpandRetry(memoId) },
+                        modifier = Modifier.padding(start = MEMO_LIST_ITEM_SPACING),
+                    ) {
+                        Text(stringResource(R.string.memo_expand_load_failed_retry))
+                    }
+                else ->
+                    LinearProgressIndicator(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = MEMO_LIST_ITEM_SPACING),
+                    )
+            }
+        }
+    }
 }
 
 @Composable
@@ -431,7 +473,7 @@ private fun MemoPagedListItem(
     uiModel: MemoUiModel,
     index: Int,
     itemCount: Int,
-    expandedMemoIds: ImmutableSet<String>,
+    isExpanded: Boolean,
     displayConfig: MemoPagedListDisplayConfig,
     actions: MemoPagedListActions,
     exitPhase: LomoListExitPhase?,
@@ -442,7 +484,6 @@ private fun MemoPagedListItem(
     anchoredAfterKey: String? = null,
 ) {
     val bottomSpacing = if (index == itemCount - 1) 0.dp else MEMO_LIST_ITEM_SPACING
-    val isExpanded = uiModel.memo.id in expandedMemoIds
     val isExiting = exitPhase != null
 
     MemoListItem(
@@ -480,7 +521,7 @@ private fun MemoPagedListItem(
 @Composable
 private fun PagedMemoLazyColumn(
     pagedMemos: LazyPagingItems<MemoUiModel>,
-    visiblePagedMemos: ImmutableList<MemoUiModel>,
+    visiblePagedMemos: List<MemoUiModel>,
     renderList: ImmutableList<LomoListExitRenderEntry<MemoUiModel>>,
     overlayIdle: Boolean,
     snapshotStartIndex: Int,
@@ -488,12 +529,13 @@ private fun PagedMemoLazyColumn(
     scrollbarItemCount: Int,
     scrollTargetItemCount: Int,
     expandedMemoIds: ImmutableSet<String>,
-    expandedSnapshots: Map<String, MemoUiModel>,
+    expandStates: Map<String, MemoExpandEntry>,
+    onExpandRetry: (String) -> Unit,
     listState: LazyListState,
     scrollbarEnabled: Boolean,
     listContentPadding: PaddingValues?,
     deletingIds: ImmutableSet<String>,
-    snapshotMemos: ImmutableList<MemoUiModel>,
+    snapshotMemos: List<MemoUiModel>,
     dateFormat: String,
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
@@ -531,6 +573,7 @@ private fun PagedMemoLazyColumn(
             onImageClick = onImageClick,
             onShowMemoMenu = onShowMemoMenu,
             onExpandedMemoChange = onExpandedMemoChange,
+            onExpandRetry = onExpandRetry,
         )
     WithDraggableScrollbar(
         state = listState,
@@ -545,7 +588,7 @@ private fun PagedMemoLazyColumn(
             visiblePagedMemos = visiblePagedMemos,
             renderList = renderList,
             overlayIdle = overlayIdle,
-            expandedSnapshots = expandedSnapshots,
+            expandStates = expandStates,
             visiblePagedMemoStartIndex = snapshotStartIndex,
             renderedItemCount = renderedItemCount,
             expandedMemoIds = expandedMemoIds,
