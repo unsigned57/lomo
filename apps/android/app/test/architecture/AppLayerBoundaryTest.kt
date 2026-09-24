@@ -103,7 +103,10 @@ class AppLayerBoundaryTest : AppFunSpec() {
         test("application starts workspace ownership only in the default process") {
             val source = sourceRoot.resolve("LomoApplication.kt").readText()
             withClue("LomoApplication must consult WorkspaceProcessDuty before startup and lifecycle engine work") {
-                source.contains("WorkspaceProcessDuty.ownsNativeEngine") shouldBe true
+                source.contains("WorkspaceProcessDuty.forProcess") shouldBe true
+            }
+            withClue("engine-owning startup work must be gated on the typed duty") {
+                source.contains("processDuty.ownsNativeEngine") shouldBe true
             }
         }
 

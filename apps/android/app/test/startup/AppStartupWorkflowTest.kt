@@ -46,6 +46,7 @@ import com.lomo.app.feature.update.UpdateStartupOrchestrator
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.domain.model.AppUpdateCheckOutcome
 import com.lomo.domain.model.ThemeMode
 import io.kotest.assertions.assertSoftly
 import io.kotest.matchers.collections.shouldContainExactly
@@ -195,7 +196,7 @@ class AppStartupWorkflowTest : AppFunSpec() {
                     UpdateStartupOrchestrator(
                         startupUpdateCheck = {
                             startupCheckCount++
-                            null
+                            AppUpdateCheckOutcome.UpToDate
                         },
                     )
                 val workflow =

@@ -12,17 +12,7 @@ import coil3.memory.MemoryCache
 import coil3.request.CachePolicy
 import coil3.request.crossfade
 import coil3.serviceLoaderEnabled
-import com.lomo.app.di.appModule
-import com.lomo.app.di.appScopeModule
-import com.lomo.app.di.domainAppUpdateModule
-import com.lomo.app.di.domainCoreModule
-import com.lomo.app.di.domainMemoMutationModule
-import com.lomo.app.di.domainMemoReadModule
-import com.lomo.app.di.domainSearchModule
-import com.lomo.app.di.domainShareModule
-import com.lomo.app.di.domainSyncModule
-import com.lomo.app.di.domainWorkspaceModule
-import com.lomo.app.di.viewModelModule
+import com.lomo.app.di.processStartupPlan
 import com.lomo.app.feature.image.LOMO_IMAGE_LOADER_MEMORY_CACHE_PERCENT
 import com.lomo.app.feature.image.lomoImageDecoderCoroutineContext
 import com.lomo.app.feature.image.lomoImageDiskCache
@@ -40,7 +30,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import org.koin.android.ext.koin.androidContext
@@ -78,6 +70,13 @@ class LomoApplication :
     SingletonImageLoader.Factory,
     KoinComponent {
 
+    private val processDuty: WorkspaceProcessDuty by lazy {
+        WorkspaceProcessDuty.forProcess(
+            packageName = packageName,
+            processName = currentProcessName(this),
+        )
+    }
+
     private val syncPolicyRepository: SyncPolicyRepository by inject()
     private val appStartupCoordinator: AppStartupCoordinator by inject()
     private val appShutdownCoordinator: AppShutdownCoordinator by inject()
@@ -91,9 +90,16 @@ class LomoApplication :
     private var lastKnownUiMode: Int? = null
 
     override val workManagerConfiguration: Configuration
-        get() = Configuration.Builder()
-            .setWorkerFactory(get<KoinWorkerFactory>())
-            .build()
+        get() =
+            Configuration.Builder()
+                .apply {
+                    // Projection-only processes install no Koin graph, so they can only hand
+                    // WorkManager the platform default factory; widget duties never run workers.
+                    if (processDuty.ownsNativeEngine) {
+                        setWorkerFactory(get<KoinWorkerFactory>())
+                    }
+                }
+                .build()
 
     override fun newImageLoader(context: android.content.Context): ImageLoader =
         ImageLoader
@@ -113,43 +119,43 @@ class LomoApplication :
 
     override fun onCreate() {
         super.onCreate()
-        
-        // Start Koin
-        startKoin {
-            androidContext(this@LomoApplication)
-            workManagerFactory()
-            modules(
-                // Data modules loaded via reflection
-                dataModules +
-                
-                // App modules
-                listOf(
-                    appModule,
-                    appScopeModule,
-                    domainAppUpdateModule,
-                    domainCoreModule,
-                    domainMemoMutationModule,
-                    domainMemoReadModule,
-                    domainSearchModule,
-                    domainShareModule,
-                    domainSyncModule,
-                    domainWorkspaceModule,
-                    viewModelModule
-                )
-            )
-        }
 
-        lastKnownUiMode = resources.configuration.uiMode
-        ShareRoutePayloadStore.configurePersistentCache(cacheDir.resolve(SHARE_ROUTE_PAYLOAD_CACHE_DIR))
-
-        // Initialize Timber for logging
+        // Initialize Timber for logging in every process before the startup trace.
         if (AppBuildInfo.isDebuggable(this)) {
             Timber.plant(Timber.DebugTree())
         }
 
-        if (!ownsNativeEngine()) {
+        val startupPlan =
+            processStartupPlan(
+                duty = processDuty,
+                processName = currentProcessName(this),
+                dataModules =
+                    if (processDuty.ownsNativeEngine) {
+                        dataModules
+                    } else {
+                        emptyList()
+                    },
+            )
+        Timber.i("startup plan %s", startupPlan.describe())
+
+        if (startupPlan.modules.isNotEmpty()) {
+            startKoin {
+                androidContext(this@LomoApplication)
+                workManagerFactory()
+                modules(startupPlan.modules)
+            }
+        }
+
+        lastKnownUiMode = resources.configuration.uiMode
+
+        if (!processDuty.ownsNativeEngine) {
+            // A projection-only process (Glance widget) renders the file snapshot and mints trusted
+            // intents; it must never load the data graph, WorkManager, native engine, DataStore, or
+            // a workspace session.
             return
         }
+
+        ShareRoutePayloadStore.configurePersistentCache(cacheDir.resolve(SHARE_ROUTE_PAYLOAD_CACHE_DIR))
 
         get<WidgetProjectionBinder>()
         appStartupCoordinator.start()
@@ -187,9 +193,12 @@ class LomoApplication :
                         }
                     }
 
-                    // Reminder queries are admitted only after a committed workspace authority.
+                    // Reminder queries are admitted only by the published mount: bare authority
+                    // without a verified projection must not rebuild alarms against a stale store.
                     appScope.launch {
-                        engineReadinessRepository.workspaceAuthority
+                        engineReadinessRepository.mount
+                            .map { it.admittedAuthority }
+                            .distinctUntilChanged()
                             .filterNotNull()
                             .collectLatest {
                                 try {
@@ -211,7 +220,7 @@ class LomoApplication :
         super.onConfigurationChanged(newConfig)
         lastKnownUiMode = newConfig.uiMode
 
-        if (!ownsNativeEngine()) {
+        if (!processDuty.ownsNativeEngine) {
             return
         }
         appStartupCoordinator.resyncThemeOnConfigurationChange(
@@ -221,31 +230,31 @@ class LomoApplication :
     }
 
     override fun onTrimMemory(level: Int) {
-        appShutdownCoordinator.closeForTrimMemory(level) { error ->
-            Timber.w(error, "Failed to close app resources while trimming memory")
+        if (processDuty.ownsNativeEngine) {
+            appShutdownCoordinator.closeForTrimMemory(level) { error ->
+                Timber.w(error, "Failed to close app resources while trimming memory")
+            }
         }
         super.onTrimMemory(level)
     }
 
     override fun onLowMemory() {
-        appShutdownCoordinator.closeForLowMemory { error ->
-            Timber.w(error, "Failed to close app resources on low memory")
+        if (processDuty.ownsNativeEngine) {
+            appShutdownCoordinator.closeForLowMemory { error ->
+                Timber.w(error, "Failed to close app resources on low memory")
+            }
         }
         super.onLowMemory()
     }
 
     override fun onTerminate() {
-        appShutdownCoordinator.closeAppResources { error ->
-            Timber.w(error, "Failed to close app resources")
+        if (processDuty.ownsNativeEngine) {
+            appShutdownCoordinator.closeAppResources { error ->
+                Timber.w(error, "Failed to close app resources")
+            }
         }
         super.onTerminate()
     }
-
-    private fun ownsNativeEngine(): Boolean =
-        WorkspaceProcessDuty.ownsNativeEngine(
-            packageName = packageName,
-            processName = currentProcessName(this),
-        )
 }
 
 private const val SHARE_ROUTE_PAYLOAD_CACHE_DIR = "share-route-payloads"
