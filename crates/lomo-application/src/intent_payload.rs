@@ -6,7 +6,7 @@ use crate::{
     resource::MAX_FILE_BYTES,
     transaction::PlannedFile,
 };
-use lomo_core::{LomoError, RelativeWorkspacePath};
+use lomo_core::{LomoError, RelativeWorkspacePath, Sha256Digest, StagedArtifactSource};
 use lomo_workspace::SourceFingerprint;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -42,6 +42,14 @@ pub enum StoredFile {
         path: RelativeWorkspacePath,
         before: PayloadRef,
     },
+    /// Media identity plus the durable staged source the executor streams from. No payload
+    /// reference: the bytes live in stage storage under lease, never in this store.
+    ArtifactWrite {
+        path: RelativeWorkspacePath,
+        source_path: String,
+        digest: String,
+        length: u64,
+    },
 }
 
 impl StoredFile {
@@ -51,6 +59,7 @@ impl StoredFile {
                 before.iter().chain(std::iter::once(after)).collect()
             }
             Self::Delete { before, .. } => vec![before],
+            Self::ArtifactWrite { .. } => Vec::new(),
         }
     }
 }
@@ -135,6 +144,12 @@ impl PayloadStore {
                 path: path.clone(),
                 before: self.store(before)?,
             }),
+            PlannedFile::ArtifactWrite { path, source } => Ok(StoredFile::ArtifactWrite {
+                path: path.clone(),
+                source_path: source.path().to_owned(),
+                digest: source.digest().as_str().to_owned(),
+                length: source.length(),
+            }),
         }
     }
 
@@ -155,6 +170,19 @@ impl PayloadStore {
             StoredFile::Delete { path, before } => Ok(PlannedFile::Delete {
                 path: path.clone(),
                 before: self.load(before)?,
+            }),
+            StoredFile::ArtifactWrite {
+                path,
+                source_path,
+                digest,
+                length,
+            } => Ok(PlannedFile::ArtifactWrite {
+                path: path.clone(),
+                source: StagedArtifactSource::new(
+                    source_path,
+                    *length,
+                    Sha256Digest::parse(digest)?,
+                )?,
             }),
         }
     }

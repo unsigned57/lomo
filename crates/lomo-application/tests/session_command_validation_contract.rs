@@ -33,7 +33,7 @@ mod tests {
         WorkspaceSession, WorkspaceSessionConfig,
     };
     use lomo_core::{CapabilityToken, ErrorCategory, OperationId, RelativeWorkspacePath};
-    use lomo_platform_fs::PosixPlatformActionExecutor;
+    use lomo_platform_fs::FsPlatformActionExecutor;
     use lomo_workspace::{MAX_EDITABLE_MEMO_UTF8_CHARS, MemoId, WorkspaceRootId};
 
     trait TestResult<T> {
@@ -52,7 +52,7 @@ mod tests {
     struct Fixture {
         temp: tempfile::TempDir,
         config: WorkspaceSessionConfig,
-        executor: Arc<PosixPlatformActionExecutor>,
+        executor: Arc<FsPlatformActionExecutor>,
     }
 
     impl Fixture {
@@ -70,8 +70,9 @@ mod tests {
                 cache_dir: temp.path().join("cache"),
                 runtime_dir: temp.path().join("runtime"),
                 exchange_dir: temp.path().join("exchange"),
+                media_stage_root: temp.path().join("media-stage"),
             };
-            let executor = Arc::new(PosixPlatformActionExecutor::new(&config.exchange_dir).value());
+            let executor = Arc::new(FsPlatformActionExecutor::new(&config.exchange_dir).value());
             executor
                 .bind_root(capability, temp.path().join("notes"))
                 .value();

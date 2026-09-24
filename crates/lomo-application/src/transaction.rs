@@ -1,6 +1,9 @@
 //! Application transactions replay immutable before/after bytes, never rerun append planning.
 
-use lomo_core::{LomoError, OperationId, RelativeWorkspacePath};
+use lomo_core::{
+    DocumentKind, DocumentMetadata, ExpectedFingerprint, LomoError, OperationId,
+    RelativeWorkspacePath, StagedArtifactSource,
+};
 use lomo_store::{DocumentPublication, SafProjectionCommitResult};
 use lomo_workspace::{MemoId, SourceFingerprint};
 use serde::{Deserialize, Serialize};
@@ -24,6 +27,19 @@ pub enum PlannedFile {
         path: RelativeWorkspacePath,
         before: Vec<u8>,
     },
+    /// Media identity plus a recoverable staged source. The bytes never enter the plan: the
+    /// executor streams the retained source to `path`, re-verifying digest and length.
+    ArtifactWrite {
+        path: RelativeWorkspacePath,
+        source: StagedArtifactSource,
+    },
+}
+
+/// What the workspace currently holds for a planned target. Artifact plans observe evidence
+/// only, so media bytes never route through recovery memory.
+pub enum CurrentState {
+    Bytes(Option<FileSnapshot>),
+    Evidence(Option<DocumentMetadata>),
 }
 
 impl PlannedFile {
@@ -45,7 +61,9 @@ impl PlannedFile {
     #[must_use]
     pub const fn path(&self) -> &RelativeWorkspacePath {
         match self {
-            Self::Write { path, .. } | Self::Delete { path, .. } => path,
+            Self::Write { path, .. }
+            | Self::Delete { path, .. }
+            | Self::ArtifactWrite { path, .. } => path,
         }
     }
 
@@ -53,53 +71,125 @@ impl PlannedFile {
         match self {
             Self::Write { before, .. } => before.as_deref(),
             Self::Delete { before, .. } => Some(before),
+            Self::ArtifactWrite { .. } => None,
         }
     }
 
     pub fn after(&self) -> Option<&[u8]> {
         match self {
             Self::Write { after, .. } => Some(after),
-            Self::Delete { .. } => None,
+            Self::Delete { .. } | Self::ArtifactWrite { .. } => None,
         }
     }
 
-    fn check_current(&self, current: Option<&FileSnapshot>, issued: bool) -> Result<(), LomoError> {
-        let bytes = current.map(|snapshot| snapshot.bytes.as_slice());
-        if bytes == self.before() {
-            return Ok(());
-        }
+    fn observe(&self, io: &WorkspaceIo<'_>) -> Result<CurrentState, LomoError> {
         match self {
-            Self::Write { after, .. } if bytes == Some(after.as_slice()) => Ok(()),
-            Self::Delete { .. } if bytes.is_none() && issued => Ok(()),
-            Self::Write { .. } | Self::Delete { .. } => Err(conflict(
-                "stale_transaction_baseline",
-                "disk differs from the frozen baseline and witnessed result",
+            Self::Write { .. } | Self::Delete { .. } => {
+                Ok(CurrentState::Bytes(io.read(self.path())?))
+            }
+            Self::ArtifactWrite { path, .. } => Ok(CurrentState::Evidence(io.stat(path)?)),
+        }
+    }
+
+    fn check_current(&self, current: &CurrentState, issued: bool) -> Result<(), LomoError> {
+        match (self, current) {
+            (Self::Write { before, after, .. }, CurrentState::Bytes(snapshot)) => {
+                let bytes = snapshot.as_ref().map(|snapshot| snapshot.bytes.as_slice());
+                if bytes == before.as_deref() || bytes == Some(after.as_slice()) {
+                    Ok(())
+                } else {
+                    Err(conflict(
+                        "stale_transaction_baseline",
+                        "disk differs from the frozen baseline and witnessed result",
+                    ))
+                }
+            }
+            (Self::Delete { before, .. }, CurrentState::Bytes(snapshot)) => {
+                let bytes = snapshot.as_ref().map(|snapshot| snapshot.bytes.as_slice());
+                if bytes == Some(before.as_slice()) || (bytes.is_none() && issued) {
+                    Ok(())
+                } else {
+                    Err(conflict(
+                        "stale_transaction_baseline",
+                        "disk differs from the frozen baseline and witnessed result",
+                    ))
+                }
+            }
+            (Self::ArtifactWrite { source, .. }, CurrentState::Evidence(observed)) => {
+                match observed {
+                    // Absent target means the publish never landed or was lost; replay streams
+                    // the retained source again.
+                    None => Ok(()),
+                    Some(metadata) if artifact_evidence_matches(metadata, source) => Ok(()),
+                    Some(_) => Err(conflict(
+                        "stale_transaction_baseline",
+                        "disk differs from the frozen baseline and witnessed result",
+                    )),
+                }
+            }
+            (Self::Write { .. } | Self::Delete { .. }, CurrentState::Evidence(_))
+            | (Self::ArtifactWrite { .. }, CurrentState::Bytes(_)) => Err(corruption(
+                "invalid_operation_plan",
+                "planned file shape does not match its observation",
             )),
         }
     }
 
-    pub fn apply(
-        &self,
-        io: &WorkspaceIo<'_>,
-        current: Option<&FileSnapshot>,
-    ) -> Result<(), LomoError> {
-        self.check_current(current, false)?;
-        match self {
-            Self::Write { path, after, .. } => {
-                io.write(path, current, after)?;
+    fn is_satisfied(&self, current: &CurrentState) -> bool {
+        match (self, current) {
+            (Self::Write { after, .. }, CurrentState::Bytes(snapshot)) => {
+                snapshot.as_ref().map(|snapshot| snapshot.bytes.as_slice())
+                    == Some(after.as_slice())
             }
-            Self::Delete { path, .. } => {
-                let current = current.ok_or_else(|| {
+            (Self::Delete { .. }, CurrentState::Bytes(snapshot)) => snapshot.is_none(),
+            (Self::ArtifactWrite { source, .. }, CurrentState::Evidence(observed)) => observed
+                .as_ref()
+                .is_some_and(|metadata| artifact_evidence_matches(metadata, source)),
+            _ => false,
+        }
+    }
+
+    pub fn apply(&self, io: &WorkspaceIo<'_>, current: &CurrentState) -> Result<(), LomoError> {
+        self.check_current(current, false)?;
+        match (self, current) {
+            (Self::Write { path, after, .. }, CurrentState::Bytes(snapshot)) => {
+                io.write(path, snapshot.as_ref(), after)?;
+            }
+            (Self::Delete { path, .. }, CurrentState::Bytes(snapshot)) => {
+                let snapshot = snapshot.as_ref().ok_or_else(|| {
                     conflict(
                         "stale_transaction_baseline",
                         "a new deletion requires its existing source",
                     )
                 })?;
-                io.delete(path, current)?;
+                io.delete(path, snapshot)?;
+            }
+            (Self::ArtifactWrite { path, source }, CurrentState::Evidence(observed)) => {
+                io.write_artifact(
+                    path,
+                    source,
+                    observed
+                        .as_ref()
+                        .map_or_else(ExpectedFingerprint::absent, |metadata| {
+                            ExpectedFingerprint::matching(metadata.evidence().clone())
+                        }),
+                )?;
+            }
+            _ => {
+                return Err(corruption(
+                    "invalid_operation_plan",
+                    "planned file shape does not match its observation",
+                ));
             }
         }
         Ok(())
     }
+}
+
+fn artifact_evidence_matches(metadata: &DocumentMetadata, source: &StagedArtifactSource) -> bool {
+    metadata.kind() == DocumentKind::File
+        && metadata.evidence().length() == source.length()
+        && metadata.evidence().verified_digest() == Some(source.digest())
 }
 
 pub struct TransactionInput {
@@ -225,6 +315,7 @@ impl WorkspaceSession {
             })?;
             self.intent_journal
                 .mark_committed(&record.operation_id, receipt)?;
+            crate::media_plan::release_committed_artifacts(&record.operation_id, &record.files);
         }
         Ok(())
     }
@@ -235,21 +326,21 @@ impl WorkspaceSession {
             executor: &self.executor,
         };
         crate::record_plan::validate_workspace_layout(&io)?;
-        let snapshots = record
+        let states = record
             .files
             .iter()
-            .map(|file| io.read(file.path()))
+            .map(|file| file.observe(&io))
             .collect::<Result<Vec<_>, _>>()?;
-        for (index, (file, snapshot)) in record.files.iter().zip(&snapshots).enumerate() {
-            file.check_current(snapshot.as_ref(), index < record.started_files)?;
+        for (index, (file, state)) in record.files.iter().zip(&states).enumerate() {
+            file.check_current(state, index < record.started_files)?;
         }
-        for (index, (file, snapshot)) in record.files.iter().zip(&snapshots).enumerate() {
-            if snapshot.as_ref().map(|snapshot| snapshot.bytes.as_slice()) == file.after() {
+        for (index, (file, state)) in record.files.iter().zip(&states).enumerate() {
+            if file.is_satisfied(state) {
                 continue;
             }
             self.intent_journal
                 .mark_started(&record.operation_id, index + 1)?;
-            file.apply(&io, snapshot.as_ref())?;
+            file.apply(&io, state)?;
         }
         Ok(())
     }
@@ -271,6 +362,7 @@ impl WorkspaceSession {
         }
         self.intent_journal
             .mark_committed(&record.operation_id, receipt.clone())?;
+        crate::media_plan::release_committed_artifacts(&record.operation_id, &record.files);
         Ok(receipt)
     }
 }

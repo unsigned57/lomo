@@ -1,33 +1,28 @@
 //! Atomic persistence for device-private records and editing baselines.
 
-use std::{
-    fs::{self, File, OpenOptions},
-    io::Write,
-    os::unix::fs::OpenOptionsExt,
-    path::Path,
-};
+use std::{fs, io::Write, path::Path};
 
-use lomo_core::LomoError;
+use lomo_core::{ErrorCategory, LomoError};
 use lomo_workspace::SourceFingerprint;
 
 use crate::{
     csprng::generate_hex_token,
     error::{corruption, storage, validation},
+    sysfs::{open_read_nofollow, private_create_options, sync_parent_dir},
 };
 
 pub fn read_optional(path: &Path) -> Result<Option<Vec<u8>>, LomoError> {
-    match OpenOptions::new()
-        .read(true)
-        .custom_flags(
-            i32::try_from(rustix::fs::OFlags::NOFOLLOW.bits())
-                .map_err(|error| storage("file_flags_invalid", error.to_string()))?,
-        )
-        .open(path)
-    {
-        Ok(file) => crate::resource::read_bounded(file, crate::resource::MAX_FILE_BYTES).map(Some),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(storage("private_read_failed", error.to_string())),
+    if !path.exists() {
+        return Ok(None);
     }
+    let file = open_read_nofollow(path).map_err(|error| {
+        if error.category() == ErrorCategory::Permission {
+            error
+        } else {
+            storage("private_read_failed", error.to_string())
+        }
+    })?;
+    crate::resource::read_bounded(file, crate::resource::MAX_FILE_BYTES).map(Some)
 }
 
 pub fn remove_durable(path: &Path) -> Result<(), LomoError> {
@@ -47,12 +42,7 @@ fn remove_file_synced(path: &Path, allow_missing: bool) -> Result<(), LomoError>
         }
         Err(error) => return Err(storage("private_remove_failed", error.to_string())),
     }
-    let parent = path
-        .parent()
-        .ok_or_else(|| validation("private_path_invalid", "missing parent"))?;
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|error| storage("private_directory_sync_failed", error.to_string()))
+    sync_parent_dir(path)
 }
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), LomoError> {
@@ -63,10 +53,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), LomoError> {
         .map_err(|error| storage("private_directory_failed", error.to_string()))?;
     let temporary = parent.join(format!(".tmp-{}", generate_hex_token(16)?));
     let result = (|| {
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .mode(0o600)
+        let mut file = private_create_options()
             .open(&temporary)
             .map_err(|error| storage("private_open_failed", error.to_string()))?;
         file.write_all(bytes)
@@ -76,9 +63,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), LomoError> {
         drop(file);
         fs::rename(&temporary, path)
             .map_err(|error| storage("private_rename_failed", error.to_string()))?;
-        File::open(parent)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|error| storage("private_directory_sync_failed", error.to_string()))
+        sync_parent_dir(path)
     })();
     if let Err(original) = result {
         match fs::remove_file(&temporary) {

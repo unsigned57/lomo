@@ -1,15 +1,14 @@
 use std::{
-    fs::{File, create_dir_all},
+    fs::{File, TryLockError, create_dir_all},
     path::{Path, PathBuf},
 };
 
 use lomo_core::LomoError;
-use rustix::{
-    fs::{FlockOperation, Mode, OFlags, flock, open},
-    io::Errno,
-};
 
-use crate::error::{conflict, permission, storage};
+use crate::{
+    error::{conflict, storage},
+    sysfs::open_lock_file,
+};
 
 /// RAII transaction lock held only during the critical write transaction.
 #[derive(Debug)]
@@ -33,38 +32,16 @@ impl TransactionLock {
         })?;
 
         let path = runtime_dir.join("lomo_transaction.lock");
-        let fd = open(
-            &path,
-            OFlags::RDWR | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::from_bits_truncate(0o600),
-        )
-        .map_err(|err| {
-            if err == Errno::LOOP {
-                permission(
-                    "transaction_lock_symlink_rejected",
-                    format!("lockfile '{}' is a symbolic link", path.display()),
-                )
-            } else {
-                storage(
-                    "transaction_lock_open_failed",
-                    format!(
-                        "failed to open transaction lockfile '{}': {err}",
-                        path.display()
-                    ),
-                )
-            }
-        })?;
-
-        let file = File::from(fd);
-        match flock(&file, FlockOperation::NonBlockingLockExclusive) {
+        let file = open_lock_file(&path)?;
+        match file.try_lock() {
             Ok(()) => Ok(Self { _file: file, path }),
-            Err(Errno::WOULDBLOCK) => Err(conflict(
+            Err(TryLockError::WouldBlock) => Err(conflict(
                 "transaction_lock_held",
                 format!("transaction lock '{}' is currently held", path.display()),
             )),
-            Err(err) => Err(storage(
+            Err(TryLockError::Error(err)) => Err(storage(
                 "transaction_lock_failed",
-                format!("flock failed on '{}': {err}", path.display()),
+                format!("lock failed on '{}': {err}", path.display()),
             )),
         }
     }

@@ -6,7 +6,7 @@ use lomo_store::{
     SnoozeStore, TimeZoneContext, apply_reminder_command, query_reminder_plan,
 };
 use lomo_workspace::{MemoId, ReminderReference};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{
     error::validation,
@@ -16,7 +16,7 @@ use crate::{
     workspace_io::epoch_millis,
 };
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct FireReminderRequest {
     pub operation_id: OperationId,
     pub memo_id: MemoId,

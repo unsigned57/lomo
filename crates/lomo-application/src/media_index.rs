@@ -1,129 +1,210 @@
-//! Global attachment references across active bodies, trash, history, and drafts.
+//! Global attachment references across active bodies, trash, history, drafts,
+//! pending transactions, and the durable media stage ledger.
+//!
+//! The index is the single reference authority for media garbage collection: an object under
+//! `media/` may be reclaimed only when no live or trash body, in-window history revision, conflict
+//! draft, frozen transaction, or stage-ledger lease names its canonical relative path or content
+//! digest. All facts are recomputed on every call so a sweep that rechecks under the write lock
+//! observes references created after candidate enumeration.
 
-use lomo_core::{LomoError, RelativeWorkspacePath};
-use lomo_media::{AttachmentRef, ContentDigest, ReferenceSource, build_refcounts};
-use lomo_store::{MemoFilters, MemoQuery, project_content_facts};
+use std::collections::BTreeSet;
 
-use crate::{error::validation, paging::collect_summaries, session::WorkspaceSession};
+use lomo_core::LomoError;
+use lomo_media::{ReferenceSource, StageLedger};
+use lomo_store::{DEFAULT_HISTORY_MEDIA_RETENTION_REVISIONS, StoreReader, project_content_facts};
 
+use crate::{session::WorkspaceSession, transaction::PlannedFile};
+
+/// One observed attachment reference with its owning protection source.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AttachmentObservation {
+    /// Canonical workspace-relative path exactly as the body or lease names it.
     pub relative_path: String,
-    pub digest: Option<ContentDigest>,
+    /// Which protection source observed the reference.
     pub source: ReferenceSource,
+    /// Opaque owner identity for diagnostics (`memo_id`, `memo@rN`, `op:<id>`, `lease:<kind>:<id>`).
     pub owner_key: String,
 }
 
+/// The complete protection set: which relative paths and content digests stay live.
+#[derive(Clone, Debug, Default)]
+pub struct AttachmentIndex {
+    observations: Vec<AttachmentObservation>,
+    paths: BTreeSet<String>,
+    digests: BTreeSet<String>,
+}
+
+impl AttachmentIndex {
+    /// Every observed reference, in collection order.
+    #[must_use]
+    pub fn observations(&self) -> &[AttachmentObservation] {
+        &self.observations
+    }
+
+    /// True when any protection source still names this canonical relative path.
+    #[must_use]
+    pub fn protects_path(&self, relative_path: &str) -> bool {
+        self.paths.contains(relative_path)
+    }
+
+    /// True when a stage-ledger lease or pending artifact write still claims this content digest.
+    #[must_use]
+    pub fn protects_digest(&self, digest_hex: &str) -> bool {
+        self.digests.contains(digest_hex)
+    }
+
+    /// First observation protecting `relative_path`, for sweep protection reporting.
+    #[must_use]
+    pub fn protection_for(&self, relative_path: &str) -> Option<&AttachmentObservation> {
+        self.observations
+            .iter()
+            .find(|item| item.relative_path == relative_path)
+    }
+
+    fn observe(&mut self, relative_path: String, source: ReferenceSource, owner_key: String) {
+        self.paths.insert(relative_path.clone());
+        self.observations.push(AttachmentObservation {
+            relative_path,
+            source,
+            owner_key,
+        });
+    }
+}
+
 impl WorkspaceSession {
-    /// Collects attachment paths from active memos, trash, in-window history, and private drafts.
+    /// Collects the full protection set in bounded bulk reads.
+    ///
+    /// Sources: projected `attachment_ref` rows for live and trashed memos, in-window history
+    /// revision bodies, pending intent-journal transactions (planned bodies, history writes, and
+    /// artifact targets), conflict-evidence drafts, and stage-ledger leases held by drafts,
+    /// pending operations, incoming transfers, or committed references.
+    ///
+    /// # Errors
+    ///
+    /// Projection, journal, draft, or stage-ledger read failures. A corrupt or incomplete
+    /// projection surfaces as an error rather than a silently empty keep-set.
+    pub fn attachment_index(&self) -> Result<AttachmentIndex, LomoError> {
+        let mut index = AttachmentIndex::default();
+        self.collect_projected_refs(&mut index)?;
+        self.collect_history_refs(&mut index)?;
+        self.collect_pending_refs(&mut index)?;
+        self.collect_draft_refs(&mut index)?;
+        self.collect_stage_lease_refs(&mut index)?;
+        Ok(index)
+    }
+
+    /// Attachment paths from active memos, trash, in-window history, drafts, pending
+    /// transactions, and stage leases.
     ///
     /// # Errors
     /// Projection and I/O failures.
     pub fn observe_attachments(&self) -> Result<Vec<AttachmentObservation>, LomoError> {
-        let mut out = Vec::new();
-        let query = MemoQuery {
-            search_text: None,
-            filters: MemoFilters {
-                include_trash: true,
-                ..MemoFilters::default()
-            },
-            sort: lomo_store::MemoSort::default(),
-        };
-        for summary in collect_summaries(self, &query)? {
-            let snapshot = self
-                .with_reader(|store| store.get_projected_memo(&summary.memo_id))?
-                .ok_or_else(|| validation("memo_not_found", "attachment owner disappeared"))?;
-            let source = if summary.is_trashed {
-                ReferenceSource::TrashMemo
-            } else {
-                ReferenceSource::CurrentMemo
-            };
-            push_from_body(self, &mut out, &snapshot.body, source, &summary.memo_id)?;
-            append_history(self, &mut out, &summary.memo_id)?;
-        }
-        Ok(out)
+        Ok(self.attachment_index()?.observations)
     }
 
-    /// True when any live, trash, or in-window history body still names this relative path.
+    /// True when any protection source still names this canonical relative path.
     ///
     /// # Errors
     /// Projection failures.
     pub fn attachment_is_protected(&self, relative_path: &str) -> Result<bool, LomoError> {
-        Ok(self
-            .observe_attachments()?
-            .iter()
-            .any(|item| item.relative_path == relative_path))
+        Ok(self.attachment_index()?.protects_path(relative_path))
     }
 
-    /// Digest refcounts for files that can still be opened through the platform executor.
-    ///
-    /// # Errors
-    /// Digest and I/O failures.
-    pub fn attachment_refcounts(
-        &self,
-    ) -> Result<std::collections::BTreeMap<ContentDigest, lomo_media::DigestRefcount>, LomoError>
-    {
-        let mut refs = Vec::new();
-        for item in self.observe_attachments()? {
-            if let Some(digest) = item.digest {
-                refs.push(AttachmentRef {
-                    digest,
-                    source: item.source,
-                    owner_key: item.owner_key,
-                });
+    fn collect_projected_refs(&self, index: &mut AttachmentIndex) -> Result<(), LomoError> {
+        for item in self.with_reader(StoreReader::list_projected_attachment_refs)? {
+            let source = if item.is_trashed {
+                ReferenceSource::TrashMemo
+            } else {
+                ReferenceSource::CurrentMemo
+            };
+            index.observe(item.relative_path, source, item.memo_id);
+        }
+        Ok(())
+    }
+
+    fn collect_history_refs(&self, index: &mut AttachmentIndex) -> Result<(), LomoError> {
+        let bodies = self.with_reader(|reader| {
+            reader.list_history_revision_bodies(DEFAULT_HISTORY_MEDIA_RETENTION_REVISIONS)
+        })?;
+        for revision in &bodies {
+            let facts = project_content_facts(&revision.content)?;
+            for relative_path in facts.attachment_paths {
+                index.observe(
+                    relative_path,
+                    ReferenceSource::HistoryVersion,
+                    format!("{}@r{}", revision.memo_id, revision.revision),
+                );
             }
         }
-        Ok(build_refcounts(&refs))
+        Ok(())
     }
-}
 
-fn append_history(
-    session: &WorkspaceSession,
-    out: &mut Vec<AttachmentObservation>,
-    memo_id: &str,
-) -> Result<(), LomoError> {
-    let page = session.with_reader(|store| store.list_memo_history(memo_id, None, 20))?;
-    for revision in page.items {
-        push_from_body(
-            session,
-            out,
-            &revision.content,
-            ReferenceSource::HistoryVersion,
-            &format!("{}@r{}", memo_id, revision.revision),
-        )?;
+    fn collect_pending_refs(&self, index: &mut AttachmentIndex) -> Result<(), LomoError> {
+        for operation_id in self.intent_journal.pending_ids()? {
+            let Some(record) = self.intent_journal.pending_record(&operation_id)? else {
+                continue;
+            };
+            let owner = format!("op:{}", operation_id.as_str());
+            for publication in &record.mutations {
+                if let Some(projection) = &publication.mutation.projection {
+                    for relative_path in &projection.attachment_paths {
+                        index.observe(
+                            relative_path.clone(),
+                            ReferenceSource::PendingOperation,
+                            owner.clone(),
+                        );
+                    }
+                }
+                if let Some(history) = &publication.history {
+                    for relative_path in project_content_facts(&history.content)?.attachment_paths {
+                        index.observe(
+                            relative_path,
+                            ReferenceSource::PendingOperation,
+                            owner.clone(),
+                        );
+                    }
+                }
+            }
+            for file in &record.files {
+                if let PlannedFile::ArtifactWrite { path, source } = file {
+                    index.observe(
+                        path.as_str().to_owned(),
+                        ReferenceSource::PendingOperation,
+                        owner.clone(),
+                    );
+                    index.digests.insert(source.digest().as_str().to_owned());
+                }
+            }
+        }
+        Ok(())
     }
-    Ok(())
-}
 
-fn push_from_body(
-    session: &WorkspaceSession,
-    out: &mut Vec<AttachmentObservation>,
-    body: &str,
-    source: ReferenceSource,
-    owner_key: &str,
-) -> Result<(), LomoError> {
-    let facts = project_content_facts(body)?;
-    for relative_path in facts.attachment_paths {
-        let digest = read_digest(session, &relative_path)?;
-        out.push(AttachmentObservation {
-            relative_path,
-            digest,
-            source,
-            owner_key: owner_key.to_owned(),
-        });
+    fn collect_draft_refs(&self, index: &mut AttachmentIndex) -> Result<(), LomoError> {
+        for draft in self.draft_store.list_draft_bodies()? {
+            let owner = format!("draft:{}", draft.operation_id.as_str());
+            for relative_path in project_content_facts(&draft.draft_content)?.attachment_paths {
+                index.observe(relative_path, ReferenceSource::Draft, owner.clone());
+            }
+        }
+        Ok(())
     }
-    Ok(())
-}
 
-fn read_digest(
-    session: &WorkspaceSession,
-    relative_path: &str,
-) -> Result<Option<ContentDigest>, LomoError> {
-    let Ok(path) = RelativeWorkspacePath::parse(relative_path) else {
-        return Ok(None);
-    };
-    match session.io().read(&path)? {
-        Some(snapshot) => Ok(Some(ContentDigest::of_slice(&snapshot.bytes))),
-        None => Ok(None),
+    fn collect_stage_lease_refs(&self, index: &mut AttachmentIndex) -> Result<(), LomoError> {
+        let stage_dir = lomo_media::stage_directory(&self.config.media_stage_root);
+        let ledger = StageLedger::load(&stage_dir)?;
+        for record in ledger.records() {
+            if record.leases.is_empty() {
+                continue;
+            }
+            index.digests.insert(record.digest.as_str().to_owned());
+            for lease in &record.leases {
+                index.observe(
+                    record.suggested_final_relative_path.clone(),
+                    ReferenceSource::StageLease,
+                    format!("lease:{:?}:{}", lease.owner_kind, lease.owner_id),
+                );
+            }
+        }
+        Ok(())
     }
 }

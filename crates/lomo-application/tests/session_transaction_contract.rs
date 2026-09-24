@@ -69,7 +69,7 @@ use lomo_core::{
     PlatformActionExecutor, PlatformActionOutput, PlatformBatchResult, RelativeWorkspacePath,
     RetryDisposition,
 };
-use lomo_platform_fs::PosixPlatformActionExecutor;
+use lomo_platform_fs::FsPlatformActionExecutor;
 use lomo_store::MemoQuery;
 use lomo_workspace::WorkspaceRootId;
 #[cfg(test)]
@@ -95,7 +95,7 @@ mod tests {
         _exchange_dir: tempfile::TempDir,
         workspace_path: std::path::PathBuf,
         session: WorkspaceSession,
-        _executor: Arc<PosixPlatformActionExecutor>,
+        _executor: Arc<FsPlatformActionExecutor>,
         config: WorkspaceSessionConfig,
     }
 
@@ -107,7 +107,7 @@ mod tests {
         let exchange_dir = tempdir().expect("exchange dir");
 
         let executor =
-            Arc::new(PosixPlatformActionExecutor::new(exchange_dir.path()).expect("executor"));
+            Arc::new(FsPlatformActionExecutor::new(exchange_dir.path()).expect("executor"));
         let capability = CapabilityToken::parse("test-notes-root").expect("capability token");
         executor
             .bind_root(capability.clone(), workspace_dir.path())
@@ -124,6 +124,7 @@ mod tests {
             cache_dir: cache_dir.path().to_path_buf(),
             runtime_dir: runtime_dir.path().to_path_buf(),
             exchange_dir: exchange_dir.path().to_path_buf(),
+            media_stage_root: exchange_dir.path().join("media-stage"),
         };
 
         let session =
@@ -347,9 +348,8 @@ mod tests {
         let new_runtime_dir = tempdir().expect("new runtime dir");
         let new_exchange_dir = tempdir().expect("new exchange dir");
 
-        let new_executor = Arc::new(
-            PosixPlatformActionExecutor::new(new_exchange_dir.path()).expect("new executor"),
-        );
+        let new_executor =
+            Arc::new(FsPlatformActionExecutor::new(new_exchange_dir.path()).expect("new executor"));
         new_executor
             .bind_root(ctx.config.capability.clone(), &ctx.workspace_path)
             .expect("bind root to same workspace");
@@ -365,6 +365,7 @@ mod tests {
             cache_dir: new_cache_dir.path().to_path_buf(),
             runtime_dir: new_runtime_dir.path().to_path_buf(),
             exchange_dir: new_exchange_dir.path().to_path_buf(),
+            media_stage_root: new_exchange_dir.path().join("media-stage"),
         };
 
         let session2 = WorkspaceSession::open(new_config, new_executor).expect("open session 2");
@@ -524,7 +525,7 @@ mod tests {
         let exchange_dir = tempdir().expect("exchange dir");
 
         let real_executor =
-            Arc::new(PosixPlatformActionExecutor::new(exchange_dir.path()).expect("executor"));
+            Arc::new(FsPlatformActionExecutor::new(exchange_dir.path()).expect("executor"));
         let capability = CapabilityToken::parse("test-notes-root").expect("capability token");
         real_executor
             .bind_root(capability.clone(), workspace_dir.path())
@@ -547,6 +548,7 @@ mod tests {
             cache_dir: cache_dir.path().to_path_buf(),
             runtime_dir: runtime_dir.path().to_path_buf(),
             exchange_dir: exchange_dir.path().to_path_buf(),
+            media_stage_root: exchange_dir.path().join("media-stage"),
         };
 
         let session = WorkspaceSession::open(config.clone(), fault_executor).expect("open session");
@@ -696,7 +698,7 @@ mod tests {
     }
 
     struct MarkdownReadCounter {
-        inner: Arc<PosixPlatformActionExecutor>,
+        inner: Arc<FsPlatformActionExecutor>,
         markdown_reads: Mutex<Vec<String>>,
     }
 
@@ -726,9 +728,8 @@ mod tests {
         let runtime_dir = tempdir().expect("runtime dir");
         let exchange_dir = tempdir().expect("exchange dir");
         let capability = CapabilityToken::parse("test-notes-root").expect("capability token");
-        let first_executor = Arc::new(
-            PosixPlatformActionExecutor::new(exchange_dir.path()).expect("first executor"),
-        );
+        let first_executor =
+            Arc::new(FsPlatformActionExecutor::new(exchange_dir.path()).expect("first executor"));
         first_executor
             .bind_root(capability.clone(), workspace_dir.path())
             .expect("bind first root");
@@ -743,6 +744,7 @@ mod tests {
             cache_dir: cache_dir.path().to_path_buf(),
             runtime_dir: runtime_dir.path().to_path_buf(),
             exchange_dir: exchange_dir.path().to_path_buf(),
+            media_stage_root: exchange_dir.path().join("media-stage"),
         };
         let session = WorkspaceSession::open(config.clone(), first_executor).expect("open first");
         session
@@ -761,9 +763,8 @@ mod tests {
         assert!(!seeded.rewritten);
         drop(session);
 
-        let remount_executor = Arc::new(
-            PosixPlatformActionExecutor::new(exchange_dir.path()).expect("remount executor"),
-        );
+        let remount_executor =
+            Arc::new(FsPlatformActionExecutor::new(exchange_dir.path()).expect("remount executor"));
         remount_executor
             .bind_root(capability, workspace_dir.path())
             .expect("bind remount root");
@@ -794,9 +795,8 @@ mod tests {
         let runtime_dir = tempdir().expect("runtime dir");
         let exchange_dir = tempdir().expect("exchange dir");
         let capability = CapabilityToken::parse("test-notes-root").expect("capability token");
-        let first_executor = Arc::new(
-            PosixPlatformActionExecutor::new(exchange_dir.path()).expect("first executor"),
-        );
+        let first_executor =
+            Arc::new(FsPlatformActionExecutor::new(exchange_dir.path()).expect("first executor"));
         first_executor
             .bind_root(capability.clone(), workspace_dir.path())
             .expect("bind first root");
@@ -811,6 +811,7 @@ mod tests {
             cache_dir: cache_dir.path().to_path_buf(),
             runtime_dir: runtime_dir.path().to_path_buf(),
             exchange_dir: exchange_dir.path().to_path_buf(),
+            media_stage_root: exchange_dir.path().join("media-stage"),
         };
         fs::write(workspace_dir.path().join("empty.dat"), []).expect("write empty file");
         let session = WorkspaceSession::open(config.clone(), first_executor).expect("open first");
@@ -830,9 +831,8 @@ mod tests {
         assert!(!seeded.rewritten);
         drop(session);
 
-        let remount_executor = Arc::new(
-            PosixPlatformActionExecutor::new(exchange_dir.path()).expect("remount executor"),
-        );
+        let remount_executor =
+            Arc::new(FsPlatformActionExecutor::new(exchange_dir.path()).expect("remount executor"));
         remount_executor
             .bind_root(capability, workspace_dir.path())
             .expect("bind remount root");
@@ -856,7 +856,7 @@ mod tests {
     }
 
     struct MetadataOnlyListing {
-        inner: Arc<PosixPlatformActionExecutor>,
+        inner: Arc<FsPlatformActionExecutor>,
         markdown_reads: Mutex<Vec<String>>,
     }
 
@@ -935,7 +935,7 @@ mod tests {
     }
 
     struct IncompleteListing {
-        inner: Arc<PosixPlatformActionExecutor>,
+        inner: Arc<FsPlatformActionExecutor>,
         fail_lists: AtomicBool,
     }
 
@@ -979,9 +979,8 @@ mod tests {
         let runtime_dir = tempdir().expect("runtime dir");
         let exchange_dir = tempdir().expect("exchange dir");
         let capability = CapabilityToken::parse("test-notes-root").expect("capability token");
-        let posix = Arc::new(
-            PosixPlatformActionExecutor::new(exchange_dir.path()).expect("posix executor"),
-        );
+        let posix =
+            Arc::new(FsPlatformActionExecutor::new(exchange_dir.path()).expect("posix executor"));
         posix
             .bind_root(capability.clone(), workspace_dir.path())
             .expect("bind root");
@@ -1000,6 +999,7 @@ mod tests {
             cache_dir: cache_dir.path().to_path_buf(),
             runtime_dir: runtime_dir.path().to_path_buf(),
             exchange_dir: exchange_dir.path().to_path_buf(),
+            media_stage_root: exchange_dir.path().join("media-stage"),
         };
         let session = WorkspaceSession::open(config.clone(), executor.clone()).expect("open");
         session
@@ -1062,9 +1062,8 @@ mod tests {
         let runtime_dir = tempdir().expect("runtime dir");
         let exchange_dir = tempdir().expect("exchange dir");
         let capability = CapabilityToken::parse("test-notes-root").expect("capability token");
-        let posix = Arc::new(
-            PosixPlatformActionExecutor::new(exchange_dir.path()).expect("posix executor"),
-        );
+        let posix =
+            Arc::new(FsPlatformActionExecutor::new(exchange_dir.path()).expect("posix executor"));
         posix
             .bind_root(capability.clone(), workspace_dir.path())
             .expect("bind root");
@@ -1083,6 +1082,7 @@ mod tests {
             cache_dir: cache_dir.path().to_path_buf(),
             runtime_dir: runtime_dir.path().to_path_buf(),
             exchange_dir: exchange_dir.path().to_path_buf(),
+            media_stage_root: exchange_dir.path().join("media-stage"),
         };
         let session = WorkspaceSession::open(config, executor.clone()).expect("open");
         let created = session

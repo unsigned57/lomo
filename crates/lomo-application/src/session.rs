@@ -214,6 +214,7 @@ impl WorkspaceSession {
                 expected_fingerprint: None,
                 projection: Some(projection),
                 trashed_at_ms: None,
+                batch_targets: Vec::new(),
             },
         }];
         if request.pinned {
@@ -322,6 +323,7 @@ impl WorkspaceSession {
             expected_fingerprint: Some(request.expected_document_fingerprint),
             projection: Some(projection),
             trashed_at_ms: None,
+            batch_targets: Vec::new(),
         };
         let staging = request.pending_promotes.clone();
         let receipt = self.commit_transaction(TransactionInput {
@@ -420,6 +422,7 @@ impl WorkspaceSession {
             expected_fingerprint: Some(request.expected_document_fingerprint),
             projection: Some(projection),
             trashed_at_ms: Some(trashed_at),
+            batch_targets: Vec::new(),
         };
         let receipt = self.commit_transaction(TransactionInput {
             operation_id: request.operation_id,
@@ -815,6 +818,7 @@ fn pin_mutation(
         expected_fingerprint: Some(fingerprint.to_owned()),
         projection: None,
         trashed_at_ms: None,
+        batch_targets: Vec::new(),
     }
 }
 

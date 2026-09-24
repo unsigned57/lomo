@@ -1,6 +1,6 @@
-use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt, path::Path};
+use std::path::Path;
 
-use lomo_core::{ExchangeArtifact, ExchangeToken, LomoError, Sha256Digest};
+use lomo_core::{ErrorCategory, ExchangeArtifact, ExchangeToken, LomoError, Sha256Digest};
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -8,6 +8,7 @@ use crate::{
     error::{corruption, resource_limit, storage},
     private_io::{remove_durable, write_atomic},
     resource::{MAX_FILE_BYTES, read_bounded},
+    sysfs::open_read_nofollow,
 };
 
 /// Stages a bounded file into exchange with durable atomic publication.
@@ -47,14 +48,13 @@ pub fn read_artifact_content(
         ));
     }
     let path = exchange_dir.join(artifact.token().as_str());
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(
-            i32::try_from(rustix::fs::OFlags::NOFOLLOW.bits())
-                .map_err(|error| storage("file_flags_invalid", error.to_string()))?,
-        )
-        .open(&path)
-        .map_err(|error| storage("exchange_artifact_read_failed", error.to_string()))?;
+    let file = open_read_nofollow(&path).map_err(|error| {
+        if error.category() == ErrorCategory::Permission {
+            error
+        } else {
+            storage("exchange_artifact_read_failed", error.to_string())
+        }
+    })?;
     let length = file
         .metadata()
         .map_err(|error| storage("exchange_artifact_stat_failed", error.to_string()))?

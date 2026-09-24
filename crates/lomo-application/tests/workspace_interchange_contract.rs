@@ -26,7 +26,7 @@ mod tests {
         WorkspaceSessionConfig,
     };
     use lomo_core::{CapabilityToken, OperationId, RelativeWorkspacePath};
-    use lomo_platform_fs::PosixPlatformActionExecutor;
+    use lomo_platform_fs::FsPlatformActionExecutor;
     use lomo_store::{MemoFilters, MemoQuery};
     use lomo_workspace::WorkspaceRootId;
     use tempfile::tempdir;
@@ -46,7 +46,7 @@ mod tests {
         let cache = tempdir().expect("cache");
         let runtime = tempdir().expect("runtime");
         let exchange = tempdir().expect("exchange");
-        let executor = Arc::new(PosixPlatformActionExecutor::new(exchange.path()).expect("exec"));
+        let executor = Arc::new(FsPlatformActionExecutor::new(exchange.path()).expect("exec"));
         let capability = CapabilityToken::parse("notes").expect("cap");
         executor
             .bind_root(capability.clone(), workspace.path())
@@ -62,6 +62,7 @@ mod tests {
             cache_dir: cache.path().to_path_buf(),
             runtime_dir: runtime.path().to_path_buf(),
             exchange_dir: exchange.path().to_path_buf(),
+            media_stage_root: state.path().join("media-stage"),
         };
         let session = WorkspaceSession::open(config, executor).expect("open");
         SessionCtx {

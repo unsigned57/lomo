@@ -14,6 +14,7 @@ pub mod lifecycle;
 pub mod lock;
 pub mod media_index;
 mod media_plan;
+pub mod media_sweep;
 mod paging;
 mod private_io;
 pub mod rebuild;
@@ -27,6 +28,7 @@ pub mod search_excerpt;
 pub mod session;
 pub mod statistics;
 mod stats_query;
+mod sysfs;
 pub mod tasks;
 mod transaction;
 pub mod types;
@@ -34,6 +36,7 @@ mod workspace_io;
 
 pub use config::WorkspaceSessionConfig;
 pub use lifecycle::{
+    PermanentDeleteManyRequest, PermanentDeleteManyResult, PermanentDeleteManyTarget,
     PermanentDeleteRequest, RestoreMemoRequest, RestoreMemoResult, RestoreRevisionRequest,
 };
 pub use lomo_store::{

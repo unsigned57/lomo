@@ -16,4 +16,9 @@ pub struct WorkspaceSessionConfig {
     pub cache_dir: PathBuf,
     pub runtime_dir: PathBuf,
     pub exchange_dir: PathBuf,
+    /// Host media root that owns the `.lomo-media-stage` directory — the same root hosts pass to
+    /// `stage_media`: the workspace root for Direct workspaces, app-private storage for SAF.
+    /// The session loads the durable stage ledger read-only for the media protection set; lease
+    /// mutation stays with the staging callers.
+    pub media_stage_root: PathBuf,
 }

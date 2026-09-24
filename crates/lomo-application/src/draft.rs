@@ -27,6 +27,19 @@ pub struct DraftStore {
     state_dir: PathBuf,
 }
 
+/// One retained draft body with its owning operation identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DraftBody {
+    pub operation_id: OperationId,
+    pub draft_content: String,
+}
+
+#[derive(Deserialize)]
+struct DraftBodyFacts {
+    operation_id: OperationId,
+    draft_content: String,
+}
+
 #[derive(Serialize)]
 struct PhysicalConflictEvidence<'a> {
     #[serde(flatten)]
@@ -78,5 +91,54 @@ impl DraftStore {
         let bytes = serde_json::to_vec_pretty(&physical)
             .map_err(|error| storage("draft_evidence_encode_failed", error.to_string()))?;
         write_atomic(&path, &bytes)
+    }
+
+    /// Lists every retained draft body (conflict evidence) in operation-id order.
+    ///
+    /// Draft bodies participate in the media protection set: an attachment the editor still
+    /// holds must never look collectable to the sweep.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Storage` when the drafts directory cannot be listed or a file cannot be read,
+    /// and corruption when a retained draft cannot be decoded.
+    pub fn list_draft_bodies(&self) -> Result<Vec<DraftBody>, LomoError> {
+        let mut out = Vec::new();
+        let entries = std::fs::read_dir(&self.drafts_dir).map_err(|err| {
+            storage(
+                "drafts_dir_unavailable",
+                format!("failed to list drafts directory: {err}"),
+            )
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|err| {
+                storage(
+                    "drafts_dir_unavailable",
+                    format!("failed to read drafts directory entry: {err}"),
+                )
+            })?;
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+            let bytes = std::fs::read(&path).map_err(|err| {
+                storage(
+                    "draft_evidence_read_failed",
+                    format!("failed to read draft evidence: {err}"),
+                )
+            })?;
+            let facts: DraftBodyFacts = serde_json::from_slice(&bytes).map_err(|err| {
+                crate::error::corruption(
+                    "draft_evidence_corrupt",
+                    format!("draft evidence is not decodable: {err}"),
+                )
+            })?;
+            out.push(DraftBody {
+                operation_id: facts.operation_id,
+                draft_content: facts.draft_content,
+            });
+        }
+        out.sort_by(|left, right| left.operation_id.as_str().cmp(right.operation_id.as_str()));
+        Ok(out)
     }
 }

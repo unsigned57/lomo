@@ -49,6 +49,9 @@ impl WorkspaceSession {
             workspace_root,
             &previous_generation_root(staging_root)?,
         )?;
+        // An archive may carry a pre-migration `.lomo` tree; normalize the activated root to V2
+        // before the projection consumes durable records.
+        lomo_workspace::migrate_history_state_v1_to_v2(workspace_root)?;
         self.rebuild_locked(false)
     }
 }

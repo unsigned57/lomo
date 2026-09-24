@@ -10,7 +10,7 @@ use crate::error::storage;
 /// # Errors
 /// Returns `Storage` error if the system entropy source fails.
 pub fn fill_csprng(buf: &mut [u8]) -> Result<(), LomoError> {
-    rustix::rand::getrandom(buf, rustix::rand::GetRandomFlags::empty()).map_err(|err| {
+    getrandom::fill(buf).map_err(|err| {
         storage(
             "csprng_read_failed",
             format!("system CSPRNG getrandom failed: {err}"),

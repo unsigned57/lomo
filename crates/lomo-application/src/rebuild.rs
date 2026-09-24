@@ -343,7 +343,7 @@ fn ensure_initial_history(
     )?;
     for file in prepared.files {
         let current = io.read(file.path())?;
-        file.apply(io, current.as_ref())?;
+        file.apply(io, &crate::transaction::CurrentState::Bytes(current))?;
         inventory.push(file.path().clone());
     }
     Ok(())

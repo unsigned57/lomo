@@ -3,10 +3,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use lomo_core::{LomoError, RelativeWorkspacePath};
-use lomo_store::{ScannedHistoryProjection, ScannedPinProjection, StateBody};
+use lomo_store::{ScannedHistoryProjection, ScannedPinProjection};
 use lomo_workspace::{
-    HistoryHead, HistoryRevisionV2, HistorySnapshotV1, HistoryTombstone, LomoRecord,
-    LomoRecordKind, MemoId, RevisionId, StateHead, decode_record,
+    HistoryHead, HistoryRevisionV2, HistoryTombstone, LomoRecord, LomoRecordKind, MemoId,
+    RevisionId, StateHead, decode_record,
 };
 use serde::de::DeserializeOwned;
 
@@ -32,7 +32,6 @@ struct HistoryGraph {
     heads: BTreeMap<String, RevisionId>,
     revisions: BTreeMap<RevisionId, HistoryRevisionV2>,
     pruned: BTreeSet<RevisionId>,
-    legacy: Vec<HistorySnapshotV1>,
 }
 
 impl HistoryGraph {
@@ -71,8 +70,6 @@ impl HistoryGraph {
             let tombstone: HistoryTombstone = body(record, LomoRecordKind::HistoryTombstone)?;
             RevisionId::parse(tombstone.revision_id.as_str())?;
             self.pruned.insert(tombstone.revision_id);
-        } else if location.starts_with(".lomo/history/v1/") {
-            self.legacy.push(body(record, LomoRecordKind::History)?);
         } else {
             return Err(corruption(
                 "unsupported_history_layout",
@@ -136,19 +133,6 @@ impl HistoryGraph {
                 });
             }
         }
-        for revision in &self.legacy {
-            if self.heads.contains_key(&revision.memo_id) {
-                continue;
-            }
-            output.push(ScannedHistoryProjection {
-                memo_id: revision.memo_id.clone(),
-                record_id: format!("{}-r{}", revision.memo_id, revision.revision),
-                revision: revision.revision,
-                created_at_ms: revision.created_at_ms,
-                content: revision.content.clone(),
-                file_fingerprint: revision.file_fingerprint.clone(),
-            });
-        }
         Ok(output)
     }
 }
@@ -168,7 +152,6 @@ pub fn pins(
     io: &WorkspaceIo<'_>,
     paths: &[RelativeWorkspacePath],
 ) -> Result<Vec<ScannedPinProjection>, LomoError> {
-    let mut legacy = BTreeMap::new();
     let mut heads = BTreeMap::new();
     for path in paths {
         if path.as_str().starts_with(".lomo/state/v2/objects/") {
@@ -194,12 +177,6 @@ pub fn pins(
                 head.memo_id,
                 pin_timestamp(current.revision.pinned, current.revision.pinned_at_ms)?,
             );
-        } else if path.as_str().starts_with(".lomo/state/v1/") {
-            let state: StateBody = body(&record, LomoRecordKind::State)?;
-            legacy.insert(
-                state.memo_id,
-                pin_timestamp(state.pinned, state.pinned_at_ms)?,
-            );
         } else {
             return Err(corruption(
                 "unsupported_state_layout",
@@ -207,8 +184,7 @@ pub fn pins(
             ));
         }
     }
-    legacy.extend(heads);
-    Ok(legacy
+    Ok(heads
         .into_iter()
         .filter_map(|(memo_id, timestamp)| {
             timestamp.map(|pinned_at_ms| ScannedPinProjection {

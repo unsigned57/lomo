@@ -17,7 +17,7 @@ mod tests {
         CreateMemoRequest, FireReminderRequest, WorkspaceSession, WorkspaceSessionConfig,
     };
     use lomo_core::{CapabilityToken, OperationId, RelativeWorkspacePath};
-    use lomo_platform_fs::PosixPlatformActionExecutor;
+    use lomo_platform_fs::FsPlatformActionExecutor;
     use lomo_workspace::WorkspaceRootId;
     use tempfile::tempdir;
 
@@ -28,7 +28,7 @@ mod tests {
         let cache = tempdir().expect("ca");
         let runtime = tempdir().expect("rt");
         let exchange = tempdir().expect("ex");
-        let executor = Arc::new(PosixPlatformActionExecutor::new(exchange.path()).expect("exec"));
+        let executor = Arc::new(FsPlatformActionExecutor::new(exchange.path()).expect("exec"));
         let capability = CapabilityToken::parse("notes").expect("cap");
         executor
             .bind_root(capability.clone(), workspace.path())
@@ -45,6 +45,7 @@ mod tests {
                 cache_dir: cache.path().to_path_buf(),
                 runtime_dir: runtime.path().to_path_buf(),
                 exchange_dir: exchange.path().to_path_buf(),
+                media_stage_root: exchange.path().join("media-stage"),
             },
             executor,
         )

@@ -6,9 +6,9 @@ use std::{
 };
 
 use lomo_core::{
-    ActionEvidence, ActionId, ActionOutcome, BatchId, ExpectedFingerprint, JobId, LomoError,
-    PlatformAction, PlatformActionBatch, PlatformActionExecutor, PlatformActionOutput,
-    RelativeWorkspacePath, WriteMode,
+    ActionEvidence, ActionId, ActionOutcome, BatchId, DocumentMetadata, ExpectedFingerprint, JobId,
+    LomoError, PlatformAction, PlatformActionBatch, PlatformActionExecutor, PlatformActionOutput,
+    RelativeWorkspacePath, StagedArtifactSource, WriteMode,
 };
 use lomo_workspace::SourceFingerprint;
 
@@ -93,6 +93,62 @@ impl WorkspaceIo<'_> {
         }
         crate::private_io::remember_baseline(&self.config.state_dir, &bytes)?;
         Ok(Some(FileSnapshot { bytes, evidence }))
+    }
+
+    /// Metadata-only observation for artifact plans: recovery and satisfaction checks never
+    /// route media bytes through memory.
+    pub fn stat(
+        &self,
+        path: &RelativeWorkspacePath,
+    ) -> Result<Option<DocumentMetadata>, LomoError> {
+        let nonce = generate_hex_token(16)?;
+        let action = PlatformAction::stat(
+            ActionId::parse(&format!("stat-{nonce}"))?,
+            self.config.capability.clone(),
+            path.clone(),
+        );
+        match self.execute(action) {
+            Ok(PlatformActionOutput::Stat { metadata }) => Ok(Some(metadata)),
+            Err(error) if error.code() == "document_not_found" => Ok(None),
+            Err(error) => Err(error),
+            Ok(_) => Err(corruption(
+                "invalid_stat_output",
+                "expected verified stat metadata",
+            )),
+        }
+    }
+
+    /// Publishes a retained staged artifact: the executor streams source bytes to the target,
+    /// verifying digest and length during the transfer and at the returned receipt.
+    pub fn write_artifact(
+        &self,
+        path: &RelativeWorkspacePath,
+        source: &StagedArtifactSource,
+        expected_target: ExpectedFingerprint,
+    ) -> Result<(), LomoError> {
+        let action = PlatformAction::artifact_write(
+            ActionId::parse(&format!("artifact-{}", generate_hex_token(16)?))?,
+            self.config.capability.clone(),
+            source.clone(),
+            path.clone(),
+            expected_target,
+        );
+        let output = self.execute(action)?;
+        let PlatformActionOutput::WriteComplete { metadata } = output else {
+            return Err(corruption(
+                "invalid_artifact_write_output",
+                "expected a verified write receipt",
+            ));
+        };
+        if metadata.evidence().verified_digest() != Some(source.digest())
+            || metadata.evidence().length() != source.length()
+        {
+            return Err(corruption(
+                "artifact_write_evidence_mismatch",
+                "artifact write receipt differs from the declared source",
+            ));
+        }
+        Ok(())
     }
 
     pub fn require(&self, path: &RelativeWorkspacePath) -> Result<FileSnapshot, LomoError> {
