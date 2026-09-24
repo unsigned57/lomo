@@ -188,14 +188,8 @@ fn remove_temp_file_on_error(temp_file: &Path, original_err: &str) -> String {
 /// Returns storage error if random bytes cannot be obtained from the system.
 pub fn generate_random_nonce() -> Result<String, LomoError> {
     let mut bytes = [0u8; 16];
-    let read = rustix::rand::getrandom(&mut bytes, rustix::rand::GetRandomFlags::empty())
+    getrandom::fill(&mut bytes)
         .map_err(|error| storage("random_nonce_failed", &error.to_string()))?;
-    if read != bytes.len() {
-        return Err(storage(
-            "random_nonce_failed",
-            "system returned an incomplete random nonce",
-        ));
-    }
     Ok(format!("{:032x}", u128::from_be_bytes(bytes)))
 }
 

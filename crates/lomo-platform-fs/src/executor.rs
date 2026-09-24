@@ -1,7 +1,4 @@
 use std::collections::BTreeMap;
-use std::io::Write;
-use std::mem::MaybeUninit;
-use std::path::Path;
 use std::sync::RwLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -9,44 +6,42 @@ use lomo_core::{
     ActionId, ActionOutcome, ActionResult, CapabilityToken, DocumentKind, DocumentLocator,
     DocumentMetadata, ExchangeArtifact, ExpectedFingerprint, LomoError, MetadataPage, PageSize,
     PlatformAction, PlatformActionBatch, PlatformActionExecutor, PlatformActionOutput,
-    PlatformBatchResult, RelativeWorkspacePath, VerifiedAbsence, WorkspaceTarget, WriteMode,
+    PlatformBatchResult, RelativeWorkspacePath, StagedArtifactSource, VerifiedAbsence,
+    WorkspaceTarget, WriteMode,
 };
-use rustix::fd::OwnedFd;
-use rustix::fs::{Mode, OFlags};
-use rustix::io::Errno;
 use sha2::{Digest, Sha256};
 
 use crate::directory::DirectoryListing;
-use crate::error::{conflict, internal, permission, storage, timeout, validation};
+use crate::error::{conflict, internal, storage, timeout, validation};
 use crate::exchange::{ExchangeDirectory, generate_random_nonce};
-use crate::path_security::{
-    exists_beneath, open_beneath, open_parent_beneath, read_document_stream, stat_document_fd,
-};
 use crate::registry::RootRegistry;
+use crate::sys;
 
-/// Linux POSIX platform action executor.
+/// Local filesystem platform action executor.
 ///
-/// Implements `PlatformActionExecutor` against local directories bound by root capabilities,
-/// utilizing directory-descriptor capability operations, atomic temp-fsync-rename/link,
-/// and SHA-256 baseline postcondition verification.
+/// Implements `PlatformActionExecutor` against local directories bound by root
+/// capabilities, utilizing per-OS anchored operations (directory descriptors on
+/// unix, canonical-path handles on Windows), atomic temp-fsync-publish, and
+/// SHA-256 baseline postcondition verification.
 ///
-/// Before replacement, original source bytes are hashed again after syncing the temporary file.
-/// A non-cooperating writer can still race between this comparison and the atomic rename.
-/// Directory deletion requires an empty directory: each child needs its own verified action.
+/// Before replacement, original source bytes are hashed again after syncing the
+/// temporary file. A non-cooperating writer can still race between this
+/// comparison and the atomic rename. Directory deletion requires an empty
+/// directory: each child needs its own verified action.
 #[derive(Debug)]
-pub struct PosixPlatformActionExecutor {
+pub struct FsPlatformActionExecutor {
     registry: RootRegistry,
     exchange: ExchangeDirectory,
     witnesses: RwLock<BTreeMap<ActionId, (PlatformAction, PlatformActionOutput)>>,
 }
 
-impl PosixPlatformActionExecutor {
-    /// Creates a new POSIX executor with an application-private exchange directory.
+impl FsPlatformActionExecutor {
+    /// Creates a new executor with an application-private exchange directory.
     ///
     /// # Errors
     ///
     /// Returns storage error if the exchange directory cannot be created.
-    pub fn new(exchange_dir: impl AsRef<Path>) -> Result<Self, LomoError> {
+    pub fn new(exchange_dir: impl AsRef<std::path::Path>) -> Result<Self, LomoError> {
         Ok(Self {
             registry: RootRegistry::new(),
             exchange: ExchangeDirectory::new(exchange_dir)?,
@@ -62,14 +57,14 @@ impl PosixPlatformActionExecutor {
     pub fn bind_root(
         &self,
         capability: CapabilityToken,
-        path: impl AsRef<Path>,
+        path: impl AsRef<std::path::Path>,
     ) -> Result<(), LomoError> {
         self.registry.bind(capability, path)
     }
 
     /// Returns the path to the private exchange directory.
     #[must_use]
-    pub fn exchange_directory(&self) -> &Path {
+    pub fn exchange_directory(&self) -> &std::path::Path {
         self.exchange.path()
     }
 
@@ -93,6 +88,7 @@ impl PosixPlatformActionExecutor {
         if matches!(
             action,
             PlatformAction::WriteFromExchange { .. }
+                | PlatformAction::ArtifactWrite { .. }
                 | PlatformAction::Move { .. }
                 | PlatformAction::Delete { .. }
         ) {
@@ -146,6 +142,9 @@ impl PosixPlatformActionExecutor {
             (
                 PlatformAction::WriteFromExchange {
                     capability, path, ..
+                }
+                | PlatformAction::ArtifactWrite {
+                    capability, path, ..
                 },
                 PlatformActionOutput::WriteComplete { metadata },
             ) => self.matches_current_document(capability, path, metadata),
@@ -159,7 +158,7 @@ impl PosixPlatformActionExecutor {
                 PlatformActionOutput::MoveComplete { metadata },
             ) => {
                 let bound = self.registry.resolve(capability)?;
-                if exists_beneath(bound.fd(), source.as_str())? {
+                if sys::exists_beneath(bound.root(), source.as_str())? {
                     return Ok(false);
                 }
                 self.matches_current_document(capability, target, metadata)
@@ -171,7 +170,7 @@ impl PosixPlatformActionExecutor {
                 PlatformActionOutput::DeleteComplete { .. },
             ) => {
                 let bound = self.registry.resolve(capability)?;
-                Ok(!exists_beneath(bound.fd(), path.as_str())?)
+                Ok(!sys::exists_beneath(bound.root(), path.as_str())?)
             }
             _ => Ok(false),
         }
@@ -184,7 +183,7 @@ impl PosixPlatformActionExecutor {
         expected: &DocumentMetadata,
     ) -> Result<bool, LomoError> {
         let bound = self.registry.resolve(capability)?;
-        match stat_document_fd(bound.fd(), &WorkspaceTarget::Relative(path.clone())) {
+        match sys::stat_document(bound.root(), &WorkspaceTarget::Relative(path.clone())) {
             Ok(current) => Ok(&current == expected),
             Err(error) if error.code() == "document_not_found" => Ok(false),
             Err(error) => Err(error),
@@ -236,6 +235,13 @@ impl PosixPlatformActionExecutor {
             } => {
                 self.execute_write_from_exchange(capability, artifact, path, *mode, expected_target)
             }
+            PlatformAction::ArtifactWrite {
+                capability,
+                source,
+                path,
+                expected_target,
+                ..
+            } => self.execute_artifact_write(capability, source, path, expected_target),
             PlatformAction::Move {
                 capability,
                 source,
@@ -263,7 +269,7 @@ impl PosixPlatformActionExecutor {
             Err(e) => return ActionOutcome::Failed(e),
         };
 
-        match stat_document_fd(bound.fd(), target) {
+        match sys::stat_document(bound.root(), target) {
             Ok(metadata) => {
                 let output = PlatformActionOutput::Stat { metadata };
                 ActionOutcome::Applied(output)
@@ -284,34 +290,20 @@ impl PosixPlatformActionExecutor {
             Err(e) => return ActionOutcome::Failed(e),
         };
 
-        let (dir_fd, rel_prefix) = match target {
-            WorkspaceTarget::Root => {
-                let fd = match open_beneath(
-                    bound.fd(),
-                    ".",
-                    OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-                    Mode::empty(),
-                ) {
-                    Ok(fd) => fd,
-                    Err(err) => return ActionOutcome::Failed(err),
-                };
-                (fd, String::new())
-            }
+        let (dir, rel_prefix) = match target {
+            WorkspaceTarget::Root => match bound.root().as_dir() {
+                Ok(dir) => (dir, String::new()),
+                Err(err) => return ActionOutcome::Failed(err),
+            },
             WorkspaceTarget::Relative(parent_rel) => {
-                let fd = match open_beneath(
-                    bound.fd(),
-                    parent_rel.as_str(),
-                    OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-                    Mode::empty(),
-                ) {
-                    Ok(fd) => fd,
+                match sys::open_dir_at(bound.root(), parent_rel.as_str()) {
+                    Ok(dir) => (dir, parent_rel.as_str().to_owned()),
                     Err(err) => return ActionOutcome::Failed(err),
-                };
-                (fd, parent_rel.as_str().to_owned())
+                }
             }
         };
 
-        let entry_names = match read_sorted_entries(&dir_fd) {
+        let entry_names = match dir.entries() {
             Ok(names) => names,
             Err(err) => return ActionOutcome::Failed(err),
         };
@@ -333,7 +325,7 @@ impl PosixPlatformActionExecutor {
                 Ok(path) => WorkspaceTarget::Relative(path),
                 Err(error) => return ActionOutcome::Failed(error),
             };
-            match stat_document_fd(bound.fd(), &child) {
+            match sys::stat_document(bound.root(), &child) {
                 Ok(metadata) => items.push(metadata),
                 Err(error) => return ActionOutcome::Failed(error),
             }
@@ -357,13 +349,13 @@ impl PosixPlatformActionExecutor {
         };
 
         let target = WorkspaceTarget::Relative(path.clone());
-        let already_exists = match exists_beneath(bound.fd(), path.as_str()) {
+        let already_exists = match sys::exists_beneath(bound.root(), path.as_str()) {
             Ok(e) => e,
             Err(err) => return ActionOutcome::Failed(err),
         };
 
         if already_exists {
-            match stat_document_fd(bound.fd(), &target) {
+            match sys::stat_document(bound.root(), &target) {
                 Ok(metadata) => {
                     if metadata.kind() == DocumentKind::Directory {
                         ActionOutcome::AlreadySatisfied(PlatformActionOutput::DirectoryReady {
@@ -379,10 +371,10 @@ impl PosixPlatformActionExecutor {
                 Err(err) => ActionOutcome::Failed(err),
             }
         } else {
-            if let Err(err) = ensure_directory_beneath(bound.fd(), path.as_str()) {
+            if let Err(err) = sys::ensure_directory_beneath(bound.root(), path.as_str()) {
                 return ActionOutcome::Failed(err);
             }
-            match stat_document_fd(bound.fd(), &target) {
+            match sys::stat_document(bound.root(), &target) {
                 Ok(metadata) => {
                     let output = PlatformActionOutput::DirectoryReady { metadata };
                     ActionOutcome::Applied(output)
@@ -407,7 +399,7 @@ impl PosixPlatformActionExecutor {
         if !matches_path {
             return ActionOutcome::Failed(validation(
                 "document_locator_mismatch",
-                "POSIX handle and requested relative path must identify the same document",
+                "handle and requested relative path must identify the same document",
             ));
         }
         let bound = match self.registry.resolve(capability) {
@@ -415,7 +407,7 @@ impl PosixPlatformActionExecutor {
             Err(e) => return ActionOutcome::Failed(e),
         };
 
-        let (source_metadata, content) = match read_document_stream(bound.fd(), path) {
+        let (source_metadata, content) = match sys::read_document_stream(bound.root(), path) {
             Ok(pair) => pair,
             Err(err) => return ActionOutcome::Failed(err),
         };
@@ -459,17 +451,17 @@ impl PosixPlatformActionExecutor {
         };
 
         let target_ws = WorkspaceTarget::Relative(path.clone());
-        let existing_res = stat_document_fd(bound.fd(), &target_ws);
+        let existing_res = sys::stat_document(bound.root(), &target_ws);
 
         if let Err(err) = validate_write_mode(mode, expected_target, &existing_res) {
             return ActionOutcome::Failed(err);
         }
 
-        if let Err(err) = ensure_parent_directory_beneath(bound.fd(), path.as_str()) {
+        if let Err(err) = ensure_parent_directory_beneath(bound.root(), path.as_str()) {
             return ActionOutcome::Failed(err);
         }
 
-        let (parent_fd, file_name) = match open_parent_beneath(bound.fd(), path.as_str()) {
+        let (parent, file_name) = match sys::open_parent(bound.root(), path.as_str()) {
             Ok(p) => p,
             Err(err) => return ActionOutcome::Failed(err),
         };
@@ -480,28 +472,28 @@ impl PosixPlatformActionExecutor {
         };
         let temp_file_name = format!(".tmp.{file_name}.{nonce}");
 
-        if let Err(err) = write_and_sync_temp_file(&parent_fd, &temp_file_name, &bytes) {
+        if let Err(err) = sys::write_temp(&parent, &temp_file_name, &bytes) {
             return ActionOutcome::Failed(err);
         }
 
-        let existing = stat_document_fd(bound.fd(), &target_ws);
+        let existing = sys::stat_document(bound.root(), &target_ws);
         if let Err(error) = validate_write_mode(mode, expected_target, &existing) {
-            let diagnostic = cleanup_temp_file(&parent_fd, &temp_file_name, &error.to_string());
+            let diagnostic = sys::cleanup_temp(&parent, &temp_file_name, &error.to_string());
             return ActionOutcome::Failed(conflict("platform_postcondition_mismatch", &diagnostic));
         }
 
-        if let Err(err) = commit_temp_file(&parent_fd, &temp_file_name, &file_name, mode) {
+        if let Err(err) = sys::commit_temp(&parent, &temp_file_name, &file_name, mode) {
             return ActionOutcome::Failed(err);
         }
 
-        if let Err(err) = rustix::fs::fsync(&parent_fd) {
+        if let Err(err) = parent.fsync() {
             return ActionOutcome::Failed(storage(
                 "parent_dir_fsync_failed",
                 &format!("fsync failed on parent directory: {err}"),
             ));
         }
 
-        let metadata = match stat_document_fd(bound.fd(), &target_ws) {
+        let metadata = match sys::stat_document(bound.root(), &target_ws) {
             Ok(m) => m,
             Err(err) => return ActionOutcome::Failed(err),
         };
@@ -518,6 +510,101 @@ impl PosixPlatformActionExecutor {
         ActionOutcome::Applied(output)
     }
 
+    fn execute_artifact_write(
+        &self,
+        capability: &CapabilityToken,
+        source: &StagedArtifactSource,
+        path: &RelativeWorkspacePath,
+        expected_target: &ExpectedFingerprint,
+    ) -> ActionOutcome {
+        let bound = match self.registry.resolve(capability) {
+            Ok(b) => b,
+            Err(e) => return ActionOutcome::Failed(e),
+        };
+
+        // The staged source lives outside the capability root by contract; its declared
+        // digest and length are re-verified while streaming, never trusted.
+        let mut source_file = match open_staged_artifact_source(source) {
+            Ok(file) => file,
+            Err(err) => return ActionOutcome::Failed(err),
+        };
+
+        let target_ws = WorkspaceTarget::Relative(path.clone());
+        match classify_artifact_target(bound.root(), &target_ws, source, expected_target) {
+            Ok(ArtifactTargetPlan::Satisfied(metadata)) => {
+                return ActionOutcome::AlreadySatisfied(PlatformActionOutput::WriteComplete {
+                    metadata,
+                });
+            }
+            Ok(ArtifactTargetPlan::Publish(_)) => {}
+            Err(err) => return ActionOutcome::Failed(err),
+        }
+
+        if let Err(err) = ensure_parent_directory_beneath(bound.root(), path.as_str()) {
+            return ActionOutcome::Failed(err);
+        }
+        let (parent, file_name) = match sys::open_parent(bound.root(), path.as_str()) {
+            Ok(pair) => pair,
+            Err(err) => return ActionOutcome::Failed(err),
+        };
+        if let Err(err) = sys::reclaim_temps(&parent, &file_name) {
+            return ActionOutcome::Failed(err);
+        }
+
+        let nonce = match generate_random_nonce() {
+            Ok(nonce) => nonce,
+            Err(err) => return ActionOutcome::Failed(err),
+        };
+        let temp_file_name = format!(".tmp.{file_name}.{nonce}");
+        if let Err(err) = sys::stream_temp(&parent, &temp_file_name, &mut source_file, source) {
+            return ActionOutcome::Failed(err);
+        }
+
+        // Re-observe after the stream: the target may have moved while bytes were in flight.
+        let mode = match classify_artifact_target(bound.root(), &target_ws, source, expected_target)
+        {
+            Ok(ArtifactTargetPlan::Satisfied(metadata)) => {
+                // The target reached the declared digest while we streamed; drop the temp.
+                drop(sys::cleanup_temp(&parent, &temp_file_name, ""));
+                return ActionOutcome::AlreadySatisfied(PlatformActionOutput::WriteComplete {
+                    metadata,
+                });
+            }
+            Ok(ArtifactTargetPlan::Publish(mode)) => mode,
+            Err(err) => {
+                let diagnostic = sys::cleanup_temp(&parent, &temp_file_name, &err.to_string());
+                return ActionOutcome::Failed(conflict(
+                    "platform_postcondition_mismatch",
+                    &diagnostic,
+                ));
+            }
+        };
+
+        if let Err(err) = sys::commit_temp(&parent, &temp_file_name, &file_name, mode) {
+            return ActionOutcome::Failed(err);
+        }
+        if let Err(err) = parent.fsync() {
+            return ActionOutcome::Failed(storage(
+                "parent_dir_fsync_failed",
+                &format!("fsync failed on parent directory: {err}"),
+            ));
+        }
+
+        let metadata = match sys::stat_document(bound.root(), &target_ws) {
+            Ok(metadata) => metadata,
+            Err(err) => return ActionOutcome::Failed(err),
+        };
+        if metadata.evidence().verified_digest() != Some(source.digest())
+            || metadata.evidence().length() != source.length()
+        {
+            return ActionOutcome::Failed(conflict(
+                "write_postcondition_mismatch",
+                "destination changed before the written bytes could be verified",
+            ));
+        }
+        ActionOutcome::Applied(PlatformActionOutput::WriteComplete { metadata })
+    }
+
     fn execute_move(
         &self,
         capability: &CapabilityToken,
@@ -532,10 +619,10 @@ impl PosixPlatformActionExecutor {
         };
 
         let dst_target = WorkspaceTarget::Relative(target.clone());
-        let dst_meta = stat_document_fd(bound.fd(), &dst_target);
+        let dst_meta = sys::stat_document(bound.root(), &dst_target);
 
         let src_target = WorkspaceTarget::Relative(source.clone());
-        let src_meta = stat_document_fd(bound.fd(), &src_target);
+        let src_meta = sys::stat_document(bound.root(), &src_target);
 
         if let Err(err) =
             validate_move_preconditions(expected_source, expected_target, &src_meta, &dst_meta)
@@ -543,54 +630,46 @@ impl PosixPlatformActionExecutor {
             return ActionOutcome::Failed(err);
         }
 
-        let (src_parent_fd, src_name) = match open_parent_beneath(bound.fd(), source.as_str()) {
+        let (src_parent, src_name) = match sys::open_parent(bound.root(), source.as_str()) {
             Ok(p) => p,
             Err(err) => return ActionOutcome::Failed(err),
         };
 
-        if let Err(err) = ensure_parent_directory_beneath(bound.fd(), target.as_str()) {
+        if let Err(err) = ensure_parent_directory_beneath(bound.root(), target.as_str()) {
             return ActionOutcome::Failed(err);
         }
 
-        let (dst_parent_fd, dst_name) = match open_parent_beneath(bound.fd(), target.as_str()) {
+        let (dst_parent, dst_name) = match sys::open_parent(bound.root(), target.as_str()) {
             Ok(p) => p,
             Err(err) => return ActionOutcome::Failed(err),
         };
 
-        let source_now = stat_document_fd(bound.fd(), &src_target);
-        let target_now = stat_document_fd(bound.fd(), &dst_target);
+        let source_now = sys::stat_document(bound.root(), &src_target);
+        let target_now = sys::stat_document(bound.root(), &dst_target);
         if let Err(error) =
             validate_move_preconditions(expected_source, expected_target, &source_now, &target_now)
         {
             return ActionOutcome::Failed(error);
         }
-        let flags = match expected_target {
-            ExpectedFingerprint::Absent => rustix::fs::RenameFlags::NOREPLACE,
-            ExpectedFingerprint::Match(_) => rustix::fs::RenameFlags::empty(),
-        };
-        if let Err(err) =
-            rustix::fs::renameat_with(&src_parent_fd, &src_name, &dst_parent_fd, &dst_name, flags)
-        {
-            return ActionOutcome::Failed(storage(
-                "move_failed",
-                &format!("renameat failed: {err}"),
-            ));
+        let no_replace = matches!(expected_target, ExpectedFingerprint::Absent);
+        if let Err(err) = src_parent.move_entry(&src_name, &dst_parent, &dst_name, no_replace) {
+            return ActionOutcome::Failed(err);
         }
 
-        if let Err(err) = rustix::fs::fsync(&src_parent_fd) {
+        if let Err(err) = src_parent.fsync() {
             return ActionOutcome::Failed(storage(
                 "fsync_failed",
                 &format!("fsync failed on source parent directory: {err}"),
             ));
         }
-        if let Err(err) = rustix::fs::fsync(&dst_parent_fd) {
+        if let Err(err) = dst_parent.fsync() {
             return ActionOutcome::Failed(storage(
                 "fsync_failed",
                 &format!("fsync failed on destination parent directory: {err}"),
             ));
         }
 
-        let dst_meta = match stat_document_fd(bound.fd(), &dst_target) {
+        let dst_meta = match sys::stat_document(bound.root(), &dst_target) {
             Ok(m) => m,
             Err(err) => return ActionOutcome::Failed(err),
         };
@@ -620,7 +699,7 @@ impl PosixPlatformActionExecutor {
         };
 
         let target = WorkspaceTarget::Relative(path.clone());
-        let meta_res = stat_document_fd(bound.fd(), &target);
+        let meta_res = sys::stat_document(bound.root(), &target);
 
         match meta_res {
             Err(err) if err.code() == "document_not_found" => match expected_target {
@@ -655,16 +734,16 @@ impl PosixPlatformActionExecutor {
                     ));
                 }
 
-                let (parent_fd, file_name) = match open_parent_beneath(bound.fd(), path.as_str()) {
+                let (parent, file_name) = match sys::open_parent(bound.root(), path.as_str()) {
                     Ok(p) => p,
                     Err(err) => return ActionOutcome::Failed(err),
                 };
 
-                if let Err(err) = remove_entry_beneath(&parent_fd, &file_name) {
+                if let Err(err) = parent.remove_entry(&file_name) {
                     return ActionOutcome::Failed(err);
                 }
 
-                if let Err(err) = rustix::fs::fsync(&parent_fd) {
+                if let Err(err) = parent.fsync() {
                     return ActionOutcome::Failed(storage(
                         "fsync_failed",
                         &format!("fsync failed on parent directory: {err}"),
@@ -684,124 +763,11 @@ impl PosixPlatformActionExecutor {
     }
 }
 
-fn cleanup_temp_file(parent_fd: &OwnedFd, temp_name: &str, original_err: &str) -> String {
-    match rustix::fs::unlinkat(parent_fd, temp_name, rustix::fs::AtFlags::empty()) {
-        Ok(()) => original_err.to_owned(),
-        Err(cleanup_err) => format!("{original_err} (cleanup failed: {cleanup_err})"),
-    }
-}
-
-fn write_and_sync_temp_file(
-    parent_fd: &OwnedFd,
-    temp_file_name: &str,
-    bytes: &[u8],
-) -> Result<(), LomoError> {
-    let temp_fd = rustix::fs::openat(
-        parent_fd,
-        temp_file_name,
-        OFlags::RDWR | OFlags::CREATE | OFlags::EXCL | OFlags::CLOEXEC,
-        Mode::from_bits_truncate(0o600),
-    )
-    .map_err(|err| {
-        storage(
-            "create_temp_file_failed",
-            &format!("failed to open temp file: {err}"),
-        )
-    })?;
-
-    let mut temp_file = std::fs::File::from(temp_fd);
-    if let Err(err) = temp_file.write_all(bytes) {
-        let msg = cleanup_temp_file(
-            parent_fd,
-            temp_file_name,
-            &format!("failed to write temp bytes: {err}"),
-        );
-        return Err(storage("write_temp_file_failed", &msg));
-    }
-    if let Err(err) = temp_file.sync_all() {
-        let msg = cleanup_temp_file(
-            parent_fd,
-            temp_file_name,
-            &format!("failed to fsync temp file: {err}"),
-        );
-        return Err(storage("fsync_temp_file_failed", &msg));
+fn ensure_parent_directory_beneath(root: &sys::Root, path: &str) -> Result<(), LomoError> {
+    if let Some((parent, _name)) = path.rsplit_once('/') {
+        sys::ensure_directory_beneath(root, parent)?;
     }
     Ok(())
-}
-
-fn commit_temp_file(
-    parent_fd: &OwnedFd,
-    temp_file_name: &str,
-    file_name: &str,
-    mode: WriteMode,
-) -> Result<(), LomoError> {
-    if mode == WriteMode::Create {
-        let ren_res = rustix::fs::renameat_with(
-            parent_fd,
-            temp_file_name,
-            parent_fd,
-            file_name,
-            rustix::fs::RenameFlags::NOREPLACE,
-        );
-        match ren_res {
-            Ok(()) => Ok(()),
-            Err(Errno::EXIST) => {
-                let msg = cleanup_temp_file(
-                    parent_fd,
-                    temp_file_name,
-                    "Create refused because the target already exists",
-                );
-                Err(conflict("platform_postcondition_mismatch", &msg))
-            }
-            Err(Errno::NOSYS) => {
-                let link_res = rustix::fs::linkat(
-                    parent_fd,
-                    temp_file_name,
-                    parent_fd,
-                    file_name,
-                    rustix::fs::AtFlags::empty(),
-                );
-                match rustix::fs::unlinkat(parent_fd, temp_file_name, rustix::fs::AtFlags::empty())
-                {
-                    Ok(()) => {}
-                    Err(err) => {
-                        return Err(storage(
-                            "unlink_temp_failed",
-                            &format!("failed to clean up temp file after link: {err}"),
-                        ));
-                    }
-                }
-                match link_res {
-                    Ok(()) => Ok(()),
-                    Err(Errno::EXIST) => Err(conflict(
-                        "platform_postcondition_mismatch",
-                        "Create refused because the target already exists",
-                    )),
-                    Err(err) => Err(storage(
-                        "link_file_failed",
-                        &format!("linkat failed: {err}"),
-                    )),
-                }
-            }
-            Err(err) => {
-                let msg = cleanup_temp_file(
-                    parent_fd,
-                    temp_file_name,
-                    &format!("renameat failed: {err}"),
-                );
-                Err(storage("rename_file_failed", &msg))
-            }
-        }
-    } else if let Err(err) = rustix::fs::renameat(parent_fd, temp_file_name, parent_fd, file_name) {
-        let msg = cleanup_temp_file(
-            parent_fd,
-            temp_file_name,
-            &format!("renameat failed: {err}"),
-        );
-        Err(storage("rename_file_failed", &msg))
-    } else {
-        Ok(())
-    }
 }
 
 fn validate_write_mode(
@@ -854,6 +820,82 @@ fn validate_write_mode(
     }
 }
 
+enum ArtifactTargetPlan {
+    /// The target already holds the declared artifact bytes — nothing to publish.
+    Satisfied(DocumentMetadata),
+    /// Publish with this rename semantic.
+    Publish(WriteMode),
+}
+
+/// Opens the staged artifact source and verifies it is a regular file of the declared length.
+/// The digest is verified while streaming, not here.
+fn open_staged_artifact_source(source: &StagedArtifactSource) -> Result<std::fs::File, LomoError> {
+    let file = match std::fs::File::open(source.path()) {
+        Ok(file) => file,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Err(storage(
+                "artifact_source_missing",
+                &format!("staged artifact source is missing: {err}"),
+            ));
+        }
+        Err(err) => {
+            return Err(storage(
+                "artifact_source_open_failed",
+                &format!("failed to open staged artifact source: {err}"),
+            ));
+        }
+    };
+    match file.metadata() {
+        Ok(meta) if meta.len() == source.length() && meta.is_file() => Ok(file),
+        Ok(_) => Err(conflict(
+            "artifact_source_mismatch",
+            "staged artifact length differs from the frozen declaration",
+        )),
+        Err(err) => Err(storage(
+            "artifact_source_stat_failed",
+            &format!("failed to stat staged artifact source: {err}"),
+        )),
+    }
+}
+
+/// Classifies an artifact-write target into the three recovery states: already holding the
+/// declared digest (satisfied), absent/matching baseline (publish), or third-party change
+/// (conflict).
+fn classify_artifact_target(
+    root: &sys::Root,
+    target: &WorkspaceTarget,
+    source: &StagedArtifactSource,
+    expected_target: &ExpectedFingerprint,
+) -> Result<ArtifactTargetPlan, LomoError> {
+    match sys::stat_document(root, target) {
+        Ok(metadata) => {
+            if metadata.kind() == DocumentKind::File
+                && metadata.evidence().length() == source.length()
+                && metadata.evidence().verified_digest() == Some(source.digest())
+            {
+                return Ok(ArtifactTargetPlan::Satisfied(metadata));
+            }
+            match expected_target {
+                ExpectedFingerprint::Match(expected) if metadata.evidence() == expected => {
+                    Ok(ArtifactTargetPlan::Publish(WriteMode::Replace))
+                }
+                ExpectedFingerprint::Absent | ExpectedFingerprint::Match(_) => Err(conflict(
+                    "platform_postcondition_mismatch",
+                    "artifact target differs from the expected fingerprint",
+                )),
+            }
+        }
+        Err(err) if err.code() == "document_not_found" => match expected_target {
+            ExpectedFingerprint::Absent => Ok(ArtifactTargetPlan::Publish(WriteMode::Create)),
+            ExpectedFingerprint::Match(_) => Err(conflict(
+                "platform_postcondition_mismatch",
+                "expected artifact target baseline but the document is absent",
+            )),
+        },
+        Err(err) => Err(err),
+    }
+}
+
 fn validate_move_preconditions(
     expected_source: &ExpectedFingerprint,
     expected_target: &ExpectedFingerprint,
@@ -868,127 +910,7 @@ fn validate_move_preconditions(
     validate_write_mode(mode, expected_target, target)
 }
 
-fn read_sorted_entries(dir_fd: &OwnedFd) -> Result<Vec<String>, LomoError> {
-    let mut buf = [MaybeUninit::uninit(); 4096];
-    let mut raw_dir = rustix::fs::RawDir::new(dir_fd, &mut buf);
-    let mut entry_names = Vec::new();
-
-    while let Some(entry_res) = raw_dir.next() {
-        let entry = entry_res.map_err(|err| {
-            storage(
-                "read_dir_entry_failed",
-                &format!("failed to read directory entry: {err}"),
-            )
-        })?;
-        let entry_raw = entry.file_name();
-        let entry_name = entry_raw.to_str().map_err(|err| {
-            validation(
-                "invalid_utf8_filename",
-                &format!("non-UTF-8 directory entry: {err}"),
-            )
-        })?;
-        if entry_name == "." || entry_name == ".." {
-            continue;
-        }
-        entry_names.push(entry_name.to_owned());
-    }
-    entry_names.sort();
-    Ok(entry_names)
-}
-
-fn ensure_parent_directory_beneath(root_fd: &OwnedFd, path: &str) -> Result<(), LomoError> {
-    if let Some((parent, _name)) = path.rsplit_once('/') {
-        ensure_directory_beneath(root_fd, parent)?;
-    }
-    Ok(())
-}
-
-fn ensure_directory_beneath(root_fd: &OwnedFd, rel_path: &str) -> Result<OwnedFd, LomoError> {
-    let segments: Vec<&str> = rel_path.split('/').filter(|s| !s.is_empty()).collect();
-    let mut current_fd = rustix::fs::openat(
-        root_fd,
-        ".",
-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-        Mode::empty(),
-    )
-    .map_err(|err| storage("open_failed", &format!("failed to dup root fd: {err}")))?;
-
-    for segment in segments {
-        if segment == "." || segment == ".." {
-            return Err(permission(
-                "symlink_escape_rejected",
-                &format!("invalid directory segment '{segment}'"),
-            ));
-        }
-
-        match rustix::fs::openat(
-            &current_fd,
-            segment,
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
-            Mode::empty(),
-        ) {
-            Ok(next_fd) => {
-                current_fd = next_fd;
-            }
-            Err(Errno::NOENT) => {
-                rustix::fs::mkdirat(&current_fd, segment, Mode::from_bits_truncate(0o755))
-                    .map_err(|err| {
-                        storage(
-                            "create_directory_failed",
-                            &format!("mkdirat failed on '{segment}': {err}"),
-                        )
-                    })?;
-                let next_fd = rustix::fs::openat(
-                    &current_fd,
-                    segment,
-                    OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
-                    Mode::empty(),
-                )
-                .map_err(|err| {
-                    storage(
-                        "open_failed",
-                        &format!("openat failed on new directory '{segment}': {err}"),
-                    )
-                })?;
-                rustix::fs::fsync(&current_fd).map_err(|err| {
-                    storage(
-                        "fsync_failed",
-                        &format!("fsync failed on parent dir: {err}"),
-                    )
-                })?;
-                current_fd = next_fd;
-            }
-            Err(Errno::LOOP) => {
-                return Err(permission(
-                    "symlink_escape_rejected",
-                    &format!("symlink rejected for segment '{segment}'"),
-                ));
-            }
-            Err(err) => {
-                return Err(storage(
-                    "open_failed",
-                    &format!("failed to open segment '{segment}': {err}"),
-                ));
-            }
-        }
-    }
-
-    Ok(current_fd)
-}
-
-fn remove_entry_beneath(parent_fd: &OwnedFd, name: &str) -> Result<(), LomoError> {
-    let stat = rustix::fs::statat(parent_fd, name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW)
-        .map_err(|error| storage("stat_failed", &error.to_string()))?;
-    let flags = if rustix::fs::FileType::from_raw_mode(stat.st_mode).is_dir() {
-        rustix::fs::AtFlags::REMOVEDIR
-    } else {
-        rustix::fs::AtFlags::empty()
-    };
-    rustix::fs::unlinkat(parent_fd, name, flags)
-        .map_err(|error| storage("unlink_failed", &error.to_string()))
-}
-
-impl PlatformActionExecutor for PosixPlatformActionExecutor {
+impl PlatformActionExecutor for FsPlatformActionExecutor {
     fn execute(&self, batch: &PlatformActionBatch) -> Result<PlatformBatchResult, LomoError> {
         let now_millis = SystemTime::now()
             .duration_since(UNIX_EPOCH)

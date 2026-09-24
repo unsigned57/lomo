@@ -171,4 +171,37 @@ mod tests {
             "expected Created event in dynamically created subdir, got {dynamic_events:?}"
         );
     }
+
+    #[test]
+    fn wait_events_blocks_until_a_change_or_timeout() {
+        let temp = TempDir::new().must_succeed("root");
+        let root = temp.path().join("watched");
+        fs::create_dir_all(&root).must_succeed("watched dir");
+        let mut watcher = DirectoryWatcher::new(&root).must_succeed("watcher init");
+
+        let started = std::time::Instant::now();
+        let events = watcher
+            .wait_events(Duration::from_millis(80))
+            .must_succeed("empty wait");
+        assert!(
+            events.is_empty(),
+            "a quiet tree returns an empty batch after the timeout: {events:?}"
+        );
+        assert!(
+            started.elapsed() >= Duration::from_millis(70),
+            "the wait must actually block instead of spinning"
+        );
+
+        std::thread::spawn(move || {
+            sleep(Duration::from_millis(60));
+            fs::write(root.join("late.md"), b"late").must_succeed("write");
+        });
+        let events = watcher
+            .wait_events(Duration::from_secs(5))
+            .must_succeed("change wait");
+        assert!(
+            events.iter().any(|event| event.path.ends_with("late.md")),
+            "the blocked wait returns the drained change batch: {events:?}"
+        );
+    }
 }

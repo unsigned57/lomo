@@ -34,10 +34,10 @@ mod tests {
         ExpectedFingerprint, MetadataPage, PageSize, PlatformAction, PlatformActionOutput,
         RelativeWorkspacePath, Sha256Digest, WriteMode,
     };
-    use lomo_platform_fs::{ExchangeDirectory, PosixPlatformActionExecutor};
+    use lomo_platform_fs::{ExchangeDirectory, FsPlatformActionExecutor};
     use tempfile::TempDir;
 
-    fn list(executor: &PosixPlatformActionExecutor, cursor: Option<String>) -> ActionOutcome {
+    fn list(executor: &FsPlatformActionExecutor, cursor: Option<String>) -> ActionOutcome {
         executor
             .execute_action(&PlatformAction::list_root(
                 action_id(),
@@ -253,18 +253,18 @@ mod tests {
         RelativeWorkspacePath::parse("memo.md").must_succeed("path")
     }
 
-    fn setup() -> (TempDir, PosixPlatformActionExecutor, ExchangeDirectory) {
+    fn setup() -> (TempDir, FsPlatformActionExecutor, ExchangeDirectory) {
         let temp = TempDir::new().must_succeed("private fixture");
         let root = temp.path().join("notes");
         fs::create_dir(&root).must_succeed("notes");
         let exchange =
             ExchangeDirectory::new(temp.path().join("exchange")).must_succeed("exchange");
-        let executor = PosixPlatformActionExecutor::new(exchange.path()).must_succeed("executor");
+        let executor = FsPlatformActionExecutor::new(exchange.path()).must_succeed("executor");
         executor.bind_root(capability(), root).must_succeed("bind");
         (temp, executor, exchange)
     }
 
-    fn stat(executor: &PosixPlatformActionExecutor) -> DocumentMetadata {
+    fn stat(executor: &FsPlatformActionExecutor) -> DocumentMetadata {
         let result =
             executor.execute_action(&PlatformAction::stat(action_id(), capability(), path()));
         match result.outcome() {

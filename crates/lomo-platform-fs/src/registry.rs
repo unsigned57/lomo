@@ -3,25 +3,25 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use lomo_core::{CapabilityToken, LomoError};
-use rustix::fd::OwnedFd;
-use rustix::fs::{Mode, OFlags};
 
 use crate::error::{internal, permission, storage, validation};
+use crate::sys::Root;
 
-/// A bound root holding its canonical directory path and an authoritative open directory FD.
+/// A bound root holding its pinned directory anchor.
 #[derive(Clone, Debug)]
 pub struct BoundRoot {
-    fd: Arc<OwnedFd>,
+    root: Arc<Root>,
 }
 
 impl BoundRoot {
+    /// The pinned root anchor all operations resolve beneath.
     #[must_use]
-    pub const fn fd(&self) -> &Arc<OwnedFd> {
-        &self.fd
+    pub(crate) fn root(&self) -> &Root {
+        &self.root
     }
 }
 
-/// Registry mapping trusted `CapabilityToken`s to canonical filesystem directories and root FDs.
+/// Registry mapping trusted `CapabilityToken`s to canonical filesystem directories.
 #[derive(Debug, Default)]
 pub struct RootRegistry {
     roots: RwLock<BTreeMap<CapabilityToken, BoundRoot>>,
@@ -34,7 +34,7 @@ impl RootRegistry {
         Self::default()
     }
 
-    /// Binds a capability token to a canonical directory path and opens its root directory FD.
+    /// Binds a capability token to a canonical directory path and pins its root.
     ///
     /// # Errors
     ///
@@ -65,22 +65,10 @@ impl RootRegistry {
             ));
         }
 
-        let fd = rustix::fs::open(
-            &canonical,
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
-            Mode::empty(),
-        )
-        .map_err(|err| {
-            storage(
-                "capability_root_open_failed",
-                &format!(
-                    "cannot open directory FD for capability root '{}': {err}",
-                    canonical.display()
-                ),
-            )
-        })?;
-
-        let bound = BoundRoot { fd: Arc::new(fd) };
+        let root = Root::open(&canonical)?;
+        let bound = BoundRoot {
+            root: Arc::new(root),
+        };
 
         let mut roots = self
             .roots

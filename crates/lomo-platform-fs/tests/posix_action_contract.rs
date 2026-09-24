@@ -1,9 +1,9 @@
 //! Behavior Contract
 //!
-//! Capability: execute the complete set of 7 platform action protocols (`Stat`, `ListChildren`,
-//! `EnsureDirectory`, `ReadToExchange`, `WriteFromExchange`, `Move`, `Delete`) on a real Linux POSIX
-//! filesystem with root capability binding, symlink escape rejection, private exchange staging,
-//! SHA-256 baseline verification, and temp-fsync-rename atomicity.
+//! Capability: execute the complete set of 8 platform action protocols (`Stat`, `ListChildren`,
+//! `EnsureDirectory`, `ReadToExchange`, `WriteFromExchange`, `ArtifactWrite`, `Move`, `Delete`)
+//! on a real Linux POSIX filesystem with root capability binding, symlink escape rejection,
+//! private exchange staging, SHA-256 baseline verification, and temp-fsync-rename atomicity.
 //!
 //! Scenarios:
 //! - Given an unbound capability token, when an action is executed, then it is rejected with a permission error.
@@ -14,6 +14,9 @@
 //! - Given `WriteFromExchange` with mismatched expected fingerprint, when executed, then baseline conflict is detected and overwrite is refused.
 //! - Given `WriteFromExchange` with `WriteMode::Create` on existing target, when executed, then overwrite is refused.
 //! - Given `WriteFromExchange` with valid artifact, when executed, then atomic temp-fsync-rename writes durable bytes.
+//! - Given `ArtifactWrite` over a retained staged source, when executed, then bytes stream through temp storage and publish only after digest/length re-verification.
+//! - Given `ArtifactWrite` replay states, when the target already holds the declared digest then `AlreadySatisfied`, when a third party owns the target then fail-closed conflict, when an incomplete temp copy remains then the retry redoes the write and reclaims the orphan.
+//! - Given `ArtifactWrite` with a missing or digest-mismatched source, when executed, then it fails before touching the target.
 //! - Given `Move`, when executed, then source is renamed to target with precondition and satisfaction checks.
 //! - Given `Delete`, when executed, then target is removed with verified absence evidence.
 //! - Given a batch of actions where one fails, when executed, then execution stops at the first failure and returns a valid prefix.
@@ -24,7 +27,7 @@
 //! - Strict rejection of symlink escapes and unbound capabilities
 //!
 //! TDD proof:
-//! - Fails RED initially because `PosixPlatformActionExecutor` does not exist.
+//! - Fails RED initially because `FsPlatformActionExecutor` does not exist.
 //!
 //! Excludes:
 //! - Android SAF, JNI, SQLite projections, UI presentation, network transfer.
@@ -40,9 +43,9 @@ mod tests {
         ActionEvidence, ActionId, ActionOutcome, ActionResult, BatchId, CapabilityToken,
         DocumentKind, ErrorCategory, ExchangeArtifact, ExpectedFingerprint, JobId, PageSize,
         PlatformAction, PlatformActionBatch, PlatformActionExecutor, PlatformActionOutput,
-        RelativeWorkspacePath, Sha256Digest, WriteMode,
+        RelativeWorkspacePath, Sha256Digest, StagedArtifactSource, WriteMode,
     };
-    use lomo_platform_fs::PosixPlatformActionExecutor;
+    use lomo_platform_fs::FsPlatformActionExecutor;
     use tempfile::TempDir;
 
     use super::support::ResultTestExt;
@@ -71,7 +74,8 @@ mod tests {
         _temp_dir: TempDir,
         root: std::path::PathBuf,
         exchange_dir: std::path::PathBuf,
-        executor: PosixPlatformActionExecutor,
+        stage_dir: std::path::PathBuf,
+        executor: FsPlatformActionExecutor,
         capability: CapabilityToken,
     }
 
@@ -80,11 +84,13 @@ mod tests {
             let temp_dir = TempDir::new().must_succeed("create temp dir");
             let root = temp_dir.path().join("workspace");
             let exchange_dir = temp_dir.path().join("exchange");
+            let stage_dir = temp_dir.path().join("media-stage");
             fs::create_dir_all(&root).must_succeed("create root");
             fs::create_dir_all(&exchange_dir).must_succeed("create exchange");
+            fs::create_dir_all(&stage_dir).must_succeed("create stage dir");
 
             let executor =
-                PosixPlatformActionExecutor::new(&exchange_dir).must_succeed("create executor");
+                FsPlatformActionExecutor::new(&exchange_dir).must_succeed("create executor");
             let capability = CapabilityToken::parse("workspace-root").must_succeed("cap token");
             executor
                 .bind_root(capability.clone(), &root)
@@ -94,6 +100,7 @@ mod tests {
                 _temp_dir: temp_dir,
                 root,
                 exchange_dir,
+                stage_dir,
                 executor,
                 capability,
             }
@@ -113,6 +120,20 @@ mod tests {
             let digest = sha256_hex(content);
             ExchangeArtifact::new(token_str, content.len() as u64, digest)
                 .must_succeed("create exchange artifact")
+        }
+
+        /// Retains `content` as a durable staged artifact outside the bound workspace root,
+        /// mirroring the host's private media stage directory.
+        fn stage_artifact(&self, name: &str, content: &[u8]) -> StagedArtifactSource {
+            let path = self.stage_dir.join(name);
+            fs::write(&path, content).must_succeed("write staged source");
+            StagedArtifactSource::new(
+                path.to_str()
+                    .unwrap_or_else(|| panic!("staged path is not UTF-8")),
+                content.len() as u64,
+                sha256_hex(content),
+            )
+            .must_succeed("staged artifact source")
         }
     }
 
@@ -569,5 +590,362 @@ mod tests {
             );
         };
         assert_eq!(err.category(), ErrorCategory::Validation);
+    }
+
+    #[test]
+    fn artifact_write_streams_the_retained_source_into_the_workspace() {
+        let harness = TestHarness::new();
+        let bytes = b"artifact-write-payload";
+        let source = harness.stage_artifact("blob-a.bin", bytes);
+        let path = RelativeWorkspacePath::parse("media/blob-a.bin").must_succeed("path");
+
+        let action = PlatformAction::artifact_write(
+            dummy_action_id(1),
+            harness.capability.clone(),
+            source,
+            path,
+            ExpectedFingerprint::absent(),
+        );
+        let res = harness.executor.execute_action(&action);
+        let ActionOutcome::Applied(PlatformActionOutput::WriteComplete { metadata }) =
+            res.outcome()
+        else {
+            panic!("expected applied write complete, got {:?}", res.outcome());
+        };
+        assert_eq!(metadata.evidence().length(), bytes.len() as u64);
+        assert_eq!(
+            metadata.evidence().verified_digest(),
+            Some(&sha256_hex(bytes))
+        );
+        assert_eq!(
+            fs::read(harness.root.join("media/blob-a.bin")).must_succeed("read target"),
+            bytes
+        );
+        assert!(
+            harness.stage_dir.join("blob-a.bin").is_file(),
+            "the executor copies the retained source; the lease owner decides reclamation"
+        );
+    }
+
+    #[test]
+    fn artifact_write_is_already_satisfied_when_the_target_holds_the_declared_digest() {
+        let harness = TestHarness::new();
+        let bytes = b"already-committed-media";
+        harness.create_file("media/blob-b.bin", bytes);
+        let source = harness.stage_artifact("blob-b.bin", bytes);
+        let path = RelativeWorkspacePath::parse("media/blob-b.bin").must_succeed("path");
+
+        let action = PlatformAction::artifact_write(
+            dummy_action_id(1),
+            harness.capability.clone(),
+            source,
+            path,
+            ExpectedFingerprint::absent(),
+        );
+        let res = harness.executor.execute_action(&action);
+        assert!(
+            matches!(
+                res.outcome(),
+                ActionOutcome::AlreadySatisfied(PlatformActionOutput::WriteComplete { .. })
+            ),
+            "a target holding the declared digest is satisfaction, not conflict: {:?}",
+            res.outcome()
+        );
+    }
+
+    #[test]
+    fn artifact_write_conflicts_when_a_third_party_owns_the_target() {
+        let harness = TestHarness::new();
+        harness.create_file("media/blob-c.bin", b"foreign-content");
+        let source = harness.stage_artifact("blob-c.bin", b"planned-media-bytes");
+        let path = RelativeWorkspacePath::parse("media/blob-c.bin").must_succeed("path");
+
+        let action = PlatformAction::artifact_write(
+            dummy_action_id(1),
+            harness.capability.clone(),
+            source,
+            path,
+            ExpectedFingerprint::absent(),
+        );
+        let res = harness.executor.execute_action(&action);
+        let ActionOutcome::Failed(err) = res.outcome() else {
+            panic!("expected conflict, got {:?}", res.outcome());
+        };
+        assert_eq!(err.category(), ErrorCategory::Conflict);
+        assert_eq!(err.code(), "platform_postcondition_mismatch");
+        assert_eq!(
+            fs::read(harness.root.join("media/blob-c.bin")).must_succeed("read target"),
+            b"foreign-content",
+            "a third-party target is never overwritten"
+        );
+    }
+
+    #[test]
+    fn artifact_write_replaces_only_a_matched_baseline() {
+        let harness = TestHarness::new();
+        harness.create_file("media/blob-d.bin", b"baseline-content");
+        let path = RelativeWorkspacePath::parse("media/blob-d.bin").must_succeed("path");
+
+        let stat = harness.executor.execute_action(&PlatformAction::stat(
+            dummy_action_id(100),
+            harness.capability.clone(),
+            path.clone(),
+        ));
+        let ActionOutcome::Applied(PlatformActionOutput::Stat { metadata }) = stat.outcome() else {
+            panic!("stat failed: {:?}", stat.outcome());
+        };
+        let baseline = metadata.evidence().clone();
+
+        let source = harness.stage_artifact("blob-d.bin", b"replacement-media");
+        let action = PlatformAction::artifact_write(
+            dummy_action_id(1),
+            harness.capability.clone(),
+            source,
+            path,
+            ExpectedFingerprint::matching(baseline.clone()),
+        );
+        let res = harness.executor.execute_action(&action);
+        assert!(
+            matches!(
+                res.outcome(),
+                ActionOutcome::Applied(PlatformActionOutput::WriteComplete { .. })
+            ),
+            "a matched baseline permits replace: {:?}",
+            res.outcome()
+        );
+        assert_eq!(
+            fs::read(harness.root.join("media/blob-d.bin")).must_succeed("read"),
+            b"replacement-media"
+        );
+
+        // The same action replayed against a vanished baseline fails closed.
+        let vanished = harness.stage_artifact("blob-e.bin", b"media");
+        let gone = RelativeWorkspacePath::parse("media/blob-e.bin").must_succeed("path");
+        let stale = PlatformAction::artifact_write(
+            dummy_action_id(2),
+            harness.capability.clone(),
+            vanished,
+            gone,
+            ExpectedFingerprint::matching(baseline),
+        );
+        let res = harness.executor.execute_action(&stale);
+        let ActionOutcome::Failed(err) = res.outcome() else {
+            panic!(
+                "expected conflict on vanished baseline, got {:?}",
+                res.outcome()
+            );
+        };
+        assert_eq!(err.category(), ErrorCategory::Conflict);
+    }
+
+    #[test]
+    fn artifact_write_fails_closed_before_publish_when_the_source_disagrees() {
+        let harness = TestHarness::new();
+        let path = RelativeWorkspacePath::parse("media/blob-f.bin").must_succeed("path");
+
+        // Missing source file.
+        let missing = StagedArtifactSource::new(
+            harness
+                .stage_dir
+                .join("absent.bin")
+                .to_str()
+                .unwrap_or_else(|| panic!("utf8")),
+            128,
+            sha256_hex(b"declared"),
+        )
+        .must_succeed("source");
+        let action = PlatformAction::artifact_write(
+            dummy_action_id(1),
+            harness.capability.clone(),
+            missing,
+            path.clone(),
+            ExpectedFingerprint::absent(),
+        );
+        let res = harness.executor.execute_action(&action);
+        let ActionOutcome::Failed(err) = res.outcome() else {
+            panic!("expected missing-source failure, got {:?}", res.outcome());
+        };
+        assert_eq!(err.code(), "artifact_source_missing");
+        assert!(!harness.root.join("media/blob-f.bin").exists());
+
+        // Declared digest disagrees with the retained bytes.
+        let retained = harness.stage_artifact("corrupt.bin", b"actual-bytes");
+        let corrupt = StagedArtifactSource::new(
+            retained.path(),
+            retained.length(),
+            sha256_hex(b"other-bytes"),
+        )
+        .must_succeed("corrupt source");
+        let action = PlatformAction::artifact_write(
+            dummy_action_id(2),
+            harness.capability.clone(),
+            corrupt,
+            path.clone(),
+            ExpectedFingerprint::absent(),
+        );
+        let res = harness.executor.execute_action(&action);
+        let ActionOutcome::Failed(err) = res.outcome() else {
+            panic!("expected digest-mismatch failure, got {:?}", res.outcome());
+        };
+        assert_eq!(err.code(), "artifact_source_mismatch");
+        assert!(!harness.root.join("media/blob-f.bin").exists());
+
+        // Declared length disagrees with the retained bytes.
+        let staged = harness.stage_artifact("short.bin", b"actual-bytes");
+        let wrong_length = StagedArtifactSource::new(
+            staged.path(),
+            staged.length() + 1,
+            sha256_hex(b"actual-bytes"),
+        )
+        .must_succeed("length-mismatched source");
+        let action = PlatformAction::artifact_write(
+            dummy_action_id(3),
+            harness.capability.clone(),
+            wrong_length,
+            path,
+            ExpectedFingerprint::absent(),
+        );
+        let res = harness.executor.execute_action(&action);
+        let ActionOutcome::Failed(err) = res.outcome() else {
+            panic!("expected length-mismatch failure, got {:?}", res.outcome());
+        };
+        assert_eq!(err.code(), "artifact_source_mismatch");
+    }
+
+    #[test]
+    fn artifact_write_retries_past_an_incomplete_temp_copy() {
+        let harness = TestHarness::new();
+        fs::create_dir_all(harness.root.join("media")).must_succeed("media dir");
+        // A prior attempt crashed mid-copy: an orphaned partial temp remains beside the target.
+        fs::write(
+            harness.root.join("media/.tmp.blob-g.bin.deadbeef"),
+            b"partial-",
+        )
+        .must_succeed("stale temp");
+        let bytes = b"complete-media-payload";
+        let source = harness.stage_artifact("blob-g.bin", bytes);
+        let path = RelativeWorkspacePath::parse("media/blob-g.bin").must_succeed("path");
+
+        let action = PlatformAction::artifact_write(
+            dummy_action_id(1),
+            harness.capability.clone(),
+            source,
+            path,
+            ExpectedFingerprint::absent(),
+        );
+        let res = harness.executor.execute_action(&action);
+        assert!(
+            matches!(
+                res.outcome(),
+                ActionOutcome::Applied(PlatformActionOutput::WriteComplete { .. })
+            ),
+            "an incomplete temp copy must not block the retry: {:?}",
+            res.outcome()
+        );
+        assert_eq!(
+            fs::read(harness.root.join("media/blob-g.bin")).must_succeed("read"),
+            bytes
+        );
+        let names: Vec<String> = fs::read_dir(harness.root.join("media"))
+            .must_succeed("read media dir")
+            .map(|entry| {
+                entry
+                    .must_succeed("entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(
+            names,
+            vec!["blob-g.bin"],
+            "the retried write reclaims its incomplete temp copy"
+        );
+    }
+
+    #[test]
+    fn artifact_write_replays_its_witness_and_validates_in_a_batch() {
+        let harness = TestHarness::new();
+        let bytes = b"witnessed-artifact";
+        let source = harness.stage_artifact("blob-h.bin", bytes);
+        let path = RelativeWorkspacePath::parse("media/blob-h.bin").must_succeed("path");
+        let action = PlatformAction::artifact_write(
+            dummy_action_id(1),
+            harness.capability.clone(),
+            source,
+            path,
+            ExpectedFingerprint::absent(),
+        );
+
+        let batch = PlatformActionBatch::new(
+            dummy_job_id(),
+            dummy_batch_id(),
+            1,
+            u64::MAX,
+            vec![action.clone()],
+        )
+        .must_succeed("batch");
+        let first = harness.executor.execute(&batch).must_succeed("execute");
+        assert_eq!(first.validate_against(&batch).must_succeed("witness"), 1);
+
+        let replay = harness.executor.execute_action(&action);
+        assert!(
+            matches!(
+                replay.outcome(),
+                ActionOutcome::AlreadySatisfied(PlatformActionOutput::WriteComplete { .. })
+            ),
+            "the recorded witness replays satisfaction: {:?}",
+            replay.outcome()
+        );
+    }
+
+    #[test]
+    fn artifact_write_streams_large_media() {
+        let harness = TestHarness::new();
+        let media_len = 50 * 1024 * 1024usize;
+        let mut bytes = Vec::with_capacity(media_len);
+        bytes.extend_from_slice(b"large-media-magic");
+        bytes.resize(media_len, 0xCD);
+        let digest = sha256_hex(&bytes);
+        let source = harness.stage_artifact("blob-large.bin", &bytes);
+        drop(bytes);
+        let source_path = source.path().to_owned();
+        let path = RelativeWorkspacePath::parse("media/blob-large.bin").must_succeed("path");
+
+        let action = PlatformAction::artifact_write(
+            dummy_action_id(1),
+            harness.capability.clone(),
+            source,
+            path,
+            ExpectedFingerprint::absent(),
+        );
+        let res = harness.executor.execute_action(&action);
+        let ActionOutcome::Applied(PlatformActionOutput::WriteComplete { metadata }) =
+            res.outcome()
+        else {
+            panic!("expected applied write complete, got {:?}", res.outcome());
+        };
+        assert_eq!(metadata.evidence().length(), media_len as u64);
+        assert_eq!(metadata.evidence().verified_digest(), Some(&digest));
+
+        // A crash-style retry against the published target is satisfied, not a conflict.
+        let retained = StagedArtifactSource::new(&source_path, media_len as u64, digest)
+            .must_succeed("retained source");
+        let replay = PlatformAction::artifact_write(
+            dummy_action_id(2),
+            harness.capability.clone(),
+            retained,
+            RelativeWorkspacePath::parse("media/blob-large.bin").must_succeed("path"),
+            ExpectedFingerprint::absent(),
+        );
+        let res = harness.executor.execute_action(&replay);
+        assert!(
+            matches!(
+                res.outcome(),
+                ActionOutcome::AlreadySatisfied(PlatformActionOutput::WriteComplete { .. })
+            ),
+            "a retried large write replays as satisfied: {:?}",
+            res.outcome()
+        );
     }
 }

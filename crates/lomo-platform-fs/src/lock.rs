@@ -1,20 +1,84 @@
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 
 use lomo_core::LomoError;
-use rustix::fs::{FlockOperation, Mode, OFlags, flock, open};
-use rustix::io::Errno;
 
 use crate::error::{conflict, permission, storage};
 
-/// Non-blocking, process-exclusive file lock using POSIX `flock(2)`.
+/// Non-blocking, process-exclusive file lock using the platform advisory lock
+/// (`flock` on unix, `LockFileEx` on Windows, both via `File::try_lock`).
 ///
 /// Ensures exclusive access across separate processes (or separate descriptors)
-/// for local runtime and workspace coordination. Automatically unlocks when descriptor is closed on drop.
+/// for local runtime and workspace coordination. Automatically unlocks when
+/// the descriptor is closed on drop.
 #[derive(Debug)]
 pub struct ProcessFileLock {
     file: File,
     path: PathBuf,
+}
+
+/// Opens the lockfile without following a symbolic link.
+///
+/// On unix this is `O_NOFOLLOW`. On Windows the file is opened with
+/// `FILE_FLAG_OPEN_REPARSE_POINT` and the opened handle itself is checked, so a
+/// link swapped in between stat and open is still caught.
+#[cfg(unix)]
+fn open_lockfile(path: &Path) -> Result<File, LomoError> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let nofollow = i32::try_from(rustix::fs::OFlags::NOFOLLOW.bits())
+        .map_err(|err| storage("file_flags_invalid", &err.to_string()))?;
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .custom_flags(nofollow)
+        .open(path)
+        .map_err(|err| {
+            if err.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error()) {
+                permission(
+                    "process_lock_symlink_rejected",
+                    &format!("lockfile '{}' is a symbolic link", path.display()),
+                )
+            } else {
+                storage(
+                    "process_lock_open_failed",
+                    &format!("failed to open lockfile '{}': {err}", path.display()),
+                )
+            }
+        })
+}
+
+/// Opens the lockfile on Windows via `FILE_FLAG_OPEN_REPARSE_POINT`, rejecting
+/// a reparse point on the opened handle.
+#[cfg(windows)]
+fn open_lockfile(path: &Path) -> Result<File, LomoError> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const OPEN_REPARSE: u32 = 0x0020_0000; // FILE_FLAG_OPEN_REPARSE_POINT
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .custom_flags(OPEN_REPARSE)
+        .open(path)
+        .map_err(|err| {
+            storage(
+                "process_lock_open_failed",
+                &format!("failed to open lockfile '{}': {err}", path.display()),
+            )
+        })?;
+    let metadata = file.metadata().map_err(|err| {
+        storage(
+            "process_lock_open_failed",
+            &format!("failed to stat lockfile '{}': {err}", path.display()),
+        )
+    })?;
+    if metadata.file_type().is_symlink() {
+        return Err(permission(
+            "process_lock_symlink_rejected",
+            &format!("lockfile '{}' is a symbolic link", path.display()),
+        ));
+    }
+    Ok(file)
 }
 
 impl ProcessFileLock {
@@ -36,42 +100,23 @@ impl ProcessFileLock {
             })?;
         }
 
-        let fd = open(
-            path,
-            OFlags::RDWR | OFlags::CREATE | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::from_bits_truncate(0o600),
-        )
-        .map_err(|err| {
-            if err == Errno::LOOP {
-                permission(
-                    "process_lock_symlink_rejected",
-                    &format!("lockfile '{}' is a symbolic link", path.display()),
-                )
-            } else {
-                storage(
-                    "process_lock_open_failed",
-                    &format!("failed to open lockfile '{}': {err}", path.display()),
-                )
-            }
-        })?;
+        let file = open_lockfile(path)?;
 
-        let file = File::from(fd);
-
-        match flock(&file, FlockOperation::NonBlockingLockExclusive) {
+        match file.try_lock() {
             Ok(()) => Ok(Self {
                 file,
                 path: path.to_path_buf(),
             }),
-            Err(Errno::WOULDBLOCK) => Err(conflict(
+            Err(std::fs::TryLockError::WouldBlock) => Err(conflict(
                 "process_lock_held",
                 &format!(
                     "lockfile '{}' is already held by another process",
                     path.display()
                 ),
             )),
-            Err(err) => Err(storage(
+            Err(std::fs::TryLockError::Error(err)) => Err(storage(
                 "process_lock_failed",
-                &format!("flock failed on '{}': {err}", path.display()),
+                &format!("file lock failed on '{}': {err}", path.display()),
             )),
         }
     }
@@ -86,9 +131,9 @@ impl ProcessFileLock {
     ///
     /// # Errors
     ///
-    /// Returns an error if the kernel `flock` unlock syscall fails.
+    /// Returns an error if the kernel unlock operation fails.
     pub fn unlock(self) -> Result<(), LomoError> {
-        flock(&self.file, FlockOperation::Unlock).map_err(|err| {
+        self.file.unlock().map_err(|err| {
             storage(
                 "process_lock_unlock_failed",
                 &format!("failed to unlock '{}': {err}", self.path.display()),

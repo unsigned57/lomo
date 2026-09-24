@@ -8,8 +8,11 @@ publish = false
 
 [dependencies]
 lomo-core = { path = "../lomo-core" }
-rustix = { workspace = true, features = ["rand"] }
+getrandom.workspace = true
 sha2.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
