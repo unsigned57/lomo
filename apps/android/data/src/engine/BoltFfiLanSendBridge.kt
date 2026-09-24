@@ -1,5 +1,6 @@
 package com.lomo.data.engine
 
+import com.lomo.data.engine.lan.LanChunkSend
 import com.lomo.data.engine.lan.LanDiscoveryFacts
 import com.lomo.data.engine.lan.LanSendItemPlan
 
@@ -16,6 +17,16 @@ internal fun LanDiscoveryFacts.toBridge(): com.lomo.nativebridge.LanDiscoverySna
                     protocolVersion = peer.protocolVersion,
                 )
             },
+    )
+
+internal fun LanChunkSend.toBridge(): com.lomo.nativebridge.LanChunkSendDto =
+    com.lomo.nativebridge.LanChunkSendDto(
+        sessionId = sessionId,
+        batchId = batchId,
+        itemIndex = itemIndex,
+        attachmentSlot = attachmentSlot,
+        chunkIndex = chunkIndex,
+        plaintext = plaintext,
     )
 
 internal fun LanSendItemPlan.toBridge(): com.lomo.nativebridge.LanSendItemDto =

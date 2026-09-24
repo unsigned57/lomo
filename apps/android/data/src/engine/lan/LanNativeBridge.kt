@@ -41,6 +41,18 @@ internal data class LanServiceState(
 internal data class LanTransferShape(
     val bodySlot: UInt,
     val chunkPlaintextBytes: UInt,
+    /** Bounded in-flight window: at most this many chunk payloads per send call. */
+    val maxInflightChunks: UInt,
+)
+
+/** One chunk payload streamed into the Rust-owned sliding-window sender. */
+internal data class LanChunkSend(
+    val sessionId: String,
+    val batchId: String,
+    val itemIndex: UInt,
+    val attachmentSlot: UInt,
+    val chunkIndex: UInt,
+    val plaintext: ByteArray,
 )
 
 internal data class LanProtocolLimits(
@@ -166,22 +178,43 @@ internal sealed interface LanReceivedItemRecovery {
     ) : LanReceivedItemRecovery
 }
 
+internal enum class LanReceivedBatchDrive {
+    AwaitingDecision,
+    Receiving,
+    ReadyToCommit,
+    NeedsRebind,
+    ApprovalExpired,
+    Rejected,
+    Complete,
+}
+
 internal data class LanBatchRecovery(
     val sessionId: String,
     val preview: LanBatchPreview,
     val decision: LanReceivedBatchDecision,
+    val drive: LanReceivedBatchDrive,
+    /** Durable confirmed payload bytes; the only honest progress numerator. */
+    val confirmedBytes: ULong,
     val items: List<LanReceivedItemRecovery>,
 )
 
-internal enum class LanOutgoingBatchPhase {
-    AwaitingApproval,
-    Approved,
+internal enum class LanOutgoingBatchDrive {
+    AwaitingDecision,
+    Sendable,
+    AwaitingReport,
+    NeedsRebind,
     Rejected,
+    Failed,
+    Complete,
 }
 
 internal data class LanOutgoingBatch(
     val batchId: String,
-    val phase: LanOutgoingBatchPhase,
+    val drive: LanOutgoingBatchDrive,
+    val failureCode: String?,
+    /** Durable confirmed and planned payload bytes: progress never guesses wire traffic. */
+    val confirmedBytes: ULong,
+    val totalBytes: ULong,
 )
 
 internal data class LanCommittableItem(
@@ -191,7 +224,10 @@ internal data class LanCommittableItem(
 
 internal data class LanInboxWait(
     val generation: ULong,
-    val inbox: LanRuntimeInbox,
+    /** `null` when the wait timed out without advancing the generation — no rebuilt snapshot. */
+    val inbox: LanRuntimeInbox?,
+    val rejectedConnectionCount: ULong,
+    val lastRejectionDiagnostic: String?,
 )
 
 /** Live signing work and durable approval work derived from the Rust runtime. */
@@ -228,10 +264,6 @@ internal interface LanRuntimeNativeBridge {
     fun configureLanIdentity(identity: LanDeviceIdentity): LanLocalIdentity
 
     fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait
-
-    fun pollLanListener(nowMs: Long): LanRuntimeInbox
-
-    fun lanRuntimeInbox(): LanRuntimeInbox
 }
 
 internal interface LanPairingNativeBridge {
@@ -258,8 +290,6 @@ internal interface LanPairingNativeBridge {
         ttlMs: Long,
     ): LanSessionChallenge
 
-    fun lanSessionChallenge(sessionId: String): LanSessionChallenge
-
     fun confirmLanSession(
         sessionId: String,
         signature: ByteArray,
@@ -277,8 +307,6 @@ internal interface LanTransferNativeBridge {
         items: List<LanSendItemPlan>,
     )
 
-    fun lanBatchPreview(batchId: String): LanBatchPreview
-
     fun approveLanBatch(
         sessionId: String,
         batchId: String,
@@ -292,14 +320,7 @@ internal interface LanTransferNativeBridge {
         rejectedAtMs: Long,
     )
 
-    fun sendLanBatchChunk(
-        sessionId: String,
-        batchId: String,
-        itemIndex: UInt,
-        attachmentSlot: UInt,
-        chunkIndex: UInt,
-        plaintext: ByteArray,
-    )
+    fun sendLanBatchChunks(chunks: List<LanChunkSend>)
 
     fun lanUnconfirmedBatchChunks(
         batchId: String,
@@ -312,6 +333,12 @@ internal interface LanTransferNativeBridge {
         itemIndex: UInt,
         nowMs: Long,
     ): com.lomo.nativebridge.StoreMemoCommit
+
+    fun failReceivedLanItem(
+        batchId: String,
+        itemIndex: UInt,
+        code: String,
+    )
 
     fun listLanPeers(): LanPeerPage
 

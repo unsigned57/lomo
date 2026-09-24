@@ -115,7 +115,7 @@ class LanRuntimeCoordinatorTest : DataFunSpec() {
 
                 engine.signedSessionIds shouldContain "session-1"
                 engine.committedItems shouldContain "batch-1:0"
-                coordinator.failure.value?.operation shouldBe LanRuntimeFailureOperation.Listener
+                coordinator.failure.value?.operation shouldBe LanRuntimeFailureOperation.ServiceFailed
             }
         }
 
@@ -143,6 +143,124 @@ class LanRuntimeCoordinatorTest : DataFunSpec() {
 
             engine.startCalls shouldBe 2
             engine.networkFacts.last().candidates shouldBe listOf(LanBindCandidate("192.168.43.1", 0u))
+        }
+
+        test("given one committable item fails when the inbox processes then the sibling still commits and the service stays up") {
+            val engine = FakeLanCoordinatorEngine(
+                inboxes = ArrayDeque(
+                    listOf(
+                        LanRuntimeInbox(
+                            pairingChallenges = emptyList(),
+                            sessionChallenges = emptyList(),
+                            activeSessions = emptyList(),
+                            pendingBatches = emptyList(),
+                            batchRecoveries = emptyList(),
+                            committableItems = listOf(
+                                LanCommittableItem("batch-1", 0u),
+                                LanCommittableItem("batch-1", 1u),
+                            ),
+                            outgoingBatches = emptyList(),
+                        ),
+                    ),
+                ),
+                failCommits = setOf("batch-1:0"),
+            )
+            runTest {
+                val coordinator = coordinator(
+                    engine = engine,
+                    network = FakeLanRuntimeNetworkMonitor(
+                        snapshot = LanPlatformNetworkSnapshot(
+                            permissionGranted = true,
+                            candidates = listOf(LanBindCandidate("192.168.1.8", 0u)),
+                        ),
+                    ),
+                    lease = FakeLanRuntimeMulticastLease(),
+                    scope = this,
+                    dispatcher = StandardTestDispatcher(testScheduler),
+                )
+
+                coordinator.startServices("Phone") shouldBe true
+                advanceUntilIdle()
+
+                engine.committedItems shouldContain "batch-1:1"
+                engine.failedItems shouldContain "batch-1:0"
+                engine.stopCalls shouldBe 0
+                coordinator.serviceState.value.phase shouldBe LanServicePhase.Listening
+                coordinator.failure.value?.operation shouldBe LanRuntimeFailureOperation.ItemFailed
+                coordinator.stopServices()
+            }
+        }
+
+        test("given the pump reports rejected connections when services run then the failure is observable without stopping the service") {
+            val engine = FakeLanCoordinatorEngine(
+                inboxes = ArrayDeque(
+                    listOf(
+                        LanRuntimeInbox(
+                            pairingChallenges = emptyList(),
+                            sessionChallenges = emptyList(),
+                            activeSessions = emptyList(),
+                            pendingBatches = emptyList(),
+                            batchRecoveries = emptyList(),
+                            committableItems = emptyList(),
+                            outgoingBatches = emptyList(),
+                        ),
+                    ),
+                ),
+                rejectionCounts = ArrayDeque(listOf(1uL)),
+                rejectionDiagnostics = ArrayDeque(listOf("lan_frame_magic_invalid: bad magic")),
+            )
+            runTest {
+                val coordinator = coordinator(
+                    engine = engine,
+                    network = FakeLanRuntimeNetworkMonitor(
+                        snapshot = LanPlatformNetworkSnapshot(
+                            permissionGranted = true,
+                            candidates = listOf(LanBindCandidate("192.168.1.8", 0u)),
+                        ),
+                    ),
+                    lease = FakeLanRuntimeMulticastLease(),
+                    scope = this,
+                    dispatcher = StandardTestDispatcher(testScheduler),
+                )
+
+                coordinator.startServices("Phone") shouldBe true
+                advanceUntilIdle()
+
+                engine.stopCalls shouldBe 0
+                coordinator.serviceState.value.phase shouldBe LanServicePhase.Listening
+                coordinator.failure.value?.operation shouldBe LanRuntimeFailureOperation.ConnectionRejected
+                coordinator.stopServices()
+            }
+        }
+
+        test("given a rejected NSD record when discovery runs then the rejection is observable without stopping discovery") {
+            val engine = FakeLanCoordinatorEngine()
+            val discovery = FakeDiscoveryCoordinator()
+            runTest {
+                val coordinator = LanRuntimeCoordinator(
+                    engine = engine,
+                    discovery = discovery,
+                    deviceKey = FakeLanDeviceKey(),
+                    scope = this,
+                    networkMonitor = FakeLanRuntimeNetworkMonitor(
+                        snapshot = LanPlatformNetworkSnapshot(
+                            permissionGranted = true,
+                            candidates = listOf(LanBindCandidate("192.168.1.8", 0u)),
+                        ),
+                    ),
+                    multicastLease = FakeLanRuntimeMulticastLease(),
+                    dispatcher = StandardTestDispatcher(testScheduler),
+                )
+
+                coordinator.startDiscovery("Phone") shouldBe true
+                discovery.rejectNextRecord()
+                advanceUntilIdle()
+
+                discovery.stopCalls shouldBe 0
+                coordinator.failure.value?.operation shouldBe LanRuntimeFailureOperation.PeerDiscoveryRejected
+                coordinator.stopDiscovery()
+                coordinator.stopServices()
+            }
         }
 
         test("given coordinator source when the listener loop is inspected then it waits on inbox generation") {
@@ -217,7 +335,13 @@ private class FakeLanRuntimeMulticastLease : LanRuntimeMulticastLease {
 
 private class FakeDiscoveryCoordinator : com.lomo.data.share.LanShareDiscoveryCoordinator {
     private val _devices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
+    private val _rejectedRecordCount = MutableStateFlow(0)
+    var stopCalls = 0
     override val discoveredDevices: StateFlow<List<DiscoveredDevice>> = _devices.asStateFlow()
+    override val rejectedRecordCount: StateFlow<Int> = _rejectedRecordCount.asStateFlow()
+    fun rejectNextRecord() {
+        _rejectedRecordCount.value += 1
+    }
     override fun registerService(
         port: Int,
         deviceName: String,
@@ -226,17 +350,24 @@ private class FakeDiscoveryCoordinator : com.lomo.data.share.LanShareDiscoveryCo
     ): Boolean = true
     override fun unregisterService() = Unit
     override fun startDiscovery(deviceId: String): Boolean = true
-    override fun stopDiscovery() = Unit
+    override fun stopDiscovery() {
+        stopCalls += 1
+    }
     override fun mergeDiscoveredDevices(devices: List<DiscoveredDevice>) = Unit
 }
 
 private class FakeLanCoordinatorEngine(
     private val inboxes: ArrayDeque<LanRuntimeInbox> = ArrayDeque(),
     private val failWhenEmpty: Boolean = false,
+    private val failCommits: Set<String> = emptySet(),
+    private val rejectionCounts: ArrayDeque<ULong> = ArrayDeque(),
+    private val rejectionDiagnostics: ArrayDeque<String?> = ArrayDeque(),
 ) : LanCoordinatorEngine {
     var startCalls = 0
+    var stopCalls = 0
     val signedSessionIds = mutableListOf<String>()
     val committedItems = mutableListOf<String>()
+    val failedItems = mutableListOf<String>()
     val networkFacts = mutableListOf<LanNetworkFacts>()
     private var waitGeneration = 0uL
 
@@ -261,28 +392,44 @@ private class FakeLanCoordinatorEngine(
             approvalTtlMs = 900_000L,
         )
 
-    override fun stopLanService() = LanServiceState(LanServicePhase.Stopped, null)
+    override fun stopLanService(): LanServiceState {
+        stopCalls += 1
+        return LanServiceState(LanServicePhase.Stopped, null)
+    }
 
     override suspend fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait =
         when {
             inboxes.isNotEmpty() -> {
                 waitGeneration += 1uL
-                LanInboxWait(waitGeneration, inboxes.removeFirst())
+                LanInboxWait(
+                    waitGeneration,
+                    inboxes.removeFirst(),
+                    rejectionCounts.removeFirstOrNull() ?: 0uL,
+                    rejectionDiagnostics.removeFirstOrNull(),
+                )
             }
             failWhenEmpty -> error("poll failed")
             else -> kotlinx.coroutines.awaitCancellation()
         }
 
-    override fun lanRuntimeInbox(): LanRuntimeInbox = inboxes.lastOrNull() ?: LanRuntimeInbox(
-        emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(),
-    )
-
     override fun confirmLanSession(sessionId: String, signature: ByteArray, nowMs: Long) {
         signedSessionIds += sessionId
     }
 
-    override fun commitReceivedLanItem(batchId: String, itemIndex: UInt, nowMs: Long): String {
-        committedItems += "$batchId:$itemIndex"
-        return "memo-1"
+    override fun resolveReceivedLanItem(
+        batchId: String,
+        itemIndex: UInt,
+        resolution: LanReceivedItemResolution,
+    ) {
+        val key = "$batchId:$itemIndex"
+        when (resolution) {
+            is LanReceivedItemResolution.Commit -> {
+                if (key in failCommits) {
+                    throw IllegalStateException("store rejected the item")
+                }
+                committedItems += key
+            }
+            is LanReceivedItemResolution.Fail -> failedItems += key
+        }
     }
 }

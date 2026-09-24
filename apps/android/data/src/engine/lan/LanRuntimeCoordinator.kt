@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,9 +37,11 @@ internal enum class LanRuntimeFailureOperation {
     Permission,
     Topology,
     Network,
-    Service,
+    ServiceFailed,
     Discovery,
-    Listener,
+    ConnectionRejected,
+    ItemFailed,
+    PeerDiscoveryRejected,
 }
 
 internal data class LanRuntimeFailure(
@@ -86,11 +89,15 @@ internal interface LanCoordinatorEngine {
 
     suspend fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait
 
-    fun lanRuntimeInbox(): LanRuntimeInbox
-
     fun confirmLanSession(sessionId: String, signature: ByteArray, nowMs: Long)
 
-    fun commitReceivedLanItem(batchId: String, itemIndex: UInt, nowMs: Long): String
+    fun resolveReceivedLanItem(batchId: String, itemIndex: UInt, resolution: LanReceivedItemResolution)
+}
+
+internal sealed interface LanReceivedItemResolution {
+    data class Commit(val nowMs: Long) : LanReceivedItemResolution
+
+    data class Fail(val code: String) : LanReceivedItemResolution
 }
 
 private class ManagedLanCoordinatorEngine(
@@ -117,13 +124,19 @@ private class ManagedLanCoordinatorEngine(
     override suspend fun awaitLanInbox(lastGeneration: ULong, timeoutMs: ULong): LanInboxWait =
         engine.awaitLanInbox(lastGeneration, timeoutMs)
 
-    override fun lanRuntimeInbox(): LanRuntimeInbox = engine.lanRuntimeInbox()
-
     override fun confirmLanSession(sessionId: String, signature: ByteArray, nowMs: Long) =
         engine.confirmLanSession(sessionId, signature, nowMs)
 
-    override fun commitReceivedLanItem(batchId: String, itemIndex: UInt, nowMs: Long): String =
-        engine.commitReceivedLanItem(batchId, itemIndex, nowMs).memoId
+    override fun resolveReceivedLanItem(
+        batchId: String,
+        itemIndex: UInt,
+        resolution: LanReceivedItemResolution,
+    ) {
+        when (resolution) {
+            is LanReceivedItemResolution.Commit -> engine.commitReceivedLanItem(batchId, itemIndex, resolution.nowMs)
+            is LanReceivedItemResolution.Fail -> engine.failReceivedLanItem(batchId, itemIndex, resolution.code)
+        }
+    }
 }
 
 private class AndroidLanRuntimeMulticastLease(
@@ -131,7 +144,9 @@ private class AndroidLanRuntimeMulticastLease(
 ) : LanRuntimeMulticastLease {
     private val manager =
         LanShareMulticastLockManager(
-            context.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager,
+            requireNotNull(context.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager) {
+                "WiFi service is unavailable; LAN share cannot acquire a multicast lock"
+            },
         )
     private val lease =
         LanShareMulticastLockLease(
@@ -211,7 +226,7 @@ internal class LanRuntimeCoordinator internal constructor(
             throw error
         } catch (error: Exception) {
             if (error is CancellationException) throw error
-            reportFailure(LanRuntimeFailureOperation.Service, error.lanRuntimeDiagnostic())
+            reportFailure(LanRuntimeFailureOperation.ServiceFailed, error.lanRuntimeDiagnostic())
             // behavior-contract: silent-result-ok: LAN start failure is reported; false is the typed outcome
             false
         }
@@ -322,7 +337,7 @@ internal class LanRuntimeCoordinator internal constructor(
                     true
                 } catch (error: Exception) {
                     multicastLease.releaseService()
-                    reportFailure(LanRuntimeFailureOperation.Service, error.lanRuntimeDiagnostic())
+                    reportFailure(LanRuntimeFailureOperation.ServiceFailed, error.lanRuntimeDiagnostic())
                     // behavior-contract: silent-result-ok: LAN listener failure is reported; false is the typed outcome
                     false
                 }
@@ -371,18 +386,28 @@ internal class LanRuntimeCoordinator internal constructor(
         if (listenerJob != null) return
         listenerJob = scope.launch(dispatcher) {
             var generation = 0uL
+            var seenRejections = 0uL
             try {
                 while (isActive) {
                     // behavior-contract: loop-io-ok: bounded wait for the next inbox generation
                     val observed = engine.awaitLanInbox(generation, INBOX_RECONCILE_TIMEOUT_MS)
+                    if (observed.rejectedConnectionCount > seenRejections) {
+                        seenRejections = observed.rejectedConnectionCount
+                        reportFailure(
+                            LanRuntimeFailureOperation.ConnectionRejected,
+                            observed.lastRejectionDiagnostic ?: "an inbound LAN connection was rejected",
+                        )
+                    }
                     if (observed.generation == generation) continue
                     generation = observed.generation
-                    publishInboxAndProcess(observed.inbox)
+                    val snapshot = observed.inbox
+                        ?: error("an advanced inbox generation must carry its snapshot")
+                    publishInboxAndProcess(snapshot)
                 }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                reportFailure(LanRuntimeFailureOperation.Listener, error.lanRuntimeDiagnostic())
+                reportFailure(LanRuntimeFailureOperation.ServiceFailed, error.lanRuntimeDiagnostic())
             }
         }
     }
@@ -390,14 +415,28 @@ internal class LanRuntimeCoordinator internal constructor(
     private fun startDiscoveryPolling() {
         if (discoveryJob != null) return
         discoveryJob = scope.launch(dispatcher) {
-            try {
-                discovery.discoveredDevices.collect {
-                    _discoveredPeers.value = publishDiscoverySnapshot(engine, discovery, revision)
+            coroutineScope {
+                launch {
+                    var seenRejected = 0
+                    discovery.rejectedRecordCount.collect { count ->
+                        if (count > seenRejected) {
+                            seenRejected = count
+                            reportFailure(
+                                LanRuntimeFailureOperation.PeerDiscoveryRejected,
+                                "malformed NSD record discarded ($count total)",
+                            )
+                        }
+                    }
                 }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                reportFailure(LanRuntimeFailureOperation.Discovery, error.lanRuntimeDiagnostic())
+                try {
+                    discovery.discoveredDevices.collect {
+                        _discoveredPeers.value = publishDiscoverySnapshot(engine, discovery, revision)
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    reportFailure(LanRuntimeFailureOperation.Discovery, error.lanRuntimeDiagnostic())
+                }
             }
         }
     }
@@ -406,17 +445,45 @@ internal class LanRuntimeCoordinator internal constructor(
         _inbox.value = observed
         observed.sessionChallenges.forEach { challenge ->
             // behavior-contract: loop-io-ok: no bulk session-confirm API; each iteration is one bounded session id
-            engine.confirmLanSession(
-                challenge.sessionId,
-                deviceKey.sign(challenge),
-                clockMillis(),
-            )
+            try {
+                engine.confirmLanSession(
+                    challenge.sessionId,
+                    deviceKey.sign(challenge),
+                    clockMillis(),
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                reportFailure(
+                    LanRuntimeFailureOperation.ConnectionRejected,
+                    "session ${challenge.sessionId} confirmation failed: ${error.lanRuntimeDiagnostic()}",
+                )
+            }
         }
         observed.committableItems.forEach { item ->
             // behavior-contract: loop-io-ok: no bulk received-item commit API; each iteration is one bounded item
-            engine.commitReceivedLanItem(item.batchId, item.itemIndex, clockMillis())
+            try {
+                engine.resolveReceivedLanItem(
+                    item.batchId,
+                    item.itemIndex,
+                    LanReceivedItemResolution.Commit(clockMillis()),
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                engine.resolveReceivedLanItem(
+                    item.batchId,
+                    item.itemIndex,
+                    LanReceivedItemResolution.Fail(error.lanRuntimeDiagnostic()),
+                )
+                reportFailure(
+                    LanRuntimeFailureOperation.ItemFailed,
+                    "received item ${item.batchId}:${item.itemIndex} failed to commit: ${error.lanRuntimeDiagnostic()}",
+                )
+            }
         }
-        _inbox.value = engine.lanRuntimeInbox()
+        // Post-action state arrives as the next generation's single observation: engine-side
+        // mutations bump the pump generation, so no second pull is needed here.
     }
 
     private fun stopListener() {
@@ -456,8 +523,10 @@ internal class LanRuntimeCoordinator internal constructor(
                 stopActualService()
                 stopActualDiscovery()
             }
-            LanRuntimeFailureOperation.Service,
-            LanRuntimeFailureOperation.Listener -> stopActualService()
+            LanRuntimeFailureOperation.ServiceFailed -> stopActualService()
+            LanRuntimeFailureOperation.ConnectionRejected,
+            LanRuntimeFailureOperation.ItemFailed,
+            LanRuntimeFailureOperation.PeerDiscoveryRejected -> Unit
         }
     }
 
@@ -501,7 +570,12 @@ private fun publishDiscoverySnapshot(
     return engine.listLanDiscoveredPeers()
 }
 
-private fun Throwable.lanRuntimeDiagnostic(): String = message ?: this::class.simpleName.orEmpty()
+private fun Throwable.lanRuntimeDiagnostic(): String =
+    when (this) {
+        is com.lomo.domain.model.EngineCommandFailureException ->
+            "${failure.category.wireValue}/${failure.code}: ${failure.diagnostic}"
+        else -> message ?: this::class.simpleName.orEmpty()
+    }
 
 private fun emptyRuntimeInbox() =
     LanRuntimeInbox(

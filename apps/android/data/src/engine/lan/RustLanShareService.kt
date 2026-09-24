@@ -14,8 +14,8 @@ import com.lomo.domain.model.LanShareDiscoveryDiagnostics
 import com.lomo.domain.model.LanShareRuntimeState
 import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.model.LanTrustedPeer
-import com.lomo.domain.model.ShareTransferError
-import com.lomo.domain.model.ShareTransferErrorCode
+import com.lomo.domain.model.EngineCommandFailureException
+import com.lomo.domain.model.ShareTransferErrorPolicy
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.domain.repository.LanShareService
 import com.lomo.domain.usecase.DefaultDispatcherProvider
@@ -56,7 +56,7 @@ internal class RustLanShareService(
     private val clockMillis: () -> Long = System::currentTimeMillis,
 ) : LanShareService {
     private val _pendingPairing = MutableStateFlow<LanPairingRequest?>(null)
-    private val _incomingBatch = MutableStateFlow<LanIncomingBatch?>(null)
+    private val _incomingBatches = MutableStateFlow<List<LanIncomingBatch>>(emptyList())
     private val _trustedPeers = MutableStateFlow<List<LanTrustedPeer>>(emptyList())
     private val _transferState = MutableStateFlow<ShareTransferState>(ShareTransferState.Idle)
     private val _runtimeState = MutableStateFlow(LanShareRuntimeState.Stopped)
@@ -66,7 +66,7 @@ internal class RustLanShareService(
     private val completedOutgoing = ConcurrentHashMap.newKeySet<String>()
 
     override val pendingPairing: StateFlow<LanPairingRequest?> = _pendingPairing.asStateFlow()
-    override val incomingBatch: StateFlow<LanIncomingBatch?> = _incomingBatch.asStateFlow()
+    override val incomingBatches: StateFlow<List<LanIncomingBatch>> = _incomingBatches.asStateFlow()
     override val trustedPeers: StateFlow<List<LanTrustedPeer>> = _trustedPeers.asStateFlow()
     override val transferState: StateFlow<ShareTransferState> = _transferState.asStateFlow()
     override val lanShareRuntimeState: StateFlow<LanShareRuntimeState> = _runtimeState.asStateFlow()
@@ -293,21 +293,40 @@ internal class RustLanShareService(
     private fun publishInbox(inbox: LanRuntimeInbox) {
         val challenge = inbox.pairingChallenges.firstOrNull()
         if (challenge != null) _pendingPairing.value = challenge.toDomain()
-        _incomingBatch.value = inbox.batchRecoveries.firstOrNull()?.toDomain()
-            ?: inbox.pendingBatches.firstOrNull()?.toDomain()
+        _incomingBatches.value =
+            inbox.batchRecoveries
+                .filter { recovery ->
+                    recovery.drive != LanReceivedBatchDrive.Rejected &&
+                        recovery.drive != LanReceivedBatchDrive.Complete &&
+                        recovery.drive != LanReceivedBatchDrive.ApprovalExpired
+                }.map(LanBatchRecovery::toDomain) +
+                inbox.pendingBatches.map(LanPendingBatch::toDomain)
         refreshPeers()
         inbox.outgoingBatches.forEach { batch ->
-            when (batch.phase) {
-                LanOutgoingBatchPhase.AwaitingApproval -> Unit
-                LanOutgoingBatchPhase.Approved -> transmitOnce(batch.batchId)
-                LanOutgoingBatchPhase.Rejected -> {
-                    outgoingPayloads.remove(batch.batchId)?.let { payload ->
+            when (batch.drive) {
+                LanOutgoingBatchDrive.AwaitingDecision,
+                LanOutgoingBatchDrive.Complete,
+                -> Unit
+                LanOutgoingBatchDrive.Sendable -> {
+                    publishOutgoingProgress(batch)
+                    transmitOnce(batch.batchId)
+                }
+                LanOutgoingBatchDrive.AwaitingReport -> publishOutgoingProgress(batch)
+                LanOutgoingBatchDrive.NeedsRebind -> completedOutgoing.remove(batch.batchId)
+                LanOutgoingBatchDrive.Rejected,
+                LanOutgoingBatchDrive.Failed,
+                -> {
+                    completedOutgoing.remove(batch.batchId)
+                    val failedPayload = outgoingPayloads.remove(batch.batchId)
+                    if (failedPayload != null) {
+                        val failureCode = batch.failureCode
                         _transferState.value =
                             ShareTransferState.Error(
-                                ShareTransferError(
-                                    ShareTransferErrorCode.TRANSFER_REJECTED,
-                                    deviceName = payload.deviceName,
-                                ),
+                                if (failureCode != null) {
+                                    ShareTransferErrorPolicy.refusal(failureCode, failedPayload.deviceName)
+                                } else {
+                                    ShareTransferErrorPolicy.transferRejected(failedPayload.deviceName)
+                                },
                             )
                     }
                 }
@@ -315,12 +334,21 @@ internal class RustLanShareService(
         }
     }
 
+    /** Progress is a durable fact: confirmed bytes over planned bytes, never wire traffic. */
+    private fun publishOutgoingProgress(batch: LanOutgoingBatch) {
+        if (!outgoingPayloads.containsKey(batch.batchId)) return
+        if (batch.totalBytes == 0uL) return
+        _transferState.value =
+            ShareTransferState.Transferring(
+                (batch.confirmedBytes.toFloat() / batch.totalBytes.toFloat()).coerceIn(0f, 1f),
+            )
+    }
+
     private fun transmitOnce(batchId: String) {
         if (!completedOutgoing.add(batchId)) return
         val payload = outgoingPayloads[batchId] ?: return
         appScope.launch(dispatcherProvider.io) {
             try {
-                _transferState.value = ShareTransferState.Transferring(0f)
                 sendByteArray(payload, payload.shape.bodySlot, payload.content)
                 payload.attachments.forEach { attachment ->
                     context.contentResolver.openInputStream(attachment.uri).required(attachment.uri).use { input ->
@@ -328,6 +356,7 @@ internal class RustLanShareService(
                     }
                 }
                 outgoingPayloads.remove(batchId)
+                // Completion is receipt-driven: send only returns after every ACK is durable.
                 _transferState.value = ShareTransferState.Success(payload.deviceName)
             } catch (error: CancellationException) {
                 completedOutgoing.remove(batchId)
@@ -339,32 +368,46 @@ internal class RustLanShareService(
         }
     }
 
-    private fun sendByteArray(payload: OutgoingPayload, slot: UInt, bytes: ByteArray) {
+    private fun sendByteArray(
+        payload: OutgoingPayload,
+        slot: UInt,
+        bytes: ByteArray,
+    ) {
         val width = payload.shape.chunkPlaintextBytes.toInt()
         val missing = engine.lanUnconfirmedBatchChunks(payload.batchId, 0u, slot).toHashSet()
+        val group = ArrayList<LanChunkSend>(payload.shape.maxInflightChunks.toInt())
         var index = 0
         var offset = 0
         while (offset < bytes.size) {
             val end = minOf(offset + width, bytes.size)
             if (index.toUInt() in missing) {
-                // behavior-contract: loop-io-ok: no bulk LAN chunk API; each iteration is one bounded chunk
-                engine.sendLanBatchChunk(
-                    payload.sessionId,
-                    payload.batchId,
-                    0u,
-                    slot,
-                    index.toUInt(),
-                    bytes.copyOfRange(offset, end),
+                group.add(
+                    LanChunkSend(
+                        payload.sessionId,
+                        payload.batchId,
+                        0u,
+                        slot,
+                        index.toUInt(),
+                        bytes.copyOfRange(offset, end),
+                    ),
                 )
+                flushChunkGroup(payload, group)
             }
             offset = end
             index++
         }
+        drainChunkGroup(group)
     }
 
-    private fun sendStream(payload: OutgoingPayload, slot: UInt, input: InputStream, sizeBytes: Long) {
+    private fun sendStream(
+        payload: OutgoingPayload,
+        slot: UInt,
+        input: InputStream,
+        sizeBytes: Long,
+    ) {
         val width = payload.shape.chunkPlaintextBytes.toInt()
         val missing = engine.lanUnconfirmedBatchChunks(payload.batchId, 0u, slot).toHashSet()
+        val group = ArrayList<LanChunkSend>(payload.shape.maxInflightChunks.toInt())
         var remaining = sizeBytes
         var index = 0
         while (remaining > 0L) {
@@ -372,19 +415,38 @@ internal class RustLanShareService(
             val chunk = input.readNBytes(expected)
             check(chunk.size == expected) { "LAN attachment source ended before its planned size" }
             if (index.toUInt() in missing) {
-                // behavior-contract: loop-io-ok: no bulk LAN chunk API; each iteration is one bounded chunk
-                engine.sendLanBatchChunk(
-                    payload.sessionId,
-                    payload.batchId,
-                    0u,
-                    slot,
-                    index.toUInt(),
-                    chunk,
+                group.add(
+                    LanChunkSend(
+                        payload.sessionId,
+                        payload.batchId,
+                        0u,
+                        slot,
+                        index.toUInt(),
+                        chunk,
+                    ),
                 )
+                flushChunkGroup(payload, group)
             }
             remaining -= expected
             index++
         }
+        drainChunkGroup(group)
+    }
+
+    /** Sends the group the moment it reaches the Rust-owned in-flight window. */
+    private fun flushChunkGroup(
+        payload: OutgoingPayload,
+        group: ArrayList<LanChunkSend>,
+    ) {
+        if (group.size >= payload.shape.maxInflightChunks.toInt()) {
+            drainChunkGroup(group)
+        }
+    }
+
+    private fun drainChunkGroup(group: ArrayList<LanChunkSend>) {
+        if (group.isEmpty()) return
+        engine.sendLanBatchChunks(group.toList())
+        group.clear()
     }
 
     private fun prepareAttachment(index: Int, reference: String, rawUri: String): PreparedAttachment {
@@ -471,7 +533,7 @@ private fun LanPairingChallenge.toDomain() =
     LanPairingRequest(pairingId, peerDeviceId, peerDisplayName, shortCode, deadlineMs)
 
 private fun LanPendingBatch.toDomain() =
-    preview.toDomain(sessionId, LanBatchDecision.Pending, emptyList())
+    preview.toDomain(sessionId, LanBatchDecision.Pending, emptyList(), 0uL)
 
 private fun LanBatchRecovery.toDomain() =
     preview.toDomain(
@@ -491,12 +553,14 @@ private fun LanBatchRecovery.toDomain() =
                     LanReceivedItemResult.Failed(item.itemId, item.itemIndex.toInt(), item.code)
             }
         },
+        confirmedBytes,
     )
 
 private fun LanBatchPreview.toDomain(
     sessionId: String,
     decision: LanBatchDecision,
     items: List<LanReceivedItemResult>,
+    confirmedBytes: ULong,
 ) = LanIncomingBatch(
     sessionId = sessionId,
     batchId = batchId,
@@ -508,6 +572,7 @@ private fun LanBatchPreview.toDomain(
     titles = titles,
     decision = decision,
     items = items,
+    confirmedBytes = confirmedBytes.toLong(),
 )
 
 private fun ByteArray.sha256(): String = MessageDigest.getInstance("SHA-256").digest(this).hex()
@@ -523,9 +588,9 @@ private fun InputStream?.required(uri: Uri): InputStream =
 
 private fun Exception.toTransferState(deviceName: String?): ShareTransferState.Error =
     ShareTransferState.Error(
-        ShareTransferError(
-            code = ShareTransferErrorCode.TRANSFER_FAILED,
-            detail = message,
-            deviceName = deviceName,
-        ),
+        when (this) {
+            is EngineCommandFailureException ->
+                ShareTransferErrorPolicy.fromEngineFailure(failure, deviceName)
+            else -> ShareTransferErrorPolicy.protocolFailed(deviceName, message)
+        },
     )

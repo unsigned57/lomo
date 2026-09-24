@@ -19,6 +19,9 @@ import java.util.concurrent.ConcurrentHashMap
 interface LanShareDiscoveryCoordinator {
     val discoveredDevices: StateFlow<List<DiscoveredDevice>>
 
+    /** Resolved NSD records that failed validation and were discarded, counted for observability. */
+    val rejectedRecordCount: StateFlow<Int>
+
     fun registerService(
         port: Int,
         deviceName: String,
@@ -46,6 +49,8 @@ class NsdDiscoveryService(
     private val listenerLock = Any()
     private val _discoveredDevices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
     override val discoveredDevices: StateFlow<List<DiscoveredDevice>> = _discoveredDevices.asStateFlow()
+    private val _rejectedRecordCount = MutableStateFlow(0)
+    override val rejectedRecordCount: StateFlow<Int> = _rejectedRecordCount.asStateFlow()
     private val serviceInfoCallbacks = ConcurrentHashMap<String, NsdManager.ServiceInfoCallback>()
     private val endpointRegistry = LanShareNsdEndpointRegistry()
     private var registrationListener: NsdManager.RegistrationListener? = null
@@ -275,6 +280,7 @@ class NsdDiscoveryService(
             )
         if (device == null) {
             removeResolvedService(serviceKey)
+            _rejectedRecordCount.update { it + 1 }
             Timber.tag(TAG).d("Ignored invalid or self NSD service: %s", serviceKey)
             return
         }
