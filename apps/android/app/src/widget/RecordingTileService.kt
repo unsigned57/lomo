@@ -65,17 +65,17 @@ class RecordingTileService : TileService(), KoinComponent {
 
     private fun handleClick() {
         when (
-            policy.decide(recordingSessionUseCase.state.value)
+            val action = policy.decide(recordingSessionUseCase.state.value)
         ) {
             TileClickAction.LaunchStartRecording ->
                 launchTrustedRecordingAction(
                     requestCode = START_RECORDING_REQUEST_CODE,
                     intent = trustedLaunchIntents.trustedQuickSettingsStartRecordingIntent(),
                 )
-            TileClickAction.LaunchStopRecording ->
+            is TileClickAction.LaunchStopRecording ->
                 launchTrustedRecordingAction(
                     requestCode = STOP_RECORDING_REQUEST_CODE,
-                    intent = trustedLaunchIntents.trustedQuickSettingsStopRecordingIntent(),
+                    intent = trustedLaunchIntents.trustedQuickSettingsStopRecordingIntent(action.captureId),
                 )
         }
         updateTile(recordingSessionUseCase.state.value)

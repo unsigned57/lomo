@@ -40,7 +40,7 @@ class RecordingTileClickPolicyTest : AppFunSpec() {
             action shouldBe TileClickAction.LaunchStartRecording
         }
 
-        test("given recording session when clicked then launch trusted stop recording activity command") {
+        test("given recording session when clicked then launch trusted stop command bound to that capture") {
             val action =
                 RecordingTileClickPolicy().decide(
                     RecordingSessionState.Recording(
@@ -50,7 +50,7 @@ class RecordingTileClickPolicyTest : AppFunSpec() {
                     ),
                 )
 
-            action shouldBe TileClickAction.LaunchStopRecording
+            action shouldBe TileClickAction.LaunchStopRecording(captureId = "recording-test")
         }
 
         test("presentation marks idle tile inactive with start label and recording tile active with stop label") {

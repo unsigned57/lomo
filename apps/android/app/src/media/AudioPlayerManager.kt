@@ -8,7 +8,9 @@ import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.AudioPlaybackResolverRepository
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
+import com.lomo.ui.media.AudioPlaybackFailure
 import com.lomo.ui.media.AudioPlayerController
+import com.lomo.ui.media.classifyPlaybackStartFailure
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -43,6 +45,9 @@ open class AudioPlayerManager(
 
         private val _duration = MutableStateFlow(0L)
         override val duration: StateFlow<Long> = _duration.asStateFlow()
+
+        private val _failure = MutableStateFlow<AudioPlaybackFailure?>(null)
+        override val failure: StateFlow<AudioPlaybackFailure?> = _failure.asStateFlow()
 
         private val coroutineExceptionHandler =
             CoroutineExceptionHandler { _, throwable ->
@@ -111,6 +116,20 @@ open class AudioPlayerManager(
                                     }
                                     updateDuration()
                                 }
+
+                                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                                    val source = _currentPlayingUri.value.orEmpty()
+                                    stopProgressUpdates()
+                                    _currentPlayingUri.value = null
+                                    _isPlaying.value = false
+                                    _failure.value =
+                                        if (error.cause is SecurityException) {
+                                            AudioPlaybackFailure.PermissionDenied(source)
+                                        } else {
+                                            AudioPlaybackFailure.Playback(source)
+                                        }
+                                    logAudioPlayerError("Playback failed", error)
+                                }
                             },
                         )
                     }
@@ -144,9 +163,14 @@ open class AudioPlayerManager(
         open override fun play(uri: String) {
             ensureActiveScope()
             scope.launch {
+                val resolvedUri = uriResolver.resolve(uri)
+                if (resolvedUri == null) {
+                    _failure.value = AudioPlaybackFailure.Resolve(uri)
+                    return@launch
+                }
+                _failure.value = null
                 ensurePlayer()
                 val currentPlayer = player ?: return@launch
-                val resolvedUri = uriResolver.resolve(uri) ?: return@launch
 
                 if (_currentPlayingUri.value == uri) {
                     togglePlayback(currentPlayer)
@@ -180,7 +204,10 @@ open class AudioPlayerManager(
                 _currentPlayingUri.value = uri
             }.onFailure { throwable ->
                 if (throwable is CancellationException) throw throwable
-                logAudioPlayerError("Failed to start playback for uri=$uri", throwable)
+                _currentPlayingUri.value = null
+                _isPlaying.value = false
+                _failure.value = classifyPlaybackStartFailure(uri, throwable)
+                logAudioPlayerError("Failed to start playback", throwable)
             }
         }
 
@@ -198,6 +225,7 @@ open class AudioPlayerManager(
             player?.stop()
             _currentPlayingUri.value = null
             _isPlaying.value = false
+            _failure.value = null
         }
 
         open override fun release() {
@@ -208,6 +236,7 @@ open class AudioPlayerManager(
             _isPlaying.value = false
             _playbackPosition.value = 0
             _duration.value = 0
+            _failure.value = null
         }
 
         open override fun updateProgress() {
