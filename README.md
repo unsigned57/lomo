@@ -95,21 +95,30 @@ For a long time, I relied on the Thino plugin in Obsidian. While Thino covers th
 2. Install on an Android device (Min SDK 26)
 3. On first launch, choose a local folder for your memos
 
-**Linux (x86_64 TUI)**
+**Desktop TUI (Linux, macOS, Windows)**
 
-1. Build a generic archive from this repository with `just package-linux` (writes `target/lomo/dist/lomo-linux-x86_64.tar.gz`). Run the TUI from a checkout with `just tui` (optional workspace path: `just tui /path/to/notes`).
-2. Extract it. First run writes `$XDG_CONFIG_HOME/lomo/config.toml` (usually `~/.config/lomo/config.toml`) with `workspace` set to `$HOME/Notes`. Pass a directory on the command line to bind that folder instead: `lomo /path/to/notes`. You can still start from `config/config.toml.example`.
+1. Grab the archive for your platform from GitHub Releases, verify the `.sha256` checksum, and unpack `lomo`:
+   - Linux x86_64: `lomo-*-x86_64-unknown-linux-gnu.tar.gz` (Arch users can instead run `makepkg -si` inside `apps/tui/packaging/arch/lomo-bin`)
+   - macOS Apple Silicon / Intel: `lomo-*-aarch64-apple-darwin.tar.gz` / `lomo-*-x86_64-apple-darwin.tar.gz` — untagged builds are unsigned; if Gatekeeper blocks the binary, clear it with `xattr -d com.apple.quarantine lomo` or allow it in System Settings
+   - Windows x86_64: `lomo-*-x86_64-pc-windows-msvc.zip` — run `lomo.exe` in Windows Terminal, PowerShell, or a console host
+   - Or run from a checkout on any platform: `cargo run -p lomo-tui --release --locked`
+2. Pass a directory on the command line to bind it as the workspace: `lomo /path/to/notes`. First run writes `config.toml` under the platform config dir with `workspace` set to `~/Notes`; you can still start from `config/config.toml.example`:
+   - Linux: `$XDG_CONFIG_HOME/lomo/` (usually `~/.config/lomo/`)
+   - macOS: `~/Library/Application Support/lomo/`
+   - Windows: `%APPDATA%\lomo\`
 3. Set `workspace` to your notes directory. Editor priority is that config, then `$VISUAL`, then `$EDITOR` (never a vim default)
-4. `$XDG_RUNTIME_DIR` is required. Missing clipboard or player fails closed instead of pretending success
+4. Linux requires `$XDG_RUNTIME_DIR`; macOS and Windows fall back to a private `run` directory. Missing clipboard or player fails closed instead of pretending success. The media opener defaults to `xdg-open` on Linux, `open` on macOS, and `Start-Process` via PowerShell on Windows — override with `player = [...]` in `config.toml`
+5. Diagnostics: `LOMO_LOG=debug lomo` writes `lomo.log` under the state dir (`$XDG_STATE_HOME/lomo/` on Linux, `~/Library/Application Support/lomo/` on macOS, `%LOCALAPPDATA%\lomo\` on Windows); a crash restores the terminal and writes a report under `<state>/crash/`
 
 The home screen is a centered, single-column memo feed.
 
 - `Enter` opens full text; `Esc` restores the reading position
 - `n` opens a recoverable multiline draft; `Ctrl+S` saves; `Ctrl+E` hands the draft to an external editor; `e` edits an existing memo externally
-- `/`, `t`, `c` combine search, tag, and date filters; `Ctrl+P` opens the searchable function menu; `.` opens memo actions
+- `/` searches (`Ctrl+F` switches fulltext / fuzzy + pinyin); `:` opens the grouped command palette (this item, filters, pages, everything else); `.` shows only the current item's actions; `e` `m` `d` edit, pin and trash directly
+- `Esc` peels one layer at a time and the hint bar always names what it will do next
 - Terminals with an image protocol render images in full text
 
-Linux built-in Git/WebDAV/S3 sync and LAN sharing are not in this first round; copy the Markdown workspace (and `.lomo`) or use an external file sync tool.
+The desktop TUI has no built-in Git/WebDAV/S3 sync or LAN sharing in this round; copy the Markdown workspace (and `.lomo`) or use an external file sync tool.
 
 Building from source is covered under **Building** below.
 
@@ -120,13 +129,13 @@ If Lomo is useful to you, you can support the project here: [Sponsor page](docs/
 <details>
 <summary>Tech stack</summary>
 
-- **Languages:** Kotlin + Rust (Rust native core via JNI). Linux TUI is a host binary with no JNI.
-- **UI:** Jetpack Compose (Material 3) on Android; Ratatui terminal UI on Linux
-- **Architecture:** MVVM + Clean Architecture (Domain / Data / UI) on Android; TEA composition root on Linux
+- **Languages:** Kotlin + Rust (Rust native core via JNI). The desktop TUI is a host binary with no JNI.
+- **UI:** Jetpack Compose (Material 3) on Android; Ratatui terminal UI on desktop
+- **Architecture:** MVVM + Clean Architecture (Domain / Data / UI) on Android; TEA composition root on desktop
 - **DI:** Koin (Android)
 - **Async:** Coroutines & Flow (Android)
 - **Data:**
-  - Markdown workspace storage through the Storage Access Framework on Android, POSIX files on Linux
+  - Markdown workspace storage through the Storage Access Framework on Android, host filesystem on desktop
   - Rust-owned SQLite derived index and durable `.lomo` state
 
 </details>
@@ -143,15 +152,13 @@ just bootstrap
 # Build and validate Debug APK
 just android debug
 
-# Linux host gate (no Android toolchain), TUI, and generic archive
-just check-linux
-just tui
-just package-linux
+# Run the TUI
+cargo run -p lomo-tui --release --locked
 
-# Run Rust and Kotlin host tests
-just test
+# Worktree iteration gate (add --tests-only to skip static analysis)
+just dev
 
-# Iterative / full pre-merge gates
+# Handoff / merge gates
 just check
 just ci
 ```

@@ -20,7 +20,7 @@ Language-neutral golden outputs for Kotlin characterization (and later Rust prob
 Missing goldens **fail closed**. Tests never invent a golden on a normal run.
 
 ```bash
-LOMO_UPDATE_CHARACTERIZATION=1 just test
+LOMO_UPDATE_CHARACTERIZATION=1 cargo nextest run --workspace --all-features --locked
 # or the single characterization suite once wired through the Kotlin toolchain
 ```
 

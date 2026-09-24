@@ -74,9 +74,14 @@ facts are defined in [quality/README.md](quality/README.md).
   and relevant `cargo test -p <crate> … --locked`.
 - **Before closing a Kotlin package:** `./kotlin test --include-module=<module> --include-classes='…'`
   for changed specs, or the module suite for a broad change.
+- **Tests-only worktree sweep without static analysis:** `just dev --tests-only`.
 - **Native/FFI/lock/packaging changes:** regenerate and validate the affected generated/pack surface.
-- **Review/push handoff:** `just check`. Manual `just preflight` is an iteration aid, not a substitute.
-- **Merge/shared-branch delivery:** `just ci`. Pre-push automatically runs `just preflight push`.
+- **Dependency manifest changes:** `just deps check` before handoff (`just deps update` applies).
+- **Review/push handoff:** `just check`. `just dev` is the iteration aid, not a substitute.
+- **Merge/shared-branch delivery:** `just ci`. Pre-push automatically runs the push gate
+  (`just _preflight`), which includes diff-scoped `cargo mutants` on every touched Rust crate.
+- **Manual diagnostics, not gates:** `just perf`, `just cache audit`; a full mutation sweep is
+  `cargo mutants` directly (no recipe).
 
 Record actual commands and results. Compilation alone is not GREEN when behavior tests exist.
 A required failing/unavailable gate keeps the package **open**; report its blocker and never mark

@@ -95,21 +95,30 @@ Lomo 的灵感来自于许多优秀的前辈，如 **Memos**、**Flomo**、**Moe
 2. 安装到 Android 设备（Min SDK 26）
 3. 首次启动时，选择一个本地文件夹存放备忘录
 
-**Linux（x86_64 TUI）**
+**桌面 TUI（Linux / macOS / Windows）**
 
-1. 在本仓库执行 `just package-linux`，生成 `target/lomo/dist/lomo-linux-x86_64.tar.gz`。从源码运行 TUI：`just tui`（可选工作区路径：`just tui /path/to/notes`）。
-2. 解压后首次运行会写入 `$XDG_CONFIG_HOME/lomo/config.toml`（通常是 `~/.config/lomo/config.toml`），默认 `workspace` 为 `~/Notes`。也可启动时指定目录：`lomo /path/to/notes`。仍可从 `config/config.toml.example` 复制后自行修改。
+1. 从 GitHub Releases 下载对应平台的压缩包，校验 `.sha256` 后解出 `lomo`：
+   - Linux x86_64：`lomo-*-x86_64-unknown-linux-gnu.tar.gz`（Arch 用户也可在 `apps/tui/packaging/arch/lomo-bin` 里执行 `makepkg -si`）
+   - macOS Apple Silicon / Intel：`lomo-*-aarch64-apple-darwin.tar.gz` / `lomo-*-x86_64-apple-darwin.tar.gz`——构建未签名，若被 Gatekeeper 拦截可用 `xattr -d com.apple.quarantine lomo` 或在系统设置中放行
+   - Windows x86_64：`lomo-*-x86_64-pc-windows-msvc.zip`——在 Windows Terminal、PowerShell 或控制台中运行 `lomo.exe`
+   - 也可在任意平台从源码运行：`cargo run -p lomo-tui --release --locked`
+2. 启动时指定目录可将其绑定为工作区：`lomo /path/to/notes`。首次运行会在平台配置目录写入 `config.toml`，默认 `workspace` 为 `~/Notes`；仍可从 `config/config.toml.example` 复制后自行修改：
+   - Linux：`$XDG_CONFIG_HOME/lomo/`（通常是 `~/.config/lomo/`）
+   - macOS：`~/Library/Application Support/lomo/`
+   - Windows：`%APPDATA%\lomo\`
 3. 将 `workspace` 指到笔记目录。编辑器优先级为该配置，其次 `$VISUAL`，再次 `$EDITOR`（绝不默认 vim）
-4. 必须设置 `$XDG_RUNTIME_DIR`。缺少剪贴板或播放器时失败封闭，不伪造成功
+4. Linux 必须设置 `$XDG_RUNTIME_DIR`；macOS 与 Windows 回退到私有 `run` 目录。缺少剪贴板或播放器时失败封闭，不伪造成功。媒体打开器默认 Linux 用 `xdg-open`、macOS 用 `open`、Windows 经 PowerShell 调 `Start-Process`——可在 `config.toml` 用 `player = [...]` 覆盖
+5. 诊断：`LOMO_LOG=debug lomo` 把 `lomo.log` 写进状态目录（Linux 为 `$XDG_STATE_HOME/lomo/`，macOS 为 `~/Library/Application Support/lomo/`，Windows 为 `%LOCALAPPDATA%\lomo\`）；崩溃时恢复终端并把报告写到 `<state>/crash/`
 
 主界面是居中的单列正文流。
 
 - `Enter` 阅读全文，`Esc` 恢复阅读位置
 - `n` 展开可恢复的多行速记，`Ctrl+S` 保存，`Ctrl+E` 将草稿交给外部编辑器，`e` 在外部编辑器修改已有记录
-- `/`、`t`、`c` 组合关键词、标签和日期筛选；`Ctrl+P` 打开可搜索的功能菜单；`.` 打开记录操作
+- `/` 搜索（`Ctrl+F` 切换全文／模糊拼音）；`:` 打开分组命令面板（当前项、筛选、页面、全局）；`.` 只显示当前项的操作；`e` `m` `d` 直接编辑、置顶、移入回收站
+- `Esc` 每次只退回一层，提示行始终写明它接下来会做什么
 - 支持图片协议的终端可在全文页显示图片
 
-本轮 Linux 不含内置 Git/WebDAV/S3 同步与局域网分享；跨端交换请复制 Markdown 工作区（含 `.lomo`）或使用外部文件同步。
+本轮桌面 TUI 不含内置 Git/WebDAV/S3 同步与局域网分享；跨端交换请复制 Markdown 工作区（含 `.lomo`）或使用外部文件同步。
 
 从源码构建见下方 **构建指南**。
 
@@ -120,13 +129,13 @@ Lomo 的灵感来自于许多优秀的前辈，如 **Memos**、**Flomo**、**Moe
 <details>
 <summary>技术栈</summary>
 
-- **语言：** Kotlin + Rust（Rust 原生核心通过 JNI 接入）。Linux TUI 是无 JNI 的宿主二进制
-- **UI：** Android 为 Jetpack Compose（Material 3）；Linux 为 Ratatui 终端界面
-- **架构：** Android 为 MVVM + Clean Architecture（Domain / Data / UI）；Linux 为 TEA 组合根
+- **语言：** Kotlin + Rust（Rust 原生核心通过 JNI 接入）。桌面 TUI 是无 JNI 的宿主二进制
+- **UI：** Android 为 Jetpack Compose（Material 3）；桌面为 Ratatui 终端界面
+- **架构：** Android 为 MVVM + Clean Architecture（Domain / Data / UI）；桌面为 TEA 组合根
 - **依赖注入：** Koin（Android）
 - **异步：** Coroutines & Flow（Android）
 - **数据：**
-  - Android 通过 Storage Access Framework 管理 Markdown 工作区，Linux 使用 POSIX 文件
+  - Android 通过 Storage Access Framework 管理 Markdown 工作区，桌面使用宿主文件系统
   - Rust 管理的 SQLite 派生索引与耐久 `.lomo` 状态
 
 </details>
@@ -143,15 +152,13 @@ just bootstrap
 # 构建并校验 Debug APK
 just android debug
 
-# Linux 宿主门禁（不调用 Android 工具链）与通用 TUI 归档
-just check-linux
-just tui
-just package-linux
+# 运行 TUI
+cargo run -p lomo-tui --release --locked
 
-# 运行 Rust 与 Kotlin host tests
-just test
+# 工作树迭代门禁（加 --tests-only 跳过静态分析）
+just dev
 
-# 迭代检查 / 完整合并前门禁
+# 移交 / 合并门禁
 just check
 just ci
 ```
