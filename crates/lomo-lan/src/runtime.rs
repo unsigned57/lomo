@@ -14,6 +14,7 @@ use crate::journal::LanStagedPayload;
 use aws_lc_rs::agreement;
 use aws_lc_rs::rand::{SecureRandom, SystemRandom};
 use lomo_core::{ErrorCategory, LomoError};
+use sha2::{Digest, Sha256};
 
 use crate::batch::{
     LanApproval, LanAttachmentRef, LanBatchDecision, LanBatchId, LanBatchPlan, LanBatchPreview,
@@ -24,13 +25,15 @@ use crate::commit::{
     ApprovedGeneration, AuthorizedReceivedAttachment, AuthorizedReceivedCreate, ReceivedItem,
     authorize_item_commit,
 };
-use crate::error::{authentication, conflict, network, permission, resource_limit, validation};
+use crate::error::{
+    authentication, conflict, internal, network, permission, resource_limit, validation,
+};
 use crate::frame::{FrameKind, LAN_PROTOCOL_VERSION, LanFrame};
 use crate::identity::{DeviceId, DisplayName, PeerRecord};
 use crate::journal::{LanDurableOutgoingBatch, LanJournal, LanJournalPaths, LanOutgoingDecision};
 use crate::pairing::{PairingTranscript, derive_pairing_code, verify_pairing_confirmation};
 use crate::session::{
-    ATTACHMENT_SLOT_BODY, ChunkBinding, ControlBinding, LanDirection, LanSessionId,
+    ATTACHMENT_SLOT_BODY, ChunkBinding, ControlBinding, LanDirection, LanSessionId, NONCE_BYTES,
     SessionControlKind, SessionKey, SessionTranscript,
 };
 use crate::transport::{LanDeadlines, bind_listener, connect_peer, poll_peer};
@@ -523,6 +526,11 @@ struct ActiveSession {
     role: SessionRole,
     next_control_send: u32,
     last_control_recv: Option<u32>,
+    /// SHA-256 of the first plaintext planned for each chunk coordinate in this session. A
+    /// deterministic chunk nonce may only ever seal identical bytes for one coordinate; the pin
+    /// turns "same coordinate, different source bytes" into a planning refusal instead of a
+    /// nonce-reused second seal.
+    planned_digests: BTreeMap<ChunkBinding, [u8; 32]>,
 }
 
 impl ActiveSession {
@@ -1279,6 +1287,10 @@ impl LanServiceManager {
 
     /// Begins one pairing exchange over the Rust-owned v2 framed socket.
     ///
+    /// Composed single-call path for callers that may block under their own lock discipline:
+    /// [`Self::plan_pairing`] under the lock, [`LanPairingExchange::exchange`] off-lock, then
+    /// [`Self::apply_pairing_exchange`] under the lock again.
+    ///
     /// # Errors
     ///
     /// Validation for a non-positive TTL or missing identity; authentication for a revoked peer;
@@ -1289,6 +1301,28 @@ impl LanServiceManager {
         now_ms: i64,
         ttl_ms: i64,
     ) -> Result<LanPairingChallenge, LomoError> {
+        let exchange = self.plan_pairing(peer, now_ms, ttl_ms)?;
+        let reply = exchange.exchange()?;
+        self.apply_pairing_exchange(exchange, &reply)
+    }
+
+    /// Plans one outbound pairing hello: every check and the ephemeral generation run under the
+    /// caller's lock, but no byte touches a socket here.
+    ///
+    /// The declared deadline is clamped to the local pairing TTL: a deadline is a promise about
+    /// *our own* pending capacity, so it can never exceed the local horizon even when a caller
+    /// asks for longer.
+    ///
+    /// # Errors
+    ///
+    /// Validation for a non-positive TTL, missing identity or a stopped listener; authentication
+    /// for a revoked peer.
+    pub fn plan_pairing(
+        &mut self,
+        peer: &DiscoveredPeerEndpoint,
+        now_ms: i64,
+        ttl_ms: i64,
+    ) -> Result<LanPairingExchange, LomoError> {
         if ttl_ms <= 0 {
             return Err(validation(
                 "lan_pairing_ttl_invalid",
@@ -1317,18 +1351,32 @@ impl LanServiceManager {
             display_name: local.display_name.clone(),
             ephemeral_public: ephemeral.public.clone(),
             listen_port,
-            deadline_ms: now_ms.saturating_add(ttl_ms),
+            deadline_ms: now_ms.saturating_add(ttl_ms.min(crate::limits::PAIRING_TTL_MS)),
         };
-        let mut stream = connect_peer(
-            peer.address(),
-            PAIRING_SOCKET_DEADLINE,
-            pairing_deadlines()?,
-        )?;
-        stream.write_frame(&LanFrame::new(
-            FrameKind::PairHello,
-            encode_pair_hello(&hello),
-        )?)?;
-        let accept_frame = stream.read_frame()?;
+        Ok(LanPairingExchange {
+            pairing_id,
+            local,
+            ephemeral,
+            peer_device_id: peer.device_id().clone(),
+            peer_address: peer.address(),
+            frame: LanFrame::new(FrameKind::PairHello, encode_pair_hello(&hello))?,
+            hello,
+        })
+    }
+
+    /// Commits an answered pairing exchange: authenticates the accept and installs the pending
+    /// challenge under the caller's lock. A refusal reply surfaces as a typed conflict; any other
+    /// frame kind is an ordering violation.
+    ///
+    /// # Errors
+    ///
+    /// Conflict for a peer refusal; validation/authentication for a malformed, mismatched or
+    /// out-of-order accept.
+    pub fn apply_pairing_exchange(
+        &mut self,
+        exchange: LanPairingExchange,
+        accept_frame: &LanFrame,
+    ) -> Result<LanPairingChallenge, LomoError> {
         if accept_frame.kind() == FrameKind::Error {
             let code = decode_error_reply(accept_frame.payload())?;
             return Err(conflict(
@@ -1343,42 +1391,42 @@ impl LanServiceManager {
             ));
         }
         let accept = decode_pair_accept(accept_frame.payload())?;
-        if accept.pairing_id != pairing_id {
+        if accept.pairing_id != exchange.pairing_id {
             return Err(validation(
                 "lan_pairing_id_mismatch",
                 "pairing response identity does not match the request",
             ));
         }
-        if DeviceId::derive(&accept.public_key) != *peer.device_id() {
+        if DeviceId::derive(&accept.public_key) != exchange.peer_device_id {
             return Err(authentication(
                 "lan_pairing_peer_mismatch",
                 "pairing response key does not match the discovered peer identity",
             ));
         }
-        let shared = ephemeral.agree(&accept.ephemeral_public)?;
+        let shared = exchange.ephemeral.agree(&accept.ephemeral_public)?;
         let transcript = PairingTranscript::build(
-            &local.public_key,
-            &local.display_name,
-            &hello.ephemeral_public,
+            &exchange.local.public_key,
+            &exchange.local.display_name,
+            &exchange.hello.ephemeral_public,
             &accept.public_key,
             &accept.display_name,
             &accept.ephemeral_public,
             &shared,
         )?;
         let challenge = pairing_challenge(
-            pairing_id.clone(),
+            exchange.pairing_id.clone(),
             &accept.public_key,
             accept.display_name.clone(),
             &transcript,
-            hello.deadline_ms,
+            exchange.hello.deadline_ms,
         );
         self.pending_pairings.insert(
-            pairing_id,
+            exchange.pairing_id,
             PendingPairing {
                 challenge: challenge.clone(),
                 transcript,
                 peer_public_key: accept.public_key,
-                peer_address: peer.address(),
+                peer_address: exchange.peer_address,
                 local_confirmed: false,
                 peer_signature: None,
             },
@@ -1563,6 +1611,11 @@ impl LanServiceManager {
             "lan_pairing_expired",
             "pairing hello arrived after its deadline",
         )?;
+        // The peer-declared deadline is a request, never a grant: our pending slot is bounded by
+        // the local pairing TTL, so `i64::MAX` cannot pin the capacity budget forever.
+        let effective_deadline = hello
+            .deadline_ms
+            .min(now_ms.saturating_add(crate::limits::PAIRING_TTL_MS));
         let local = self.identity.clone().ok_or_else(identity_missing)?;
         self.admit_pair_hello(peer_address.ip(), now_ms)?;
         let ephemeral = EphemeralKey::generate()?;
@@ -1590,7 +1643,7 @@ impl LanServiceManager {
             &hello.public_key,
             hello.display_name.clone(),
             &transcript,
-            hello.deadline_ms,
+            effective_deadline,
         );
         self.pending_pairings.insert(
             hello.pairing_id,
@@ -1669,21 +1722,27 @@ impl LanServiceManager {
             "lan_session_expired",
             "session hello arrived after its deadline",
         )?;
+        // The peer-declared deadline is a request, never a grant: our pending slot is bounded by
+        // the local session TTL, so `i64::MAX` cannot pin the capacity budget forever.
+        let effective_deadline = hello
+            .deadline_ms
+            .min(now_ms.saturating_add(crate::limits::SESSION_TTL_MS));
         self.assert_fresh_session(&hello.session_id)?;
-        self.pending_sessions
-            .retain(|_session_id, pending| pending.challenge.deadline_ms > now_ms);
-        if self.pending_sessions.len() >= crate::limits::MAX_PENDING_SESSIONS {
-            return Err(resource_limit(
-                "lan_session_capacity",
-                "the pending-session budget is exhausted; retry after confirmations or expiry",
-            ));
-        }
+        // Trust before capacity: an untrusted hello must not learn whether the budget is full.
         let peer_device_id = DeviceId::derive(&hello.public_key);
         let trusted = self.trusted_peer(&peer_device_id)?;
         if hello.public_key != *trusted.public_key() {
             return Err(authentication(
                 "lan_session_peer_mismatch",
                 "session opener key does not match the trusted peer record",
+            ));
+        }
+        self.pending_sessions
+            .retain(|_session_id, pending| pending.challenge.deadline_ms > now_ms);
+        if self.pending_sessions.len() >= crate::limits::MAX_PENDING_SESSIONS {
+            return Err(resource_limit(
+                "lan_session_capacity",
+                "the pending-session budget is exhausted; retry after confirmations or expiry",
             ));
         }
         let local = self.identity.clone().ok_or_else(identity_missing)?;
@@ -1709,7 +1768,7 @@ impl LanServiceManager {
             hello.session_id.clone(),
             peer_device_id,
             &transcript,
-            hello.deadline_ms,
+            effective_deadline,
         );
         self.pending_sessions.insert(
             hello.session_id,
@@ -1784,9 +1843,18 @@ impl LanServiceManager {
             self.apply_batch_prepare(&control, plan, peer_id, peer.display_name(), now_ms)
         {
             if error_is_peer_refusal(&error) {
+                // The refusal is itself a sealed control bound to this session/batch — a
+                // cleartext code could be forged onto any pending send.
+                let refusal = self.seal_batch_control(
+                    &control.session_id,
+                    &control.batch_id,
+                    FrameKind::Error,
+                    SessionControlKind::Refusal,
+                    error.code().as_bytes().to_vec(),
+                )?;
                 return Ok(Some(LanFrame::new(
                     FrameKind::Error,
-                    encode_error_reply(error.code()),
+                    encode_batch_control(&refusal),
                 )?));
             }
             return Err(error);
@@ -2059,16 +2127,54 @@ impl LanServiceManager {
     fn handle_chunk(&mut self, payload: &[u8], now_ms: i64) -> Result<Option<LanFrame>, LomoError> {
         let transfer = decode_chunk_transfer(payload)?;
         match self.apply_chunk(&transfer, now_ms) {
-            Ok(receipt) => Ok(Some(LanFrame::new(
+            Ok(receipt) => Ok(Some(self.seal_chunk_response_frame(
+                &receipt,
                 FrameKind::ChunkAck,
-                encode_chunk_receipt(&receipt),
+                false,
+                Vec::new(),
             )?)),
-            Err(error) if error_is_peer_refusal(&error) => Ok(Some(LanFrame::new(
-                FrameKind::Error,
-                encode_error_reply(error.code()),
-            )?)),
+            Err(error) if error_is_peer_refusal(&error) => {
+                Ok(Some(self.seal_chunk_response_frame(
+                    &transfer.receipt,
+                    FrameKind::Error,
+                    true,
+                    error.code().as_bytes().to_vec(),
+                )?))
+            }
             Err(error) => Err(error),
         }
+    }
+
+    /// Builds `receipt ∥ nonce ∥ sealed(body)` under the reply direction's batch key. The
+    /// cleartext receipt exists only for the sender's window routing; the durable effect
+    /// (acknowledged or refused) is settled exclusively by the sealed body.
+    fn seal_chunk_response_frame(
+        &self,
+        receipt: &ChunkReceipt,
+        kind: FrameKind,
+        refusal: bool,
+        body: Vec<u8>,
+    ) -> Result<LanFrame, LomoError> {
+        let active = self.active_session(&receipt.session_id)?;
+        let binding = receipt.binding()?;
+        let mut nonce = [0_u8; NONCE_BYTES];
+        SystemRandom::new().fill(&mut nonce).map_err(|_error| {
+            internal(
+                "lan_nonce_random_failed",
+                "secure random generation failed for a chunk response nonce",
+            )
+        })?;
+        let sealed = active.key.seal_chunk_response(
+            active.role.send_direction(),
+            &binding,
+            nonce,
+            refusal,
+            body,
+        )?;
+        let mut payload = encode_chunk_receipt(receipt);
+        payload.extend_from_slice(&nonce);
+        payload.extend_from_slice(&sealed);
+        LanFrame::new(kind, payload)
     }
 
     /// The durable half of one inbound chunk: session trust, batch binding, approval window,
@@ -2166,6 +2272,9 @@ impl LanServiceManager {
 
     /// Records local user confirmation and sends only the device-key signature to the peer.
     ///
+    /// Composed single-call path: [`Self::plan_pairing_confirm`] under the lock,
+    /// [`LanControlSend::deliver`] off-lock, [`Self::apply_pairing_confirmed`] under the lock.
+    ///
     /// # Errors
     ///
     /// Permission after deadline; authentication for an invalid local signature; network for the
@@ -2176,10 +2285,28 @@ impl LanServiceManager {
         signature: &[u8],
         now_ms: i64,
     ) -> Result<(), LomoError> {
+        let send = self.plan_pairing_confirm(pairing_id, signature, now_ms)?;
+        send.deliver()?;
+        self.apply_pairing_confirmed(pairing_id, now_ms)
+    }
+
+    /// Plans one pairing confirmation: the signature is verified against the pending transcript
+    /// and the frame is built under the caller's lock; no socket is touched.
+    ///
+    /// # Errors
+    ///
+    /// Validation when the pairing is not pending; permission after its deadline; authentication
+    /// for an invalid local signature.
+    pub fn plan_pairing_confirm(
+        &mut self,
+        pairing_id: &LanPairingId,
+        signature: &[u8],
+        now_ms: i64,
+    ) -> Result<LanControlSend, LomoError> {
         let local = self.identity.clone().ok_or_else(identity_missing)?;
         let pending = self
             .pending_pairings
-            .get_mut(pairing_id)
+            .get(pairing_id)
             .ok_or_else(|| validation("lan_pairing_unknown", "pairing is not pending"))?;
         if now_ms > pending.challenge.deadline_ms {
             return Err(permission(
@@ -2192,23 +2319,43 @@ impl LanServiceManager {
             signature,
             "lan_pairing_signature_invalid",
         )?;
-        let mut stream = connect_peer(
-            pending.peer_address,
-            PAIRING_SOCKET_DEADLINE,
-            pairing_deadlines()?,
-        )?;
-        stream.write_frame(&LanFrame::new(
-            FrameKind::PairConfirm,
-            encode_pair_confirm(&PairConfirm {
-                pairing_id: pairing_id.clone(),
-                signature: signature.to_vec(),
-            }),
-        )?)?;
+        Ok(LanControlSend {
+            address: pending.peer_address,
+            frame: LanFrame::new(
+                FrameKind::PairConfirm,
+                encode_pair_confirm(&PairConfirm {
+                    pairing_id: pairing_id.clone(),
+                    signature: signature.to_vec(),
+                }),
+            )?,
+        })
+    }
+
+    /// Marks the local confirmation durably after the confirm frame left the wire; completes the
+    /// pairing when the peer's signature already arrived.
+    ///
+    /// # Errors
+    ///
+    /// Validation when the pairing is not pending; storage when the trusted-peer record cannot
+    /// be journaled.
+    pub fn apply_pairing_confirmed(
+        &mut self,
+        pairing_id: &LanPairingId,
+        now_ms: i64,
+    ) -> Result<(), LomoError> {
+        let pending = self
+            .pending_pairings
+            .get_mut(pairing_id)
+            .ok_or_else(|| validation("lan_pairing_unknown", "pairing is not pending"))?;
         pending.local_confirmed = true;
         self.commit_pair_if_complete(pairing_id, now_ms)
     }
 
     /// Opens a fresh mutually authenticated session with a trusted discovered peer.
+    ///
+    /// Composed single-call path: [`Self::plan_session`] under the lock,
+    /// [`LanSessionExchange::exchange`] off-lock, then [`Self::apply_session_exchange`] under
+    /// the lock again.
     ///
     /// # Errors
     ///
@@ -2220,13 +2367,32 @@ impl LanServiceManager {
         now_ms: i64,
         ttl_ms: i64,
     ) -> Result<LanSessionChallenge, LomoError> {
+        let exchange = self.plan_session(peer, now_ms, ttl_ms)?;
+        let reply = exchange.exchange()?;
+        self.apply_session_exchange(exchange, &reply)
+    }
+
+    /// Plans one outbound session hello: trust, freshness and ephemeral generation under the
+    /// caller's lock; no socket is touched. The declared deadline is clamped to the local
+    /// session TTL so a pending session can never outlive the local horizon.
+    ///
+    /// # Errors
+    ///
+    /// Authentication for an unknown/revoked peer or a replayed session id; validation for a
+    /// non-positive TTL or a stopped listener.
+    pub fn plan_session(
+        &mut self,
+        peer: &DiscoveredPeerEndpoint,
+        now_ms: i64,
+        ttl_ms: i64,
+    ) -> Result<LanSessionExchange, LomoError> {
         if ttl_ms <= 0 {
             return Err(validation(
                 "lan_session_ttl_invalid",
                 "session time-to-live must be positive",
             ));
         }
-        let trusted = self.trusted_peer(peer.device_id())?.clone();
+        self.trusted_peer(peer.device_id())?;
         let local = self.identity.clone().ok_or_else(identity_missing)?;
         let listen_port = self.listening_port()?;
         let session_id = generate_session_id()?;
@@ -2237,18 +2403,31 @@ impl LanServiceManager {
             public_key: local.public_key.clone(),
             ephemeral_public: ephemeral.public.clone(),
             listen_port,
-            deadline_ms: now_ms.saturating_add(ttl_ms),
+            deadline_ms: now_ms.saturating_add(ttl_ms.min(crate::limits::SESSION_TTL_MS)),
         };
-        let mut stream = connect_peer(
-            peer.address(),
-            PAIRING_SOCKET_DEADLINE,
-            pairing_deadlines()?,
-        )?;
-        stream.write_frame(&LanFrame::new(
-            FrameKind::SessionHello,
-            encode_session_hello(&hello),
-        )?)?;
-        let frame = stream.read_frame()?;
+        Ok(LanSessionExchange {
+            session_id,
+            local,
+            ephemeral,
+            peer_device_id: peer.device_id().clone(),
+            peer_address: peer.address(),
+            frame: LanFrame::new(FrameKind::SessionHello, encode_session_hello(&hello))?,
+            hello,
+        })
+    }
+
+    /// Commits an answered session exchange: the peer key is re-checked against the *current*
+    /// trusted record so a revocation landing between plan and apply still wins.
+    ///
+    /// # Errors
+    ///
+    /// Conflict for a peer refusal; validation/authentication for a malformed, mismatched or
+    /// replayed accept.
+    pub fn apply_session_exchange(
+        &mut self,
+        exchange: LanSessionExchange,
+        frame: &LanFrame,
+    ) -> Result<LanSessionChallenge, LomoError> {
         if frame.kind() == FrameKind::Error {
             let code = decode_error_reply(frame.payload())?;
             return Err(conflict(
@@ -2263,40 +2442,46 @@ impl LanServiceManager {
             ));
         }
         let accept = decode_session_accept(frame.payload())?;
-        if accept.session_id != session_id {
+        if accept.session_id != exchange.session_id {
             return Err(authentication(
                 "lan_session_id_mismatch",
                 "session response identity does not match the request",
             ));
         }
         let accepted_device_id = DeviceId::derive(&accept.public_key);
-        if accepted_device_id != *peer.device_id() || accept.public_key != *trusted.public_key() {
+        let trusted = self.trusted_peer(&accepted_device_id)?;
+        if accepted_device_id != exchange.peer_device_id
+            || accept.public_key != *trusted.public_key()
+        {
             return Err(authentication(
                 "lan_session_peer_mismatch",
                 "session response key does not match the trusted discovered peer",
             ));
         }
         let transcript = SessionTranscript::build(
-            &session_id,
-            &local.public_key,
-            &hello.ephemeral_public,
+            &exchange.session_id,
+            &exchange.local.public_key,
+            &exchange.hello.ephemeral_public,
             &accept.public_key,
             &accept.ephemeral_public,
         )?;
-        let key = SessionKey::derive(&transcript, &ephemeral.agree(&accept.ephemeral_public)?)?;
+        let key = SessionKey::derive(
+            &transcript,
+            &exchange.ephemeral.agree(&accept.ephemeral_public)?,
+        )?;
         let challenge = session_challenge(
-            session_id.clone(),
+            exchange.session_id.clone(),
             accepted_device_id,
             &transcript,
-            hello.deadline_ms,
+            exchange.hello.deadline_ms,
         );
         self.pending_sessions.insert(
-            session_id,
+            exchange.session_id,
             PendingSession {
                 challenge: challenge.clone(),
                 transcript,
                 peer_public_key: accept.public_key,
-                peer_address: peer.address(),
+                peer_address: exchange.peer_address,
                 key,
                 role: SessionRole::Opener,
                 local_confirmed: false,
@@ -2309,6 +2494,9 @@ impl LanServiceManager {
     /// Signs locally outside Rust, sends the signature, and authenticates only after both sides
     /// have confirmed the same transcript.
     ///
+    /// Composed single-call path: [`Self::plan_session_confirm`] under the lock,
+    /// [`LanControlSend::deliver`] off-lock, [`Self::apply_session_confirmed`] under the lock.
+    ///
     /// # Errors
     ///
     /// Permission after deadline; authentication for a bad signature; network on delivery;
@@ -2319,10 +2507,28 @@ impl LanServiceManager {
         signature: &[u8],
         now_ms: i64,
     ) -> Result<(), LomoError> {
+        let send = self.plan_session_confirm(session_id, signature, now_ms)?;
+        send.deliver()?;
+        self.apply_session_confirmed(session_id, now_ms)
+    }
+
+    /// Plans one session confirmation: the signature is verified against the pending transcript
+    /// and the frame is built under the caller's lock; no socket is touched.
+    ///
+    /// # Errors
+    ///
+    /// Validation when the session is not pending; permission after its deadline; authentication
+    /// for an invalid local signature.
+    pub fn plan_session_confirm(
+        &mut self,
+        session_id: &LanSessionId,
+        signature: &[u8],
+        now_ms: i64,
+    ) -> Result<LanControlSend, LomoError> {
         let local = self.identity.clone().ok_or_else(identity_missing)?;
         let pending = self
             .pending_sessions
-            .get_mut(session_id)
+            .get(session_id)
             .ok_or_else(|| validation("lan_session_unknown", "session is not pending"))?;
         assert_before_deadline(
             now_ms,
@@ -2335,18 +2541,34 @@ impl LanServiceManager {
             signature,
             "lan_session_signature_invalid",
         )?;
-        let mut stream = connect_peer(
-            pending.peer_address,
-            PAIRING_SOCKET_DEADLINE,
-            pairing_deadlines()?,
-        )?;
-        stream.write_frame(&LanFrame::new(
-            FrameKind::SessionConfirm,
-            encode_session_confirm(&SessionConfirm {
-                session_id: session_id.clone(),
-                signature: signature.to_vec(),
-            }),
-        )?)?;
+        Ok(LanControlSend {
+            address: pending.peer_address,
+            frame: LanFrame::new(
+                FrameKind::SessionConfirm,
+                encode_session_confirm(&SessionConfirm {
+                    session_id: session_id.clone(),
+                    signature: signature.to_vec(),
+                }),
+            )?,
+        })
+    }
+
+    /// Marks the local confirmation durably after the confirm frame left the wire; activates the
+    /// session when the peer's signature already arrived.
+    ///
+    /// # Errors
+    ///
+    /// Validation when the session is not pending; storage when the accepted session id cannot
+    /// be journaled.
+    pub fn apply_session_confirmed(
+        &mut self,
+        session_id: &LanSessionId,
+        now_ms: i64,
+    ) -> Result<(), LomoError> {
+        let pending = self
+            .pending_sessions
+            .get_mut(session_id)
+            .ok_or_else(|| validation("lan_session_unknown", "session is not pending"))?;
         pending.local_confirmed = true;
         self.commit_session_if_complete(session_id, now_ms)
     }
@@ -2361,9 +2583,13 @@ impl LanServiceManager {
 
     /// Sends bounded batch metadata under an authenticated session control tag.
     ///
-    /// A durable refusal travels back as an error frame: session-scoped refusals suspend the local
-    /// session so the next inbox drives `NeedsRebind`; terminal refusals mark the outgoing batch
-    /// failed durably instead of retrying forever.
+    /// Composed single-call path: [`Self::plan_batch_prepare`] under the lock,
+    /// [`LanBatchExchange::exchange`] off-lock, [`Self::apply_batch_prepare_reply`] under the
+    /// lock again.
+    ///
+    /// A durable refusal travels back as an AEAD-sealed error control: session-scoped refusals
+    /// suspend the local session so the next inbox drives `NeedsRebind`; terminal refusals mark
+    /// the outgoing batch failed durably instead of retrying forever.
     ///
     /// # Errors
     ///
@@ -2376,6 +2602,25 @@ impl LanServiceManager {
         plan: LanBatchPlan,
         now_ms: i64,
     ) -> Result<(), LomoError> {
+        let exchange = self.plan_batch_prepare(session_id, plan, now_ms)?;
+        let reply = exchange.exchange()?;
+        self.apply_batch_prepare_reply(&exchange, &reply, now_ms)
+    }
+
+    /// Plans one batch prepare: stores/rebinds the durable outgoing record and seals the
+    /// `BatchPrepare` control under the caller's lock; no socket is touched.
+    ///
+    /// # Errors
+    ///
+    /// Validation for an unknown session; storage when the outgoing record cannot be journaled;
+    /// conflict when the batch id was already stored with different facts.
+    pub fn plan_batch_prepare(
+        &mut self,
+        session_id: &LanSessionId,
+        plan: LanBatchPlan,
+        now_ms: i64,
+    ) -> Result<LanBatchExchange, LomoError> {
+        let _: i64 = now_ms;
         let body = encode_batch_plan(&plan);
         let batch_id = plan.batch_id().clone();
         let (peer_device_id, peer_display_name, address) = {
@@ -2401,12 +2646,28 @@ impl LanServiceManager {
             SessionControlKind::Prepare,
             body,
         )?;
-        let mut stream = connect_peer(address, PAIRING_SOCKET_DEADLINE, pairing_deadlines()?)?;
-        stream.write_frame(&LanFrame::new(
-            FrameKind::BatchPrepare,
-            encode_batch_control(&control),
-        )?)?;
-        let response = stream.read_frame()?;
+        Ok(LanBatchExchange {
+            session_id: session_id.clone(),
+            batch_id,
+            address,
+            frame: LanFrame::new(FrameKind::BatchPrepare, encode_batch_control(&control))?,
+        })
+    }
+
+    /// Applies the reply to a planned prepare: an authenticated batch status, or a sealed
+    /// `Error`-kinded control whose refusal code must be AEAD-bound to this exact exchange.
+    ///
+    /// # Errors
+    ///
+    /// Validation when the reply carries neither kind; authentication for a refusal bound to a
+    /// different session/batch or a ciphertext that fails to open; conflict/permission for the
+    /// authenticated refusal itself.
+    pub fn apply_batch_prepare_reply(
+        &mut self,
+        exchange: &LanBatchExchange,
+        response: &LanFrame,
+        now_ms: i64,
+    ) -> Result<(), LomoError> {
         match response.kind() {
             FrameKind::BatchComplete => {
                 let status = decode_batch_control(
@@ -2417,7 +2678,29 @@ impl LanServiceManager {
                 self.apply_authenticated_batch_status(&status, now_ms)
             }
             FrameKind::Error => {
-                self.apply_outgoing_refusal(session_id, &batch_id, response.payload(), now_ms)
+                let control = decode_batch_control(
+                    response.payload(),
+                    FrameKind::Error,
+                    SessionControlKind::Refusal,
+                )?;
+                if control.session_id != *exchange.session_id()
+                    || control.batch_id != *exchange.batch_id()
+                {
+                    return Err(authentication(
+                        "lan_batch_refusal_foreign",
+                        "a sealed refusal does not belong to this prepare exchange",
+                    ));
+                }
+                let code = {
+                    let body = self.open_batch_control(&control)?;
+                    String::from_utf8(body).map_err(|_invalid| {
+                        authentication(
+                            "lan_refusal_body_invalid",
+                            "a sealed refusal does not carry a UTF-8 disposition code",
+                        )
+                    })?
+                };
+                self.apply_outgoing_refusal(&exchange.session_id, &exchange.batch_id, &code, now_ms)
             }
             FrameKind::PairHello
             | FrameKind::PairAccept
@@ -2436,28 +2719,28 @@ impl LanServiceManager {
         }
     }
 
-    /// Applies a receiver's durable refusal: session-scoped refusals suspend the local session so
-    /// the derived drive becomes `NeedsRebind`; every other refusal is a terminal durable failure.
+    /// Applies a receiver's authenticated refusal code: session-scoped refusals suspend the local
+    /// session so the derived drive becomes `NeedsRebind`; every other refusal is a terminal
+    /// durable failure. The code must already have been authenticated by the caller.
     fn apply_outgoing_refusal(
         &mut self,
         session_id: &LanSessionId,
         batch_id: &LanBatchId,
-        payload: &[u8],
+        code: &str,
         now_ms: i64,
     ) -> Result<(), LomoError> {
-        let code = decode_error_reply(payload)?;
-        if refusal_needs_rebind(&code) {
+        if refusal_needs_rebind(code) {
             self.active_sessions.remove(session_id);
             return Err(permission(
-                &code,
+                code,
                 "the receiver suspended this transfer context; the batch must rebind",
             ));
         }
         if self.journal.outgoing_batch(batch_id).is_some() {
-            self.journal.fail_outgoing_batch(batch_id, &code, now_ms)?;
+            self.journal.fail_outgoing_batch(batch_id, code, now_ms)?;
         }
         Err(conflict(
-            &code,
+            code,
             "the receiver refused this batch with a terminal durable disposition",
         ))
     }
@@ -2469,6 +2752,9 @@ impl LanServiceManager {
     }
 
     /// Persists a generation-bound approval and authenticates it back to the sender.
+    ///
+    /// Composed single-call path: [`Self::plan_batch_approve`] under the lock (the durable
+    /// decision commits before the wire), then [`LanControlSend::deliver`] off-lock.
     ///
     /// # Errors
     ///
@@ -2482,6 +2768,27 @@ impl LanServiceManager {
         now_ms: i64,
         ttl_ms: i64,
     ) -> Result<(), LomoError> {
+        self.plan_batch_approve(session_id, batch_id, generation, now_ms, ttl_ms)?
+            .deliver()
+    }
+
+    /// Plans one batch approval: the durable decision commits under the caller's lock so a
+    /// delivery failure can never roll the approval back; the returned send carries the sealed
+    /// control only.
+    ///
+    /// # Errors
+    ///
+    /// Validation for unknown session/batch or non-positive TTL; permission for a mismatched
+    /// session peer; storage when the approval cannot be journaled; crypto when the control
+    /// cannot be sealed.
+    pub fn plan_batch_approve(
+        &mut self,
+        session_id: &LanSessionId,
+        batch_id: &LanBatchId,
+        generation: ApprovedGeneration,
+        now_ms: i64,
+        ttl_ms: i64,
+    ) -> Result<LanControlSend, LomoError> {
         if ttl_ms <= 0 {
             return Err(validation(
                 "lan_approval_ttl_invalid",
@@ -2514,10 +2821,16 @@ impl LanServiceManager {
             SessionControlKind::Approve,
             Vec::new(),
         )?;
-        send_control_frame(address, FrameKind::BatchApprove, &control)
+        Ok(LanControlSend {
+            address,
+            frame: LanFrame::new(FrameKind::BatchApprove, encode_batch_control(&control))?,
+        })
     }
 
     /// Persists a terminal rejection and authenticates it back to the sender.
+    ///
+    /// Composed single-call path: [`Self::plan_batch_reject`] under the lock (the durable
+    /// decision commits before the wire), then [`LanControlSend::deliver`] off-lock.
     ///
     /// # Errors
     ///
@@ -2529,6 +2842,24 @@ impl LanServiceManager {
         batch_id: &LanBatchId,
         rejected_at_ms: i64,
     ) -> Result<(), LomoError> {
+        self.plan_batch_reject(session_id, batch_id, rejected_at_ms)?
+            .deliver()
+    }
+
+    /// Plans one batch rejection: the durable terminal decision commits under the caller's lock;
+    /// the returned send carries the sealed control only.
+    ///
+    /// # Errors
+    ///
+    /// Validation for unknown session/batch; permission for a mismatched peer; conflict for an
+    /// existing terminal decision; storage when the decision cannot be journaled; crypto when
+    /// the control cannot be sealed.
+    pub fn plan_batch_reject(
+        &mut self,
+        session_id: &LanSessionId,
+        batch_id: &LanBatchId,
+        rejected_at_ms: i64,
+    ) -> Result<LanControlSend, LomoError> {
         let (peer_id, address) = {
             let active = self.active_session(session_id)?;
             (active.snapshot.peer_device_id.clone(), active.peer_address)
@@ -2553,7 +2884,10 @@ impl LanServiceManager {
             SessionControlKind::Reject,
             Vec::new(),
         )?;
-        send_control_frame(address, FrameKind::BatchReject, &control)
+        Ok(LanControlSend {
+            address,
+            frame: LanFrame::new(FrameKind::BatchReject, encode_batch_control(&control))?,
+        })
     }
 
     /// True only after an authenticated approval arrives for an outgoing batch.
@@ -2641,7 +2975,24 @@ impl LanServiceManager {
             attachment_slot,
             chunk_index,
         };
-        let active = self.active_session(session_id)?;
+        // A deterministic chunk nonce may seal one plaintext per coordinate. The first planned
+        // digest pins the coordinate for the life of the session: re-planning the same
+        // coordinate after the source bytes drifted is refused before a second seal could reuse
+        // the nonce. Re-sealing identical bytes stays idempotent for window-tail replays.
+        let digest: [u8; 32] = Sha256::digest(plaintext).into();
+        let active = self.active_session_mut(session_id)?;
+        match active.planned_digests.entry(binding.clone()) {
+            std::collections::btree_map::Entry::Occupied(slot) if *slot.get() != digest => {
+                return Err(authentication(
+                    "lan_chunk_content_changed",
+                    "the same chunk coordinate was re-planned with different plaintext bytes",
+                ));
+            }
+            std::collections::btree_map::Entry::Occupied(_) => {}
+            std::collections::btree_map::Entry::Vacant(slot) => {
+                slot.insert(digest);
+            }
+        }
         let transfer = ChunkTransfer {
             sealed: active.key.seal_chunk(
                 active.role.send_direction(),
@@ -2661,13 +3012,16 @@ impl LanServiceManager {
 
     /// Advances outgoing state for one drained acknowledgement under the short lock.
     ///
-    /// A durable refusal travels back as an error frame and updates the outgoing batch the same
-    /// way `prepare_batch` does.
+    /// Both response kinds are authenticated before they touch durable state: a `ChunkAck`
+    /// payload is `receipt ∥ nonce ∥ sealed` where the sealed body opens under the reply
+    /// direction's batch key; an `Error` refusal adds a UTF-8 disposition code as its sealed
+    /// body and updates the outgoing batch the same way `prepare_batch` does.
     ///
     /// # Errors
     ///
     /// Conflict/permission when the response is a durable refusal; authentication when the
-    /// acknowledgement does not match the planned binding.
+    /// acknowledgement does not match the planned binding or fails to open; validation for a
+    /// malformed response frame.
     pub fn apply_chunk_receipt(
         &mut self,
         plan: &ChunkSendPlan,
@@ -2675,19 +3029,56 @@ impl LanServiceManager {
         now_ms: i64,
     ) -> Result<(), LomoError> {
         if response.kind() == FrameKind::Error {
-            return self.apply_outgoing_refusal(
-                plan.session_id(),
-                plan.batch_id(),
-                response.payload(),
-                now_ms,
-            );
+            let (receipt, nonce, sealed) = decode_chunk_response(response.payload())?;
+            if receipt != *plan.receipt() {
+                return Err(authentication(
+                    "lan_error_frame_unsolicited",
+                    "a sealed chunk refusal does not belong to the retired receipt",
+                ));
+            }
+            let code = {
+                let active = self.active_session(plan.session_id())?;
+                let opened = active.key.open_chunk_response(
+                    active.role.receive_direction(),
+                    &receipt.binding()?,
+                    nonce,
+                    true,
+                    sealed.to_vec(),
+                )?;
+                String::from_utf8(opened).map_err(|_invalid| {
+                    authentication(
+                        "lan_refusal_body_invalid",
+                        "a sealed chunk refusal does not carry a UTF-8 disposition code",
+                    )
+                })?
+            };
+            return self.apply_outgoing_refusal(plan.session_id(), plan.batch_id(), &code, now_ms);
         }
-        if response.kind() != FrameKind::ChunkAck
-            || decode_chunk_receipt(response.payload())? != *plan.receipt()
-        {
+        if response.kind() != FrameKind::ChunkAck {
             return Err(authentication(
                 "lan_chunk_ack_mismatch",
                 "receiver acknowledgement does not match the sent chunk binding",
+            ));
+        }
+        let (receipt, nonce, sealed) = decode_chunk_response(response.payload())?;
+        if receipt != *plan.receipt() {
+            return Err(authentication(
+                "lan_chunk_ack_mismatch",
+                "receiver acknowledgement does not match the sent chunk binding",
+            ));
+        }
+        let active = self.active_session(plan.session_id())?;
+        let opened = active.key.open_chunk_response(
+            active.role.receive_direction(),
+            &receipt.binding()?,
+            nonce,
+            false,
+            sealed.to_vec(),
+        )?;
+        if !opened.is_empty() {
+            return Err(authentication(
+                "lan_chunk_ack_mismatch",
+                "receiver acknowledgement carried an unexpected sealed body",
             ));
         }
         Ok(())
@@ -2696,13 +3087,16 @@ impl LanServiceManager {
     /// Sends one planned body/attachment chunk and returns only after the receiver durably ACKs it.
     ///
     /// Full single-call path for protocol tests: plan under the manager, drive the pooled
-    /// session channel, then apply every drained acknowledgement. Production callers split the
-    /// same phases across their own lock via `plan_batch_chunk`/`apply_chunk_receipt`.
+    /// session channel, then apply every drained acknowledgement. Responses drained before a
+    /// later socket error are still applied — a real receipt is an already-observed fact, never
+    /// collateral of a subsequent read failure. Production callers split the same phases across
+    /// their own lock via `plan_batch_chunk`/`apply_chunk_receipt`.
     ///
     /// # Errors
     ///
     /// Permission/validation/crypto errors from planning; network errors from the channel;
-    /// authentication for a mismatched acknowledgement.
+    /// authentication for a mismatched acknowledgement. When drained receipts and the send
+    /// both failed, the first receipt-application error wins.
     pub fn send_batch_chunk(
         &mut self,
         pool: &crate::pool::LanConnectionPool,
@@ -2711,11 +3105,18 @@ impl LanServiceManager {
         now_ms: i64,
     ) -> Result<(), LomoError> {
         let plan = self.plan_batch_chunk(binding, plaintext)?;
-        let drained = pool.send_chunk(&plan)?;
-        for (confirmed, response) in drained {
-            self.apply_chunk_receipt(&confirmed, &response, now_ms)?;
+        let mut drained = Vec::new();
+        let send = pool.send_chunk(&plan, &mut drained);
+        let mut first_apply_error = None;
+        for (confirmed, response) in &drained {
+            if let Err(error) = self.apply_chunk_receipt(confirmed, response, now_ms) {
+                first_apply_error.get_or_insert(error);
+            }
         }
-        Ok(())
+        if let Some(error) = first_apply_error {
+            return Err(error);
+        }
+        send
     }
 
     /// Chunk indices the receiver still needs for one durable planned payload.
@@ -3035,6 +3436,7 @@ impl LanServiceManager {
                 role: pending.role,
                 next_control_send: 0,
                 last_control_recv: None,
+                planned_digests: BTreeMap::new(),
             },
         );
         Ok(())
@@ -3326,6 +3728,175 @@ impl ChunkSendPlan {
     }
 }
 
+/// A validated outbound pairing hello waiting for its network exchange.
+///
+/// The token carries the ephemeral private key and every planned fact, so it can only be
+/// produced by [`LanServiceManager::plan_pairing`] under the lock. The exchange itself runs
+/// off-lock; the result commits through
+/// [`LanServiceManager::apply_pairing_exchange`], which owns the durable transition.
+pub struct LanPairingExchange {
+    pairing_id: LanPairingId,
+    local: LocalDeviceIdentity,
+    ephemeral: EphemeralKey,
+    hello: PairHello,
+    peer_device_id: DeviceId,
+    peer_address: SocketAddr,
+    frame: LanFrame,
+}
+
+impl LanPairingExchange {
+    /// The hello frame that was planned.
+    #[must_use]
+    pub const fn frame(&self) -> &LanFrame {
+        &self.frame
+    }
+
+    /// The peer socket this exchange connects to.
+    #[must_use]
+    pub const fn peer_address(&self) -> SocketAddr {
+        self.peer_address
+    }
+
+    /// Runs the bounded write/read round-trip. Must run without holding the protocol-state
+    /// lock: a peer that accepts the socket and stalls must never freeze unrelated state.
+    ///
+    /// # Errors
+    ///
+    /// Network on connect/write/read or a socket deadline.
+    pub fn exchange(&self) -> Result<LanFrame, LomoError> {
+        let mut stream = connect_peer(
+            self.peer_address,
+            PAIRING_SOCKET_DEADLINE,
+            pairing_deadlines()?,
+        )?;
+        stream.write_frame(&self.frame)?;
+        stream.read_frame()
+    }
+}
+
+/// A validated outbound session hello waiting for its network exchange; see
+/// [`LanPairingExchange`] for the same plan/exchange/apply split.
+pub struct LanSessionExchange {
+    session_id: LanSessionId,
+    local: LocalDeviceIdentity,
+    ephemeral: EphemeralKey,
+    hello: SessionHello,
+    peer_device_id: DeviceId,
+    peer_address: SocketAddr,
+    frame: LanFrame,
+}
+
+impl LanSessionExchange {
+    /// The hello frame that was planned.
+    #[must_use]
+    pub const fn frame(&self) -> &LanFrame {
+        &self.frame
+    }
+
+    /// The peer socket this exchange connects to.
+    #[must_use]
+    pub const fn peer_address(&self) -> SocketAddr {
+        self.peer_address
+    }
+
+    /// Runs the bounded write/read round-trip off-lock.
+    ///
+    /// # Errors
+    ///
+    /// Network on connect/write/read or a socket deadline.
+    pub fn exchange(&self) -> Result<LanFrame, LomoError> {
+        let mut stream = connect_peer(
+            self.peer_address,
+            PAIRING_SOCKET_DEADLINE,
+            pairing_deadlines()?,
+        )?;
+        stream.write_frame(&self.frame)?;
+        stream.read_frame()
+    }
+}
+
+/// A planned batch prepare exchange: the sealed `BatchPrepare` is written off-lock and its
+/// reply (authenticated status or sealed refusal) is applied back under the lock.
+#[derive(Debug)]
+pub struct LanBatchExchange {
+    session_id: LanSessionId,
+    batch_id: LanBatchId,
+    address: SocketAddr,
+    frame: LanFrame,
+}
+
+impl LanBatchExchange {
+    /// The session the sealed control belongs to.
+    #[must_use]
+    pub const fn session_id(&self) -> &LanSessionId {
+        &self.session_id
+    }
+
+    /// The batch the sealed control belongs to.
+    #[must_use]
+    pub const fn batch_id(&self) -> &LanBatchId {
+        &self.batch_id
+    }
+
+    /// The sealed prepare frame that was planned.
+    #[must_use]
+    pub const fn frame(&self) -> &LanFrame {
+        &self.frame
+    }
+
+    /// The peer socket this exchange connects to.
+    #[must_use]
+    pub const fn address(&self) -> SocketAddr {
+        self.address
+    }
+
+    /// Runs the bounded write/read round-trip off-lock.
+    ///
+    /// # Errors
+    ///
+    /// Network on connect/write/read or a socket deadline.
+    pub fn exchange(&self) -> Result<LanFrame, LomoError> {
+        let mut stream = connect_peer(self.address, PAIRING_SOCKET_DEADLINE, pairing_deadlines()?)?;
+        stream.write_frame(&self.frame)?;
+        stream.read_frame()
+    }
+}
+
+/// A validated one-way control send (pair/session confirm, approve, reject).
+///
+/// Durable state already moved when the token was planned where the protocol requires
+/// durable-before-wire ordering (approve/reject); `deliver` only owns the bounded network
+/// write, so it runs without holding the protocol-state lock.
+#[derive(Debug)]
+pub struct LanControlSend {
+    address: SocketAddr,
+    frame: LanFrame,
+}
+
+impl LanControlSend {
+    /// The control frame that was planned.
+    #[must_use]
+    pub const fn frame(&self) -> &LanFrame {
+        &self.frame
+    }
+
+    /// The peer socket this send connects to.
+    #[must_use]
+    pub const fn address(&self) -> SocketAddr {
+        self.address
+    }
+
+    /// Delivers the frame under the bounded control deadline, off-lock.
+    ///
+    /// # Errors
+    ///
+    /// Network on connect/write or a socket deadline.
+    pub fn deliver(&self) -> Result<(), LomoError> {
+        let mut stream = connect_peer(self.address, PAIRING_SOCKET_DEADLINE, pairing_deadlines()?)?;
+        stream.write_frame(&self.frame)
+    }
+}
+
 #[derive(Debug, Eq, PartialEq)]
 struct ChunkTransfer {
     receipt: ChunkReceipt,
@@ -3547,15 +4118,6 @@ fn decode_session_confirm(bytes: &[u8]) -> Result<SessionConfirm, LomoError> {
     })
 }
 
-fn send_control_frame(
-    address: SocketAddr,
-    kind: FrameKind,
-    control: &BatchControl,
-) -> Result<(), LomoError> {
-    let mut stream = connect_peer(address, PAIRING_SOCKET_DEADLINE, pairing_deadlines()?)?;
-    stream.write_frame(&LanFrame::new(kind, encode_batch_control(control))?)
-}
-
 fn encode_batch_control(value: &BatchControl) -> Vec<u8> {
     let mut bytes = Vec::new();
     push_wire_field(&mut bytes, value.session_id.as_str().as_bytes());
@@ -3702,20 +4264,43 @@ fn encode_chunk_receipt(value: &ChunkReceipt) -> Vec<u8> {
     bytes
 }
 
-pub fn decode_chunk_receipt(bytes: &[u8]) -> Result<ChunkReceipt, LomoError> {
+/// Parses the cleartext receipt prefix shared by chunks and chunk-channel responses, returning
+/// the receipt and the offset where the sealed region begins.
+fn take_chunk_receipt(bytes: &[u8]) -> Result<(ChunkReceipt, usize), LomoError> {
     let (session_id, cursor) = take_wire_field_with(bytes, 0, chunk_wire_invalid)?;
     let (batch_id, cursor) = take_wire_field_with(bytes, cursor, chunk_wire_invalid)?;
     let item_index = take_wire_u16_with(bytes, cursor, chunk_wire_invalid)?;
     let attachment_slot = take_wire_u16_with(bytes, cursor.saturating_add(2), chunk_wire_invalid)?;
     let chunk_index = take_wire_u32_with(bytes, cursor.saturating_add(4), chunk_wire_invalid)?;
-    assert_wire_end_with(bytes, cursor.saturating_add(8), chunk_wire_invalid)?;
-    Ok(ChunkReceipt {
-        session_id: LanSessionId::parse(wire_utf8_with(session_id, chunk_wire_invalid)?)?,
-        batch_id: LanBatchId::parse(wire_utf8_with(batch_id, chunk_wire_invalid)?)?,
-        item_index,
-        attachment_slot,
-        chunk_index,
-    })
+    Ok((
+        ChunkReceipt {
+            session_id: LanSessionId::parse(wire_utf8_with(session_id, chunk_wire_invalid)?)?,
+            batch_id: LanBatchId::parse(wire_utf8_with(batch_id, chunk_wire_invalid)?)?,
+            item_index,
+            attachment_slot,
+            chunk_index,
+        },
+        cursor.saturating_add(8),
+    ))
+}
+
+/// Parses one chunk-channel response payload (`receipt ∥ nonce ∥ sealed`). The cleartext
+/// receipt is routing data only — authentication happens when the sealed region opens under
+/// the reply direction's batch key.
+pub fn decode_chunk_response(
+    bytes: &[u8],
+) -> Result<(ChunkReceipt, [u8; NONCE_BYTES], &[u8]), LomoError> {
+    let (receipt, cursor) = take_chunk_receipt(bytes)?;
+    let nonce_bytes = bytes
+        .get(cursor..cursor.saturating_add(NONCE_BYTES))
+        .ok_or_else(chunk_wire_invalid)?;
+    let mut nonce = [0_u8; NONCE_BYTES];
+    nonce.copy_from_slice(nonce_bytes);
+    let sealed = bytes
+        .get(cursor.saturating_add(NONCE_BYTES)..)
+        .filter(|sealed| sealed.len() >= crate::limits::AEAD_TAG_BYTES)
+        .ok_or_else(chunk_wire_invalid)?;
+    Ok((receipt, nonce, sealed))
 }
 
 fn encode_chunk_transfer(value: &ChunkTransfer) -> Vec<u8> {
@@ -3725,23 +4310,13 @@ fn encode_chunk_transfer(value: &ChunkTransfer) -> Vec<u8> {
 }
 
 fn decode_chunk_transfer(bytes: &[u8]) -> Result<ChunkTransfer, LomoError> {
-    let (session_id, cursor) = take_wire_field_with(bytes, 0, chunk_wire_invalid)?;
-    let (batch_id, cursor) = take_wire_field_with(bytes, cursor, chunk_wire_invalid)?;
-    let item_index = take_wire_u16_with(bytes, cursor, chunk_wire_invalid)?;
-    let attachment_slot = take_wire_u16_with(bytes, cursor.saturating_add(2), chunk_wire_invalid)?;
-    let chunk_index = take_wire_u32_with(bytes, cursor.saturating_add(4), chunk_wire_invalid)?;
+    let (receipt, cursor) = take_chunk_receipt(bytes)?;
     let sealed = bytes
-        .get(cursor.saturating_add(8)..)
+        .get(cursor..)
         .filter(|sealed| !sealed.is_empty())
         .ok_or_else(chunk_wire_invalid)?;
     Ok(ChunkTransfer {
-        receipt: ChunkReceipt {
-            session_id: LanSessionId::parse(wire_utf8_with(session_id, chunk_wire_invalid)?)?,
-            batch_id: LanBatchId::parse(wire_utf8_with(batch_id, chunk_wire_invalid)?)?,
-            item_index,
-            attachment_slot,
-            chunk_index,
-        },
+        receipt,
         sealed: sealed.to_vec(),
     })
 }

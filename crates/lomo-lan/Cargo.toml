@@ -47,6 +47,18 @@ path = "tests/session_crypto_contract.rs"
 name = "transport_contract"
 path = "tests/transport_contract.rs"
 
+[[test]]
+name = "lan_channel_contract"
+path = "tests/lan_channel_contract.rs"
+
+[[test]]
+name = "lan_session_contract"
+path = "tests/lan_session_contract.rs"
+
+[[test]]
+name = "lan_session_edge_contract"
+path = "tests/lan_session_edge_contract.rs"
+
 [dependencies]
 lomo-core = { path = "../lomo-core" }
 # LAN crypto reuses the audited provider already linked for four ABIs through rustls: X25519

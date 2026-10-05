@@ -289,6 +289,12 @@ pub struct LanJournal {
     outgoing_batches: BTreeMap<LanBatchId, LanDurableOutgoingBatch>,
     approvals: BTreeMap<LanBatchId, LanApproval>,
     confirmed: BTreeSet<DurableChunkCoordinate>,
+    /// Chunk coordinates whose staged file this journal instance wrote (or observed identical)
+    /// since it was opened. In-memory only and deliberately not journaled: after a restart the
+    /// set is empty, so a foreign or corrupted *unconfirmed* staged file is reclaimable garbage
+    /// — while a file this instance wrote and then sees changed is a tamper signal that stays
+    /// fail-closed inside the process.
+    staged: BTreeSet<DurableChunkCoordinate>,
     retired: BTreeMap<(DeviceId, LanBatchId), i64>,
 }
 
@@ -462,6 +468,7 @@ impl LanJournal {
             outgoing_batches,
             approvals,
             confirmed,
+            staged: BTreeSet::new(),
             retired,
         };
         journal.reconcile_confirmed()?;
@@ -784,6 +791,8 @@ impl LanJournal {
             .collect();
         self.confirmed
             .retain(|coordinate| coordinate.batch_id != batch_id.as_str());
+        self.staged
+            .retain(|coordinate| coordinate.batch_id != batch_id.as_str());
         if let Err(error) = self.flush_batches().and_then(|()| self.compact_confirmed()) {
             if let Some(batch) = removed {
                 self.batches.insert(batch_id.clone(), batch);
@@ -1085,12 +1094,30 @@ impl LanJournal {
         let coordinate = DurableChunkCoordinate::from(binding);
         let path = self.paths.staged_chunk(&coordinate);
         match lomo_core::read_bounded(&path, CHUNK_PLAINTEXT_BYTES as u64) {
-            Ok(existing) if existing == plaintext => return Ok(()),
-            Ok(_existing) => {
+            Ok(existing) if existing == plaintext => {
+                // Idempotent retry: the file already carries exactly these bytes; this instance
+                // now owns the observation so a later drift is fail-closed.
+                self.staged.insert(coordinate);
+                return Ok(());
+            }
+            Ok(_existing)
+                if self.confirmed.contains(&coordinate) || self.staged.contains(&coordinate) =>
+            {
                 return Err(authentication(
                     "lan_chunk_replayed_with_different_bytes",
                     "a confirmed chunk binding was replayed with different plaintext bytes",
                 ));
+            }
+            Ok(_existing) => {
+                // Never confirmed and never written by this journal instance: the differing file
+                // is reclaimable corruption (torn write, bit rot, foreign residue), not a
+                // replay. Remove it so the coordinate can be re-staged.
+                fs::remove_file(&path).map_err(|error| {
+                    storage(
+                        "lan_chunk_stage_reclaim_failed",
+                        &format!("cannot reclaim a corrupted staged LAN chunk: {error}"),
+                    )
+                })?;
             }
             Err(lomo_core::BoundedReadError::Io(error))
                 if error.kind() == io::ErrorKind::NotFound => {}
@@ -1127,7 +1154,9 @@ impl LanJournal {
                 &format!("cannot commit a staged LAN chunk: {error}"),
             )
         })?;
-        sync_parent_directory(&path)
+        sync_parent_directory(&path)?;
+        self.staged.insert(coordinate);
+        Ok(())
     }
 
     /// Streams every confirmed chunk into one contiguous staged payload file.
@@ -1314,6 +1343,7 @@ impl LanJournal {
                 chunk_index,
             };
             dropped |= self.confirmed.remove(&coordinate);
+            self.staged.remove(&coordinate);
             let path = self.paths.staged_chunk(&coordinate);
             match fs::remove_file(&path) {
                 Ok(()) => {}

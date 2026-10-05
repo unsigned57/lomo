@@ -19,7 +19,7 @@ use lomo_core::LomoError;
 use crate::error::{authentication, internal, network, resource_limit, validation};
 use crate::frame::{FrameKind, LanFrame};
 use crate::limits::{MAX_INFLIGHT_CHUNKS, MAX_OUTBOUND_CHANNELS};
-use crate::runtime::{ChunkSendPlan, decode_chunk_receipt};
+use crate::runtime::{ChunkSendPlan, decode_chunk_response};
 use crate::session::LanSessionId;
 use crate::transport::{FrameStream, LanDeadlines, connect_peer};
 
@@ -94,7 +94,7 @@ impl LanConnectionPool {
         }
     }
 
-    /// Sends one planned chunk and returns every acknowledgement drained while waiting,
+    /// Sends one planned chunk, appending every drained acknowledgement into `drained`,
     /// oldest first — always including this send's own acknowledgement.
     ///
     /// Equivalent to `send_chunks` with a single plan.
@@ -102,43 +102,48 @@ impl LanConnectionPool {
     /// # Errors
     ///
     /// Network on connect/write/read or deadline; authentication when the wire answers a
-    /// receipt this channel never sent.
+    /// receipt this channel never sent. Responses already drained stay in `drained` — a later
+    /// socket error cannot retract an observed receipt.
     pub fn send_chunk(
         &self,
         plan: &ChunkSendPlan,
-    ) -> Result<Vec<(ChunkSendPlan, LanFrame)>, LomoError> {
-        self.send_chunks(std::slice::from_ref(plan))
+        drained: &mut Vec<(ChunkSendPlan, LanFrame)>,
+    ) -> Result<(), LomoError> {
+        self.send_chunks(std::slice::from_ref(plan), drained)
     }
 
     /// Sends a batch of planned chunks through their session channels under the bounded
-    /// sliding window, returning every drained acknowledgement in wire order.
+    /// sliding window, appending every drained acknowledgement in wire order to `drained`.
     ///
     /// Writes pipeline up to [`MAX_INFLIGHT_CHUNKS`] unacknowledged chunks per session; a full
     /// window drains the oldest receipts first (backpressure). A dead channel is dropped and
     /// rebuilt exactly once per call; a second failure surfaces without further retry.
-    /// Acknowledgements are matched by receipt, so out-of-order and duplicate answers are
-    /// handled on their own.
+    /// Responses are routed by their cleartext receipt prefix, so out-of-order and duplicate
+    /// answers are handled on their own; authentication is the caller's job in
+    /// `apply_chunk_receipt`. `drained` is an out-parameter by contract: whatever the wire
+    /// already answered survives a later read/write error.
     ///
     /// # Errors
     ///
-    /// Validation for an empty plan batch; network on connect/write/read or deadline;
-    /// authentication when the wire answers a receipt this channel never sent.
+    /// Validation for an empty plan batch or a malformed response frame; network on
+    /// connect/write/read or deadline; authentication when the wire answers a receipt this
+    /// channel never sent.
     pub fn send_chunks(
         &self,
         plans: &[ChunkSendPlan],
-    ) -> Result<Vec<(ChunkSendPlan, LanFrame)>, LomoError> {
+        drained: &mut Vec<(ChunkSendPlan, LanFrame)>,
+    ) -> Result<(), LomoError> {
         if plans.is_empty() {
             return Err(validation(
                 "lan_send_batch_empty",
                 "a chunk send batch must carry at least one plan",
             ));
         }
-        let mut drained: Vec<(ChunkSendPlan, LanFrame)> = Vec::new();
         // Write phase: pipeline up to the window; the window drains oldest-first when full.
         for plan in plans {
             let slot = self.slot_for(plan.session_id())?;
             let mut state = slot.state.lock().map_err(|_poisoned| slot_poisoned())?;
-            self.write_plan(&mut state, plan, &mut drained)?;
+            self.write_plan(&mut state, plan, drained)?;
             drop(state);
         }
         // Drain phase: read until every pushed receipt retired, whichever order they arrive.
@@ -154,7 +159,8 @@ impl LanConnectionPool {
                     Ok(pair) => drained.push(pair),
                     Err(error) => {
                         // A dead channel loses every outstanding acknowledgement; unconfirmed
-                        // durable state is what retransmits them, not a zombie window.
+                        // durable state is what retransmits them, not a zombie window. Receipts
+                        // already pushed to `drained` remain the caller's fact.
                         state.stream = None;
                         state.pending.clear();
                         return Err(error);
@@ -163,7 +169,7 @@ impl LanConnectionPool {
             }
             drop(state);
         }
-        Ok(drained)
+        Ok(())
     }
 
     /// Writes one plan on its channel, draining the window first when full.
@@ -270,32 +276,25 @@ impl LanConnectionPool {
     }
 }
 
-/// Matches a response frame against the channel's send window: `ChunkAck` retires the receipt it
-/// names; `Error` retires the oldest pending send (the receiver answers in order); anything else
-/// is a foreign frame on a data channel.
+/// Routes a response frame to the channel's send window. Every response carries its
+/// `receipt ∥ nonce ∥ sealed` shape: the cleartext receipt prefix selects the pending send it
+/// retires, and `apply_chunk_receipt` decides later whether the sealed body authenticates. A
+/// response that names a receipt this channel never sent — including a forged cleartext
+/// acknowledgement — kills the send instead of retiring anything.
 fn match_pending(state: &ChannelState, response: &LanFrame) -> Result<usize, LomoError> {
     match response.kind() {
-        FrameKind::ChunkAck => {
-            let receipt = decode_chunk_receipt(response.payload())?;
+        FrameKind::ChunkAck | FrameKind::Error => {
+            let (receipt, _nonce, _sealed) = decode_chunk_response(response.payload())?;
             state
                 .pending
                 .iter()
                 .position(|plan| plan.receipt() == &receipt)
                 .ok_or_else(|| {
                     authentication(
-                        "lan_chunk_ack_foreign",
-                        "receiver acknowledged a receipt this channel never sent",
+                        "lan_error_frame_unsolicited",
+                        "receiver answered a receipt this channel never sent",
                     )
                 })
-        }
-        FrameKind::Error => {
-            if state.pending.is_empty() {
-                return Err(authentication(
-                    "lan_error_frame_unsolicited",
-                    "receiver returned an error with an empty send window",
-                ));
-            }
-            Ok(0)
         }
         FrameKind::PairHello
         | FrameKind::PairAccept

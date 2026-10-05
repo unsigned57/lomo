@@ -67,11 +67,12 @@ pub use pairing::{
 };
 pub use pool::LanConnectionPool;
 pub use runtime::{
-    ChunkSendPlan, DiscoveredPeerEndpoint, LanBatchRecovery, LanBindCandidate, LanCommittableItem,
-    LanDiscoverySnapshot, LanNetworkSnapshot, LanOutgoingBatch, LanOutgoingBatchDrive,
-    LanPairingChallenge, LanPairingId, LanPendingBatch, LanReceivedBatchDecision,
-    LanReceivedBatchDrive, LanReceivedItemOutcome, LanReceivedItemRecovery, LanRuntimeInbox,
-    LanServiceManager, LanServicePhase, LanServiceSnapshot, LanSessionChallenge, LanSessionPhase,
+    ChunkSendPlan, DiscoveredPeerEndpoint, LanBatchExchange, LanBatchRecovery, LanBindCandidate,
+    LanCommittableItem, LanControlSend, LanDiscoverySnapshot, LanNetworkSnapshot, LanOutgoingBatch,
+    LanOutgoingBatchDrive, LanPairingChallenge, LanPairingExchange, LanPairingId, LanPendingBatch,
+    LanReceivedBatchDecision, LanReceivedBatchDrive, LanReceivedItemOutcome,
+    LanReceivedItemRecovery, LanRuntimeInbox, LanServiceManager, LanServicePhase,
+    LanServiceSnapshot, LanSessionChallenge, LanSessionExchange, LanSessionPhase,
     LanSessionSnapshot,
 };
 pub use session::{

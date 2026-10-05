@@ -1261,7 +1261,7 @@ mod tests {
     }
 
     #[test]
-    fn a_remotely_rejected_chunk_fails_the_outgoing_batch_durably() {
+    fn a_replanned_chunk_with_changed_bytes_is_refused_before_the_wire() {
         let phone = TestIdentity::generate();
         let tablet = TestIdentity::generate();
         let (_phone_root, mut phone_runtime) = manager(&phone, "Phone");
@@ -1292,8 +1292,10 @@ mod tests {
             (0, ATTACHMENT_SLOT_BODY, 0),
             &body,
         );
-        // A byzantine sender resends the same binding with different bytes; the receiver's
-        // durable stage refuses the replay as a terminal conflict.
+        // A byzantine or drifted source resends the same binding with different bytes: the
+        // session digest pin refuses the re-plan locally, before the deterministic chunk nonce
+        // could seal a second plaintext. The batch keeps its durable state — a local integrity
+        // refusal is not a peer disposition.
         let replay_binding = ChunkBinding::new(
             phone_challenge.session_id(),
             batch_id.as_str(),
@@ -1302,23 +1304,10 @@ mod tests {
             0,
         )
         .expect("replayed binding builds");
-        let error = thread::scope(|scope| {
-            let receiver = scope.spawn(|| tablet_runtime.poll_listener(25_000));
-            let error = phone_runtime
-                .send_batch_chunk(
-                    &LanConnectionPool::default(),
-                    &replay_binding,
-                    b"differs..",
-                    25_000,
-                )
-                .expect_err("a replayed binding with different bytes refuses");
-            receiver
-                .join()
-                .expect("receiver joins")
-                .expect("refusal handles");
-            error
-        });
-        assert_eq!(error.code(), "lan_chunk_replayed_with_different_bytes");
+        let error = phone_runtime
+            .plan_batch_chunk(&replay_binding, b"differs..")
+            .expect_err("re-planning a sealed coordinate with different bytes refuses");
+        assert_eq!(error.code(), "lan_chunk_content_changed");
         let outgoing = phone_runtime
             .inbox(25_001)
             .expect("failed inbox builds")
@@ -1327,14 +1316,15 @@ mod tests {
             .expect("outgoing batch remains observable")
             .clone();
         assert_eq!(
-            outgoing.drive(),
-            LanOutgoingBatchDrive::Failed,
-            "a terminal remote refusal drives Failed instead of retrying forever"
-        );
-        assert_eq!(
             outgoing.failure_code(),
-            Some("lan_chunk_replayed_with_different_bytes")
+            None,
+            "a local digest-pin refusal never masquerades as a peer refusal"
         );
+        // Re-sealing the same coordinate with identical bytes stays idempotent for
+        // window-tail replays.
+        phone_runtime
+            .plan_batch_chunk(&replay_binding, &body)
+            .expect("identical replan stays idempotent");
     }
 
     #[test]
@@ -1697,7 +1687,9 @@ mod tests {
                     body.get(start..end).expect("chunk window inside body"),
                 )
                 .expect("chunk plans under the short lock");
-            let drained = pool.send_chunk(&plan).expect("chunk acknowledges off-lock");
+            let mut drained = Vec::new();
+            pool.send_chunk(&plan, &mut drained)
+                .expect("chunk acknowledges off-lock");
             let mut manager = sender.lock().expect("sender lock");
             for (confirmed, response) in &drained {
                 manager
@@ -1877,8 +1869,8 @@ mod tests {
                     .expect("plan builds"),
             );
         }
-        let drained = pool
-            .send_chunks(&plans)
+        let mut drained = Vec::new();
+        pool.send_chunks(&plans, &mut drained)
             .expect("the whole window acknowledges on one channel");
         assert_eq!(drained.len(), MAX_INFLIGHT_CHUNKS);
         let mut manager = phone.lock().expect("sender lock");
@@ -1981,7 +1973,8 @@ mod tests {
                     .expect("sender lock")
                     .plan_batch_chunk(&binding, &laptop_body)
                     .expect("plan builds");
-                pool.send_chunk(&plan).map(|_drained| ())
+                let mut drained = Vec::new();
+                pool.send_chunk(&plan, &mut drained)
             })
         };
         // Give the blocked send a moment to park on the channel read, then prove the healthy
@@ -2136,7 +2129,8 @@ mod tests {
             .lock()
             .expect("sender lock")
             .plan_batch_chunk(binding, plaintext)?;
-        let drained = pool.send_chunk(&plan)?;
+        let mut drained = Vec::new();
+        pool.send_chunk(&plan, &mut drained)?;
         let mut manager = sender.lock().expect("sender lock");
         for (confirmed, response) in &drained {
             manager.apply_chunk_receipt(confirmed, response, now_ms)?;

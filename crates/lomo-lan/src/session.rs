@@ -29,6 +29,9 @@ const SESSION_KEY_SALT: &[u8] = b"lomo-lan-session-key-v3";
 /// Domain separation prefix for chunk additional authenticated data.
 const CHUNK_AAD_LABEL: &[u8] = b"lomo-lan-chunk-v3";
 
+/// Domain separation suffix separating a chunk response (ack/refusal) from the chunk itself.
+const CHUNK_RESPONSE_AAD_LABEL: &[u8] = b"lomo-lan-chunk-response-v3";
+
 /// Domain separation prefix for control additional authenticated data.
 const CONTROL_AAD_LABEL: &[u8] = b"lomo-lan-control-v3";
 
@@ -51,7 +54,7 @@ const EPHEMERAL_PUBLIC_KEY_BYTES: usize = 32;
 const SESSION_KEY_BYTES: usize = 32;
 
 /// ChaCha20-Poly1305 nonce length.
-const NONCE_BYTES: usize = 12;
+pub const NONCE_BYTES: usize = 12;
 
 /// Attachment slot reserved for the memo body itself (attachments use `0..=0xFFFE`).
 pub const ATTACHMENT_SLOT_BODY: u16 = 0xFFFF;
@@ -62,6 +65,12 @@ pub enum SessionControlKind {
     Approve,
     Reject,
     Complete,
+    /// A receiver-side refusal: the sealed body carries the durable disposition code.
+    ///
+    /// Framed as `FrameKind::Error` on the wire so refusals stay on a distinct reply channel,
+    /// but the code is AEAD-bound to the same session/batch/control sequence as every other
+    /// control — a cleartext refusal can never touch durable state.
+    Refusal,
 }
 
 impl SessionControlKind {
@@ -73,6 +82,7 @@ impl SessionControlKind {
             Self::Approve => 2,
             Self::Reject => 3,
             Self::Complete => 4,
+            Self::Refusal => 5,
         }
     }
 }
@@ -371,6 +381,85 @@ impl SessionKey {
         Ok(sealed)
     }
 
+    /// Seals one chunk-channel response (acknowledgement or refusal) under a caller-drawn nonce.
+    ///
+    /// Chunks flow one direction per batch, so the reply direction's per-batch key never carries
+    /// data. Every response draws a fresh random nonce (carried on the wire), so no two distinct
+    /// plaintexts can ever share a nonce under that key. `refusal` separates the acknowledgement
+    /// and refusal documents inside the AAD on top of the random nonce.
+    ///
+    /// # Errors
+    ///
+    /// Resource-limit when the sealed payload would exceed the wire ceiling; authentication when
+    /// the AEAD operation fails.
+    pub(crate) fn seal_chunk_response(
+        &self,
+        direction: LanDirection,
+        binding: &ChunkBinding,
+        nonce: [u8; NONCE_BYTES],
+        refusal: bool,
+        mut plaintext: Vec<u8>,
+    ) -> Result<Vec<u8>, LomoError> {
+        if plaintext.len().saturating_add(AEAD_TAG_BYTES) > MAX_SEALED_CHUNK_PAYLOAD_BYTES {
+            return Err(resource_limit(
+                "lan_chunk_too_large",
+                "sealed chunk response would exceed the wire chunk ceiling",
+            ));
+        }
+        self.chunk_key(direction, binding)?
+            .seal_in_place_append_tag(
+                Nonce::assume_unique_for_key(nonce),
+                Aad::from(binding.response_aad(direction, refusal)),
+                &mut plaintext,
+            )
+            .map_err(|_seal_error| {
+                authentication(
+                    "lan_chunk_seal_failed",
+                    "chunk response could not be sealed",
+                )
+            })?;
+        Ok(plaintext)
+    }
+
+    /// Opens one sealed chunk response under the same binding, direction, wire nonce and kind.
+    ///
+    /// # Errors
+    ///
+    /// Wire-invalid when the sealed body is shorter than an authentication tag; authentication
+    /// when the binding, direction, nonce or response kind differs or the payload was tampered
+    /// with.
+    pub(crate) fn open_chunk_response(
+        &self,
+        direction: LanDirection,
+        binding: &ChunkBinding,
+        nonce: [u8; NONCE_BYTES],
+        refusal: bool,
+        mut sealed: Vec<u8>,
+    ) -> Result<Vec<u8>, LomoError> {
+        if sealed.len() < AEAD_TAG_BYTES {
+            return Err(validation(
+                "lan_chunk_wire_invalid",
+                "sealed chunk response is shorter than its authentication tag",
+            ));
+        }
+        let opened_len = self
+            .chunk_key(direction, binding)?
+            .open_in_place(
+                Nonce::assume_unique_for_key(nonce),
+                Aad::from(binding.response_aad(direction, refusal)),
+                &mut sealed,
+            )
+            .map_err(|_open_error| {
+                authentication(
+                    "lan_chunk_open_failed",
+                    "chunk response failed authenticated decryption under its declared binding",
+                )
+            })?
+            .len();
+        sealed.truncate(opened_len);
+        Ok(sealed)
+    }
+
     /// Derives the per-batch, per-direction data key so a nonce never repeats under one key.
     fn chunk_key(
         &self,
@@ -524,6 +613,16 @@ impl ChunkBinding {
         aad.extend_from_slice(&self.item_index.to_be_bytes());
         aad.extend_from_slice(&self.attachment_slot.to_be_bytes());
         aad.extend_from_slice(&self.chunk_index.to_be_bytes());
+        aad
+    }
+
+    /// Additional authenticated data for a chunk-channel response: the full chunk AAD plus a
+    /// response-domain label and the ack/refusal marker, so a response is a different
+    /// authenticated document from the chunk it answers.
+    pub(crate) fn response_aad(&self, direction: LanDirection, refusal: bool) -> Vec<u8> {
+        let mut aad = self.aad(direction);
+        push_field(&mut aad, CHUNK_RESPONSE_AAD_LABEL);
+        aad.push(u8::from(refusal));
         aad
     }
 

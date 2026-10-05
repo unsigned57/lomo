@@ -373,6 +373,7 @@ mod tests {
             SessionControlKind::Approve => FrameKind::BatchApprove,
             SessionControlKind::Reject => FrameKind::BatchReject,
             SessionControlKind::Complete => FrameKind::BatchComplete,
+            SessionControlKind::Refusal => FrameKind::Error,
         };
         ControlBinding::new(&session.id, batch_id, frame, kind, sequence)
             .expect("fixture control binding is valid")
