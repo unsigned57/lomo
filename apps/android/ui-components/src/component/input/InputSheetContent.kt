@@ -1,5 +1,7 @@
 package com.lomo.ui.component.input
 
+import androidx.compose.material3.MaterialTheme
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.focus.FocusRequester
@@ -81,6 +83,7 @@ private fun InputSheetBody(
     slots: InputSheetSlots,
     haptic: AppHapticFeedback,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
     if (state.showDiscardDialog) {
         InputDiscardDialog(
             onDismiss = callbacks.onDismissDiscardDialog,
@@ -104,7 +107,7 @@ private fun InputSheetBody(
         AnimatedContent(
             modifier = contentModifier,
             targetState = state.surface.recordingState.isRecording,
-            transitionSpec = { fadeScaleContentTransition() },
+            transitionSpec = { fadeScaleContentTransition(motionScheme) },
             label = "RecordingStateTransition",
         ) { recording ->
             if (recording) {

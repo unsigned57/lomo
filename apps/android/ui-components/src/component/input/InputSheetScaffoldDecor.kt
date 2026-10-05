@@ -1,5 +1,7 @@
 package com.lomo.ui.component.input
 
+import androidx.compose.material3.MotionScheme
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -26,7 +28,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
-import com.lomo.ui.theme.MotionTokens
 
 @Composable
 internal fun InputSheetFocusParkingTarget(focusParkingRequester: FocusRequester) {
@@ -59,24 +60,18 @@ internal fun InputSheetDismissScrim(
     )
 }
 
-internal fun inputSheetVisibilityEnterTransition(): EnterTransition =
+internal fun inputSheetVisibilityEnterTransition(motionScheme: MotionScheme): EnterTransition =
     slideInVertically(
         initialOffsetY = { height -> height },
         animationSpec =
-            androidx.compose.animation.core.tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingStandard,
-            ),
+            motionScheme.slowSpatialSpec(),
     )
 
-internal fun inputSheetVisibilityExitTransition(): ExitTransition =
+internal fun inputSheetVisibilityExitTransition(motionScheme: MotionScheme): ExitTransition =
     slideOutVertically(
         targetOffsetY = { height -> height },
         animationSpec =
-            androidx.compose.animation.core.tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingStandard,
-            ),
+            motionScheme.slowSpatialSpec(),
     )
 
 @Composable
@@ -104,35 +99,26 @@ internal fun InputSheetSurfaceContent(
 
 @Composable
 private fun InputSheetCompactChrome(visible: Boolean) {
+    val motionScheme = MaterialTheme.motionScheme
     AnimatedVisibility(
         visible = visible,
         enter =
             fadeIn(
                 animationSpec =
-                    androidx.compose.animation.core.tween(
-                        durationMillis = MotionTokens.DurationMedium2,
-                    ),
+                    motionScheme.defaultEffectsSpec(),
             ) +
                 expandVertically(
                     animationSpec =
-                        androidx.compose.animation.core.tween(
-                            durationMillis = MotionTokens.DurationMedium2,
-                            easing = MotionTokens.EasingEmphasizedDecelerate,
-                        ),
+                        motionScheme.defaultSpatialSpec(),
                 ),
         exit =
             fadeOut(
                 animationSpec =
-                    androidx.compose.animation.core.tween(
-                        durationMillis = MotionTokens.DurationShort4,
-                    ),
+                    motionScheme.fastEffectsSpec(),
             ) +
                 shrinkVertically(
                     animationSpec =
-                        androidx.compose.animation.core.tween(
-                            durationMillis = MotionTokens.DurationShort4,
-                            easing = MotionTokens.EasingEmphasizedAccelerate,
-                        ),
+                        motionScheme.fastSpatialSpec(),
                 ),
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {

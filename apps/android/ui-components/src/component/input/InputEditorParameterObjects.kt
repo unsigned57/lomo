@@ -29,6 +29,7 @@ internal data class InputEditorPanelCallbacks(
 )
 
 internal data class InputEditorBodyState(
+    val editorInteractive: Boolean,
     val isExpanded: Boolean,
     val chromeState: InputEditorChromeState,
     val inputValue: TextFieldValue,

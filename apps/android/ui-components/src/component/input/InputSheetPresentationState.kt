@@ -1,13 +1,16 @@
 package com.lomo.ui.component.input
 
+import androidx.compose.animation.core.Transition
+import androidx.compose.animation.core.updateTransition
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import com.lomo.ui.theme.MotionTokens
-import kotlinx.coroutines.delay
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 
 internal enum class InputSheetPresentationState {
     CompactEdit,
@@ -21,14 +24,15 @@ internal enum class InputSheetPresentationState {
 }
 
 @Composable
-internal fun rememberInputSheetPresentationState(
+internal fun rememberInputSheetPresentationTransition(
     targetExpanded: Boolean,
     targetDisplayMode: InputEditorDisplayMode,
-): InputSheetPresentationState {
+): Transition<InputSheetPresentationState> {
     var presentationState by remember {
         mutableStateOf(resolveSettledInputSheetPresentationState(targetExpanded, targetDisplayMode))
     }
 
+    val transition = updateTransition(presentationState, label = "InputSheetPresentation")
     LaunchedEffect(targetExpanded, targetDisplayMode, presentationState) {
         val requestedState =
             resolveRequestedInputSheetPresentationState(
@@ -43,12 +47,13 @@ internal fun rememberInputSheetPresentationState(
 
         val settledState = resolveSettledInputSheetPresentationState(targetExpanded, targetDisplayMode)
         if (presentationState != settledState) {
-            delay(MotionTokens.DurationMedium2.toLong())
+            snapshotFlow { transition.currentState == presentationState && !transition.isRunning }
+                .first { it }
             presentationState = resolveSettledInputSheetPresentationState(targetExpanded, targetDisplayMode)
         }
     }
 
-    return presentationState
+    return transition
 }
 
 internal fun resolveRequestedInputSheetPresentationState(
@@ -124,3 +129,9 @@ internal fun resolveSettledInputSheetPresentationState(
         }
     }
 
+
+/** Child animations register with the editor's single presentation transition. */
+internal val LocalInputSheetPresentationTransition =
+    staticCompositionLocalOf<Transition<InputSheetPresentationState>> {
+        error("Input sheet motion must be hosted by InputSheet")
+    }

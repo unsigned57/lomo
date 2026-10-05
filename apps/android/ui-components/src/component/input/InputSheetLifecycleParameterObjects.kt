@@ -14,12 +14,6 @@ internal data class InputSheetLifecycleState(
     val keyboardController: SoftwareKeyboardController?,
 )
 
-internal data class InputSheetLifecycleCallbacks(
-    val onCollapse: () -> Unit,
-    val onConsumeBackPress: () -> Boolean,
-    val onRequestDismiss: () -> Unit,
-)
-
 internal data class InputSheetFocusRequestState(
     val isSheetVisible: Boolean,
     val isSheetEntrySettled: Boolean,

@@ -19,22 +19,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import com.lomo.ui.theme.AppSpacing
-import com.lomo.ui.theme.MotionTokens
 
 @Composable
 internal fun InputEditorActionBadgeContent(
     badge: InputEditorActionBadge?,
     onClick: () -> Unit,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
     AnimatedVisibility(
         visible = badge != null,
         enter =
             expandVertically(
                 animationSpec =
-                    androidx.compose.animation.core.tween(
-                        durationMillis = MotionTokens.DurationMedium2,
-                        easing = MotionTokens.EasingEmphasized,
-                    ),
+                    motionScheme.defaultSpatialSpec(),
             ) + fadeIn(),
         exit = shrinkVertically() + fadeOut(),
     ) {

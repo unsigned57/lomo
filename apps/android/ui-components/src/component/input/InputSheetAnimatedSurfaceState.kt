@@ -1,7 +1,9 @@
 package com.lomo.ui.component.input
 
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.material3.MaterialTheme
+
+import androidx.compose.animation.core.animateDp
+import androidx.compose.animation.core.animateInt
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -17,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
-import com.lomo.ui.theme.MotionTokens
 
 internal data class InputSheetAnimatedSurfaceState(
     val motionStage: InputSheetMotionStage,
@@ -41,46 +42,31 @@ internal fun rememberInputSheetAnimatedSurfaceState(
     var compactSurfaceHeightPx by remember { mutableIntStateOf(0) }
     val collapseTargetHeightPx =
         compactSurfaceHeightPx.takeIf { it > 0 } ?: fallbackCompactSurfaceHeightPx
-    val animatedCornerRadius by animateDpAsState(
-        targetValue =
-            if (motionStage == InputSheetMotionStage.Compact) {
-                InputSheetTokens.CompactCornerRadius
-            } else {
-                InputSheetTokens.ExpandedCornerRadius
-            },
-        animationSpec =
-            androidx.compose.animation.core.tween(
-                durationMillis = MotionTokens.DurationMedium2,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
+    val transition = LocalInputSheetPresentationTransition.current
+    val scheme = MaterialTheme.motionScheme
+    val animatedCornerRadius by transition.animateDp(
+        transitionSpec = { scheme.slowSpatialSpec() },
         label = "InputSheetCornerRadius",
-    )
-    val animatedSurfaceHeightPx by animateIntAsState(
-        targetValue =
-            when (motionStage) {
-                InputSheetMotionStage.Compact -> collapseTargetHeightPx
-                InputSheetMotionStage.Expanding,
-                InputSheetMotionStage.Expanded,
-                -> fullSurfaceHeightPx
-                InputSheetMotionStage.Collapsing -> collapseTargetHeightPx
-            },
-        animationSpec =
-            androidx.compose.animation.core.tween(
-                durationMillis = MotionTokens.DurationMedium2,
-                easing =
-                    when (motionStage) {
-                        InputSheetMotionStage.Collapsing ->
-                            MotionTokens.EasingEmphasizedAccelerate
-                        else -> MotionTokens.EasingEmphasizedDecelerate
-                    },
-            ),
+    ) { state ->
+        when (state.surfaceMotionStage()) {
+            InputSheetMotionStage.Compact, InputSheetMotionStage.Collapsing -> InputSheetTokens.CompactCornerRadius
+            InputSheetMotionStage.Expanding, InputSheetMotionStage.Expanded -> InputSheetTokens.ExpandedCornerRadius
+        }
+    }
+    val animatedSurfaceHeightPx by transition.animateInt(
+        transitionSpec = { scheme.slowSpatialSpec() },
         label = "InputSheetSurfaceHeight",
-    )
+    ) { state ->
+        when (state.surfaceMotionStage()) {
+            InputSheetMotionStage.Compact, InputSheetMotionStage.Collapsing -> collapseTargetHeightPx
+            InputSheetMotionStage.Expanding, InputSheetMotionStage.Expanded -> fullSurfaceHeightPx
+        }
+    }
 
     return InputSheetAnimatedSurfaceState(
         motionStage = motionStage,
-        animatedCornerRadius = animatedCornerRadius,
-        animatedSurfaceHeightPx = animatedSurfaceHeightPx,
+        animatedCornerRadius = animatedCornerRadius.coerceAtLeast(androidx.compose.ui.unit.Dp(0f)),
+        animatedSurfaceHeightPx = animatedSurfaceHeightPx.coerceIn(0, fullSurfaceHeightPx),
         onCompactSurfaceHeightChanged = { compactSurfaceHeightPx = it },
     )
 }
@@ -101,29 +87,21 @@ internal fun Modifier.inputSheetSurfaceHeight(
     }
 
 @Composable
-internal fun rememberInputSheetAnimatedInsets(motionStage: InputSheetMotionStage): InputSheetAnimatedInsets {
+internal fun rememberInputSheetAnimatedInsets(): InputSheetAnimatedInsets {
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val animatedTopInset by animateDpAsState(
-        targetValue = if (motionStage.usesExpandedInsets()) statusBarHeight else InputSheetTokens.CollapsedInset,
-        animationSpec =
-            androidx.compose.animation.core.tween(
-                durationMillis = MotionTokens.DurationMedium2,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
+    val transition = LocalInputSheetPresentationTransition.current
+    val scheme = MaterialTheme.motionScheme
+    val animatedTopInset by transition.animateDp(
+        transitionSpec = { scheme.slowSpatialSpec() },
         label = "InputSheetTopInset",
-    )
-    val animatedBottomInset by animateDpAsState(
-        targetValue = if (motionStage.usesExpandedInsets()) navBarHeight else InputSheetTokens.CollapsedInset,
-        animationSpec =
-            androidx.compose.animation.core.tween(
-                durationMillis = MotionTokens.DurationMedium2,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
+    ) { if (it.surfaceMotionStage().usesExpandedInsets()) statusBarHeight else InputSheetTokens.CollapsedInset }
+    val animatedBottomInset by transition.animateDp(
+        transitionSpec = { scheme.slowSpatialSpec() },
         label = "InputSheetBottomInset",
-    )
+    ) { if (it.surfaceMotionStage().usesExpandedInsets()) navBarHeight else InputSheetTokens.CollapsedInset }
     return InputSheetAnimatedInsets(
-        top = animatedTopInset,
-        bottom = animatedBottomInset,
+        top = animatedTopInset.coerceAtLeast(InputSheetTokens.CollapsedInset),
+        bottom = animatedBottomInset.coerceAtLeast(InputSheetTokens.CollapsedInset),
     )
 }

@@ -29,7 +29,6 @@ import com.lomo.ui.component.markdown.MarkdownRenderState
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.theme.AppSpacing
-import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableList
 import org.jetbrains.compose.resources.stringResource
 

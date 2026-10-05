@@ -1,5 +1,9 @@
 package com.lomo.ui.component.input
 
+import androidx.compose.runtime.State
+
+import androidx.compose.animation.core.MutableTransitionState
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -22,14 +26,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
-import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.theme.SheetHandleTokens
+
+private const val INPUT_SHEET_BACK_SCALE_REDUCTION = 0.04f
 
 @Composable
 internal fun InputSheetScaffold(
@@ -41,13 +48,11 @@ internal fun InputSheetScaffold(
     focusParkingRequester: FocusRequester,
     content: @Composable (InputSheetMotionStage, Modifier) -> Unit,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
     val animatedScrimAlpha by animateFloatAsState(
         targetValue = scrimAlpha,
         animationSpec =
-            androidx.compose.animation.core.tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = androidx.compose.animation.core.LinearEasing,
-            ),
+            motionScheme.defaultEffectsSpec(),
         label = "InputSheetScrimAlpha",
     )
     Box(modifier = Modifier.fillMaxSize()) {
@@ -58,13 +63,13 @@ internal fun InputSheetScaffold(
             onRequestDismiss = onRequestDismiss,
         )
         AnimatedVisibility(
-            visible = isSheetVisible,
+            visibleState = LocalInputSheetVisibilityState.current,
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxSize(),
-            enter = inputSheetVisibilityEnterTransition(),
-            exit = inputSheetVisibilityExitTransition(),
+            enter = inputSheetVisibilityEnterTransition(motionScheme),
+            exit = inputSheetVisibilityExitTransition(motionScheme),
         ) {
             InputSheetAnimatedSurface(
                 presentationState = presentationState,
@@ -90,6 +95,7 @@ private fun InputSheetAnimatedSurface(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.BottomCenter,
     ) {
+        val backProgress = LocalInputSheetBackProgress.current
         val density = LocalDensity.current
         val fullSurfaceHeightPx = with(density) { maxHeight.roundToPx() }
         val surfaceState =
@@ -101,7 +107,7 @@ private fun InputSheetAnimatedSurface(
                         with(density) { InputSheetTokens.CompactFallbackHeight.roundToPx() }
                     },
             )
-        val animatedInsets = rememberInputSheetAnimatedInsets(motionStage = surfaceState.motionStage)
+        val animatedInsets = rememberInputSheetAnimatedInsets()
 
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -118,6 +124,13 @@ private fun InputSheetAnimatedSurface(
                             density = density,
                             onCompactSurfaceHeightChanged = surfaceState.onCompactSurfaceHeightChanged,
                         )
+                        .graphicsLayer {
+                            val fraction = backProgress.value
+                            scaleX = 1f - INPUT_SHEET_BACK_SCALE_REDUCTION * fraction
+                            scaleY = 1f - INPUT_SHEET_BACK_SCALE_REDUCTION * fraction
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
+                            translationY = 24.dp.toPx() * fraction
+                        }
                         .clip(
                             RoundedCornerShape(
                                 topStart = surfaceState.animatedCornerRadius,
@@ -162,3 +175,13 @@ internal fun InputSheetDragHandle(modifier: Modifier = Modifier) {
                 .clearAndSetSemantics { },
     )
 }
+
+internal val LocalInputSheetVisibilityState =
+    androidx.compose.runtime.staticCompositionLocalOf<MutableTransitionState<Boolean>> {
+        error("Input sheet visibility must be hosted by InputSheet")
+    }
+
+internal val LocalInputSheetBackProgress =
+    androidx.compose.runtime.staticCompositionLocalOf<State<Float>> {
+        error("Input sheet back preview must be hosted by InputSheet")
+    }

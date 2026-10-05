@@ -1,22 +1,18 @@
 package com.lomo.ui.component.input
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
-import com.lomo.ui.theme.MotionTokens
 
 @Composable
 internal fun rememberInputEditorLayerAlpha(
-    visible: Boolean,
+    visible: (InputSheetPresentationState) -> Boolean,
     label: String,
-): State<Float> =
-    animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec =
-            tween(
-                durationMillis = MotionTokens.DurationMedium2,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
+): State<Float> {
+    val scheme = MaterialTheme.motionScheme
+    return LocalInputSheetPresentationTransition.current.animateFloat(
+        transitionSpec = { scheme.defaultEffectsSpec() },
         label = label,
-    )
+    ) { if (visible(it)) 1f else 0f }
+}

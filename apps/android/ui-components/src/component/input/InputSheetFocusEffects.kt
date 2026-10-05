@@ -9,50 +9,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.SoftwareKeyboardController
-import com.lomo.ui.theme.MotionTokens
-import kotlinx.coroutines.delay
 
 internal const val INPUT_SHEET_FOCUS_REQUEST_MAX_ATTEMPTS = 5
 internal const val INPUT_SHEET_FOCUS_RELEASE_MAX_ATTEMPTS = 5
-internal const val INPUT_SHEET_ENTRY_SETTLE_DELAY_MILLIS = MotionTokens.DurationLong2.toLong()
 
 @Composable
 internal fun InputSheetVisibilityEffects(
     focusRequestToken: Long,
-    isSheetVisible: Boolean,
-    isRecording: Boolean,
-    isDismissing: Boolean,
     onSheetVisibleChange: (Boolean) -> Unit,
-    onSheetEntrySettledChange: (Boolean) -> Unit,
 ) {
     LaunchedEffect(focusRequestToken) {
         withFrameNanos { }
         onSheetVisibleChange(true)
-    }
-
-    LaunchedEffect(isSheetVisible, isRecording, isDismissing) {
-        if (!isSheetVisible || isDismissing || isRecording) {
-            onSheetEntrySettledChange(false)
-            return@LaunchedEffect
-        }
-        onSheetEntrySettledChange(false)
-        delay(INPUT_SHEET_ENTRY_SETTLE_DELAY_MILLIS)
-        if (!isDismissing && !isRecording && isSheetVisible) {
-            onSheetEntrySettledChange(true)
-        }
-    }
-
-    LaunchedEffect(isSheetVisible, isDismissing) {
-        if (!isSheetVisible || isDismissing) {
-            onSheetEntrySettledChange(false)
-        }
-    }
-
-    LaunchedEffect(isSheetVisible, isRecording, isDismissing) {
-        if (!isSheetVisible || isDismissing) return@LaunchedEffect
-        if (isRecording) {
-            return@LaunchedEffect
-        }
     }
 }
 

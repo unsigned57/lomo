@@ -1,8 +1,8 @@
 package com.lomo.ui.component.input
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDp
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -63,7 +63,6 @@ import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.component.markdown.MarkdownRenderState
 import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.theme.AppSpacing
-import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.theme.memoEditorTextStyle
 import com.lomo.ui.theme.memoHintTextStyle
 import com.lomo.ui.util.AppHapticFeedback
@@ -103,11 +102,11 @@ internal fun InputEditorPanel(
             )
         }
     val editorAlpha by rememberInputEditorLayerAlpha(
-        visible = presentationState.showsEditorContent(),
+        visible = { it.showsEditorContent() && it != InputSheetPresentationState.SwitchingToPreview },
         label = "InputEditorAlpha",
     )
     val previewAlpha by rememberInputEditorLayerAlpha(
-        visible = presentationState.showsPreviewLayer(),
+        visible = { it.showsPreviewLayer() && it != InputSheetPresentationState.SwitchingToEdit },
         label = "InputPreviewAlpha",
     )
     Column(
@@ -119,6 +118,7 @@ internal fun InputEditorPanel(
     ) {
         InputEditorChromeTransitionHost(
             transitionState = chromeState.displayModeBar,
+            motionTarget = ::resolveInputEditorDisplayModeBarTransitionState,
         ) { chromeModifier ->
             InputEditorDisplayModeBar(
                 displayMode = displayMode,
@@ -136,6 +136,7 @@ internal fun InputEditorPanel(
         InputEditorBodyContent(
             state =
                 InputEditorBodyState(
+                    editorInteractive = presentationState.prefersEditorFocus(),
                     isExpanded = isExpanded,
                     chromeState = chromeState,
                     inputValue = inputValue,
@@ -205,6 +206,7 @@ private fun ColumnScope.InputEditorBodyContent(
                 .then(if (state.isExpanded) Modifier.weight(1f) else Modifier),
     ) {
         InputEditorTextField(
+            enabled = state.editorInteractive,
             state =
                 InputEditorTextFieldState(
                     isExpanded = state.isExpanded,
@@ -278,6 +280,7 @@ private fun InputEditorToolbarSection(
         }
     InputEditorChromeTransitionHost(
         transitionState = chromeState.formattingToolbar,
+        motionTarget = ::resolveInputEditorFormattingToolbarTransitionState,
     ) { chromeModifier ->
         InputEditorToolbar(
             state =
@@ -303,44 +306,35 @@ private data class InputEditorChromeMotion(
 
 @Composable
 private fun rememberInputEditorChromeMotion(
-    transitionState: InputEditorChromeTransitionState,
+    motionTarget: (InputSheetPresentationState) -> InputEditorChromeTransitionState,
 ): InputEditorChromeMotion {
-    val alpha by animateFloatAsState(
-        targetValue = if (transitionState.isVisible) 1f else 0f,
-        animationSpec =
-            androidx.compose.animation.core.tween(
-                durationMillis = MotionTokens.DurationMedium2,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
+    val scheme = MaterialTheme.motionScheme
+    val transition = LocalInputSheetPresentationTransition.current
+    val alpha by transition.animateFloat(
+        transitionSpec = { scheme.defaultEffectsSpec() },
         label = "InputEditorChromeAlpha",
-    )
-    val offsetY by animateDpAsState(
-        targetValue = if (transitionState.isVisible) InputSheetTokens.CollapsedInset else transitionState.hiddenOffsetY,
-        animationSpec =
-            androidx.compose.animation.core.tween(
-                durationMillis = MotionTokens.DurationMedium2,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
+    ) { if (motionTarget(it).isVisible) 1f else 0f }
+    val offsetY by transition.animateDp(
+        transitionSpec = { scheme.defaultSpatialSpec() },
         label = "InputEditorChromeOffsetY",
-    )
-    return remember(alpha, offsetY) {
-        InputEditorChromeMotion(
-            alpha = alpha,
-            offsetY = offsetY,
-        )
+    ) { state ->
+        val target = motionTarget(state)
+        if (target.isVisible) InputSheetTokens.CollapsedInset else target.hiddenOffsetY
     }
+    return InputEditorChromeMotion(alpha, offsetY)
 }
 
 @Composable
 private fun InputEditorChromeTransitionHost(
     transitionState: InputEditorChromeTransitionState,
+    motionTarget: (InputSheetPresentationState) -> InputEditorChromeTransitionState,
     content: @Composable (Modifier) -> Unit,
 ) {
     if (!transitionState.keepsHostMounted) {
         return
     }
 
-    val chromeMotion = rememberInputEditorChromeMotion(transitionState)
+    val chromeMotion = rememberInputEditorChromeMotion(motionTarget)
     val chromeModifier =
         Modifier
             .fillMaxWidth()
@@ -477,35 +471,26 @@ private fun InputEditorTagSelector(
     slots: InputSheetSlots,
     onTagSelected: (String) -> Unit,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
     AnimatedVisibility(
         visible = showTagSelector && availableTags.isNotEmpty(),
         enter =
             expandVertically(
                 animationSpec =
-                    androidx.compose.animation.core.tween(
-                        durationMillis = MotionTokens.DurationMedium2,
-                        easing = MotionTokens.EasingEmphasized,
-                    ),
+                    motionScheme.defaultSpatialSpec(),
             ) +
                 fadeIn(
                     animationSpec =
-                        androidx.compose.animation.core.tween(
-                            durationMillis = MotionTokens.DurationMedium2,
-                        ),
+                        motionScheme.defaultEffectsSpec(),
                 ),
         exit =
             shrinkVertically(
                 animationSpec =
-                    androidx.compose.animation.core.tween(
-                        durationMillis = MotionTokens.DurationMedium2,
-                        easing = MotionTokens.EasingEmphasized,
-                    ),
+                    motionScheme.defaultSpatialSpec(),
             ) +
                 fadeOut(
                     animationSpec =
-                        androidx.compose.animation.core.tween(
-                            durationMillis = MotionTokens.DurationShort4,
-                        ),
+                        motionScheme.fastEffectsSpec(),
                 ),
     ) {
         Column {

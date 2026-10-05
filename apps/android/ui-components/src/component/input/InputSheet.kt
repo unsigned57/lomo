@@ -1,17 +1,16 @@
 package com.lomo.ui.component.input
 
+import androidx.compose.animation.core.MutableTransitionState
+
+import androidx.compose.runtime.CompositionLocalProvider
+
 import android.Manifest
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -58,7 +57,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -70,13 +68,11 @@ import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
-import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.util.AppHapticFeedback
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private const val INPUT_SHEET_DISMISS_KEYBOARD_DELAY_MILLIS = 150L
 
 data class InputSheetState(
     val surface: InputEditorSurfaceState,
@@ -182,15 +178,47 @@ fun InputSheet(
         } else {
             InputEditorDisplayMode.Edit
         }
-    val presentationState =
-        rememberInputSheetPresentationState(
+    val presentationTransition =
+        rememberInputSheetPresentationTransition(
             targetExpanded = surface.isExpanded,
             targetDisplayMode = resolvedDisplayMode,
         )
-    val currentInputValue by rememberUpdatedState(inputValue)
-    // The controller's focus token is the editor-session identity. Keeping this as the remember
-    // key prevents a failed/submitting lock from surviving after a committed editor is reopened.
+    val presentationState = presentationTransition.targetState
     val sessionState = rememberInputSheetSessionState(surface.focusRequestToken, inputValue.text)
+    val visibilityState = remember { MutableTransitionState(false) }
+    visibilityState.targetState = sessionState.isSheetVisible
+    LaunchedEffect(visibilityState.isIdle, visibilityState.currentState, sessionState.isDismissing) {
+        sessionState.isSheetEntrySettled = visibilityState.isIdle && visibilityState.currentState
+        if (sessionState.isDismissing && visibilityState.isIdle && !visibilityState.currentState) {
+            callbacks.onDismiss()
+        }
+    }
+    CompositionLocalProvider(
+        LocalInputSheetPresentationTransition provides presentationTransition,
+        LocalInputSheetVisibilityState provides visibilityState,
+    ) {
+        InputSheetSessionContent(
+            state, callbacks, slots, sessionState, presentationState, hintText,
+            benchmarkRootTag, benchmarkEditorTag, benchmarkSubmitTag,
+        )
+    }
+}
+
+@Composable
+private fun InputSheetSessionContent(
+    state: InputSheetState,
+    callbacks: InputSheetCallbacks,
+    slots: InputSheetSlots,
+    sessionState: InputSheetSessionState,
+    presentationState: InputSheetPresentationState,
+    hintText: String,
+    benchmarkRootTag: String?,
+    benchmarkEditorTag: String?,
+    benchmarkSubmitTag: String?,
+) {
+    val surface = state.surface
+    val inputValue = surface.inputValue
+    val currentInputValue by rememberUpdatedState(inputValue)
     val haptic = LocalAppHapticFeedback.current
     val focusRequester = remember { FocusRequester() }
     val focusParkingRequester = remember { FocusRequester() }
@@ -203,8 +231,6 @@ fun InputSheet(
             onSheetVisibleChange = { sessionState.isSheetVisible = it },
             focusParkingRequester = focusParkingRequester,
             keyboardController = keyboardController,
-            scope = scope,
-            onDismiss = callbacks.onDismiss,
         )
     val submitWithLock =
         rememberSubmitWithLock(
@@ -224,58 +250,65 @@ fun InputSheet(
             submitWithLock = submitWithLock,
         )
 
-    InputSheetLifecycle(
-        state =
-            InputSheetLifecycleState(
-                sessionState = sessionState,
-                sheetState = state,
-                inputText = inputValue.text,
-                presentationState = presentationState,
-                focusRequester = focusRequester,
-                focusParkingRequester = focusParkingRequester,
-                focusRequestToken = surface.focusRequestToken,
-                keyboardController = keyboardController,
-            ),
-        callbacks =
-            InputSheetLifecycleCallbacks(
-                onCollapse = callbacks.onCollapse,
-                onConsumeBackPress = callbacks.onConsumeBackPress,
-                onRequestDismiss = requestDismiss,
-            ),
-    )
+    val backProgress = com.lomo.ui.component.navigation.rememberPredictiveBackProgress(
+        enabled = !sessionState.isDismissing && !sessionState.showDiscardDialog,
+    ) {
+        if (surface.isExpanded) {
+            callbacks.onCollapse()
+        } else if (!callbacks.onConsumeBackPress()) {
+            requestDismiss()
+        }
+    }
+    CompositionLocalProvider(LocalInputSheetBackProgress provides backProgress) {
+        InputSheetLifecycle(
+            state =
+                InputSheetLifecycleState(
+                    sessionState = sessionState,
+                    sheetState = state,
+                    inputText = inputValue.text,
+                    presentationState = presentationState,
+                    focusRequester = focusRequester,
+                    focusParkingRequester = focusParkingRequester,
+                    focusRequestToken = surface.focusRequestToken,
+                    keyboardController = keyboardController,
+                ),
 
-    val handleTextChange =
-        rememberInputTextChangeHandler(
-            sessionState = sessionState,
-            currentValue = inputValue,
-            inputInterceptor = callbacks.inputInterceptor,
-            onInputValueChange = callbacks.onInputValueChange,
-            submitWithLock = submitWithLock,
-            haptic = haptic,
         )
 
-    InputSheetContent(
-        params =
-            InputSheetContentParams(
-                state = state,
-                callbacks = callbacks,
-                slots = slots,
+        val handleTextChange =
+            rememberInputTextChangeHandler(
                 sessionState = sessionState,
-                presentationState = presentationState,
-                inputValue = inputValue,
-                hintText = hintText,
-                focusRequester = focusRequester,
-                focusParkingRequester = focusParkingRequester,
-                haptic = haptic,
-                dismissSheet = dismissSheet,
-                requestDismiss = requestDismiss,
-                handleTextChange = handleTextChange,
+                currentValue = inputValue,
+                inputInterceptor = callbacks.inputInterceptor,
+                onInputValueChange = callbacks.onInputValueChange,
                 submitWithLock = submitWithLock,
-                benchmarkRootTag = benchmarkRootTag,
-                benchmarkEditorTag = benchmarkEditorTag,
-                benchmarkSubmitTag = benchmarkSubmitTag,
-            ),
-    )
+                haptic = haptic,
+            )
+
+        InputSheetContent(
+            params =
+                InputSheetContentParams(
+                    state = state,
+                    callbacks = callbacks,
+                    slots = slots,
+                    sessionState = sessionState,
+                    presentationState = presentationState,
+                    inputValue = inputValue,
+                    hintText = hintText,
+                    focusRequester = focusRequester,
+                    focusParkingRequester = focusParkingRequester,
+                    haptic = haptic,
+                    dismissSheet = dismissSheet,
+                    requestDismiss = requestDismiss,
+                    handleTextChange = handleTextChange,
+                    submitWithLock = submitWithLock,
+                    benchmarkRootTag = benchmarkRootTag,
+                    benchmarkEditorTag = benchmarkEditorTag,
+                    benchmarkSubmitTag = benchmarkSubmitTag,
+                ),
+        )
+
+    }
 }
 
 @Composable
@@ -433,8 +466,6 @@ private fun rememberDismissSheetAction(
     onSheetVisibleChange: (Boolean) -> Unit,
     focusParkingRequester: FocusRequester,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
-    scope: kotlinx.coroutines.CoroutineScope,
-    onDismiss: () -> Unit,
 ): () -> Unit =
     dismiss@{
         if (isDismissing) return@dismiss
@@ -443,26 +474,16 @@ private fun rememberDismissSheetAction(
             keyboardController = keyboardController,
             focusParkingRequester = focusParkingRequester,
         )
-        scope.launch {
-            delay(INPUT_SHEET_DISMISS_KEYBOARD_DELAY_MILLIS)
-            onSheetVisibleChange(false)
-            delay(MotionTokens.DurationLong2.toLong())
-            onDismiss()
-        }
+        onSheetVisibleChange(false)
     }
 
 @Composable
 private fun InputSheetLifecycle(
     state: InputSheetLifecycleState,
-    callbacks: InputSheetLifecycleCallbacks,
 ) {
     InputSheetVisibilityEffects(
         focusRequestToken = state.focusRequestToken,
-        isSheetVisible = state.sessionState.isSheetVisible,
-        isRecording = state.sheetState.surface.recordingState.isRecording,
-        isDismissing = state.sessionState.isDismissing,
         onSheetVisibleChange = { state.sessionState.isSheetVisible = it },
-        onSheetEntrySettledChange = { state.sessionState.isSheetEntrySettled = it },
     )
     InputSheetFocusRequestEffects(
         state =
@@ -478,13 +499,6 @@ private fun InputSheetLifecycle(
                 keyboardController = state.keyboardController,
             ),
     )
-    BackHandler(enabled = true) {
-        if (state.sheetState.surface.isExpanded) {
-            callbacks.onCollapse()
-        } else if (!callbacks.onConsumeBackPress()) {
-            callbacks.onRequestDismiss()
-        }
-    }
     InputSheetSubmissionResetEffect(
         inputText = state.inputText,
         isSubmitting = state.sessionState.isSubmitting,

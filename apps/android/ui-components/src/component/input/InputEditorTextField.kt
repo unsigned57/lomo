@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
@@ -25,6 +26,7 @@ import com.lomo.ui.theme.memoPlatformTextHandleColor
 
 @Composable
 internal fun InputEditorTextField(
+    enabled: Boolean,
     state: InputEditorTextFieldState,
     onTextChange: (TextFieldValue) -> Unit,
     modifier: Modifier = Modifier,
@@ -58,6 +60,7 @@ internal fun InputEditorTextField(
     Box(
         modifier =
             modifier
+                .then(if (enabled) Modifier else Modifier.clearAndSetSemantics { })
                 .fillMaxWidth()
                 .heightIn(
                     min = minimumContainerHeight,
@@ -77,6 +80,7 @@ internal fun InputEditorTextField(
             )
         }
         BasicTextField(
+            enabled = enabled,
             value = state.inputValue,
             onValueChange = onTextChange,
             modifier =

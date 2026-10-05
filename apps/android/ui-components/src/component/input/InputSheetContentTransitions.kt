@@ -1,31 +1,27 @@
 package com.lomo.ui.component.input
 
+import androidx.compose.material3.MotionScheme
+
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
-import com.lomo.ui.theme.MotionTokens
 
-internal fun fadeScaleContentTransition(): ContentTransform =
+internal fun fadeScaleContentTransition(motionScheme: MotionScheme): ContentTransform =
     (
         fadeIn(
             animationSpec =
-                androidx.compose.animation.core
-                    .tween(MotionTokens.DurationMedium2),
+                motionScheme.defaultEffectsSpec(),
         ) +
             scaleIn(
                 initialScale = 0.95f,
                 animationSpec =
-                    androidx.compose.animation.core.tween(
-                        MotionTokens.DurationMedium2,
-                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                    ),
+                    motionScheme.defaultSpatialSpec(),
             )
     ).togetherWith(
         fadeOut(
             animationSpec =
-                androidx.compose.animation.core
-                    .tween(durationMillis = MotionTokens.DurationShort4),
+                motionScheme.fastEffectsSpec(),
         ),
     )
