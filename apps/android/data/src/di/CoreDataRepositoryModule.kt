@@ -187,6 +187,8 @@ val coreDataRepositoryModule = module {
                     stageRoot = get(),
                     writeLease = get(),
                     storePort = get(),
+                    createDraftRepository = get(),
+                    editDraftRepository = get(),
                 ),
             pendingStages = get(),
             dispatcherProvider = get(),
@@ -220,6 +222,7 @@ val coreDataRepositoryModule = module {
             workspaceRoot = get(),
             settingsStore = get(),
             invalidation = get(),
+            syncPolicyRepository = get(),
             dispatcherProvider = get(),
         )
     } bind MigrationArchiveRepository::class

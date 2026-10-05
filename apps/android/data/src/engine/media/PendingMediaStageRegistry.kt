@@ -1,6 +1,7 @@
 package com.lomo.data.engine.media
 
 import com.lomo.domain.model.DraftId
+import com.lomo.domain.model.RecoverableDraftFailure
 
 /**
  * Draft-scoped staged-media view over the Rust durable stage ledger.
@@ -51,6 +52,12 @@ class PendingMediaStageRegistry(
         mediaPort
             .stageRecordsForOwner(root, MediaStageOwnerKind.PendingOperation, operationId)
             .forEach { byArtifact.putIfAbsent(it.artifactId, it) }
+        // Bytes that vanished under a live lease can never be promoted; fail with the typed
+        // recoverable condition instead of letting the commit report an opaque attachment error.
+        val missing = byArtifact.values.filterNot { it.stagedBytesPresent }
+        if (missing.isNotEmpty()) {
+            throw RecoverableDraftFailure(missing.map { it.suggestedFinalRelativePath })
+        }
         return byArtifact.values.map { record ->
             mediaPort.transferStageLease(
                 mediaRoot = root,
@@ -151,6 +158,31 @@ class PendingMediaStageRegistry(
                         ),
                 )
             }
+    }
+
+    /**
+     * Every staged-media record the ledger still attributes to one draft — the restart
+     * reconciliation view. Includes rows whose `stagedBytesPresent` is false so callers can
+     * detect references that can never be promoted.
+     */
+    fun draftRecords(draftId: DraftId): List<MediaStageRecord> =
+        mediaPort.stageRecordsForOwner(stageRoot(), MediaStageOwnerKind.Draft, draftId.value)
+
+    /**
+     * Releases every lease one draft still owns and returns the released records so callers can
+     * evict resolution caches. Staged bytes die only when no other holder still leases them.
+     */
+    fun releaseDraft(draftId: DraftId): List<MediaStageRecord> {
+        val root = stageRoot()
+        val records =
+            mediaPort.stageRecordsForOwner(root, MediaStageOwnerKind.Draft, draftId.value)
+        records.forEach { record ->
+            mediaPort.releaseStageLease(
+                mediaRoot = root,
+                lease = MediaStageLease(record.artifactId, MediaStageOwnerKind.Draft, draftId.value),
+            )
+        }
+        return records
     }
 
     /**

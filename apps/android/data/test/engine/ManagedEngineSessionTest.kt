@@ -2254,6 +2254,7 @@ private class SessionFakeNativeEnginePort(
     override fun sessionMediaOrphanSweep(
         nowMs: ULong?,
         recoveryWindowMs: ULong,
+        externalDrafts: List<com.lomo.nativebridge.SessionDraftGuardDto>,
     ): com.lomo.nativebridge.SessionMediaSweepReportDto =
         com.lomo.nativebridge.SessionMediaSweepReportDto(
             candidates = 0uL,

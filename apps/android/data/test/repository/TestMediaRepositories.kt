@@ -77,6 +77,14 @@ internal object ThrowingMediaRepository : MediaRepository {
     override suspend fun runOrphanSweepAtOperationBoundary() {
         unexpected("runOrphanSweepAtOperationBoundary")
     }
+
+    override suspend fun reconcileDraftMedia(
+        draftId: com.lomo.domain.model.DraftId,
+    ): com.lomo.domain.model.DraftMediaReconciliation = unexpected("reconcileDraftMedia")
+
+    override suspend fun releaseDraftLeases(draftId: com.lomo.domain.model.DraftId) {
+        unexpected("releaseDraftLeases")
+    }
 }
 
 internal class RecordingCommittedMediaLocationSink : CommittedMediaLocationSink {
@@ -142,6 +150,17 @@ internal class RecordingMediaRepository : MediaRepository {
     override suspend fun runOrphanSweepAtOperationBoundary() {
         orphanSweepCallCount += 1
     }
+
+    override suspend fun reconcileDraftMedia(
+        draftId: com.lomo.domain.model.DraftId,
+    ): com.lomo.domain.model.DraftMediaReconciliation =
+        com.lomo.domain.model.DraftMediaReconciliation(draftId = draftId, records = emptyList())
+
+    val releasedDraftIds = mutableListOf<com.lomo.domain.model.DraftId>()
+
+    override suspend fun releaseDraftLeases(draftId: com.lomo.domain.model.DraftId) {
+        releasedDraftIds += draftId
+    }
 }
 
 private fun unexpected(method: String): Nothing =
@@ -203,5 +222,6 @@ internal class NoOpMediaPort : com.lomo.data.engine.media.MediaPort {
     override fun sessionMediaOrphanSweep(
         nowMs: Long?,
         recoveryWindowMs: Long,
+        externalDrafts: List<com.lomo.data.engine.media.MediaSweepDraftGuard>,
     ): com.lomo.data.engine.media.MediaSweepReport = error("sessionMediaOrphanSweep is not expected")
 }

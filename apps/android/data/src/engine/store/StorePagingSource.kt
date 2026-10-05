@@ -149,7 +149,6 @@ internal fun StoreMemoSummary.toDomainMemo(
         isPinned = isPinned,
         isDeleted = isTrashed,
         isPending = isPending,
-        geoLocation = null,
         reminders = reminders,
         contentRevision = contentRevision,
         fileFingerprint = fileFingerprint,

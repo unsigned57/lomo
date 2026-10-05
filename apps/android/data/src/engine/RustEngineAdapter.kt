@@ -402,8 +402,9 @@ internal class RustEngineAdapter private constructor(
     override fun sessionMediaOrphanSweep(
         nowMs: ULong?,
         recoveryWindowMs: ULong,
+        externalDrafts: List<com.lomo.nativebridge.SessionDraftGuardDto>,
     ): com.lomo.nativebridge.SessionMediaSweepReportDto =
-        native.sessionMediaOrphanSweep(nowMs, recoveryWindowMs)
+        native.sessionMediaOrphanSweep(nowMs, recoveryWindowMs, externalDrafts)
 
     override fun archiveExport(
         workspaceRoot: String,

@@ -330,6 +330,7 @@ private class RecordingStorePort : StorePort {
                         isTrashed = false,
                         bodyPreview = command.content.orEmpty().take(80),
                         contentRevision = 1L,
+                        charCount = command.content.orEmpty().length.toLong(),
                     )
                 memos[id] = StoreMemoSnapshot(summary = summary, body = command.content.orEmpty())
                 val pending = commitOf(command, memos.getValue(id))
@@ -352,6 +353,7 @@ private class RecordingStorePort : StorePort {
                                 contentRevision = existing.summary.contentRevision + 1,
                                 fileFingerprint = "ff-upd",
                                 updatedAtMs = existing.summary.updatedAtMs + 1,
+                                charCount = body.length.toLong(),
                             ),
                     )
                 memos[command.memoId] = updated
@@ -705,6 +707,7 @@ private fun seededSnapshot(
                 isTrashed = isTrashed,
                 bodyPreview = body.take(80),
                 contentRevision = 1L,
+                charCount = body.length.toLong(),
                 tags = tags,
                 imageUrls = imageUrls,
                 reminders = reminders,

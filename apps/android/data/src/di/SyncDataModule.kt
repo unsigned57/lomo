@@ -33,6 +33,7 @@ import com.lomo.data.repository.WebDavSyncStateRepositoryImpl
 import com.lomo.data.sync.GitEndpointSecurityMigration
 import com.lomo.data.sync.RustSyncWorkPolicyPlanner
 import com.lomo.data.sync.SyncConflictBackupManager
+import com.lomo.data.sync.SyncIdentityResetPolicy
 import com.lomo.data.worker.CoreSyncScheduler
 import com.lomo.data.worker.DeferredLockAuthorizedWorkResume
 import com.lomo.data.worker.DeferredLockWorkStore
@@ -151,6 +152,9 @@ val syncDataModule = module {
             File(androidContext().noBackupFilesDir, REMOTE_SYNC_DEFERRED_LOCK_FILE),
         )
     }
+    // One disposal order for every surface that invalidates canonical sync identity:
+    // backend switch, userinfo migration purge, and per-provider identity-field writes.
+    singleOf(::SyncIdentityResetPolicy)
     single<AuthorizedWorkResume> {
         DeferredLockAuthorizedWorkResume(
             store = get(),
@@ -197,9 +201,7 @@ val syncDataModule = module {
         GitEndpointSecurityMigration(
             dataStore = get(),
             credentialRepository = get(),
-            scheduler = get(),
-            deferredLockStore = get(),
-            syncStateReset = get(),
+            identityReset = get(),
             workspaceRoot = get(),
         )
     }
@@ -208,7 +210,7 @@ val syncDataModule = module {
             dataStore = get(),
             coreSyncScheduler = get(),
             rustSyncScheduler = get(),
-            syncStateReset = get(),
+            identityReset = get(),
             gitEndpointSecurityMigration = get(),
         )
     } bind SyncPolicyRepository::class

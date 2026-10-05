@@ -6,6 +6,7 @@ import com.lomo.nativebridge.MediaStageLeaseDto as BridgeStageLease
 import com.lomo.nativebridge.MediaStageOwnerKindDto as BridgeStageOwnerKind
 import com.lomo.nativebridge.MediaStageRecordDto as BridgeStageRecord
 import com.lomo.nativebridge.MediaStagedDto as BridgeStaged
+import com.lomo.nativebridge.SessionDraftGuardDto
 
 /**
  * Production [MediaPort] over [MediaNativeBridge] (ManagedEngineSession / BoltFFI).
@@ -106,11 +107,16 @@ internal class BoltFfiMediaPort(
     override fun sessionMediaOrphanSweep(
         nowMs: Long?,
         recoveryWindowMs: Long,
+        externalDrafts: List<MediaSweepDraftGuard>,
     ): MediaSweepReport {
         val result =
             bridge.sessionMediaOrphanSweep(
                 nowMs = nowMs?.toULong(),
                 recoveryWindowMs = recoveryWindowMs.toULong(),
+                externalDrafts =
+                    externalDrafts.map { draft ->
+                        SessionDraftGuardDto(ownerId = draft.ownerId, content = draft.content)
+                    },
             )
         return MediaSweepReport(
             candidates = result.candidates.toLong(),

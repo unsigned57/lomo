@@ -443,8 +443,11 @@ internal class BoltFfiNativeEnginePort(
     override fun sessionMediaOrphanSweep(
         nowMs: ULong?,
         recoveryWindowMs: ULong,
+        externalDrafts: List<com.lomo.nativebridge.SessionDraftGuardDto>,
     ): com.lomo.nativebridge.SessionMediaSweepReportDto =
-        withReadLease { engine -> engine.sessionMediaOrphanSweep(nowMs, recoveryWindowMs) }
+        withReadLease { engine ->
+            engine.sessionMediaOrphanSweepGuarding(nowMs, recoveryWindowMs, externalDrafts)
+        }
 
     override fun archiveExport(
         workspaceRoot: String,

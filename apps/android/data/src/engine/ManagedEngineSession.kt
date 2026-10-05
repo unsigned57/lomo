@@ -351,10 +351,25 @@ internal class ManagedEngineSession(
         location: StorageLocation?,
     ): WorkspaceAuthority? {
         val promotion =
-            retirePreviousAndCommit(
-                candidate,
-                location,
-            )
+            try {
+                retirePreviousAndCommit(
+                    candidate,
+                    location,
+                )
+            } catch (failure: Exception) {
+                // Commitment validation can throw before the adapter lease mutates. Release
+                // the candidate unless it already became the active owner, so its native
+                // handle and capability token cannot leak with the workspace unprepared.
+                if (adapterLease.read { activeAdapter !== candidate.adapter }) {
+                    releaseCandidate(
+                        candidate.adapter,
+                        candidate.capabilityToken,
+                        failure,
+                        capabilityRegistry,
+                    )
+                }
+                throw failure
+            }
         return when (promotion) {
             is AdapterPromotion.Committed -> {
                 promotion.previousToken
@@ -363,9 +378,7 @@ internal class ManagedEngineSession(
                 promotion.authority
             }
             is AdapterPromotion.CandidateRejected -> {
-                val failure = WorkspaceActivationException(promotion.recovery)
-                releaseCandidate(candidate.adapter, candidate.capabilityToken, failure, capabilityRegistry)
-                throw failure
+                rejectPromotion(candidate, WorkspaceActivationException(promotion.recovery))
             }
             is AdapterPromotion.RetirementFailed -> {
                 val failure = promotion.failure
@@ -374,7 +387,6 @@ internal class ManagedEngineSession(
                 promotion.previousToken
                     ?.takeIf { it != candidate.capabilityToken }
                     ?.let(capabilityRegistry::revoke)
-                releaseCandidate(candidate.adapter, candidate.capabilityToken, failure, capabilityRegistry)
                 holdRecoveryAuthority(
                     EngineReadiness.ReadOnlyRecovery(
                         category = EngineFailureCategory.INTERNAL,
@@ -383,9 +395,17 @@ internal class ManagedEngineSession(
                         diagnostic = failure.message ?: "Previous workspace engine could not be retired",
                     ),
                 )
-                throw failure
+                rejectPromotion(candidate, failure)
             }
         }
+    }
+
+    private fun rejectPromotion(
+        candidate: ManagedWorkspaceCandidate,
+        failure: Throwable,
+    ): Nothing {
+        releaseCandidate(candidate.adapter, candidate.capabilityToken, failure, capabilityRegistry)
+        throw failure
     }
 
     private fun retirePreviousAndCommit(
@@ -400,17 +420,10 @@ internal class ManagedEngineSession(
                             ?: workspaceOpenNotReady(candidateReadiness),
                     )
                 }
-                val token = activeCapabilityToken
-                val previous = activeAdapter
-                detachActiveAdapterLocked()
-                // Exclusive lease waits for every in-flight workspace call before close.
-                val failure = previous?.let { runCatching(it::close).exceptionOrNull() }
-                if (failure != null) {
-                    return@withReadinessAtCommit AdapterPromotion.RetirementFailed(token, failure)
-                }
-                // Ready install clears any prior recovery authority and becomes sole publisher.
-                recoveryAuthority.set(null)
-                installAdapterLocked(candidate.adapter, capabilityToken = candidate.capabilityToken)
+                // Commitment validation precedes adapter mutation: mint the generation and
+                // re-anchor the publication clock while the outgoing owner still holds the
+                // lease. A rejected reanchor then leaves the previous adapter installed and
+                // its mount authoritative instead of a candidate with no published authority.
                 val authority =
                     candidate.workspaceId?.let { id ->
                         WorkspaceAuthority(
@@ -425,6 +438,17 @@ internal class ManagedEngineSession(
                         highWaterRevision = authority.projectionRevision.toStoreLong("projection_revision"),
                     )
                 }
+                val token = activeCapabilityToken
+                val previous = activeAdapter
+                detachActiveAdapterLocked()
+                // Exclusive lease waits for every in-flight workspace call before close.
+                val failure = previous?.let { runCatching(it::close).exceptionOrNull() }
+                if (failure != null) {
+                    return@withReadinessAtCommit AdapterPromotion.RetirementFailed(token, failure)
+                }
+                // Ready install clears any prior recovery authority and becomes sole publisher.
+                recoveryAuthority.set(null)
+                installAdapterLocked(candidate.adapter, capabilityToken = candidate.capabilityToken)
                 publishMount(
                     WorkspaceMount(
                         readiness = candidateReadiness,

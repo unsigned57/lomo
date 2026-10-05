@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.datastore.LomoDataStoreKeys
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.MemoCreateDraft
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
@@ -46,7 +47,12 @@ class MemoCreateDraftRepositoryImplTest : DataFunSpec() {
                 val repository = MemoCreateDraftRepositoryImpl(store)
 
                 repository.read()?.content shouldBe "unsent body"
-                repository.read()?.content shouldBe "unsent body"
+                // The imported draft carries a durable lease identity and round-trips stably.
+                val first = repository.read()
+                first?.content shouldBe "unsent body"
+                val second = repository.read()
+                second?.content shouldBe "unsent body"
+                second?.draftId shouldBe first?.draftId
                 preferences.data.first()[LomoDataStoreKeys.RETIRED_DRAFT_TEXT].shouldBeNull()
             }
         }
@@ -56,9 +62,9 @@ class MemoCreateDraftRepositoryImplTest : DataFunSpec() {
                 val (store, _) = createStore(backgroundScope)
                 val repository = MemoCreateDraftRepositoryImpl(store)
 
-                repository.write(MemoCreateDraft("kept body"))
+                repository.write(MemoCreateDraft(DraftId("draft-keep"), "kept body"))
 
-                repository.read() shouldBe MemoCreateDraft("kept body")
+                repository.read() shouldBe MemoCreateDraft(DraftId("draft-keep"), "kept body")
                 repository.clear()
                 repository.read().shouldBeNull()
             }

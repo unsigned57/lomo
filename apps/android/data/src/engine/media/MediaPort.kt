@@ -105,6 +105,18 @@ data class MediaSweepFailure(
 )
 
 /**
+ * A host editor draft body whose attachments must be protected for one sweep. DataStore drafts
+ * never enter the Rust draft store, so the sweep projects each supplied body inside its
+ * transaction lock exactly like an internal draft; nothing is persisted. A body that fails
+ * projection aborts the sweep rather than silently dropping its protection.
+ */
+data class MediaSweepDraftGuard(
+    /** Opaque owner identity for diagnostics (the durable draft id). */
+    val ownerId: String,
+    val content: String,
+)
+
+/**
  * Observable result of the Rust session-owned two-phase media orphan sweep. The protection set is
  * recomputed inside the Rust transaction lock before any move/delete, so this report is the
  * complete record: candidates, protections, moves, purges, and per-candidate failures.
@@ -186,10 +198,13 @@ interface MediaPort {
      * Session-owned two-phase orphan sweep. The Rust session enumerates `media/` candidates,
      * recomputes the full protection set (live/trash bodies, in-window history, drafts, pending
      * transactions, stage leases) inside the transaction lock, then moves unreferenced objects to
-     * media-trash and purges expired entries. Kotlin supplies no reference facts.
+     * media-trash and purges expired entries. Kotlin supplies only [externalDrafts]: the bodies
+     * of editor drafts that live outside the Rust draft store and whose references must guard
+     * this sweep.
      */
     fun sessionMediaOrphanSweep(
         nowMs: Long?,
         recoveryWindowMs: Long,
+        externalDrafts: List<MediaSweepDraftGuard>,
     ): MediaSweepReport
 }

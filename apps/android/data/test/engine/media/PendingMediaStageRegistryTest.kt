@@ -216,6 +216,7 @@ private class FakeLedgerMediaPort : MediaPort {
     override fun sessionMediaOrphanSweep(
         nowMs: Long?,
         recoveryWindowMs: Long,
+        externalDrafts: List<MediaSweepDraftGuard>,
     ): MediaSweepReport =
         MediaSweepReport(
             candidates = 0,

@@ -64,6 +64,7 @@ internal class RustLanShareService(
     private val _startupFailures = MutableSharedFlow<LanShareStartupFailure>(extraBufferCapacity = 1)
     private val outgoingPayloads = ConcurrentHashMap<String, OutgoingPayload>()
     private val completedOutgoing = ConcurrentHashMap.newKeySet<String>()
+    private val rebindingOutgoing = ConcurrentHashMap.newKeySet<String>()
 
     override val pendingPairing: StateFlow<LanPairingRequest?> = _pendingPairing.asStateFlow()
     override val incomingBatches: StateFlow<List<LanIncomingBatch>> = _incomingBatches.asStateFlow()
@@ -194,21 +195,26 @@ internal class RustLanShareService(
                 }
                 val contentBytes = content.encodeToByteArray()
                 val batchId = randomId()
-                engine.prepareLanBatch(
-                    session.sessionId,
-                    batchId,
-                    listOf(
-                        LanSendItemPlan(
-                            timestampMs = timestamp,
-                            contentDigest = contentBytes.sha256(),
-                            contentBytes = contentBytes.size.toULong(),
-                            title = content.lineSequence().firstOrNull()?.take(MAX_TITLE_CHARS).orEmpty(),
-                            attachments = attachments.map(PreparedAttachment::plan),
-                        ),
-                    ),
-                )
+                val itemPlan =
+                    LanSendItemPlan(
+                        timestampMs = timestamp,
+                        contentDigest = contentBytes.sha256(),
+                        contentBytes = contentBytes.size.toULong(),
+                        title = content.lineSequence().firstOrNull()?.take(MAX_TITLE_CHARS).orEmpty(),
+                        attachments = attachments.map(PreparedAttachment::plan),
+                    )
+                engine.prepareLanBatch(session.sessionId, batchId, listOf(itemPlan))
                 outgoingPayloads[batchId] =
-                    OutgoingPayload(session.sessionId, batchId, device.name, contentBytes, attachments, shape)
+                    OutgoingPayload(
+                        session.sessionId,
+                        batchId,
+                        device.deviceId,
+                        device.name,
+                        contentBytes,
+                        attachments,
+                        shape,
+                        itemPlan,
+                    )
                 _transferState.value = ShareTransferState.WaitingApproval(device.name)
                 Result.success(Unit)
             } catch (error: CancellationException) {
@@ -312,7 +318,7 @@ internal class RustLanShareService(
                     transmitOnce(batch.batchId)
                 }
                 LanOutgoingBatchDrive.AwaitingReport -> publishOutgoingProgress(batch)
-                LanOutgoingBatchDrive.NeedsRebind -> completedOutgoing.remove(batch.batchId)
+                LanOutgoingBatchDrive.NeedsRebind -> rebindOutgoing(batch.batchId)
                 LanOutgoingBatchDrive.Rejected,
                 LanOutgoingBatchDrive.Failed,
                 -> {
@@ -334,6 +340,34 @@ internal class RustLanShareService(
         }
     }
 
+    /**
+     * Rebinds a suspended outgoing batch to a fresh session: the durable batch id and the exact
+     * same item plan are re-prepared so the receiver sees recovery, never a new batch. The
+     * rebound session id is written back before [completedOutgoing] is cleared so the next
+     * Sendable drive resumes transmission of only the unconfirmed chunks.
+     */
+    private fun rebindOutgoing(batchId: String) {
+        val payload = outgoingPayloads[batchId] ?: return
+        if (!rebindingOutgoing.add(batchId)) return
+        appScope.launch(dispatcherProvider.io) {
+            try {
+                val limits = engine.lanProtocolLimits()
+                val session =
+                    engine.beginLanSession(payload.deviceId, clockMillis(), limits.sessionTtlMs)
+                engine.confirmLanSession(session.sessionId, deviceKey.sign(session), clockMillis())
+                engine.prepareLanBatch(session.sessionId, payload.batchId, listOf(payload.plan))
+                outgoingPayloads[batchId] = payload.copy(sessionId = session.sessionId)
+                completedOutgoing.remove(batchId)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _transferState.value = error.toTransferState(payload.deviceName)
+            } finally {
+                rebindingOutgoing.remove(batchId)
+            }
+        }
+    }
+
     /** Progress is a durable fact: confirmed bytes over planned bytes, never wire traffic. */
     private fun publishOutgoingProgress(batch: LanOutgoingBatch) {
         if (!outgoingPayloads.containsKey(batch.batchId)) return
@@ -349,10 +383,10 @@ internal class RustLanShareService(
         val payload = outgoingPayloads[batchId] ?: return
         appScope.launch(dispatcherProvider.io) {
             try {
-                sendByteArray(payload, payload.shape.bodySlot, payload.content)
+                chunkSender.sendByteArray(payload, payload.shape.bodySlot, payload.content)
                 payload.attachments.forEach { attachment ->
                     context.contentResolver.openInputStream(attachment.uri).required(attachment.uri).use { input ->
-                        sendStream(payload, attachment.plan.slot, input, attachment.sizeBytes)
+                        chunkSender.sendStream(payload, attachment.plan.slot, input, attachment.sizeBytes)
                     }
                 }
                 outgoingPayloads.remove(batchId)
@@ -368,85 +402,90 @@ internal class RustLanShareService(
         }
     }
 
-    private fun sendByteArray(
-        payload: OutgoingPayload,
-        slot: UInt,
-        bytes: ByteArray,
-    ) {
-        val width = payload.shape.chunkPlaintextBytes.toInt()
-        val missing = engine.lanUnconfirmedBatchChunks(payload.batchId, 0u, slot).toHashSet()
-        val group = ArrayList<LanChunkSend>(payload.shape.maxInflightChunks.toInt())
-        var index = 0
-        var offset = 0
-        while (offset < bytes.size) {
-            val end = minOf(offset + width, bytes.size)
-            if (index.toUInt() in missing) {
-                group.add(
-                    LanChunkSend(
-                        payload.sessionId,
-                        payload.batchId,
-                        0u,
-                        slot,
-                        index.toUInt(),
-                        bytes.copyOfRange(offset, end),
-                    ),
-                )
-                flushChunkGroup(payload, group)
-            }
-            offset = end
-            index++
-        }
-        drainChunkGroup(group)
-    }
+    /** Chunks outbound payloads through the Rust-owned in-flight window. */
+    private val chunkSender = LanChunkSender()
 
-    private fun sendStream(
-        payload: OutgoingPayload,
-        slot: UInt,
-        input: InputStream,
-        sizeBytes: Long,
-    ) {
-        val width = payload.shape.chunkPlaintextBytes.toInt()
-        val missing = engine.lanUnconfirmedBatchChunks(payload.batchId, 0u, slot).toHashSet()
-        val group = ArrayList<LanChunkSend>(payload.shape.maxInflightChunks.toInt())
-        var remaining = sizeBytes
-        var index = 0
-        while (remaining > 0L) {
-            val expected = minOf(width.toLong(), remaining).toInt()
-            val chunk = input.readNBytes(expected)
-            check(chunk.size == expected) { "LAN attachment source ended before its planned size" }
-            if (index.toUInt() in missing) {
-                group.add(
-                    LanChunkSend(
-                        payload.sessionId,
-                        payload.batchId,
-                        0u,
-                        slot,
-                        index.toUInt(),
-                        chunk,
-                    ),
-                )
-                flushChunkGroup(payload, group)
+    private inner class LanChunkSender {
+        fun sendByteArray(
+            payload: OutgoingPayload,
+            slot: UInt,
+            bytes: ByteArray,
+        ) {
+            val width = payload.shape.chunkPlaintextBytes.toInt()
+            val missing = engine.lanUnconfirmedBatchChunks(payload.batchId, 0u, slot).toHashSet()
+            val group = ArrayList<LanChunkSend>(payload.shape.maxInflightChunks.toInt())
+            var index = 0
+            var offset = 0
+            while (offset < bytes.size) {
+                val end = minOf(offset + width, bytes.size)
+                if (index.toUInt() in missing) {
+                    group.add(
+                        LanChunkSend(
+                            payload.sessionId,
+                            payload.batchId,
+                            0u,
+                            slot,
+                            index.toUInt(),
+                            bytes.copyOfRange(offset, end),
+                        ),
+                    )
+                    flushChunkGroup(payload, group)
+                }
+                offset = end
+                index++
             }
-            remaining -= expected
-            index++
-        }
-        drainChunkGroup(group)
-    }
-
-    /** Sends the group the moment it reaches the Rust-owned in-flight window. */
-    private fun flushChunkGroup(
-        payload: OutgoingPayload,
-        group: ArrayList<LanChunkSend>,
-    ) {
-        if (group.size >= payload.shape.maxInflightChunks.toInt()) {
             drainChunkGroup(group)
         }
-    }
 
-    private fun drainChunkGroup(group: ArrayList<LanChunkSend>) {
-        if (group.isEmpty()) return
-        engine.sendLanBatchChunks(group.toList())
-        group.clear()
+        fun sendStream(
+            payload: OutgoingPayload,
+            slot: UInt,
+            input: InputStream,
+            sizeBytes: Long,
+        ) {
+            val width = payload.shape.chunkPlaintextBytes.toInt()
+            val missing = engine.lanUnconfirmedBatchChunks(payload.batchId, 0u, slot).toHashSet()
+            val group = ArrayList<LanChunkSend>(payload.shape.maxInflightChunks.toInt())
+            var remaining = sizeBytes
+            var index = 0
+            while (remaining > 0L) {
+                val expected = minOf(width.toLong(), remaining).toInt()
+                val chunk = input.readNBytes(expected)
+                check(chunk.size == expected) { "LAN attachment source ended before its planned size" }
+                if (index.toUInt() in missing) {
+                    group.add(
+                        LanChunkSend(
+                            payload.sessionId,
+                            payload.batchId,
+                            0u,
+                            slot,
+                            index.toUInt(),
+                            chunk,
+                        ),
+                    )
+                    flushChunkGroup(payload, group)
+                }
+                remaining -= expected
+                index++
+            }
+            drainChunkGroup(group)
+        }
+
+        /** Sends the group the moment it reaches the Rust-owned in-flight window. */
+        private fun flushChunkGroup(
+            payload: OutgoingPayload,
+            group: ArrayList<LanChunkSend>,
+        ) {
+            if (group.size >= payload.shape.maxInflightChunks.toInt()) {
+                drainChunkGroup(group)
+            }
+        }
+
+        private fun drainChunkGroup(group: ArrayList<LanChunkSend>) {
+            if (group.isEmpty()) return
+            engine.sendLanBatchChunks(group.toList())
+            group.clear()
+        }
     }
 
     private fun prepareAttachment(index: Int, reference: String, rawUri: String): PreparedAttachment {
@@ -507,10 +546,13 @@ internal class RustLanShareService(
     private data class OutgoingPayload(
         val sessionId: String,
         val batchId: String,
+        val deviceId: String,
         val deviceName: String,
         val content: ByteArray,
         val attachments: List<PreparedAttachment>,
         val shape: LanTransferShape,
+        /** The durable batch plan: re-prepared verbatim on session rebind, never rebuilt. */
+        val plan: LanSendItemPlan,
     )
 
     private companion object {

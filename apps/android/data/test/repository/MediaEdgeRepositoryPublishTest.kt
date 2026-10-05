@@ -21,6 +21,10 @@ import com.lomo.data.engine.store.StoreSidebarProjection
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.testing.fakes.FakeFileDataSource
 import com.lomo.domain.model.MediaEntryId
+import com.lomo.domain.model.MemoCreateDraft
+import com.lomo.domain.model.MemoEditDraft
+import com.lomo.domain.repository.MemoCreateDraftRepository
+import com.lomo.domain.repository.MemoEditDraftRepository
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.mockk.mockk
@@ -50,6 +54,18 @@ import kotlin.io.path.createTempDirectory
  * TDD proof: fails if publish is absent, fabricates locations, or drops the hint round-trip.
  *
  * Excludes: stage ledger semantics, Coil decoding, real SAF tree URIs.
+ *
+ * Test Change Justification:
+ * - Reason category: repository constructor gained draft-repository ports.
+ * - Old behavior/assertion being replaced: MediaEdgeRepository was constructed without
+ *   MemoCreateDraftRepository/MemoEditDraftRepository dependencies.
+ * - Why old assertion is no longer correct: publish/reanchor must consult durable drafts so
+ *   draft-owned staged leases are never treated as orphans; the fixture now supplies inert
+ *   empty-draft fakes.
+ * - Coverage preserved by: every publish/hint scenario unchanged; the new fakes are stubs that
+ *   error if exercised.
+ * - Why this is not fitting the test to the implementation: only fixture wiring moved; no
+ *   assertion was altered.
  */
 class MediaEdgeRepositoryPublishTest : DataFunSpec() {
     init {
@@ -123,9 +139,27 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                     stageRoot = { workspace.absolutePath },
                     writeLease = alwaysWritableWorkspaceMutationLease(),
                     storePort = UnexpectedStorePort(),
+                    createDraftRepository = EmptyCreateDrafts(),
+                    editDraftRepository = EmptyEditDrafts(),
                 ),
             pendingStages = PendingMediaStageRegistry(mediaPort) { workspace.absolutePath },
         )
+    }
+
+    private class EmptyCreateDrafts : MemoCreateDraftRepository {
+        override suspend fun read(): MemoCreateDraft? = null
+
+        override suspend fun write(draft: MemoCreateDraft) = error("draft writes are not exercised")
+
+        override suspend fun clear() = error("draft clears are not exercised")
+    }
+
+    private class EmptyEditDrafts : MemoEditDraftRepository {
+        override suspend fun read(): MemoEditDraft? = null
+
+        override suspend fun write(draft: MemoEditDraft) = error("draft writes are not exercised")
+
+        override suspend fun clear(memoId: String) = error("draft clears are not exercised")
     }
 
     private fun stagedFacts(digest: String): MediaStagedFacts =

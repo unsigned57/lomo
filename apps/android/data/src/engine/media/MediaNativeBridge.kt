@@ -8,6 +8,7 @@ import com.lomo.nativebridge.MediaStageOwnerKindDto as BridgeStageOwnerKind
 import com.lomo.nativebridge.MediaStageRecordDto as BridgeStageRecord
 import com.lomo.nativebridge.MediaStageReleaseDto as BridgeStageRelease
 import com.lomo.nativebridge.MediaStagedDto as BridgeStaged
+import com.lomo.nativebridge.SessionDraftGuardDto as BridgeDraftGuard
 import com.lomo.nativebridge.SessionMediaSweepReportDto as BridgeSweepReport
 
 /**
@@ -67,9 +68,11 @@ internal interface MediaNativeBridge {
     /**
      * Session-owned two-phase media orphan sweep; the Rust session proves the protection set
      * inside its transaction lock and reports candidates/protections/moves/deletions/failures.
+     * [externalDrafts] carries host editor drafts that live outside the Rust draft store.
      */
     fun sessionMediaOrphanSweep(
         nowMs: ULong?,
         recoveryWindowMs: ULong,
+        externalDrafts: List<BridgeDraftGuard>,
     ): BridgeSweepReport
 }

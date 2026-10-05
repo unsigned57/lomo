@@ -423,9 +423,10 @@ internal abstract class ManagedEngineCapabilities :
     override fun sessionMediaOrphanSweep(
         nowMs: ULong?,
         recoveryWindowMs: ULong,
+        externalDrafts: List<com.lomo.nativebridge.SessionDraftGuardDto>,
     ): com.lomo.nativebridge.SessionMediaSweepReportDto =
         withActiveWorkspaceAdapter { adapter ->
-            adapter.sessionMediaOrphanSweep(nowMs, recoveryWindowMs)
+            adapter.sessionMediaOrphanSweep(nowMs, recoveryWindowMs, externalDrafts)
         }
 
     override fun archiveExport(
