@@ -8,8 +8,26 @@ use crate::error::{corruption, from_sqlite, storage, validation};
 use crate::schema::{
     BUSY_TIMEOUT_MS, MIGRATE_V1_TO_V2_DDL, MIGRATE_V2_TO_V3_DDL, MIGRATE_V3_TO_V4_DDL,
     MIGRATE_V4_TO_V5_DDL, MIGRATE_V5_TO_V6_DDL, MIGRATE_V6_TO_V7_DDL, MIGRATE_V7_TO_V8_DDL,
-    MIGRATE_V8_TO_V9_DDL, MIGRATE_V9_TO_V10_DDL, STORE_SCHEMA_VERSION, schema_v1_ddl,
+    MIGRATE_V8_TO_V9_DDL, MIGRATE_V9_TO_V10_DDL, MIGRATE_V10_TO_V11_DDL, MIGRATE_V11_TO_V12_DDL,
+    MIGRATE_V12_TO_V13_DDL, STORE_SCHEMA_VERSION, schema_v1_ddl,
 };
+
+/// Ordered additive migrations; `user_version` N upgrades by applying `MIGRATIONS[N - 1..]` in
+/// one transaction, exactly the per-version chains previously spelled out.
+const MIGRATIONS: &[&str] = &[
+    MIGRATE_V1_TO_V2_DDL,
+    MIGRATE_V2_TO_V3_DDL,
+    MIGRATE_V3_TO_V4_DDL,
+    MIGRATE_V4_TO_V5_DDL,
+    MIGRATE_V5_TO_V6_DDL,
+    MIGRATE_V6_TO_V7_DDL,
+    MIGRATE_V7_TO_V8_DDL,
+    MIGRATE_V8_TO_V9_DDL,
+    MIGRATE_V9_TO_V10_DDL,
+    MIGRATE_V10_TO_V11_DDL,
+    MIGRATE_V11_TO_V12_DDL,
+    MIGRATE_V12_TO_V13_DDL,
+];
 
 /// Relative directory for rebuildable `SQLite` files (must never live under `.lomo/`).
 pub const SQLITE_DIR_NAME: &str = ".lomo-sqlite";
@@ -114,60 +132,33 @@ fn admit_schema(
         connection
             .pragma_update(None, "user_version", STORE_SCHEMA_VERSION)
             .map_err(|err| from_sqlite(&err))?;
-    } else if user_version == 1 {
+    } else if user_version < STORE_SCHEMA_VERSION {
+        // Existing supported schemas walk the additive migration chain from their
+        // version: `user_version` N applies `MIGRATIONS[N - 1..]`, and N < current
+        // always lands inside the table. Anything at the current version falls
+        // through untouched — it is already admitted.
+        let start = usize::try_from(user_version - 1).map_err(|_overflow| {
+            validation(
+                "unknown_schema_version",
+                "database schema cannot be upgraded to the supported version",
+            )
+        })?;
+        let ddl = MIGRATIONS.get(start..).ok_or_else(|| {
+            validation(
+                "unknown_schema_version",
+                "database schema cannot be upgraded to the supported version",
+            )
+        })?;
         connection
-            .execute_batch(&format!(
-                "BEGIN IMMEDIATE;{MIGRATE_V1_TO_V2_DDL}{MIGRATE_V2_TO_V3_DDL}{MIGRATE_V3_TO_V4_DDL}{MIGRATE_V4_TO_V5_DDL}{MIGRATE_V5_TO_V6_DDL}{MIGRATE_V6_TO_V7_DDL}{MIGRATE_V7_TO_V8_DDL}{MIGRATE_V8_TO_V9_DDL}{MIGRATE_V9_TO_V10_DDL}COMMIT;"
-            ))
+            .execute_batch(&format!("BEGIN IMMEDIATE;{}COMMIT;", ddl.concat()))
             .map_err(|err| from_sqlite(&err))?;
-    } else if user_version == 2 {
-        connection
-            .execute_batch(&format!(
-                "BEGIN IMMEDIATE;{MIGRATE_V2_TO_V3_DDL}{MIGRATE_V3_TO_V4_DDL}{MIGRATE_V4_TO_V5_DDL}{MIGRATE_V5_TO_V6_DDL}{MIGRATE_V6_TO_V7_DDL}{MIGRATE_V7_TO_V8_DDL}{MIGRATE_V8_TO_V9_DDL}{MIGRATE_V9_TO_V10_DDL}COMMIT;"
-            ))
-            .map_err(|err| from_sqlite(&err))?;
-    } else if user_version == 3 {
-        connection
-            .execute_batch(&format!(
-                "BEGIN IMMEDIATE;{MIGRATE_V3_TO_V4_DDL}{MIGRATE_V4_TO_V5_DDL}{MIGRATE_V5_TO_V6_DDL}{MIGRATE_V6_TO_V7_DDL}{MIGRATE_V7_TO_V8_DDL}{MIGRATE_V8_TO_V9_DDL}{MIGRATE_V9_TO_V10_DDL}COMMIT;"
-            ))
-            .map_err(|err| from_sqlite(&err))?;
-    } else if user_version == 4 {
-        connection
-            .execute_batch(&format!(
-                "BEGIN IMMEDIATE;{MIGRATE_V4_TO_V5_DDL}{MIGRATE_V5_TO_V6_DDL}{MIGRATE_V6_TO_V7_DDL}{MIGRATE_V7_TO_V8_DDL}{MIGRATE_V8_TO_V9_DDL}{MIGRATE_V9_TO_V10_DDL}COMMIT;"
-            ))
-            .map_err(|err| from_sqlite(&err))?;
-    } else if user_version == 5 {
-        connection
-            .execute_batch(&format!(
-                "BEGIN IMMEDIATE;{MIGRATE_V5_TO_V6_DDL}{MIGRATE_V6_TO_V7_DDL}{MIGRATE_V7_TO_V8_DDL}{MIGRATE_V8_TO_V9_DDL}{MIGRATE_V9_TO_V10_DDL}COMMIT;"
-            ))
-            .map_err(|err| from_sqlite(&err))?;
-    } else if user_version == 6 {
-        connection
-            .execute_batch(&format!(
-                "BEGIN IMMEDIATE;{MIGRATE_V6_TO_V7_DDL}{MIGRATE_V7_TO_V8_DDL}{MIGRATE_V8_TO_V9_DDL}{MIGRATE_V9_TO_V10_DDL}COMMIT;"
-            ))
-            .map_err(|err| from_sqlite(&err))?;
-    } else if user_version == 7 {
-        connection
-            .execute_batch(&format!(
-                "BEGIN IMMEDIATE;{MIGRATE_V7_TO_V8_DDL}{MIGRATE_V8_TO_V9_DDL}{MIGRATE_V9_TO_V10_DDL}COMMIT;"
-            ))
-            .map_err(|err| from_sqlite(&err))?;
-    } else if user_version == 8 {
-        connection
-            .execute_batch(&format!(
-                "BEGIN IMMEDIATE;{MIGRATE_V8_TO_V9_DDL}{MIGRATE_V9_TO_V10_DDL}COMMIT;"
-            ))
-            .map_err(|err| from_sqlite(&err))?;
-    }
-
-    if user_version == 9 {
-        connection
-            .execute_batch(&format!("BEGIN IMMEDIATE;{MIGRATE_V9_TO_V10_DDL}COMMIT;"))
-            .map_err(|error| from_sqlite(&error))?;
+    } else if user_version != STORE_SCHEMA_VERSION {
+        // `open_store` refuses anything newer first; the admission boundary still
+        // fails closed so a future caller cannot admit an unknown schema by mistake.
+        return Err(validation(
+            "unknown_schema_version",
+            "database schema cannot be upgraded to the supported version",
+        ));
     }
 
     Ok(())

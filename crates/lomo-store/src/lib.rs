@@ -16,6 +16,7 @@ mod history_refs;
 mod lomo_format;
 mod open;
 mod publication;
+mod purge;
 mod query;
 mod reader;
 mod rebuild;
@@ -36,10 +37,13 @@ pub use content_facts::{
     count_words, fingerprint_content, merge_tags, project_content_facts,
     project_reminder_references,
 };
+// Attachment-destination canonicalization is owned by `lomo_workspace`; re-export the authority
+// so projection callers share one implementation.
 pub use cursor::{PageCursor, fingerprint_plan, fingerprint_query};
 pub use history_refs::{
-    DEFAULT_HISTORY_MEDIA_RETENTION_REVISIONS, HistoryRevisionBody, MemoHistoryPage,
-    MemoHistoryRevision, list_history_revision_bodies, list_memo_history,
+    DEFAULT_HISTORY_MEDIA_RETENTION_REVISIONS, HistoryAttachmentRef, HistoryRevisionBody,
+    MemoHistoryPage, MemoHistoryRevision, list_history_attachment_refs,
+    list_history_revision_bodies, list_memo_history,
 };
 pub use lomo_format::{
     BatchDeleteReminderSet, BatchDeleteTarget, LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoLayoutVersion,
@@ -47,25 +51,36 @@ pub use lomo_format::{
     OperationStatus, decode_record, encode_record, isolate_corrupt_record, read_record,
     write_record_atomic,
 };
+pub use lomo_workspace::{
+    canonical_attachment_keys, canonical_attachment_path, is_external_attachment_destination,
+};
 pub use open::{OpenedStore, SQLITE_DIR_NAME, SQLITE_FILE_NAME, database_path, open_store};
 pub use publication::{DocumentPublication, ProjectionClock};
+pub use purge::{
+    PURGE_RECORD_DIRECTORY, PurgeRecordV1, decode_purge_record, encode_purge_record,
+    list_purged_memo_ids, purge_record_relative_path, read_purge_record, write_purge_record_atomic,
+};
 pub use query::{
     MemoFilters, MemoPage, MemoQuery, MemoQueryBoundary, MemoQueryStart, MemoSnapshot, MemoSort,
-    MemoSortField, MemoStatisticsRow, MemoSummary, ProjectedAttachmentRef,
+    MemoSortField, MemoStatisticsRow, MemoSummary, MemoWindowSides, ProjectedAttachmentRef,
     SIDEBAR_PROJECTION_SCHEMA, SidebarDateCount, SidebarProjection, SidebarTagCount, SortDirection,
     StoreStats, TagSelectionMode, active_memo_ids_for_source_path, get_memo, get_memo_projection,
-    get_projected_memo, get_projected_memos, list_projected_attachment_refs, query_count,
-    query_memo_statistics_rows, query_memos, query_memos_starting_at, query_memos_with_boundary,
-    query_sidebar_projection, query_stats, source_document_fingerprint,
+    get_projected_memo, get_projected_memos, history_record_owner, list_projected_attachment_refs,
+    memo_ids_for_source_path, memo_source_path, memos_matching_window, pinned_memo_timestamps,
+    purged_memo_ids, query_count, query_memo_statistics_rows, query_memos, query_memos_starting_at,
+    query_memos_with_boundary, query_sidebar_projection, query_stats, source_document_fingerprint,
+    trashed_memo_ids, workspace_listing_snapshot,
 };
 pub use reader::StoreReader;
+use std::collections::{BTreeMap, BTreeSet};
 mod reader_pool;
 pub use reader_pool::{ReaderPoolOptions, StoreReaderLease, StoreReaderPool};
 pub use rebuild::{
     RebuildCheckpoint, RebuildPhase, RebuildResult, SafMemoCreateBegin, SafMemoCreateBeginResult,
     SafMemoPublication, SafPermanentDeleteMemoResult, SafPermanentDeleteTarget,
     SafProjectionCommitResult, SafProjectionMutation, SafProjectionMutationKind,
-    SafProjectionRebuild, ScannedHistoryProjection, ScannedMemoProjection, ScannedPinProjection,
+    SafProjectionRebuild, ScannedHistoryProjection, ScannedIncrementalFacts, ScannedListingRow,
+    ScannedMemoHistoryReplace, ScannedMemoProjection, ScannedPinProjection, ScannedRowImage,
     ScannedTrashProjection, ensure_writable, rebuild_scanned_projection, run_rebuild,
     write_gate_for_checkpoint,
 };
@@ -274,6 +289,81 @@ impl Store {
     /// Propagates SQLite write failures.
     pub fn set_workspace_listing_digest(&mut self, digest: &str) -> Result<(), LomoError> {
         write_meta_string(&self.opened.connection, "workspace_listing_digest", digest)
+    }
+
+    /// Verified listing rows committed with the last projection update.
+    ///
+    /// # Errors
+    /// Propagates SQLite read failures.
+    pub fn workspace_listing_snapshot(&self) -> Result<BTreeMap<String, String>, LomoError> {
+        workspace_listing_snapshot(&self.opened.connection)
+    }
+
+    /// Applies path-scoped scanned facts to the live projection in one transaction.
+    ///
+    /// The application layer supplies only facts whose provenance is proven scoped to changed
+    /// workspace paths; the commit recomputes derived aggregates and the listing digest so the
+    /// result is indistinguishable from a fresh materialize of the same durable facts.
+    /// `RebuildResult::rewritten` reports whether the apply moved projection content —
+    /// a content-identical fact set reports `false` and leaves the high-water clock alone.
+    /// A moved apply commits a new publication clock; the cached counters re-anchor to it so
+    /// `high_water_revision` in the result and every later read reflect the committed metas.
+    ///
+    /// # Errors
+    /// Propagates validation/storage failures; nothing commits on error.
+    pub fn apply_scanned_incremental(
+        &mut self,
+        facts: &ScannedIncrementalFacts,
+    ) -> Result<RebuildResult, LomoError> {
+        let clock = rebuild::apply_scanned_incremental(&self.opened.connection, facts)?;
+        if let Some(clock) = clock {
+            self.high_water_revision = clock.core_revision;
+            self.event_sequence = clock.event_sequence;
+        }
+        let mut result = self.reconciled_live_result()?;
+        result.rewritten = clock.is_some();
+        Ok(result)
+    }
+
+    /// Memo owning a durable history record id, when projected.
+    ///
+    /// # Errors
+    /// Propagates SQLite read failures.
+    pub fn history_record_owner(&self, record_id: &str) -> Result<Option<String>, LomoError> {
+        history_record_owner(&self.opened.connection, record_id)
+    }
+
+    /// Memo identities with a durable trash record row.
+    ///
+    /// # Errors
+    /// Propagates SQLite read failures.
+    pub fn trashed_memo_ids(&self) -> Result<BTreeSet<String>, LomoError> {
+        trashed_memo_ids(&self.opened.connection)
+    }
+
+    /// Committed `memo_pin` rows keyed by memo identity — the app-private pin facts a
+    /// scoped reconcile carries forward for identities durable state never answers for.
+    ///
+    /// # Errors
+    /// Propagates SQLite read failures.
+    pub fn pinned_memo_timestamps(&self) -> Result<BTreeMap<String, i64>, LomoError> {
+        pinned_memo_timestamps(&self.opened.connection)
+    }
+
+    /// Memo identities with a durable purge tombstone row.
+    ///
+    /// # Errors
+    /// Propagates SQLite read failures.
+    pub fn purged_memo_ids(&self) -> Result<BTreeSet<String>, LomoError> {
+        purged_memo_ids(&self.opened.connection)
+    }
+
+    /// Source document path recorded for one memo, including trashed rows.
+    ///
+    /// # Errors
+    /// Propagates SQLite read failures.
+    pub fn memo_source_path(&self, memo_id: &str) -> Result<Option<String>, LomoError> {
+        memo_source_path(&self.opened.connection, memo_id)
     }
 
     /// Rebuild result for a live projection that already matches workspace facts.
@@ -507,6 +597,15 @@ impl Store {
         source_path: &str,
     ) -> Result<Vec<String>, LomoError> {
         active_memo_ids_for_source_path(&self.opened.connection, source_path)
+    }
+
+    /// Every memo id projected from one source document path — active or trashed.
+    ///
+    /// # Errors
+    ///
+    /// Path validation or `SQLite` projection failures.
+    pub fn memo_ids_for_source_path(&self, source_path: &str) -> Result<Vec<String>, LomoError> {
+        memo_ids_for_source_path(&self.opened.connection, source_path)
     }
 
     /// Lists durable memo revisions in a bounded page.
@@ -792,7 +891,13 @@ impl Store {
         ))
     }
 
-    /// Returns a non-rewriting rebuild result when live memo, pin, and history facts already match.
+    /// Returns a non-rewriting rebuild result when live memo, pin, history, and purge facts
+    /// already match the scanned inventory.
+    ///
+    /// `image` is the predicted committed row image — lane-aware `memo` rows plus
+    /// `memo_trash` attestations — so lifecycle membership and record-decided content are
+    /// part of the certification vector: a live row never certifies a trash claim and a
+    /// rewritten record never hides behind a stable claimed fingerprint.
     ///
     /// `None` means the projection diverges and a rewrite is required. Compare failures are
     /// returned to the caller so session rebuild can fail-open into a full rewrite.
@@ -802,18 +907,18 @@ impl Store {
     /// Propagates SQLite read failures while inspecting the live projection.
     pub fn reconcile_scanned_projection(
         &self,
-        workspace_pairs: &mut [(String, String)],
-        attachment_count: u64,
+        image: &mut ScannedRowImage,
         pins: &[ScannedPinProjection],
         history: &[ScannedHistoryProjection],
+        purged: &BTreeSet<String>,
     ) -> Result<Option<RebuildResult>, LomoError> {
         rebuild::try_reconcile_scanned(
             &self.opened.connection,
-            workspace_pairs,
-            attachment_count,
+            image,
             self.high_water_revision,
             Some(pins),
             Some(history),
+            Some(purged),
         )
     }
 }

@@ -115,6 +115,81 @@ pub struct HistoryRevisionBody {
     pub content: String,
 }
 
+/// One materialized in-window history attachment reference.
+///
+/// Rows are written by the rebuild indexer (`index_scanned_history_revision`) so orphan
+/// protection reads projected facts instead of re-parsing retained revision bodies.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryAttachmentRef {
+    /// Memo that owns the revision.
+    pub memo_id: String,
+    /// Durable history generation (`revision_index.revision`).
+    pub revision: u64,
+    /// Canonical workspace-relative attachment path.
+    pub relative_path: String,
+}
+
+/// Lists the newest `retention_revisions` attachment references per memo in one bounded query.
+///
+/// The keep-set window is the same `ROW_NUMBER` ranking [`list_history_revision_bodies`] uses, so
+/// projected refs and projected bodies never disagree about which revisions are in-window.
+///
+/// # Errors
+///
+/// Returns validation for a zero limit and storage errors for projection read failures.
+pub fn list_history_attachment_refs(
+    connection: &Connection,
+    retention_revisions: usize,
+) -> Result<Vec<HistoryAttachmentRef>, lomo_core::LomoError> {
+    if retention_revisions == 0 {
+        return Err(validation(
+            "invalid_history_retention",
+            "history media keep-set requires a non-zero revision window",
+        ));
+    }
+    let retention = i64::try_from(retention_revisions)
+        .map_err(|_error| validation("invalid_history_retention", "window exceeds SQLite"))?;
+    let mut statement = connection
+        .prepare(
+            "SELECT ref.memo_id, ref.revision, ref.relative_path FROM history_attachment_ref ref \
+             JOIN (\
+                SELECT memo_id, revision, \
+                    ROW_NUMBER() OVER (\
+                        PARTITION BY memo_id \
+                        ORDER BY revision DESC, history_record_id ASC\
+                    ) AS rn \
+                FROM revision_index\
+             ) window ON window.memo_id = ref.memo_id AND window.revision = ref.revision \
+             WHERE window.rn <= ?1 \
+             ORDER BY ref.memo_id, ref.revision, ref.relative_path",
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    let rows = statement
+        .query_map(params![retention], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|error| from_sqlite(&error))?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (memo_id, revision, relative_path) = row.map_err(|error| from_sqlite(&error))?;
+        out.push(HistoryAttachmentRef {
+            memo_id,
+            revision: u64::try_from(revision).map_err(|_error| {
+                corruption(
+                    "invalid_history_revision",
+                    "negative projected history revision",
+                )
+            })?,
+            relative_path,
+        });
+    }
+    Ok(out)
+}
+
 /// Lists the newest `retention_revisions` history bodies per memo in one bounded query.
 ///
 /// The window ranks every projected revision, matching [`list_memo_history`] ordering, so the

@@ -98,3 +98,11 @@ path = "tests/history_refs_contract.rs"
 [[test]]
 name = "sync_local_contract"
 path = "tests/sync_local_contract.rs"
+
+[[test]]
+name = "batch_hydration_contract"
+path = "tests/batch_hydration_contract.rs"
+
+[[test]]
+name = "reminder_snooze_contract"
+path = "tests/reminder_snooze_contract.rs"

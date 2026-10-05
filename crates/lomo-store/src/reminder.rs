@@ -75,9 +75,12 @@ pub struct ReminderQuery {
 /// One platform alarm the adapter must schedule.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlannedAlarm {
-    /// Identity of this single firing: `{generation}\u{1f}{opaque_id}\u{1f}{trigger_at_utc_ms}`.
-    /// Distinct from the definition identity so cancellation/dedup never relies on a process
-    /// cache or a bare 32-bit request-code hash.
+    /// Identity of this single firing:
+    /// `{generation}\u{1f}{opaque_id}\u{1f}{occurrence instant}` where the occurrence instant
+    /// is the scheduled trigger for future alarms and the *missed* trigger instant for
+    /// catch-ups, so re-planning an overdue moment reproduces the same identity. Distinct
+    /// from the definition identity so cancellation/dedup never relies on a process cache or
+    /// a bare 32-bit request-code hash.
     pub occurrence_id: String,
     pub opaque_id: String,
     pub memo_identity: String,
@@ -299,10 +302,17 @@ impl SnoozeStore {
         self.ensure_writable()?;
         let key = snooze_key(workspace_generation, opaque_id);
         if !self.entries.contains_key(&key) && self.entries.len() >= MAX_SNOOZE_ENTRIES {
-            return Err(reminder_validation(
-                "snooze_budget_exhausted",
-                "snooze entry budget exhausted",
-            ));
+            // The budget bounds live bindings only. An entry whose deadline passed can never
+            // suppress or emit an alarm again, so capacity pressure reclaims it instead of
+            // turning lifetime snooze count into a durable refusal.
+            let now = wall_now_utc_ms()?;
+            self.entries.retain(|_, until| *until > now);
+            if self.entries.len() >= MAX_SNOOZE_ENTRIES {
+                return Err(reminder_validation(
+                    "snooze_budget_exhausted",
+                    "snooze entry budget exhausted",
+                ));
+            }
         }
         self.entries.insert(key, until);
         self.persist()
@@ -343,6 +353,21 @@ impl SnoozeStore {
 
 fn dir_is_under_lomo(path: &Path) -> bool {
     path.components().any(|c| c.as_os_str() == ".lomo")
+}
+
+/// Owner wall clock used to judge snooze-binding liveness when reclaiming expired entries.
+fn wall_now_utc_ms() -> Result<i64, LomoError> {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_error| {
+            reminder_storage(
+                "snooze_clock_failed",
+                "system clock is before the unix epoch",
+            )
+        })?
+        .as_millis();
+    i64::try_from(millis)
+        .map_err(|_error| reminder_storage("snooze_clock_failed", "system clock exceeds i64 ms"))
 }
 
 /// Resolves floating local wall time (`yyyy-MM-dd-HH:mm`) to a UTC instant.
@@ -430,7 +455,10 @@ pub fn query_reminder_plan(
     }
     let mut alarms: Vec<PlannedAlarm> = Vec::new();
     for session in &query.sessions {
-        if session.done {
+        if session.done || session.fired_count >= session.repeat_count {
+            // Terminal either way: an explicit `.done`, or a fully consumed count that the
+            // strict grammar still accepts without the flag. Neither may emit an alarm, and
+            // neither may consult a live snooze binding left behind for the definition.
             continue;
         }
         if let Some(until) = snooze.snooze_until(&query.workspace_generation, &session.opaque_id)
@@ -579,7 +607,7 @@ fn plan_session_triggers(
 
     // Emit at most one catch-up, then one future (storm prevention).
     for _ in 0..2 {
-        if working.done {
+        if working.done || working.fired_count >= working.repeat_count {
             break;
         }
         let trigger = session_base_trigger_utc_ms(&working, zone)?;
@@ -590,7 +618,10 @@ fn plan_session_triggers(
                 continue;
             }
             out.push(PlannedAlarm {
-                occurrence_id: occurrence_id(workspace_generation, &session.opaque_id, now_utc_ms),
+                // The occurrence identity anchors to the missed trigger instant, not the plan
+                // clock: re-planning the same overdue moment must reproduce the same identity
+                // so the platform ledger does not cancel/reschedule the PendingIntent.
+                occurrence_id: occurrence_id(workspace_generation, &session.opaque_id, trigger),
                 opaque_id: session.opaque_id.clone(),
                 memo_identity: session.memo_identity.clone(),
                 trigger_at_utc_ms: now_utc_ms,

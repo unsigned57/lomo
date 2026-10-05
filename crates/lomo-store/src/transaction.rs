@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::Connection;
 
 use lomo_core::{CoreRevision, EventSequence, InvalidationScope, OperationId};
+use lomo_workspace::canonical_attachment_path;
 
 use crate::content_facts::project_content_facts;
 use crate::error::{busy, conflict, storage, validation};
@@ -89,15 +90,14 @@ pub fn select_pending_promotes(
     let mut exact: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     let mut basenames: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     for (index, candidate) in candidates.iter().enumerate() {
-        let suggested =
-            normalize_attachment_target(&candidate.staged.suggested_final_relative_path)
-                .ok_or_else(|| {
-                    validation(
-                        "invalid_pending_promote_path",
-                        "staged media suggested destination is empty or invalid",
-                    )
-                })?;
-        let final_path = normalize_attachment_target(candidate.final_relative_path.as_str())
+        let suggested = canonical_attachment_path(&candidate.staged.suggested_final_relative_path)
+            .ok_or_else(|| {
+                validation(
+                    "invalid_pending_promote_path",
+                    "staged media suggested destination is empty or invalid",
+                )
+            })?;
+        let final_path = canonical_attachment_path(candidate.final_relative_path.as_str())
             .ok_or_else(|| {
                 validation(
                     "invalid_pending_promote_path",
@@ -123,7 +123,8 @@ pub fn select_pending_promotes(
     let facts = project_content_facts(content)?;
     let mut selected = BTreeSet::new();
     for destination in facts.attachment_paths {
-        let Some(normalized) = normalize_attachment_target(&destination) else {
+        // A destination that cannot name a workspace file (external/empty) promotes nothing.
+        let Some(normalized) = canonical_attachment_path(&destination) else {
             continue;
         };
         let mut matches = exact.get(&normalized).cloned().unwrap_or_else(Vec::new);
@@ -179,22 +180,6 @@ pub fn select_pending_promotes(
         .collect::<Result<Vec<_>, _>>()
 }
 
-fn normalize_attachment_target(raw: &str) -> Option<String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() || is_external_attachment_target(trimmed) {
-        return None;
-    }
-    let mut normalized = trimmed.replace('\\', "/");
-    while let Some(rest) = normalized.strip_prefix("./").map(str::to_owned) {
-        normalized = rest;
-    }
-    if normalized.is_empty() || normalized.contains('\0') {
-        None
-    } else {
-        Some(normalized)
-    }
-}
-
 fn basename_of(raw: &str) -> Option<String> {
     let normalized = raw.trim().replace('\\', "/");
     normalized
@@ -202,27 +187,6 @@ fn basename_of(raw: &str) -> Option<String> {
         .next()
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
-}
-
-fn is_external_attachment_target(raw: &str) -> bool {
-    if raw.starts_with('#') || raw.starts_with("//") {
-        return true;
-    }
-    let bytes = raw.as_bytes();
-    let Some(first) = bytes.first() else {
-        return false;
-    };
-    if !first.is_ascii_alphabetic() {
-        return false;
-    }
-    let mut index = 1;
-    while index < bytes.len()
-        && (bytes.get(index).is_some_and(u8::is_ascii_alphanumeric)
-            || matches!(bytes.get(index), Some(b'+' | b'-' | b'.')))
-    {
-        index += 1;
-    }
-    bytes.get(index) == Some(&b':')
 }
 
 /// Publication facts returned for a committed Direct operation replay.

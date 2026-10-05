@@ -1,7 +1,7 @@
 //! Schema constants and DDL for the rebuildable `SQLite` projection.
 
 /// Durable `SQLite` schema version (`PRAGMA user_version` and owner identity).
-pub const STORE_SCHEMA_VERSION: u32 = 10;
+pub const STORE_SCHEMA_VERSION: u32 = 13;
 
 /// Tokenizer version embedded in FTS projections and `PageCursor`.
 pub const TOKENIZER_VERSION: u32 = 1;
@@ -25,6 +25,9 @@ pub mod tables {
     pub const LOCAL_JOB: &str = "local_job";
     pub const STORE_META: &str = "store_meta";
     pub const SAF_MUTATION_OPERATION: &str = "saf_mutation_operation";
+    pub const FILE_LISTING: &str = "file_listing";
+    pub const HISTORY_ATTACHMENT_REF: &str = "history_attachment_ref";
+    pub const PURGED_MEMO: &str = "purged_memo";
 }
 
 /// Full live schema DDL applied on create (and rebuild temp databases).
@@ -84,7 +87,12 @@ CREATE TABLE {memo_pin} (
 
 CREATE TABLE {memo_trash} (
     memo_id TEXT PRIMARY KEY NOT NULL REFERENCES {memo}(memo_id) ON DELETE CASCADE,
-    trashed_at_ms INTEGER NOT NULL
+    trashed_at_ms INTEGER NOT NULL,
+    -- Canonical digest over the durable record's recoverable facts (body, claimed
+    -- fingerprint, chronology, tags, body-extracted attachment keys, flags, reminders,
+    -- timestamp). The reconcile gate compares it so a rewritten record can never
+    -- certify as unchanged under a stable claimed fingerprint.
+    record_digest TEXT NOT NULL DEFAULT ''
 );
 
 CREATE VIRTUAL TABLE {memo_fts} USING fts5(
@@ -150,6 +158,28 @@ CREATE TABLE {saf_mutation_operation} (
     reminder_ids_json TEXT
 );
 
+-- Verified listing rows committed alongside the projection facts they describe. The next
+-- reconcile diffs the current listing against this snapshot to scope work to changed paths.
+CREATE TABLE {file_listing} (
+    path TEXT PRIMARY KEY NOT NULL,
+    digest TEXT NOT NULL
+);
+
+-- Attachment references materialized from durable history revisions. Orphan protection reads
+-- these rows instead of re-parsing retained revision bodies on every observation.
+CREATE TABLE {history_attachment_ref} (
+    memo_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    relative_path TEXT NOT NULL,
+    PRIMARY KEY (memo_id, revision, relative_path)
+);
+
+-- Durable purge tombstones admit trash-record suppression and owner resolution without decoding
+-- every `.lomo/purged` record on each reconcile.
+CREATE TABLE {purged_memo} (
+    memo_id TEXT PRIMARY KEY NOT NULL
+);
+
 -- Query order and lifecycle predicates are served by the projection itself.  Keeping the
 -- lifecycle bit first lets SQLite seek the active/pinned run before applying the keyset bound.
 CREATE INDEX idx_memo_active_pinned_created
@@ -159,6 +189,7 @@ CREATE INDEX idx_memo_active_pinned_updated
 CREATE INDEX idx_memo_source_path ON {memo}(source_path, memo_id);
 CREATE INDEX idx_memo_created ON {memo}(created_at_ms, memo_id);
 CREATE INDEX idx_memo_updated ON {memo}(updated_at_ms, memo_id);
+CREATE INDEX idx_revision_record ON {revision_index}(history_record_id);
 
 INSERT INTO {stats}(key, value_i64) VALUES
     ('memo_count', 0),
@@ -185,6 +216,9 @@ INSERT INTO {store_meta}(key, value) VALUES
         local_job = tables::LOCAL_JOB,
         store_meta = tables::STORE_META,
         saf_mutation_operation = tables::SAF_MUTATION_OPERATION,
+        file_listing = tables::FILE_LISTING,
+        history_attachment_ref = tables::HISTORY_ATTACHMENT_REF,
+        purged_memo = tables::PURGED_MEMO,
         tokenizer_version = TOKENIZER_VERSION,
     )
 }
@@ -297,4 +331,53 @@ CREATE TABLE revision_index (
 INSERT INTO revision_index SELECT * FROM revision_index_v9;
 DROP TABLE revision_index_v9;
 PRAGMA user_version = 10;
+";
+
+/// Additive v10 -> v11 migration for reconcile-scoping derived tables.
+///
+/// `file_listing` snapshots start empty on upgraded databases, so the persisted listing digest
+/// is discarded: the next reconcile must rescan once to repopulate the snapshot rather than
+/// diffing an unchanged listing against a baseline that does not exist.
+pub const MIGRATE_V10_TO_V11_DDL: &str = r"
+CREATE TABLE file_listing (
+    path TEXT PRIMARY KEY NOT NULL,
+    digest TEXT NOT NULL
+);
+CREATE TABLE history_attachment_ref (
+    memo_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    relative_path TEXT NOT NULL,
+    PRIMARY KEY (memo_id, revision, relative_path)
+);
+CREATE TABLE purged_memo (
+    memo_id TEXT PRIMARY KEY NOT NULL
+);
+CREATE INDEX idx_revision_record ON revision_index(history_record_id);
+DELETE FROM store_meta WHERE key = 'workspace_listing_digest';
+PRAGMA user_version = 11;
+";
+
+/// Additive v11 -> v12 migration for trash-record content attestation.
+///
+/// Existing `memo_trash` rows predate the digest column and keep `''`: the reconcile gate's
+/// attestation compare can never match an empty digest, so the next gated pass materializes
+/// once and repopulates the real digest — a certified stale membership row is impossible.
+pub const MIGRATE_V11_TO_V12_DDL: &str = r"
+ALTER TABLE memo_trash ADD COLUMN record_digest TEXT NOT NULL DEFAULT '';
+PRAGMA user_version = 12;
+";
+
+/// Additive v12 -> v13 migration: re-verification of every committed state-head listing row.
+///
+/// `file_listing` rows under the state-heads directory are dropped — not just rows that can
+/// be proven non-canonical, because the committed table stores path and digest only, never
+/// the head body's claimed identity. Every head therefore re-diffs once and passes the
+/// naming-authority gate the reconcile now enforces: a duplicate head an older build
+/// absorbed into the baseline is evicted instead of staying invisible after the tip it
+/// shadows moves. The persisted listing digest goes with them so the next reconcile cannot
+/// short-circuit on a baseline whose rows are no longer there.
+pub const MIGRATE_V12_TO_V13_DDL: &str = r"
+DELETE FROM file_listing WHERE path LIKE '.lomo/state/v2/heads/%';
+DELETE FROM store_meta WHERE key = 'workspace_listing_digest';
+PRAGMA user_version = 13;
 ";

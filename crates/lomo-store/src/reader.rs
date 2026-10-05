@@ -11,13 +11,18 @@ use rusqlite::{Connection, OpenFlags};
 use crate::error::{from_sqlite, storage, validation};
 use crate::open::{SQLITE_DIR_NAME, SQLITE_FILE_NAME, database_path};
 use crate::{
-    HistoryRevisionBody, MemoHistoryPage, MemoPage, MemoQuery, MemoQueryBoundary, MemoQueryStart,
-    MemoSnapshot, MemoStatisticsRow, MemoSummary, PageCursor, ProjectedAttachmentRef,
-    SidebarProjection, StoreStats, active_memo_ids_for_source_path, get_memo, get_memo_projection,
-    get_projected_memo, get_projected_memos, list_history_revision_bodies, list_memo_history,
-    list_projected_attachment_refs, query_count, query_memo_statistics_rows,
+    HistoryAttachmentRef, HistoryRevisionBody, MemoHistoryPage, MemoPage, MemoQuery,
+    MemoQueryBoundary, MemoQueryStart, MemoSnapshot, MemoStatisticsRow, MemoSummary,
+    MemoWindowSides, PageCursor, ProjectedAttachmentRef, SidebarProjection, StoreStats,
+    active_memo_ids_for_source_path, get_memo, get_memo_projection, get_projected_memo,
+    get_projected_memos, list_history_attachment_refs, list_history_revision_bodies,
+    list_memo_history, list_projected_attachment_refs, query_count, query_memo_statistics_rows,
     query_memos_starting_at, query_memos_with_boundary, query_sidebar_projection, query_stats,
     source_document_fingerprint,
+};
+use crate::{
+    history_record_owner, memo_source_path, purged_memo_ids, trashed_memo_ids,
+    workspace_listing_snapshot,
 };
 use lomo_core::{LomoError, PageSize};
 
@@ -198,6 +203,25 @@ impl StoreReader {
         self.snapshot(|connection, _revision| query_count(connection, query))
     }
 
+    /// Which of `memo_ids` satisfy `query` and sort strictly above `head` /
+    /// strictly below `tail` — the ordered side evidence a bounded-window
+    /// refresh merge replays.
+    ///
+    /// # Errors
+    ///
+    /// Returns query validation or projection storage errors.
+    pub fn matching_memo_window(
+        &self,
+        query: &MemoQuery,
+        memo_ids: &[String],
+        head: Option<&PageCursor>,
+        tail: Option<&PageCursor>,
+    ) -> Result<MemoWindowSides, LomoError> {
+        self.snapshot(|connection, _revision| {
+            crate::query::memos_matching_window(connection, query, memo_ids, head, tail)
+        })
+    }
+
     /// Reads compact materialized statistics rows.
     ///
     /// # Errors
@@ -287,5 +311,66 @@ impl StoreReader {
         self.snapshot(|connection, _revision| {
             list_history_revision_bodies(connection, retention_revisions)
         })
+    }
+
+    /// Reads the materialized in-window history attachment references in one query.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation for a zero window and projection storage errors.
+    pub fn list_history_attachment_refs(
+        &self,
+        retention_revisions: usize,
+    ) -> Result<Vec<HistoryAttachmentRef>, LomoError> {
+        self.snapshot(|connection, _revision| {
+            list_history_attachment_refs(connection, retention_revisions)
+        })
+    }
+
+    /// Verified listing snapshot committed with the last projection update.
+    ///
+    /// # Errors
+    ///
+    /// Returns projection storage errors.
+    pub fn workspace_listing_snapshot(
+        &self,
+    ) -> Result<std::collections::BTreeMap<String, String>, LomoError> {
+        self.snapshot(|connection, _revision| workspace_listing_snapshot(connection))
+    }
+
+    /// Memo owning a durable history record id, when projected.
+    ///
+    /// # Errors
+    ///
+    /// Returns projection storage errors.
+    pub fn history_record_owner(&self, record_id: &str) -> Result<Option<String>, LomoError> {
+        self.snapshot(|connection, _revision| history_record_owner(connection, record_id))
+    }
+
+    /// Memo identities with a durable trash record row.
+    ///
+    /// # Errors
+    ///
+    /// Returns projection storage errors.
+    pub fn trashed_memo_ids(&self) -> Result<std::collections::BTreeSet<String>, LomoError> {
+        self.snapshot(|connection, _revision| trashed_memo_ids(connection))
+    }
+
+    /// Memo identities with a durable purge tombstone row.
+    ///
+    /// # Errors
+    ///
+    /// Returns projection storage errors.
+    pub fn purged_memo_ids(&self) -> Result<std::collections::BTreeSet<String>, LomoError> {
+        self.snapshot(|connection, _revision| purged_memo_ids(connection))
+    }
+
+    /// Source document path recorded for one memo, including trashed rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns projection storage errors.
+    pub fn memo_source_path(&self, memo_id: &str) -> Result<Option<String>, LomoError> {
+        self.snapshot(|connection, _revision| memo_source_path(connection, memo_id))
     }
 }

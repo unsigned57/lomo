@@ -15,10 +15,13 @@ use crate::content_facts::{
 use crate::error::{busy, conflict, corruption, from_sqlite, storage, validation};
 use crate::lomo_format::{LomoPaths, MemoCommandKind};
 use crate::open::{SQLITE_DIR_NAME, create_schema_db, database_path};
+use crate::purge::list_purged_memo_ids;
 use crate::query::recompute_stats;
 use crate::tokenizer::index_tokens;
 use crate::transaction::{WriteGate, memo_command_scopes};
-use lomo_workspace::{TrashRecordV1, decode_trash_record, trash_record_relative_path};
+use lomo_workspace::{
+    TrashRecordV1, canonical_attachment_keys, decode_trash_record, trash_record_relative_path,
+};
 
 /// Sidecar basename for the previous live DB during crash-safe replace.
 const LIVE_BAK_NAME: &str = "store.db.bak";
@@ -107,6 +110,10 @@ pub struct ScannedMemoProjection {
     pub chronology_epoch_ms: i64,
     pub body: String,
     pub tags: Vec<String>,
+    /// Attachment destinations as scanned — workspace facts already carry the canonical
+    /// projection, but this boundary also accepts durable/FFI spellings. Only destinations
+    /// that name a workspace file (`canonical_attachment_path` returns `Some`) produce
+    /// `attachment_ref` rows and evidence counts.
     pub attachment_paths: Vec<String>,
     pub has_todo: bool,
     pub has_url: bool,
@@ -120,6 +127,92 @@ pub struct ScannedTrashProjection {
     pub trashed_at_ms: i64,
 }
 
+impl ScannedTrashProjection {
+    /// Projects one decoded durable trash record into the recoverable snapshot the
+    /// projection owns.
+    ///
+    /// The record's declared `attachments` list is payload, never evidence: attachment
+    /// protection (`attachment_ref` rows and the sweep keep-set) derives from the
+    /// recoverable body — the only independently verifiable source. A body the render
+    /// owner cannot project fails closed instead of silently keeping an empty keep-set.
+    ///
+    /// # Errors
+    /// Fails when the recoverable body cannot be projected for attachment extraction.
+    pub fn from_record(record: &TrashRecordV1) -> Result<Self, lomo_core::LomoError> {
+        let attachment_paths = project_content_facts(&record.body)?.attachment_paths;
+        Ok(Self {
+            memo: ScannedMemoProjection {
+                memo_id: record.memo_id.clone(),
+                source_path: record.source_path.clone(),
+                file_fingerprint: record.source_fingerprint.clone(),
+                chronology_epoch_ms: record.chronology_epoch_ms,
+                body: record.body.clone(),
+                tags: record.tags.clone(),
+                attachment_paths,
+                has_todo: record.has_todo,
+                has_url: record.has_url,
+                reminders: record.reminders.clone(),
+            },
+            trashed_at_ms: record.trashed_at_ms,
+        })
+    }
+
+    /// Canonical digest over every record-decided projection fact.
+    ///
+    /// The digest covers the claimed source path and fingerprint, chronology, the
+    /// recoverable body, the declared tag set, the attachment keys extracted from that
+    /// body, the todo/url flags, the ordered reminder facts, and the trash timestamp —
+    /// every field a `memo`/`memo_trash`/`attachment_ref`/`memo_tag` row commits. It is
+    /// a pure function of the durable record, so a rewrite that preserves the claimed
+    /// fingerprint but changes any recoverable fact still flips the digest and forces
+    /// the reconcile gate to decline certification.
+    ///
+    /// Attachment evidence is re-derived from the body rather than the caller-supplied
+    /// `attachment_paths` field so every producer — record decode, commit-time
+    /// attestation, or rebuild — computes the same value from the same bytes.
+    ///
+    /// # Errors
+    /// Fails closed when the body cannot render for attachment extraction.
+    pub fn attestation_digest(&self) -> Result<String, lomo_core::LomoError> {
+        let mut tags = self.memo.tags.clone();
+        tags.sort();
+        tags.dedup();
+        let mut attachment_keys =
+            canonical_attachment_keys(&project_content_facts(&self.memo.body)?.attachment_paths);
+        attachment_keys.sort();
+        let payload = (
+            self.memo.memo_id.as_str(),
+            self.memo.source_path.as_str(),
+            self.memo.file_fingerprint.as_str(),
+            self.memo.chronology_epoch_ms,
+            self.memo.body.as_str(),
+            tags,
+            attachment_keys,
+            self.memo.has_todo,
+            self.memo.has_url,
+            self.memo.reminders.as_slice(),
+            self.trashed_at_ms,
+        );
+        let json = serde_json::to_string(&payload)
+            .map_err(|error| corruption("trash_attestation_digest_failed", &error.to_string()))?;
+        Ok(fingerprint_content(&json))
+    }
+}
+
+/// The predicted committed row image a workspace scan certifies the projection against.
+///
+/// `memo_rows` carries `(memo_id, file_fingerprint, is_trashed)` — lifecycle membership
+/// is a row-deciding factor, so it is part of the certification vector — and
+/// `trash_attestations` carries `(memo_id, trashed_at_ms, record_digest)` for every
+/// durable record's committed `memo_trash` row. `attachment_count` is the predicted
+/// `attachment_ref` row count.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ScannedRowImage {
+    pub memo_rows: Vec<(String, String, bool)>,
+    pub trash_attestations: Vec<(String, i64, String)>,
+    pub attachment_count: u64,
+}
+
 /// One durable history snapshot decoded and verified by the Rust workspace scan.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScannedHistoryProjection {
@@ -129,6 +222,72 @@ pub struct ScannedHistoryProjection {
     pub created_at_ms: i64,
     pub content: String,
     pub file_fingerprint: String,
+}
+
+/// One verified workspace listing row persisted with a projection commit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScannedListingRow {
+    pub path: String,
+    pub digest: String,
+}
+
+/// Path-scoped facts admitted for an incremental projection update.
+///
+/// The application layer supplies only facts whose provenance is proven scoped to changed
+/// workspace paths; every set is applied atomically against the live projection and the derived
+/// aggregates (`stats`, lifecycle bits, listing digest) are recomputed inside the same commit.
+#[derive(Debug, Clone, Default)]
+pub struct ScannedIncrementalFacts {
+    /// Listing rows to upsert (verified path + content digest).
+    pub listing_upserts: Vec<ScannedListingRow>,
+    /// Listing paths whose files disappeared.
+    pub listing_removes: Vec<String>,
+    /// Memo identities whose whole projection is removed before upserts run.
+    pub memo_removes: Vec<String>,
+    /// Rescanned active-document memos to index or update.
+    pub memo_upserts: Vec<ScannedMemoProjection>,
+    /// Trashed memos whose durable trash records changed.
+    pub trash_upserts: Vec<ScannedTrashProjection>,
+    /// Trash-claim identities a live document still attests: either re-emitted by
+    /// a rescanned document this pass (`memo_upserts`), or owning a committed
+    /// document-derived row that survives this apply. A committed row outside
+    /// this set is the record's own earlier claim — retired before its merge so
+    /// `current` can never act as attestation for it. The post-apply check uses
+    /// the set to certify each merged row's canonical fingerprint.
+    pub doc_attested_ids: BTreeSet<String>,
+    /// Per-memo history replacements: the complete durable revision set for each owner.
+    pub history_replaces: Vec<ScannedMemoHistoryReplace>,
+    /// Pin facts to upsert.
+    pub pin_upserts: Vec<ScannedPinProjection>,
+    /// Memo identities whose pin rows are removed.
+    pub pin_removes: Vec<String>,
+    /// Purged tombstone identities to upsert or remove.
+    pub purged_upserts: Vec<String>,
+    pub purged_removes: Vec<String>,
+}
+
+impl ScannedIncrementalFacts {
+    /// True when no fact set carries a change — an empty apply only re-derives aggregates.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.listing_upserts.is_empty()
+            && self.listing_removes.is_empty()
+            && self.memo_removes.is_empty()
+            && self.memo_upserts.is_empty()
+            && self.trash_upserts.is_empty()
+            && self.history_replaces.is_empty()
+            && self.pin_upserts.is_empty()
+            && self.pin_removes.is_empty()
+            && self.purged_upserts.is_empty()
+            && self.purged_removes.is_empty()
+    }
+}
+
+/// Complete durable revision set replacing one memo's history rows.
+#[derive(Debug, Clone)]
+pub struct ScannedMemoHistoryReplace {
+    pub memo_id: String,
+    pub revisions: Vec<ScannedHistoryProjection>,
 }
 
 /// One durable pin fact decoded from the workspace `.lomo` state facts.
@@ -571,30 +730,53 @@ fn commit_projection_publication(
                     "delete projection source path does not match the current memo",
                 ));
             }
-            transaction
-                .execute(
-                    "UPDATE memo SET file_fingerprint=?1 WHERE source_path=?2",
-                    params![&projection.file_fingerprint, &source_path],
-                )
-                .map_err(|error| from_sqlite(&error))?;
-            transaction
-                .execute(
-                    "INSERT OR REPLACE INTO memo_trash(memo_id, trashed_at_ms) VALUES(?1, ?2)",
-                    params![
-                        &mutation.memo_id,
-                        mutation.trashed_at_ms.ok_or_else(|| validation(
-                            "invalid_trash_timestamp",
-                            "SAF delete requires a durable trash timestamp",
-                        ))?
-                    ],
-                )
-                .map_err(|error| from_sqlite(&error))?;
-            transaction
-                .execute(
-                    "UPDATE memo SET is_trashed=1 WHERE memo_id=?1",
+            // The purge tombstone is the trash lane's suppression authority. The trash
+            // record this commit already wrote to durable state is suppressed by the
+            // standing tombstone, so no scan of the same facts can project a `memo_trash`
+            // row — the committed image is the row's retirement, not a second tombstone.
+            let tombstoned: bool = transaction
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM purged_memo WHERE memo_id=?1)",
                     params![&mutation.memo_id],
+                    |row| row.get(0),
                 )
                 .map_err(|error| from_sqlite(&error))?;
+            if tombstoned {
+                delete_memo_row(&transaction, &mutation.memo_id)?;
+            } else {
+                transaction
+                    .execute(
+                        "UPDATE memo SET file_fingerprint=?1 WHERE source_path=?2",
+                        params![&projection.file_fingerprint, &source_path],
+                    )
+                    .map_err(|error| from_sqlite(&error))?;
+                let trashed_at_ms = mutation.trashed_at_ms.ok_or_else(|| {
+                    validation(
+                        "invalid_trash_timestamp",
+                        "SAF delete requires a durable trash timestamp",
+                    )
+                })?;
+                // Attest exactly the record this transaction wrote: the mutation
+                // projection carries the same recoverable facts the session encoded,
+                // so this digest is the one a later scan re-derives from the record.
+                let record_digest = ScannedTrashProjection {
+                    memo: projection.clone(),
+                    trashed_at_ms,
+                }
+                .attestation_digest()?;
+                transaction
+                    .execute(
+                        "INSERT OR REPLACE INTO memo_trash(memo_id, trashed_at_ms, record_digest) VALUES(?1, ?2, ?3)",
+                        params![&mutation.memo_id, trashed_at_ms, record_digest],
+                    )
+                    .map_err(|error| from_sqlite(&error))?;
+                transaction
+                    .execute(
+                        "UPDATE memo SET is_trashed=1 WHERE memo_id=?1",
+                        params![&mutation.memo_id],
+                    )
+                    .map_err(|error| from_sqlite(&error))?;
+            }
             (
                 u64::try_from(revision)
                     .map_err(|_error| validation("revision_overflow", "negative revision"))?,
@@ -739,9 +921,15 @@ fn commit_projection_publication(
                     params![&mutation.memo_id],
                 )
                 .map_err(|error| from_sqlite(&error))?;
+            // `revision_index`/`history_attachment_ref` are file-owned rows: the durable
+            // history records survive the purge, so they stay exactly as a cold rescan
+            // leaves them.
+            // The purge tombstone file committed alongside this mutation is the durable
+            // suppression fact; project it now so `purged_memo` and `.lomo/purged/` never
+            // diverge between commit and the next reconcile.
             transaction
                 .execute(
-                    "DELETE FROM revision_index WHERE memo_id=?1",
+                    "INSERT OR REPLACE INTO purged_memo(memo_id) VALUES(?1)",
                     params![&mutation.memo_id],
                 )
                 .map_err(|error| from_sqlite(&error))?;
@@ -914,11 +1102,10 @@ fn commit_projection_publication(
         }
     };
     if let Some(history) = history {
-        transaction.execute(
-            "INSERT OR REPLACE INTO revision_index(memo_id,revision,history_record_id,created_at_ms,content,file_fingerprint) VALUES(?1,?2,?3,?4,?5,?6)",
-            params![&history.memo_id, persisted_revision(history.revision)?, &history.record_id,
-                history.created_at_ms, &history.content, &history.file_fingerprint],
-        ).map_err(|error| from_sqlite(&error))?;
+        // Same indexer the rebuild path runs: the durable revision lands with
+        // its materialized attachment references so media protection never
+        // waits for the next full scan.
+        index_scanned_history_revision(&transaction, history)?;
     }
     recompute_stats(&transaction)?;
     let core_revision = crate::read_meta_u64(&transaction, "high_water_revision")?
@@ -1180,6 +1367,11 @@ fn validate_permanent_delete_targets(
     Ok(())
 }
 
+/// Removes every memo-owned projection row for a permanent-delete batch and projects the
+/// tombstone each target's durable `.lomo/purged/` record carries in the same commit.
+///
+/// `history_attachment_ref`/`revision_index` are file-owned rows — the durable history
+/// records survive the purge, so the projection keeps them exactly as a cold rescan would.
 fn delete_saf_projection_rows(
     transaction: &Transaction<'_>,
     targets: &[SafPermanentDeleteTarget],
@@ -1201,7 +1393,6 @@ fn delete_saf_projection_rows(
             "memo",
             "memo_trash",
             "memo_pin",
-            "revision_index",
             "memo_tag",
             "attachment_ref",
         ] {
@@ -1210,6 +1401,12 @@ fn delete_saf_projection_rows(
                 .execute(&sql, params![&target.memo_id])
                 .map_err(|error| from_sqlite(&error))?;
         }
+        transaction
+            .execute(
+                "INSERT OR REPLACE INTO purged_memo(memo_id) VALUES(?1)",
+                params![&target.memo_id],
+            )
+            .map_err(|error| from_sqlite(&error))?;
     }
     Ok(())
 }
@@ -1642,11 +1839,14 @@ fn upsert_saf_projection(
             params![&projection.memo_id],
         )
         .map_err(|error| from_sqlite(&error))?;
-    for path in &projection.attachment_paths {
+    // Sweep protection keys attachment rows by the canonical workspace path; spellings that
+    // resolve to one file (`media/./x`, `media//x`) share one key. Destinations that cannot
+    // name a workspace file (external objects, root escapes) carry no key and get no row.
+    for key in canonical_attachment_keys(&projection.attachment_paths) {
         connection
             .execute(
                 "INSERT OR IGNORE INTO attachment_ref(memo_id, relative_path) VALUES(?1, ?2)",
-                params![&projection.memo_id, path],
+                params![&projection.memo_id, &key],
             )
             .map_err(|error| from_sqlite(&error))?;
     }
@@ -1675,11 +1875,20 @@ pub struct SafProjectionRebuild {
     high_water_revision: u64,
     event_sequence: u64,
     workspace_evidence: BTreeMap<String, ScannedProjectionEvidence>,
+    /// Identities a durable state head attested a pin verdict for. The finish-time
+    /// private-state carry-over must not copy a live-cache `memo_pin` row for any
+    /// of them — durable state already owns their verdict.
+    pin_attested_ids: BTreeSet<String>,
 }
 
 struct ScannedProjectionEvidence {
     fingerprint: String,
+    /// The committed `is_trashed` bit — lifecycle membership is part of the row image
+    /// the finish-time compare certifies, never a detail the evidence can drop.
+    trashed: bool,
     attachment_count: u64,
+    /// `(trashed_at_ms, record_digest)` committed into `memo_trash` for this identity.
+    trash_attestation: Option<(i64, String)>,
 }
 
 impl SafProjectionRebuild {
@@ -1714,6 +1923,7 @@ impl SafProjectionRebuild {
             high_water_revision,
             event_sequence,
             workspace_evidence: BTreeMap::new(),
+            pin_attested_ids: BTreeSet::new(),
         })
     }
 
@@ -1770,11 +1980,14 @@ impl SafProjectionRebuild {
                 memo.memo_id.clone(),
                 ScannedProjectionEvidence {
                     fingerprint: memo.file_fingerprint.clone(),
-                    attachment_count: u64::try_from(memo.attachment_paths.len()).map_err(
-                        |_error| {
-                            validation("attachment_count_overflow", "attachment count exceeds u64")
-                        },
-                    )?,
+                    trashed: memo.source_path.starts_with("trash/"),
+                    attachment_count: u64::try_from(
+                        canonical_attachment_keys(&memo.attachment_paths).len(),
+                    )
+                    .map_err(|_error| {
+                        validation("attachment_count_overflow", "attachment count exceeds u64")
+                    })?,
+                    trash_attestation: None,
                 },
             ));
         }
@@ -1887,25 +2100,89 @@ impl SafProjectionRebuild {
                     "SAF history page contains a duplicate revision",
                 ));
             }
+            index_scanned_history_revision(&transaction, revision)?;
+        }
+        transaction.commit().map_err(|error| from_sqlite(&error))
+    }
+
+    /// Appends durable purge tombstone identities decoded by the workspace scan.
+    ///
+    /// # Errors
+    /// Returns validation for oversized pages or storage failures.
+    pub fn append_purged_page(&mut self, memo_ids: &[String]) -> Result<(), lomo_core::LomoError> {
+        if memo_ids.len() > MAX_SAF_PROJECTION_PAGE_SIZE {
+            return Err(validation(
+                "saf_projection_page_too_large",
+                "SAF purged projection rebuild page exceeds 256 identities",
+            ));
+        }
+        let connection = self.connection.as_mut().ok_or_else(|| {
+            validation(
+                "saf_projection_rebuild_closed",
+                "SAF projection rebuild is already finished or aborted",
+            )
+        })?;
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| from_sqlite(&error))?;
+        let mut page_ids = BTreeSet::new();
+        for memo_id in memo_ids {
+            if memo_id.trim().is_empty() || !page_ids.insert(memo_id.as_str()) {
+                return Err(validation(
+                    "invalid_purged_memo_identity",
+                    "purged page requires distinct non-empty memo ids",
+                ));
+            }
             transaction
                 .execute(
-                    "INSERT OR REPLACE INTO revision_index( \
-                     memo_id,revision,history_record_id,created_at_ms,content,file_fingerprint \
-                     ) VALUES(?1,?2,?3,?4,?5,?6)",
-                    params![
-                        &revision.memo_id,
-                        persisted_revision(revision.revision)?,
-                        &revision.record_id,
-                        revision.created_at_ms,
-                        &revision.content,
-                        &revision.file_fingerprint,
-                    ],
+                    "INSERT INTO purged_memo(memo_id) VALUES(?1)",
+                    params![memo_id],
                 )
                 .map_err(|error| from_sqlite(&error))?;
-            transaction.execute(
-                "UPDATE memo SET content_revision = MAX(content_revision, ?1) WHERE memo_id = ?2",
-                params![persisted_revision(revision.revision)?, &revision.memo_id],
-            ).map_err(|error| from_sqlite(&error))?;
+        }
+        transaction.commit().map_err(|error| from_sqlite(&error))
+    }
+
+    /// Appends verified workspace listing rows admitted with this projection commit.
+    ///
+    /// # Errors
+    /// Returns validation for oversized pages or storage failures.
+    pub fn append_listing_page(
+        &mut self,
+        rows: &[ScannedListingRow],
+    ) -> Result<(), lomo_core::LomoError> {
+        if rows.len() > MAX_SAF_PROJECTION_PAGE_SIZE {
+            return Err(validation(
+                "saf_projection_page_too_large",
+                "SAF listing projection rebuild page exceeds 256 rows",
+            ));
+        }
+        let connection = self.connection.as_mut().ok_or_else(|| {
+            validation(
+                "saf_projection_rebuild_closed",
+                "SAF projection rebuild is already finished or aborted",
+            )
+        })?;
+        let transaction = connection
+            .unchecked_transaction()
+            .map_err(|error| from_sqlite(&error))?;
+        let mut page_paths = BTreeSet::new();
+        for row in rows {
+            if row.path.trim().is_empty()
+                || row.digest.trim().is_empty()
+                || !page_paths.insert(row.path.as_str())
+            {
+                return Err(validation(
+                    "invalid_listing_row",
+                    "listing page requires distinct non-empty verified paths and digests",
+                ));
+            }
+            transaction
+                .execute(
+                    "INSERT INTO file_listing(path, digest) VALUES(?1, ?2)",
+                    params![&row.path, &row.digest],
+                )
+                .map_err(|error| from_sqlite(&error))?;
         }
         transaction.commit().map_err(|error| from_sqlite(&error))
     }
@@ -1963,6 +2240,31 @@ impl SafProjectionRebuild {
         transaction.commit().map_err(|error| from_sqlite(&error))
     }
 
+    /// Records the memo identities a durable state head attested a pin verdict for.
+    ///
+    /// The verdict may be pinned or unpinned — either way durable state owns the answer for
+    /// that identity, so the finish-time private-state carry-over treats a live-cache
+    /// `memo_pin` row for an attested identity as stale evidence and keeps the scanned
+    /// fact (or its deliberate absence) authoritative. Identities never attested keep the
+    /// legacy app-private carry-over.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation when the rebuild is already finished or aborted.
+    pub fn append_pin_attestations(
+        &mut self,
+        memo_ids: &BTreeSet<String>,
+    ) -> Result<(), lomo_core::LomoError> {
+        if self.connection.is_none() {
+            return Err(validation(
+                "saf_projection_rebuild_closed",
+                "SAF projection rebuild is already finished or aborted",
+            ));
+        }
+        self.pin_attested_ids.extend(memo_ids.iter().cloned());
+        Ok(())
+    }
+
     /// Verifies and atomically publishes the completed projection.
     ///
     /// # Errors
@@ -1977,17 +2279,25 @@ impl SafProjectionRebuild {
                 "SAF projection rebuild is already finished or aborted",
             )
         })?;
-        copy_saf_private_state(&self.live_db, &connection)?;
+        copy_saf_private_state(&self.live_db, &connection, &self.pin_attested_ids)?;
         recompute_stats(&connection)?;
         crate::write_meta_u64(&connection, "high_water_revision", self.high_water_revision)?;
         crate::write_meta_u64(&connection, "event_sequence", self.event_sequence)?;
         ensure_quick_check(&connection, "SAF projection temp")?;
-        let mut workspace_pairs = self
-            .workspace_evidence
-            .iter()
-            .map(|(memo_id, evidence)| (memo_id.clone(), evidence.fingerprint.clone()))
-            .collect::<Vec<_>>();
-        let attachment_count =
+        let mut image = ScannedRowImage::default();
+        for (memo_id, evidence) in &self.workspace_evidence {
+            image.memo_rows.push((
+                memo_id.clone(),
+                evidence.fingerprint.clone(),
+                evidence.trashed,
+            ));
+            if let Some((trashed_at_ms, digest)) = &evidence.trash_attestation {
+                image
+                    .trash_attestations
+                    .push((memo_id.clone(), *trashed_at_ms, digest.clone()));
+            }
+        }
+        image.attachment_count =
             self.workspace_evidence
                 .values()
                 .try_fold(0_u64, |total, evidence| {
@@ -1997,8 +2307,7 @@ impl SafProjectionRebuild {
                 })?;
         let memos_indexed = u64::try_from(self.workspace_evidence.len())
             .map_err(|_error| validation("memo_count_overflow", "memo count exceeds u64"))?;
-        let evidence =
-            compare_scanned_pairs_to_store(&mut workspace_pairs, attachment_count, &connection)?;
+        let evidence = compare_scanned_rows_to_store(&mut image, &connection)?;
         drop(connection);
         finish_atomic_replace(&self.live_db, &self.temp_db, &self.live_bak)?;
         Ok(RebuildResult {
@@ -2061,6 +2370,12 @@ fn merge_trash_projection(
         )
         .optional()
         .map_err(|error| from_sqlite(&error))?;
+    // A surviving memo row for the same identity is itself the live-document attestation:
+    // it is either a row this commit inserted from a fresh document read, or a committed
+    // document-derived row — a removed document retires every lifecycle row before this
+    // merge runs, and the incremental caller retires any record-echo row before
+    // re-claiming the identity, so reaching here with `current` present proves the
+    // source document still emits the identity.
     let canonical_fingerprint = if let Some((_revision, source_path, fingerprint)) = &current {
         if source_path != &trash.memo.source_path {
             return Err(validation(
@@ -2070,8 +2385,16 @@ fn merge_trash_projection(
         }
         fingerprint.clone()
     } else {
-        crate::query::source_document_fingerprint(transaction, &trash.memo.source_path)?
-            .unwrap_or_else(|| trash.memo.file_fingerprint.clone())
+        // No row of this memo survives — the document may still be attested by sibling rows
+        // sharing the source path; once the source document is gone no row can anchor the
+        // fingerprint, so the durable trash record's stored fingerprint is the only truth
+        // left, exactly as a cold scan derives it.
+        crate::query::sibling_document_fingerprint(
+            transaction,
+            &trash.memo.source_path,
+            &trash.memo.memo_id,
+        )?
+        .unwrap_or_else(|| trash.memo.file_fingerprint.clone())
     };
     let mut merged = trash.memo.clone();
     merged.file_fingerprint.clone_from(&canonical_fingerprint);
@@ -2086,10 +2409,11 @@ fn merge_trash_projection(
     } else {
         index_scanned_memo(transaction, &merged)?;
     }
+    let record_digest = trash.attestation_digest()?;
     transaction
         .execute(
-            "INSERT INTO memo_trash(memo_id,trashed_at_ms) VALUES(?1,?2)",
-            params![&merged.memo_id, trash.trashed_at_ms],
+            "INSERT INTO memo_trash(memo_id,trashed_at_ms,record_digest) VALUES(?1,?2,?3)",
+            params![&merged.memo_id, trash.trashed_at_ms, &record_digest],
         )
         .map_err(|error| from_sqlite(&error))?;
     transaction
@@ -2098,16 +2422,420 @@ fn merge_trash_projection(
             params![&merged.memo_id],
         )
         .map_err(|error| from_sqlite(&error))?;
-    let attachment_count = u64::try_from(merged.attachment_paths.len()).map_err(|_error| {
-        validation("attachment_count_overflow", "attachment count exceeds u64")
-    })?;
+    let attachment_count = u64::try_from(canonical_attachment_keys(&merged.attachment_paths).len())
+        .map_err(|_error| {
+            validation("attachment_count_overflow", "attachment count exceeds u64")
+        })?;
     Ok((
         merged.memo_id,
         ScannedProjectionEvidence {
             fingerprint: canonical_fingerprint,
+            trashed: true,
             attachment_count,
+            trash_attestation: Some((trash.trashed_at_ms, record_digest)),
         },
     ))
+}
+
+/// Upserts a durable trash fact: an existing `memo_trash` row is replaced rather than rejected,
+/// which makes the merge idempotent for path-scoped re-application.
+fn upsert_trash_projection(
+    transaction: &Transaction<'_>,
+    trash: &ScannedTrashProjection,
+) -> Result<(), lomo_core::LomoError> {
+    transaction
+        .execute(
+            "DELETE FROM memo_trash WHERE memo_id=?1",
+            params![&trash.memo.memo_id],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    merge_trash_projection(transaction, trash).map(|_| ())
+}
+
+/// Indexes one verified durable history revision and its derived attachment references.
+///
+/// `history_attachment_ref` rows are parsed from the revision body at index time so media
+/// protection reads projected rows instead of re-parsing retained bodies on every observation.
+fn index_scanned_history_revision(
+    connection: &Connection,
+    revision: &ScannedHistoryProjection,
+) -> Result<(), lomo_core::LomoError> {
+    connection
+        .execute(
+            "INSERT OR REPLACE INTO revision_index( \
+             memo_id,revision,history_record_id,created_at_ms,content,file_fingerprint \
+             ) VALUES(?1,?2,?3,?4,?5,?6)",
+            params![
+                &revision.memo_id,
+                persisted_revision(revision.revision)?,
+                &revision.record_id,
+                revision.created_at_ms,
+                &revision.content,
+                &revision.file_fingerprint,
+            ],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    connection
+        .execute(
+            "UPDATE memo SET content_revision = MAX(content_revision, ?1) WHERE memo_id = ?2",
+            params![persisted_revision(revision.revision)?, &revision.memo_id],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    connection
+        .execute(
+            "DELETE FROM history_attachment_ref WHERE memo_id=?1 AND revision=?2",
+            params![&revision.memo_id, persisted_revision(revision.revision)?],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    for key in
+        canonical_attachment_keys(&project_content_facts(&revision.content)?.attachment_paths)
+    {
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO history_attachment_ref(memo_id,revision,relative_path) \
+                 VALUES(?1,?2,?3)",
+                params![
+                    &revision.memo_id,
+                    persisted_revision(revision.revision)?,
+                    key
+                ],
+            )
+            .map_err(|error| from_sqlite(&error))?;
+    }
+    Ok(())
+}
+
+/// Removes one memo projection row and every memo-owned derived row (tags, FTS,
+/// lifecycle membership, attachment refs).
+///
+/// `memo_tag`, `attachment_ref`, `memo_pin` and `memo_trash` cascade through foreign keys;
+/// the `memo_fts` virtual table is cleaned explicitly. Durable history (`revision_index`,
+/// `history_attachment_ref`) is file-owned, not row-owned: `.lomo/history` records outlive a
+/// memo's projection row, so scan-driven removal keeps them — a fresh rebuild re-indexes the
+/// same records — and `history_replaces` owns history edits explicitly.
+fn delete_memo_row(connection: &Connection, memo_id: &str) -> Result<(), lomo_core::LomoError> {
+    connection
+        .execute(
+            "INSERT INTO memo_fts(memo_fts,rowid,search_content) \
+             SELECT 'delete',rowid,search_content FROM memo WHERE memo_id=?1",
+            params![memo_id],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    connection
+        .execute("DELETE FROM memo WHERE memo_id=?1", params![memo_id])
+        .map_err(|error| from_sqlite(&error))?;
+    Ok(())
+}
+
+/// Content digest over the rows an incremental apply can change: memo projections, lifecycle
+/// membership, pin facts, purge tombstones and durable history. A scoped apply whose gathered
+/// facts prove content-identical leaves this digest untouched, which is exactly the evidence
+/// `rewritten` reports.
+fn projection_state_digest(connection: &Connection) -> Result<String, lomo_core::LomoError> {
+    let mut facts = Vec::new();
+    for (table, columns) in [
+        ("memo", "memo_id, file_fingerprint"),
+        ("memo_pin", "memo_id, pinned_at_ms"),
+        ("memo_trash", "memo_id, trashed_at_ms, record_digest"),
+        ("purged_memo", "memo_id"),
+        ("revision_index", "memo_id, history_record_id, revision"),
+    ] {
+        let sql = format!("SELECT {columns} FROM {table} ORDER BY {columns}");
+        let mut statement = connection
+            .prepare(&sql)
+            .map_err(|error| from_sqlite(&error))?;
+        let mut rows = statement.query([]).map_err(|error| from_sqlite(&error))?;
+        while let Some(row) = rows.next().map_err(|error| from_sqlite(&error))? {
+            let mut key = format!("{table}:");
+            for index in 0..row.as_ref().column_count() {
+                let value = row.get_ref(index).map_err(|error| from_sqlite(&error))?;
+                if index > 0 {
+                    key.push('|');
+                }
+                match value {
+                    rusqlite::types::ValueRef::Text(text) => {
+                        key.push_str(std::str::from_utf8(text).unwrap_or("\u{fffd}"));
+                    }
+                    rusqlite::types::ValueRef::Integer(number) => {
+                        key.push_str(&number.to_string());
+                    }
+                    rusqlite::types::ValueRef::Null
+                    | rusqlite::types::ValueRef::Real(_)
+                    | rusqlite::types::ValueRef::Blob(_) => {
+                        return Err(corruption(
+                            "digest_fact_coerce",
+                            "unexpected projection fact type",
+                        ));
+                    }
+                }
+            }
+            facts.push((table.to_owned(), key));
+        }
+    }
+    facts.sort();
+    Ok(aggregate_memo_digest(&facts))
+}
+
+/// Replaces one memo's durable history projection rows with the caller's complete set.
+fn apply_history_replace(
+    transaction: &Transaction<'_>,
+    replace: &ScannedMemoHistoryReplace,
+) -> Result<(), lomo_core::LomoError> {
+    transaction
+        .execute(
+            "DELETE FROM revision_index WHERE memo_id=?1",
+            params![&replace.memo_id],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    transaction
+        .execute(
+            "DELETE FROM history_attachment_ref WHERE memo_id=?1",
+            params![&replace.memo_id],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    let mut seen = BTreeSet::new();
+    for revision in &replace.revisions {
+        if revision.memo_id != replace.memo_id || !seen.insert(revision.record_id.as_str()) {
+            return Err(validation(
+                "invalid_history_projection",
+                "incremental history facts must belong to one owner and stay distinct",
+            ));
+        }
+        index_scanned_history_revision(transaction, revision)?;
+    }
+    Ok(())
+}
+
+/// Inserts one purge tombstone and removes any memo row that exists only through trash
+/// membership — a fresh scan filters the tombstoned memo's trash record before it ever
+/// projects, so the incremental apply must suppress the same resurrection.
+fn apply_purged_id(
+    transaction: &Transaction<'_>,
+    memo_id: &str,
+) -> Result<(), lomo_core::LomoError> {
+    transaction
+        .execute(
+            "INSERT OR REPLACE INTO purged_memo(memo_id) VALUES(?1)",
+            params![memo_id],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    transaction
+        .execute(
+            "INSERT INTO memo_fts(memo_fts,rowid,search_content) \
+             SELECT 'delete',rowid,search_content FROM memo WHERE memo_id=?1 \
+             AND EXISTS(SELECT 1 FROM memo_trash WHERE memo_trash.memo_id=?1)",
+            params![memo_id],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    transaction
+        .execute(
+            "DELETE FROM memo WHERE memo_id=?1 AND EXISTS(\
+                SELECT 1 FROM memo_trash WHERE memo_trash.memo_id=memo.memo_id)",
+            params![memo_id],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    Ok(())
+}
+
+/// Applies path-scoped scanned facts to the live projection in one transaction.
+///
+/// The caller — the workspace application layer — supplies only facts whose provenance is proven
+/// scoped to changed paths. Aggregate state (`stats`, lifecycle bits, `content_revision`,
+/// `file_listing` snapshot and its digest meta) is recomputed inside the same commit so the live
+/// projection stays indistinguishable from a fresh full rebuild of the same durable facts.
+///
+/// Returns the committed publication clock when the projection content actually changed; a
+/// content-identical fact set (e.g. a document re-parsed after only its listing token drifted)
+/// returns `None` and leaves the high-water clock alone, exactly like a reconcile that skipped
+/// the rewrite. The returned clock is the authoritative post-commit value — the owning `Store`
+/// re-anchors its cached counters to it, as on every other commit boundary.
+///
+/// # Errors
+/// Returns validation for malformed facts and storage errors; nothing commits on failure.
+pub fn apply_scanned_incremental(
+    connection: &Connection,
+    facts: &ScannedIncrementalFacts,
+) -> Result<Option<crate::ProjectionClock>, lomo_core::LomoError> {
+    let transaction = connection
+        .unchecked_transaction()
+        .map_err(|error| from_sqlite(&error))?;
+    let before = projection_state_digest(&transaction)?;
+
+    for memo_id in &facts.memo_removes {
+        delete_memo_row(&transaction, memo_id)?;
+    }
+
+    // Suppression lands before any claim — the gather phases prove the tombstone
+    // set first for the same reason: a row a tombstoned record committed must be
+    // gone before the merges re-derive siblings, or an echo row could anchor a
+    // claim no scan would produce.
+    for memo_id in &facts.purged_removes {
+        transaction
+            .execute("DELETE FROM purged_memo WHERE memo_id=?1", params![memo_id])
+            .map_err(|error| from_sqlite(&error))?;
+    }
+    for memo_id in &facts.purged_upserts {
+        apply_purged_id(&transaction, memo_id)?;
+    }
+
+    for memo in &facts.memo_upserts {
+        upsert_saf_projection(&transaction, memo, 1)?;
+    }
+
+    for trash in &facts.trash_upserts {
+        if trash.trashed_at_ms <= 0 {
+            return Err(validation(
+                "invalid_trash_timestamp",
+                "trash timestamp must be a positive epoch millisecond",
+            ));
+        }
+        upsert_trash_projection(&transaction, trash)?;
+    }
+
+    for replace in &facts.history_replaces {
+        apply_history_replace(&transaction, replace)?;
+    }
+
+    for memo_id in &facts.pin_removes {
+        transaction
+            .execute("DELETE FROM memo_pin WHERE memo_id=?1", params![memo_id])
+            .map_err(|error| from_sqlite(&error))?;
+    }
+    for pin in &facts.pin_upserts {
+        if pin.memo_id.trim().is_empty() || pin.pinned_at_ms <= 0 {
+            return Err(validation(
+                "invalid_pin_projection",
+                "pin projection requires a memo id and positive timestamp",
+            ));
+        }
+        transaction
+            .execute(
+                "INSERT OR REPLACE INTO memo_pin(memo_id, pinned_at_ms) VALUES(?1, ?2)",
+                params![&pin.memo_id, pin.pinned_at_ms],
+            )
+            .map_err(|error| from_sqlite(&error))?;
+    }
+
+    for path in &facts.listing_removes {
+        transaction
+            .execute("DELETE FROM file_listing WHERE path=?1", params![path])
+            .map_err(|error| from_sqlite(&error))?;
+    }
+    for row in &facts.listing_upserts {
+        if row.path.trim().is_empty() || row.digest.trim().is_empty() {
+            return Err(validation(
+                "invalid_listing_row",
+                "listing rows require verified paths and digests",
+            ));
+        }
+        transaction
+            .execute(
+                "INSERT OR REPLACE INTO file_listing(path, digest) VALUES(?1, ?2)",
+                params![&row.path, &row.digest],
+            )
+            .map_err(|error| from_sqlite(&error))?;
+    }
+
+    // Derived aggregate state mirrors exactly what a fresh materialize produces: lifecycle bits
+    // follow membership tables plus the `trash/` source-path convention, `content_revision` is
+    // the durable history ceiling, and orphan tag rows never survive a rebuild.
+    transaction
+        .execute_batch(
+            "UPDATE memo SET is_trashed = CASE WHEN EXISTS(\
+                 SELECT 1 FROM memo_trash WHERE memo_trash.memo_id = memo.memo_id\
+             ) OR source_path GLOB 'trash/*' THEN 1 ELSE 0 END;\
+             UPDATE memo SET is_pinned = CASE WHEN EXISTS(\
+                 SELECT 1 FROM memo_pin WHERE memo_pin.memo_id = memo.memo_id\
+             ) THEN 1 ELSE 0 END;\
+             UPDATE memo SET content_revision = MAX(1, COALESCE((\
+                 SELECT MAX(revision) FROM revision_index \
+                 WHERE revision_index.memo_id = memo.memo_id\
+             ), 0));\
+             DELETE FROM tag WHERE id NOT IN (SELECT tag_id FROM memo_tag);",
+        )
+        .map_err(|error| from_sqlite(&error))?;
+
+    // Post-apply self-certification: a merged trash row may only ever commit what a
+    // cold scan of the same durable facts produces. The row must sit at the record's
+    // claimed source path — the merge writes the claim, never a stale lane position —
+    // and a row no live document attests must carry the fingerprint the sibling-or-
+    // claim rule derives from this transaction's final row set, not an earlier claim
+    // it happened to inherit. Document-attested rows are the attestation itself, so
+    // only their lane position is checked.
+    for trash in &facts.trash_upserts {
+        let merged_row = transaction
+            .query_row(
+                "SELECT source_path,file_fingerprint FROM memo WHERE memo_id=?1",
+                params![&trash.memo.memo_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()
+            .map_err(|error| from_sqlite(&error))?;
+        let Some((source_path, file_fingerprint)) = merged_row else {
+            return Err(corruption(
+                "incremental_merge_diverged",
+                "applied trash fact committed no memo row",
+            ));
+        };
+        if source_path != trash.memo.source_path {
+            return Err(corruption(
+                "incremental_merge_diverged",
+                "merged trash row sits off the record's claimed source path",
+            ));
+        }
+        if !facts.doc_attested_ids.contains(&trash.memo.memo_id) {
+            let expected = crate::query::sibling_document_fingerprint(
+                &transaction,
+                &trash.memo.source_path,
+                &trash.memo.memo_id,
+            )?
+            .unwrap_or_else(|| trash.memo.file_fingerprint.clone());
+            if file_fingerprint != expected {
+                return Err(corruption(
+                    "incremental_merge_diverged",
+                    "merged trash row anchored a fingerprint the merge rules cannot derive",
+                ));
+            }
+        }
+    }
+
+    recompute_stats(&transaction)?;
+
+    let mut pairs = Vec::new();
+    {
+        let mut statement = transaction
+            .prepare("SELECT path,digest FROM file_listing ORDER BY path")
+            .map_err(|error| from_sqlite(&error))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| from_sqlite(&error))?;
+        for row in rows {
+            pairs.push(row.map_err(|error| from_sqlite(&error))?);
+        }
+    }
+    crate::write_meta_string(
+        &transaction,
+        "workspace_listing_digest",
+        &aggregate_memo_digest(&pairs),
+    )?;
+
+    let after = projection_state_digest(&transaction)?;
+    // A scoped commit that moved projection content is still a projection revision: the
+    // high-water clock and event sequence advance exactly as a full rewrite advances them.
+    let clock = if before == after {
+        None
+    } else {
+        let (core_revision, event_sequence) = bump_counters(&transaction)?;
+        Some(crate::ProjectionClock {
+            core_revision,
+            event_sequence,
+        })
+    };
+
+    transaction.commit().map_err(|error| from_sqlite(&error))?;
+    Ok(clock)
 }
 
 /// Atomically replaces an app-private query projection from bounded SAF scan facts.
@@ -2319,6 +3047,16 @@ pub fn run_rebuild(
         // Durable trash markers are authoritative after memo files so a stale physical
         // `trash/{id}.md` cannot outrank the checksummed record.
         apply_trash_record_state(&conn, &trash_records)?;
+        // Purge tombstones are durable suppression facts the projection itself carries: the
+        // reconcile gate compares `purged_memo` against `.lomo/purged/`, so every build must
+        // leave the table equal to the tombstone set the scan just read.
+        for memo_id in list_purged_memo_ids(workspace_root)? {
+            conn.execute(
+                "INSERT OR REPLACE INTO purged_memo(memo_id) VALUES(?1)",
+                params![memo_id],
+            )
+            .map_err(|error| from_sqlite(&error))?;
+        }
         recompute_stats(&conn)?;
         drop(conn);
 
@@ -2405,13 +3143,19 @@ struct CompareEvidence {
     store_digest: String,
 }
 
-/// Collects Direct workspace memo/trash fingerprints for reconcile or post-rebuild integrity.
-fn collect_direct_workspace_pairs(
+/// Collects the Direct workspace's predicted committed row image for reconcile or
+/// post-rebuild integrity.
+///
+/// A memo file and a durable trash record may name one identity — the file's row attests
+/// content while the record owns the lane — so the lanes merge instead of colliding.
+fn collect_direct_workspace_rows(
     workspace_root: &Path,
-) -> Result<(Vec<(String, String)>, u64), lomo_core::LomoError> {
+) -> Result<ScannedRowImage, lomo_core::LomoError> {
     let memo_files = list_memo_files(workspace_root)?;
-    let mut workspace_pairs: Vec<(String, String)> = Vec::with_capacity(memo_files.len());
-    let mut workspace_attachments = 0u64;
+    let mut image = ScannedRowImage {
+        memo_rows: Vec::with_capacity(memo_files.len()),
+        ..ScannedRowImage::default()
+    };
     for path in &memo_files {
         let content = fs::read_to_string(path).map_err(|err| {
             storage(
@@ -2424,31 +3168,59 @@ fn collect_direct_workspace_pairs(
             .and_then(|s| s.to_str())
             .ok_or_else(|| validation("invalid_memo_filename", "memo file stem must be utf-8"))?
             .to_owned();
-        workspace_pairs.push((memo_id, fingerprint_content(&content)));
+        // `index_memo_file` derives the lane from the same `trash/` parent convention.
+        let trashed = path
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .and_then(|name| name.to_str())
+            == Some("trash");
+        image
+            .memo_rows
+            .push((memo_id, fingerprint_content(&content), trashed));
         let facts = project_content_facts(&content)?;
-        workspace_attachments = workspace_attachments
-            .checked_add(u64::try_from(facts.attachment_paths.len()).unwrap_or(u64::MAX))
+        image.attachment_count = image
+            .attachment_count
+            .checked_add(
+                u64::try_from(canonical_attachment_keys(&facts.attachment_paths).len())
+                    .unwrap_or(u64::MAX),
+            )
             .ok_or_else(|| corruption("rebuild_compare_failed", "attachment count overflow"))?;
     }
     // Marker-backed Direct trash bodies are durable workspace facts even when their optional
-    // `trash/{id}.md` optimization has been removed. Include them in the same compare set so a
-    // rebuild cannot mistake a healthy marker-only workspace for a missing memo.
+    // `trash/{id}.md` optimization has been removed. A record for a file-covered identity only
+    // claims the lane — the file's row (and its attachment refs) survives indexing — while a
+    // record without a file attests the whole row.
     for record in list_trash_records(workspace_root)? {
-        if workspace_pairs
-            .iter()
-            .any(|(memo_id, _)| memo_id == &record.memo_id)
+        let projection = ScannedTrashProjection::from_record(&record)?;
+        if let Some(row) = image
+            .memo_rows
+            .iter_mut()
+            .find(|(memo_id, _, _)| memo_id == &record.memo_id)
         {
-            return Err(corruption(
-                "rebuild_compare_failed",
-                "a memo identity appears in both a workspace file and a durable trash record",
+            row.2 = true;
+        } else {
+            image.memo_rows.push((
+                record.memo_id.clone(),
+                record.source_fingerprint.clone(),
+                true,
             ));
+            image.attachment_count = image
+                .attachment_count
+                .checked_add(
+                    u64::try_from(
+                        canonical_attachment_keys(&projection.memo.attachment_paths).len(),
+                    )
+                    .unwrap_or(u64::MAX),
+                )
+                .ok_or_else(|| corruption("rebuild_compare_failed", "attachment count overflow"))?;
         }
-        workspace_pairs.push((record.memo_id.clone(), record.source_fingerprint.clone()));
-        workspace_attachments = workspace_attachments
-            .checked_add(u64::try_from(record.attachments.len()).unwrap_or(u64::MAX))
-            .ok_or_else(|| corruption("rebuild_compare_failed", "attachment count overflow"))?;
+        image.trash_attestations.push((
+            record.memo_id.clone(),
+            record.trashed_at_ms,
+            projection.attestation_digest()?,
+        ));
     }
-    Ok((workspace_pairs, workspace_attachments))
+    Ok(image)
 }
 
 pub fn live_reconciled_result(
@@ -2511,31 +3283,37 @@ pub fn try_reconcile_direct(
     connection: &Connection,
     high_water_revision: u64,
 ) -> Result<Option<RebuildResult>, lomo_core::LomoError> {
-    let (mut workspace_pairs, attachment_count) = collect_direct_workspace_pairs(workspace_root)?;
+    let mut image = collect_direct_workspace_rows(workspace_root)?;
+    let purged = list_purged_memo_ids(workspace_root)?;
     try_reconcile_scanned(
         connection,
-        &mut workspace_pairs,
-        attachment_count,
+        &mut image,
         high_water_revision,
         None,
         None,
+        Some(&purged),
     )
 }
 
-/// Live-projection fingerprint gate for scanned (session/SAF) memo facts.
+/// Live-projection certification gate for scanned (session/SAF) memo facts.
 ///
-/// When `pins`/`history` are `Some`, those workspace-derived records must also match the live
-/// projection. Direct rebuild leaves them `None` because pins are app-private live copies.
+/// `image` carries the predicted committed rows — `memo(memo_id, file_fingerprint,
+/// is_trashed)` and `memo_trash(memo_id, trashed_at_ms, record_digest)` — so lifecycle
+/// membership and record-decided content are row-deciding factors: a clean peer soft
+/// delete or a rewritten record never certifies as equal. When `pins`/`history` are
+/// `Some`, those workspace-derived records must also match the live projection.
+/// `purged` is the durable `.lomo/purged/` tombstone set the scan decoded; the committed
+/// `purged_memo` table must equal it before the gate may certify without rewriting.
+/// Direct rebuild leaves `pins`/`history` `None` because pins are app-private live copies.
 pub fn try_reconcile_scanned(
     connection: &Connection,
-    workspace_pairs: &mut [(String, String)],
-    attachment_count: u64,
+    image: &mut ScannedRowImage,
     high_water_revision: u64,
     pins: Option<&[ScannedPinProjection]>,
     history: Option<&[ScannedHistoryProjection]>,
+    purged: Option<&BTreeSet<String>>,
 ) -> Result<Option<RebuildResult>, lomo_core::LomoError> {
-    let Some(evidence) = projection_matches_pairs(connection, workspace_pairs, attachment_count)?
-    else {
+    let Some(evidence) = projection_matches_rows(connection, image)? else {
         return Ok(None);
     };
     if let Some(pins) = pins
@@ -2545,6 +3323,11 @@ pub fn try_reconcile_scanned(
     }
     if let Some(history) = history
         && !projection_matches_history(connection, history)?
+    {
+        return Ok(None);
+    }
+    if let Some(purged) = purged
+        && crate::query::purged_memo_ids(connection)? != *purged
     {
         return Ok(None);
     }
@@ -2562,9 +3345,8 @@ fn compare_workspace_to_store(
     workspace_root: &Path,
     conn: &Connection,
 ) -> Result<CompareEvidence, lomo_core::LomoError> {
-    let (mut workspace_pairs, workspace_attachments) =
-        collect_direct_workspace_pairs(workspace_root)?;
-    projection_matches_pairs(conn, &mut workspace_pairs, workspace_attachments)?.ok_or_else(|| {
+    let mut image = collect_direct_workspace_rows(workspace_root)?;
+    projection_matches_rows(conn, &mut image)?.ok_or_else(|| {
         corruption(
             "rebuild_compare_failed",
             "workspace and store content digests diverge",
@@ -2572,12 +3354,11 @@ fn compare_workspace_to_store(
     })
 }
 
-fn compare_scanned_pairs_to_store(
-    workspace_pairs: &mut [(String, String)],
-    attachment_count: u64,
+fn compare_scanned_rows_to_store(
+    image: &mut ScannedRowImage,
     connection: &Connection,
 ) -> Result<CompareEvidence, lomo_core::LomoError> {
-    projection_matches_pairs(connection, workspace_pairs, attachment_count)?.ok_or_else(|| {
+    projection_matches_rows(connection, image)?.ok_or_else(|| {
         corruption(
             "rebuild_compare_failed",
             "SAF page facts and rebuilt projection diverge",
@@ -2585,14 +3366,28 @@ fn compare_scanned_pairs_to_store(
     })
 }
 
-fn projection_matches_pairs(
+/// The certification vector is the committed row image itself:
+/// `memo(memo_id, file_fingerprint, is_trashed)` rows plus `memo_trash(memo_id,
+/// trashed_at_ms, record_digest)` attestations. A live row and a trash claim can never
+/// certify each other, and a rewritten record can never hide behind a stable claimed
+/// fingerprint because `record_digest` covers every recoverable record fact.
+fn projection_matches_rows(
     connection: &Connection,
-    workspace_pairs: &mut [(String, String)],
-    attachment_count: u64,
+    image: &mut ScannedRowImage,
 ) -> Result<Option<CompareEvidence>, lomo_core::LomoError> {
-    workspace_pairs.sort();
-    let workspace_digest = aggregate_memo_digest(workspace_pairs);
-    let file_count = u64::try_from(workspace_pairs.len())
+    image.memo_rows.sort();
+    let lane_aware_pairs: Vec<(String, String)> = image
+        .memo_rows
+        .iter()
+        .map(|(memo_id, fingerprint, trashed)| {
+            (
+                memo_id.clone(),
+                format!("{fingerprint}:{}", u8::from(*trashed)),
+            )
+        })
+        .collect();
+    let workspace_digest = aggregate_memo_digest(&lane_aware_pairs);
+    let file_count = u64::try_from(image.memo_rows.len())
         .map_err(|_error| validation("memo_count_overflow", "memo count exceeds u64"))?;
     let memo_count: i64 = connection
         .query_row("SELECT COUNT(*) FROM memo", [], |row| row.get(0))
@@ -2602,20 +3397,54 @@ fn projection_matches_pairs(
     if store_count != file_count {
         return Ok(None);
     }
-    let mut store_pairs = Vec::with_capacity(workspace_pairs.len());
+    let mut store_rows = Vec::with_capacity(image.memo_rows.len());
     let mut statement = connection
-        .prepare("SELECT memo_id,file_fingerprint FROM memo ORDER BY memo_id")
+        .prepare("SELECT memo_id,file_fingerprint,is_trashed FROM memo ORDER BY memo_id")
         .map_err(|error| from_sqlite(&error))?;
     let rows = statement
         .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)? != 0,
+            ))
         })
         .map_err(|error| from_sqlite(&error))?;
     for row in rows {
-        store_pairs.push(row.map_err(|error| from_sqlite(&error))?);
+        store_rows.push(row.map_err(|error| from_sqlite(&error))?);
     }
-    let store_digest = aggregate_memo_digest(&store_pairs);
-    if workspace_pairs != store_pairs.as_slice() {
+    let store_digest = aggregate_memo_digest(
+        &store_rows
+            .iter()
+            .map(|(memo_id, fingerprint, trashed)| {
+                (
+                    memo_id.clone(),
+                    format!("{fingerprint}:{}", u8::from(*trashed)),
+                )
+            })
+            .collect::<Vec<_>>(),
+    );
+    if image.memo_rows != store_rows.as_slice() {
+        return Ok(None);
+    }
+    image.trash_attestations.sort();
+    let mut committed_attestations = Vec::with_capacity(image.trash_attestations.len());
+    let mut statement = connection
+        .prepare("SELECT memo_id,trashed_at_ms,record_digest FROM memo_trash ORDER BY memo_id")
+        .map_err(|error| from_sqlite(&error))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|error| from_sqlite(&error))?;
+    for row in rows {
+        committed_attestations.push(row.map_err(|error| from_sqlite(&error))?);
+    }
+    if committed_attestations != image.trash_attestations {
         return Ok(None);
     }
     let store_attachments: i64 = connection
@@ -2623,7 +3452,7 @@ fn projection_matches_pairs(
         .map_err(|error| from_sqlite(&error))?;
     let store_attachment_count = u64::try_from(store_attachments)
         .map_err(|_error| corruption("rebuild_compare_failed", "negative attachment count"))?;
-    if store_attachment_count != attachment_count {
+    if store_attachment_count != image.attachment_count {
         return Ok(None);
     }
     Ok(Some(CompareEvidence {
@@ -2713,7 +3542,11 @@ fn projection_matches_history(
     Ok(expected == live)
 }
 
-fn copy_saf_private_state(live_db: &Path, target: &Connection) -> Result<(), lomo_core::LomoError> {
+fn copy_saf_private_state(
+    live_db: &Path,
+    target: &Connection,
+    pin_attested_ids: &BTreeSet<String>,
+) -> Result<(), lomo_core::LomoError> {
     if !live_db.exists() {
         return Ok(());
     }
@@ -2733,10 +3566,29 @@ fn copy_saf_private_state(live_db: &Path, target: &Connection) -> Result<(), lom
             .map_err(|error| from_sqlite(&error))?;
         for row in rows {
             let (memo_id, timestamp) = row.map_err(|error| from_sqlite(&error))?;
+            // Durable state owns the pin verdict for every identity it names: a
+            // cached pin for an attested identity is stale evidence — an unpinned
+            // tip must not be resurrected by it, and a pinned tip already landed
+            // as a scanned fact.
+            if pin_attested_ids.contains(&memo_id) {
+                continue;
+            }
+            // A pin only projects where its memo row exists in the rebuild — the new
+            // projection may legitimately drop an identity the previous projection
+            // still carried, and an orphaned `memo_pin` insert would violate the
+            // foreign key. `OR IGNORE` keeps the scanned durable pin facts (already
+            // appended) authoritative over anything the old projection still held.
             target
                 .execute(
-                    "INSERT OR REPLACE INTO memo_pin(memo_id,pinned_at_ms) VALUES(?1,?2)",
+                    "INSERT OR IGNORE INTO memo_pin(memo_id,pinned_at_ms) \
+                     SELECT ?1,?2 WHERE EXISTS(SELECT 1 FROM memo WHERE memo_id=?1)",
                     params![memo_id, timestamp],
+                )
+                .map_err(|error| from_sqlite(&error))?;
+            target
+                .execute(
+                    "UPDATE memo SET is_pinned=1 WHERE memo_id=?1",
+                    params![memo_id],
                 )
                 .map_err(|error| from_sqlite(&error))?;
         }
@@ -3105,6 +3957,7 @@ fn list_memo_files(workspace_root: &Path) -> Result<Vec<PathBuf>, lomo_core::Lom
     // authority and the file is merely an optional local optimization.
     let mut legacy_trash = Vec::new();
     collect_md_files(&workspace_root.join("trash"), &mut legacy_trash)?;
+    let purged = list_purged_memo_ids(workspace_root)?;
     for path in legacy_trash {
         let memo_id = path
             .file_stem()
@@ -3115,6 +3968,11 @@ fn list_memo_files(workspace_root: &Path) -> Result<Vec<PathBuf>, lomo_core::Lom
                     "trash memo file stem must be utf-8",
                 )
             })?;
+        // A permanent-delete tombstone retires the memo identity entirely: a stale body file
+        // can never resurrect it.
+        if purged.contains(memo_id) {
+            continue;
+        }
         let has_record = {
             let relative = trash_record_relative_path(memo_id)?;
             workspace_root.join(relative.as_str()).is_file()
@@ -3168,6 +4026,10 @@ fn list_trash_records(workspace_root: &Path) -> Result<Vec<TrashRecordV1>, lomo_
         }
         records.push(record);
     }
+    // Permanent-delete tombstones are the suppression authority: a purged memo id must never
+    // re-project from a stray, rewritten, or peer-redelivered trash record.
+    let purged = list_purged_memo_ids(workspace_root)?;
+    records.retain(|record| !purged.contains(&record.memo_id));
     records.sort_by(|left, right| left.memo_id.cmp(&right.memo_id));
     Ok(records)
 }
@@ -3176,22 +4038,17 @@ fn index_trash_record(
     conn: &Connection,
     record: &TrashRecordV1,
 ) -> Result<(), lomo_core::LomoError> {
-    let memo = ScannedMemoProjection {
-        memo_id: record.memo_id.clone(),
-        source_path: record.source_path.clone(),
-        file_fingerprint: record.source_fingerprint.clone(),
-        chronology_epoch_ms: record.chronology_epoch_ms,
-        body: record.body.clone(),
-        tags: record.tags.clone(),
-        attachment_paths: record.attachments.clone(),
-        has_todo: record.has_todo,
-        has_url: record.has_url,
-        reminders: record.reminders.clone(),
-    };
-    index_scanned_memo_with_lifecycle(conn, &memo, true)?;
+    // `from_record` is the single record→projection construction: attachment evidence
+    // comes from the recoverable body, never from the declared `attachments` payload.
+    let projection = ScannedTrashProjection::from_record(record)?;
+    index_scanned_memo_with_lifecycle(conn, &projection.memo, true)?;
     conn.execute(
-        "INSERT OR REPLACE INTO memo_trash(memo_id,trashed_at_ms) VALUES(?1,?2)",
-        params![record.memo_id, record.trashed_at_ms],
+        "INSERT OR REPLACE INTO memo_trash(memo_id,trashed_at_ms,record_digest) VALUES(?1,?2,?3)",
+        params![
+            record.memo_id,
+            record.trashed_at_ms,
+            projection.attestation_digest()?,
+        ],
     )
     .map_err(|error| from_sqlite(&error))?;
     conn.execute(
@@ -3207,9 +4064,10 @@ fn apply_trash_record_state(
     records: &[TrashRecordV1],
 ) -> Result<(), lomo_core::LomoError> {
     for record in records {
+        let digest = ScannedTrashProjection::from_record(record)?.attestation_digest()?;
         conn.execute(
-            "INSERT OR REPLACE INTO memo_trash(memo_id,trashed_at_ms) VALUES(?1,?2)",
-            params![record.memo_id, record.trashed_at_ms],
+            "INSERT OR REPLACE INTO memo_trash(memo_id,trashed_at_ms,record_digest) VALUES(?1,?2,?3)",
+            params![record.memo_id, record.trashed_at_ms, digest],
         )
         .map_err(|error| from_sqlite(&error))?;
         conn.execute(
@@ -3394,9 +4252,13 @@ fn index_scanned_memo_with_lifecycle(
                 "attachment relative path is empty or too long",
             ));
         }
+    }
+    // Destinations that cannot name a workspace file (external objects, root escapes) carry no
+    // attachment key and get no `attachment_ref` row.
+    for key in canonical_attachment_keys(&memo.attachment_paths) {
         conn.execute(
             "INSERT OR IGNORE INTO attachment_ref(memo_id, relative_path) VALUES(?1, ?2)",
-            params![memo.memo_id, rel],
+            params![memo.memo_id, &key],
         )
         .map_err(|err| from_sqlite(&err))?;
     }

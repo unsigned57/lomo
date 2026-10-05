@@ -1,13 +1,13 @@
 //! Content-derived projection facts (tags / attachments) from the workspace render owner.
 //!
-//! Store projections must not invent a second Markdown tag/attachment scanner. When content is
-//! valid UTF-8, facts come from `lomo_workspace::render_markdown_core`. Heuristic flags only apply
-//! when the render pipeline cannot accept the source (invalid UTF-8 / resource limits).
+//! Store projections must not invent a second Markdown tag/attachment scanner. Facts come from
+//! `lomo_workspace::render_markdown_core`; a body the render owner cannot project has unknown
+//! attachment references and must fail closed rather than masquerade as an empty keep-set.
 
 use sha2::{Digest, Sha256};
 
 use lomo_core::LomoError;
-use lomo_workspace::{MemoIdentity, SourceBytes, render_markdown};
+use lomo_workspace::{MemoIdentity, SourceBytes, is_audio_attachment_destination, render_markdown};
 
 use crate::error::validation;
 
@@ -17,7 +17,9 @@ pub struct ContentFacts {
     pub has_todo: bool,
     pub has_url: bool,
     pub tags: Vec<String>,
-    /// All attachment destinations (images + audio).
+    /// All attachment destinations (images + audio). Local workspace files are carried in
+    /// canonical form; destinations that do not name a workspace file (external URLs, anchors)
+    /// stay raw and are distinguishable via `is_external_attachment_destination`.
     pub attachment_paths: Vec<String>,
     /// Non-audio attachment destinations for list/gallery image URLs.
     pub image_urls: Vec<String>,
@@ -27,22 +29,23 @@ pub struct ContentFacts {
 ///
 /// # Errors
 ///
-/// Never fails for ordinary bodies: invalid UTF-8 / render budget falls back to heuristics with
-/// empty tag/attachment lists (memo still indexes). Explicit validation only for oversized tags.
+/// Fails closed when the workspace render owner cannot project the source: a memo whose
+/// attachment references are unknown must surface an error rather than drop sweep protection
+/// by pretending the reference list is empty.
 pub fn project_content_facts(content: &str) -> Result<ContentFacts, LomoError> {
     if content.is_empty() {
         return Ok(ContentFacts::default());
     }
-    let Ok(source) = SourceBytes::try_from_str(content) else {
-        return Ok(heuristic_flags_only(content));
-    };
-    let Ok(doc) = render_markdown(&source) else {
-        return Ok(heuristic_flags_only(content));
-    };
-    let attachment_paths = doc.attachment_destinations().to_vec();
+    let source = SourceBytes::try_from_str(content)?;
+    let doc = render_markdown(&source)?;
+    let attachment_paths: Vec<String> = doc
+        .attachment_destinations()
+        .iter()
+        .map(lomo_workspace::ImageDest::projected)
+        .collect();
     let image_urls = attachment_paths
         .iter()
-        .filter(|path| !is_audio_target(path))
+        .filter(|path| !is_audio_attachment_destination(path))
         .cloned()
         .collect();
     let mut tags = doc.tag_names().to_vec();
@@ -235,29 +238,10 @@ pub fn aggregate_memo_digest(pairs: &[(String, String)]) -> String {
     hex_encode(&hasher.finalize())
 }
 
-fn heuristic_flags_only(content: &str) -> ContentFacts {
-    ContentFacts {
-        has_todo: content.contains("- [ ]") || content.contains("- [x]"),
-        has_url: content.contains("http://") || content.contains("https://"),
-        tags: Vec::new(),
-        attachment_paths: Vec::new(),
-        image_urls: Vec::new(),
-    }
-}
-
-fn is_audio_target(target: &str) -> bool {
-    std::path::Path::new(target)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| {
-            matches!(
-                ext.to_ascii_lowercase().as_str(),
-                "m4a" | "mp3" | "ogg" | "wav" | "aac"
-            )
-        })
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
+/// Canonical attachment keys are owned by `lomo_workspace` (`canonical_attachment_path`,
+/// `canonical_attachment_keys`); this module consumes that authority rather than re-implementing
+/// the spelling law.
+pub fn hex_encode(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {

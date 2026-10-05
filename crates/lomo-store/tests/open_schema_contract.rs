@@ -17,8 +17,10 @@
 //! Observable outcomes: `OpenInfo` fields and structured open errors.
 //! TDD proof: RED on 2026-08-17 because schema v3 had no durable complete SAF body column.
 //! Excludes: tokenizer, query, transactions, rebuild (later packages).
-//! Test Change Justification: the live schema advances to v10 so equal-generation history
-//! branches retain distinct record IDs; old projection rows must survive the atomic upgrade.
+//! Test Change Justification: the live schema advances to v11 so reconcile-scoping derived
+//! tables (`file_listing`, `history_attachment_ref`, `purged_memo`) are created atomically on
+//! upgrade; fixtures that fake an older schema must drop those objects first, and old
+//! projection rows must survive the atomic upgrade.
 
 #[cfg(test)]
 #[expect(
@@ -41,7 +43,6 @@ mod tests {
         assert!(info.foreign_keys, "foreign_keys must be ON");
         assert_eq!(info.journal_mode, "wal");
         assert_eq!(info.user_version, STORE_SCHEMA_VERSION);
-        assert_eq!(info.user_version, 10);
         assert!(info.busy_timeout_ms >= 1000);
         assert!(info.integrity_ok);
         assert!(info.database_path.ends_with("store.db"));
@@ -52,8 +53,10 @@ mod tests {
             "sqlite must not live under .lomo/"
         );
         drop(store);
+        // Regression: an existing database already at the live schema version must be
+        // admitted untouched — the migration suffix for v11 would otherwise be empty.
         let reopened = Store::open(dir.path()).expect("reopen");
-        assert_eq!(reopened.open_info().user_version, 10);
+        assert_eq!(reopened.open_info().user_version, STORE_SCHEMA_VERSION);
     }
 
     #[test]
@@ -98,6 +101,14 @@ mod tests {
             .expect("seed v1 row");
             conn.execute("DROP TABLE saf_mutation_operation", [])
                 .expect("remove v2 table");
+            conn.execute("DROP TABLE file_listing", [])
+                .expect("remove v11 listing snapshot");
+            conn.execute("DROP TABLE history_attachment_ref", [])
+                .expect("remove v11 history attachment index");
+            conn.execute("DROP TABLE purged_memo", [])
+                .expect("remove v11 purge tombstone index");
+            conn.execute("DROP INDEX idx_revision_record", [])
+                .expect("remove v11 record lookup index");
             conn.execute("DROP INDEX idx_memo_active_pinned_created", [])
                 .expect("remove v8 pinned-created index");
             conn.execute("DROP INDEX idx_memo_active_pinned_updated", [])
@@ -122,6 +133,8 @@ mod tests {
                 .expect("remove v8 pin projection column");
             conn.execute("ALTER TABLE memo DROP COLUMN is_trashed", [])
                 .expect("remove v8 trash projection column");
+            conn.execute("ALTER TABLE memo_trash DROP COLUMN record_digest", [])
+                .expect("remove v12 trash attestation column");
             conn.execute("ALTER TABLE revision_index DROP COLUMN content", [])
                 .expect("remove v5 content column");
             conn.execute(
@@ -204,12 +217,16 @@ mod tests {
                  history_record_id TEXT NOT NULL, created_at_ms INTEGER NOT NULL,
                  content TEXT, file_fingerprint TEXT, PRIMARY KEY(memo_id,revision));
              INSERT INTO revision_index VALUES('memo',2,'legacy-r2',1000,'original','digest');
+             DROP TABLE file_listing;
+             DROP TABLE history_attachment_ref;
+             DROP TABLE purged_memo;
+             ALTER TABLE memo_trash DROP COLUMN record_digest;
              PRAGMA user_version=9;",
             )
             .expect("v9 history shape");
         drop(connection);
         let upgraded = open_store(dir.path()).expect("upgrade v9");
-        assert_eq!(upgraded.user_version, 10);
+        assert_eq!(upgraded.user_version, STORE_SCHEMA_VERSION);
         let inspect = Connection::open(&database).expect("inspect upgraded projection");
         inspect
             .execute(

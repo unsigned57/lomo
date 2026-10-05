@@ -1,13 +1,15 @@
 //! `query_memos` + filters + bm25/tie-breaker + stats.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
 
 use lomo_core::PageSize;
-use lomo_workspace::{decode_trash_record, trash_record_relative_path};
+use lomo_workspace::{
+    decode_trash_record, is_audio_attachment_destination, trash_record_relative_path,
+};
 
 use crate::content_facts::fingerprint_content;
 use crate::cursor::{PageCursor, fingerprint_query};
@@ -178,6 +180,17 @@ pub struct MemoPage {
     pub items_after: u64,
     pub high_water_revision: u64,
     pub query_fingerprint: String,
+}
+
+/// Bounded-window side evidence for a refresh merge.
+///
+/// The known ids that still match the query but rank strictly outside the
+/// reply window — `above` sorts before its head bound, `below` after its
+/// tail bound, and both are in live query order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MemoWindowSides {
+    pub above: Vec<String>,
+    pub below: Vec<String>,
 }
 
 /// Where a bounded memo page begins in the current query order.
@@ -1160,17 +1173,55 @@ pub fn source_document_fingerprint(
     connection: &Connection,
     source_path: &str,
 ) -> Result<Option<String>, lomo_core::LomoError> {
+    distinct_source_fingerprints(connection, source_path, None)
+}
+
+/// Reads the canonical fingerprint every OTHER memo row of one source document attests.
+///
+/// The row identified by `memo_id` never attests for itself: a trashed memo whose durable
+/// record is being re-merged must not keep its own drifted fingerprint as "the document
+/// fingerprint" once no sibling row can back it.
+///
+/// # Errors
+///
+/// Same contract as [`source_document_fingerprint`].
+pub fn sibling_document_fingerprint(
+    connection: &Connection,
+    source_path: &str,
+    memo_id: &str,
+) -> Result<Option<String>, lomo_core::LomoError> {
+    distinct_source_fingerprints(connection, source_path, Some(memo_id))
+}
+
+fn distinct_source_fingerprints(
+    connection: &Connection,
+    source_path: &str,
+    exclude_memo_id: Option<&str>,
+) -> Result<Option<String>, lomo_core::LomoError> {
     let _path = lomo_workspace::WorkspaceRelativePath::parse(source_path)?;
     let mut statement = connection
-        .prepare(
-            "SELECT DISTINCT file_fingerprint FROM memo WHERE source_path = ?1 AND pending_operation_id IS NULL ORDER BY file_fingerprint LIMIT 2",
-        )
+        .prepare(if exclude_memo_id.is_some() {
+            "SELECT DISTINCT file_fingerprint FROM memo WHERE source_path = ?1 \
+             AND memo_id <> ?2 AND pending_operation_id IS NULL \
+             ORDER BY file_fingerprint LIMIT 2"
+        } else {
+            "SELECT DISTINCT file_fingerprint FROM memo WHERE source_path = ?1 \
+             AND pending_operation_id IS NULL ORDER BY file_fingerprint LIMIT 2"
+        })
         .map_err(|error| from_sqlite(&error))?;
-    let fingerprints = statement
-        .query_map(params![source_path], |row| row.get::<_, String>(0))
-        .map_err(|error| from_sqlite(&error))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| from_sqlite(&error))?;
+    let fingerprints: Vec<String> = if let Some(memo_id) = exclude_memo_id {
+        statement
+            .query_map(params![source_path, memo_id], |row| row.get::<_, String>(0))
+            .map_err(|error| from_sqlite(&error))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| from_sqlite(&error))?
+    } else {
+        statement
+            .query_map(params![source_path], |row| row.get::<_, String>(0))
+            .map_err(|error| from_sqlite(&error))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| from_sqlite(&error))?
+    };
     match fingerprints.as_slice() {
         [] => Ok(None),
         [fingerprint] => Ok(Some(fingerprint.clone())),
@@ -1194,6 +1245,35 @@ pub fn active_memo_ids_for_source_path(
     let mut statement = connection
         .prepare(
             "SELECT memo_id FROM memo WHERE source_path = ?1 AND is_trashed = 0 \
+             AND pending_operation_id IS NULL ORDER BY memo_id",
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    let ids = statement
+        .query_map(params![source_path], |row| row.get::<_, String>(0))
+        .map_err(|error| from_sqlite(&error))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| from_sqlite(&error))?;
+    Ok(ids)
+}
+
+/// Every memo id projected from one source document path in any lifecycle state — active or
+/// trashed — excluding in-flight pending rows.
+///
+/// A deleted source document retires all of them: trashed rows are re-derived from their
+/// durable trash records, which carry the only fingerprint authority left once the document
+/// is gone.
+///
+/// # Errors
+///
+/// Path validation or `SQLite` projection failures.
+pub fn memo_ids_for_source_path(
+    connection: &Connection,
+    source_path: &str,
+) -> Result<Vec<String>, lomo_core::LomoError> {
+    let _path = lomo_workspace::WorkspaceRelativePath::parse(source_path)?;
+    let mut statement = connection
+        .prepare(
+            "SELECT memo_id FROM memo WHERE source_path = ?1 \
              AND pending_operation_id IS NULL ORDER BY memo_id",
         )
         .map_err(|error| from_sqlite(&error))?;
@@ -1266,7 +1346,7 @@ fn attach_tags_and_images(
         .map_err(|err| from_sqlite(&err))?;
     for row in rows {
         let (memo_id, path) = row.map_err(|err| from_sqlite(&err))?;
-        if !is_audio_target(&path) {
+        if !is_audio_attachment_destination(&path) {
             let paths = images_by_memo.get_mut(&memo_id).ok_or_else(|| {
                 validation(
                     "memo_attachment_owner_missing",
@@ -1291,18 +1371,6 @@ fn attach_tags_and_images(
         })?;
     }
     Ok(())
-}
-
-fn is_audio_target(target: &str) -> bool {
-    Path::new(target)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| {
-            matches!(
-                ext.to_ascii_lowercase().as_str(),
-                "m4a" | "mp3" | "ogg" | "wav" | "aac"
-            )
-        })
 }
 
 /// Reads aggregate stats projection.
@@ -1405,6 +1473,107 @@ pub fn query_count(
 ) -> Result<u64, lomo_core::LomoError> {
     let plan = query_plan_for(query)?;
     count_rows(connection, query, &plan, None, None)
+}
+
+/// Placement evidence for a bounded-window refresh merge.
+///
+/// Which of `memo_ids` still satisfy `query`, split by where they sort
+/// relative to the reply window — [`MemoWindowSides::above`] ranks strictly
+/// before `head`, [`MemoWindowSides::below`] ranks strictly after `tail`,
+/// and both lists are in live query order.
+///
+/// The bounds are the reply's own minted cursors reused as pure ordering
+/// bounds: no revision or fingerprint validation applies, because a bound is
+/// position evidence from an adjacent snapshot, not a pagination
+/// continuation. A `None` bound means the reply window already touches that
+/// edge (rank 0 / the last row), so its side is empty by definition.
+///
+/// # Errors
+///
+/// Storage errors or invalid tag filters (same predicate set as `query_memos`).
+pub fn memos_matching_window(
+    connection: &Connection,
+    query: &MemoQuery,
+    memo_ids: &[String],
+    head: Option<&PageCursor>,
+    tail: Option<&PageCursor>,
+) -> Result<MemoWindowSides, lomo_core::LomoError> {
+    if memo_ids.is_empty() || (head.is_none() && tail.is_none()) {
+        return Ok(MemoWindowSides::default());
+    }
+    let plan = query_plan_for(query)?;
+    // The id list travels as one JSON parameter — a single statement keeps the
+    // ORDER BY global across the whole set instead of one ordering per chunk.
+    let ids_json = serde_json::to_string(memo_ids).map_err(|error| {
+        validation(
+            "invalid_memo_id_set",
+            &format!("cannot encode the memo id set: {error}"),
+        )
+    })?;
+    Ok(MemoWindowSides {
+        above: matching_window_side(
+            connection,
+            query,
+            &plan,
+            &ids_json,
+            head.map(|cursor| (cursor, CursorBound::ExclusiveBefore)),
+        )?,
+        below: matching_window_side(
+            connection,
+            query,
+            &plan,
+            &ids_json,
+            tail.map(|cursor| (cursor, CursorBound::ExclusiveAfter)),
+        )?,
+    })
+}
+
+fn matching_window_side(
+    connection: &Connection,
+    query: &MemoQuery,
+    plan: &QueryPlan,
+    ids_json: &str,
+    bound: Option<(&PageCursor, CursorBound)>,
+) -> Result<Vec<String>, lomo_core::LomoError> {
+    let Some((cursor, cursor_bound)) = bound else {
+        return Ok(Vec::new());
+    };
+    let PredicateSql {
+        where_sql,
+        match_expr,
+        first_cursor_index,
+    } = predicate_sql(query, plan, None, Some(cursor_bound))?;
+    let use_fts = plan.match_expr.is_some();
+    let cursor_rank = cursor.validated_sort_rank(use_fts)?;
+    let ids_idx = first_cursor_index + usize::from(use_fts) + 4;
+    let sql = format!(
+        "SELECT m.memo_id FROM {} WHERE {where_sql} \
+         AND m.memo_id IN (SELECT value FROM json_each(?{ids_idx})) \
+         ORDER BY {}",
+        from_sql(use_fts),
+        order_sql(query.sort, use_fts, false),
+    );
+    let mut bindings = bind_query(
+        query,
+        match_expr,
+        None,
+        Some(cursor),
+        use_fts,
+        cursor_rank,
+        None,
+    )?;
+    bindings.push(Value::Text(ids_json.to_owned()));
+    let mut statement = connection.prepare(&sql).map_err(|err| from_sqlite(&err))?;
+    let rows = statement
+        .query_map(params_from_iter(bindings.iter()), |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(|err| from_sqlite(&err))?;
+    let mut ids = Vec::new();
+    for row in rows {
+        ids.push(row.map_err(|err| from_sqlite(&err))?);
+    }
+    Ok(ids)
 }
 
 /// One compact materialized statistics row (no body bytes cross the boundary).
@@ -1531,4 +1700,138 @@ pub fn list_projected_attachment_refs(
         });
     }
     Ok(out)
+}
+
+/// Verified listing snapshot committed with the last projection update, keyed by path.
+///
+/// The reconcile engine diffs a fresh listing against this map to scope work to changed paths.
+/// An empty map is itself evidence: the last committed projection predates snapshot persistence
+/// (or saw an empty workspace), so the caller must decide admission, not this query.
+///
+/// # Errors
+///
+/// Storage errors when the projection cannot be read.
+pub fn workspace_listing_snapshot(
+    connection: &Connection,
+) -> Result<BTreeMap<String, String>, lomo_core::LomoError> {
+    let mut statement = connection
+        .prepare("SELECT path, digest FROM file_listing")
+        .map_err(|err| from_sqlite(&err))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|err| from_sqlite(&err))?;
+    let mut out = BTreeMap::new();
+    for row in rows {
+        let (path, digest) = row.map_err(|err| from_sqlite(&err))?;
+        out.insert(path, digest);
+    }
+    Ok(out)
+}
+
+/// Resolves the memo owning a durable history record by its content-addressed record id.
+///
+/// # Errors
+///
+/// Storage errors when the projection cannot be read.
+pub fn history_record_owner(
+    connection: &Connection,
+    record_id: &str,
+) -> Result<Option<String>, lomo_core::LomoError> {
+    connection
+        .query_row(
+            "SELECT memo_id FROM revision_index WHERE history_record_id=?1 \
+             ORDER BY memo_id LIMIT 1",
+            [record_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|err| from_sqlite(&err))
+}
+
+/// Memo identities currently carrying a durable trash record.
+///
+/// # Errors
+///
+/// Storage errors when the projection cannot be read.
+pub fn trashed_memo_ids(connection: &Connection) -> Result<BTreeSet<String>, lomo_core::LomoError> {
+    let mut statement = connection
+        .prepare("SELECT memo_id FROM memo_trash ORDER BY memo_id")
+        .map_err(|err| from_sqlite(&err))?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|err| from_sqlite(&err))?;
+    let mut out = BTreeSet::new();
+    for row in rows {
+        out.insert(row.map_err(|err| from_sqlite(&err))?);
+    }
+    Ok(out)
+}
+
+/// Committed `memo_pin` rows keyed by memo identity.
+///
+/// Pin rows are app-private projection state: the incremental reconcile carries one forward
+/// for exactly the identities durable state never answers for — the same rows
+/// `copy_saf_private_state` copies into a materialized projection when the identity sits
+/// outside `attested_ids`.
+///
+/// # Errors
+///
+/// Storage errors when the projection cannot be read.
+pub fn pinned_memo_timestamps(
+    connection: &Connection,
+) -> Result<BTreeMap<String, i64>, lomo_core::LomoError> {
+    let mut statement = connection
+        .prepare("SELECT memo_id,pinned_at_ms FROM memo_pin ORDER BY memo_id")
+        .map_err(|err| from_sqlite(&err))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .map_err(|err| from_sqlite(&err))?;
+    let mut out = BTreeMap::new();
+    for row in rows {
+        let (memo_id, pinned_at_ms) = row.map_err(|err| from_sqlite(&err))?;
+        out.insert(memo_id, pinned_at_ms);
+    }
+    Ok(out)
+}
+
+/// Memo identities currently carrying a durable purge tombstone.
+///
+/// # Errors
+///
+/// Storage errors when the projection cannot be read.
+pub fn purged_memo_ids(connection: &Connection) -> Result<BTreeSet<String>, lomo_core::LomoError> {
+    let mut statement = connection
+        .prepare("SELECT memo_id FROM purged_memo ORDER BY memo_id")
+        .map_err(|err| from_sqlite(&err))?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|err| from_sqlite(&err))?;
+    let mut out = BTreeSet::new();
+    for row in rows {
+        out.insert(row.map_err(|err| from_sqlite(&err))?);
+    }
+    Ok(out)
+}
+
+/// Source document paths for the given memo identities, including trashed rows.
+///
+/// # Errors
+///
+/// Storage errors when the projection cannot be read.
+pub fn memo_source_path(
+    connection: &Connection,
+    memo_id: &str,
+) -> Result<Option<String>, lomo_core::LomoError> {
+    connection
+        .query_row(
+            "SELECT source_path FROM memo WHERE memo_id=?1",
+            [memo_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|err| from_sqlite(&err))
 }
