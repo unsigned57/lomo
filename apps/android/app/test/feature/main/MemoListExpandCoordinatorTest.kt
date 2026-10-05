@@ -47,14 +47,29 @@ import kotlinx.collections.immutable.persistentListOf
  *
  * Excludes:
  * - Compose effects, koin wiring, and pixel rendering of the loading/failure affordances.
+ *
+ * Test Change Justification:
+ * - Reason category: expansion request key bound to content identity.
+ * - Old behavior/assertion being replaced: fixtures keyed requests on Memo.updatedAt only.
+ * - Why old assertion is no longer correct: two distinct contents sharing updatedAt
+ *   (preserved-mtime sync writes, same-ms edits) resolved to one snapshot; the key now binds
+ *   Memo.contentRevision, so fixtures carry a real store revision like a production full read.
+ * - Coverage preserved by: every expansion/eviction scenario unchanged; only fixture identity
+ *   fields moved.
+ * - Why this is not fitting the test to the implementation: assertions still check published
+ *   states and eviction outcomes, not the key's internal encoding.
  */
 class MemoListExpandCoordinatorTest : FunSpec({
 
+    // Test Change Justification: the request revision is now bound to Memo.contentRevision
+    // (content identity) instead of updatedAt, so fixtures carry a real store revision like a
+    // production full read does.
     fun memo(id: String, revision: Long, body: String = "body-$id"): Memo =
         Memo(
             id = id,
             timestamp = 1L,
             updatedAt = revision,
+            contentRevision = revision,
             content = body,
             rawContent = body,
             dateKey = "2026_06_27",

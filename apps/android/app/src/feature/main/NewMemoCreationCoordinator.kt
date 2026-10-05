@@ -4,9 +4,11 @@ import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.ui.component.common.EnterRequestId
 import com.lomo.ui.component.common.HeadEnterBaseline
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import timber.log.Timber
 
 /** Inputs for one new-memo reveal cycle: the scroll/enter handles plus the head-rank oracle. */
 internal data class NewMemoCreationCoordinatorDependencies<T>(
@@ -73,15 +75,25 @@ internal class NewMemoCreationCoordinator<T>(
                 if (memoId == null) {
                     return@launch
                 }
-                if (!isListAtAbsoluteTop()) {
-                    scrollListToAbsoluteTop()
-                }
-                if (baseline != null && newHeadRank(memoId) == 0) {
-                    val newTopId = awaitNewTopItem(baseline)
-                    if (newTopId != null) {
-                        revealNewTopItem(newTopId)
-                        preparedEnterResolved = true
+                try {
+                    if (!isListAtAbsoluteTop()) {
+                        scrollListToAbsoluteTop()
                     }
+                    if (baseline != null && newHeadRank(memoId) == 0) {
+                        val newTopId = awaitNewTopItem(baseline)
+                        if (newTopId != null) {
+                            revealNewTopItem(newTopId)
+                            preparedEnterResolved = true
+                        }
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    // The durable commit already landed; scroll/rank/await/reveal are
+                    // presentation-only. A throwing oracle (engine mid-switch, failing scroll
+                    // or reveal) degrades to "no reveal" — it must never escape the launch as an
+                    // unhandled coroutine failure.
+                    Timber.w(error, "New-memo reveal degraded: presentation step failed after commit")
                 }
             } finally {
                 if (!preparedEnterResolved) {

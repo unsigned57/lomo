@@ -26,8 +26,9 @@ import org.koin.compose.koinInject
 
 /**
  * One expand request: the memo identity, the content revision the user expanded from, and the
- * workspace epoch that owns the fact. A preview row only observes bounded content, so `updatedAt`
- * is the row-visible revision; a request keyed to a superseded revision can never publish.
+ * workspace epoch that owns the fact. `revision` is the store-owned [Memo.contentRevision] — the
+ * only row-visible fact that actually changes on every content write (`updatedAt` can survive a
+ * preserved-mtime sync write); a request keyed to a superseded revision can never publish.
  */
 internal data class MemoExpandRequest(
     val memoId: String,
@@ -54,11 +55,14 @@ internal sealed interface MemoExpandEntry {
  * `sync` reconciles the desired expanded set every time the expand intent, the observed preview
  * revisions, or the workspace epoch move:
  * - a request whose revision or epoch changed cancels the in-flight load and reloads;
- * - a row that leaves the expanded set cancels its load but keeps a cached snapshot for
- *   same-version re-expansion;
+ * - a published snapshot whose own content revision cannot satisfy a resolved request is
+ *   reloaded rather than served stale;
+ * - a row that leaves the expanded set cancels its load and releases terminal failures; cached
+ *   Expanded snapshots survive collapse for same-version re-expansion;
  * - a result only publishes while its request key is still the desired one — a late result for a
  *   superseded revision or an old workspace is discarded;
- * - Expanded snapshots are byte-bounded; eviction prefers snapshots no longer requested.
+ * - Expanded snapshots are byte-bounded, but the budget only reclaims rows that left the desired
+ *   set — a still-requested row keeps its snapshot rather than dropping into a spinner-only void.
  */
 internal class MemoListExpandCoordinator(
     private val scope: CoroutineScope,
@@ -111,11 +115,39 @@ internal class MemoListExpandCoordinator(
                 val existing = tracked.getValue(memoId)
                 val want = desired[memoId]
                 when {
-                    want == existing.request -> existing.touchedAt = ++touchCounter
-                    want == null -> {
-                        if (existing.entry is MemoExpandEntry.Loading) {
+                    want == existing.request -> {
+                        val snapshot = existing.entry as? MemoExpandEntry.Expanded
+                        if (snapshot != null && snapshot.model.memo.contentRevision != want.revision) {
+                            // The published snapshot cannot prove it carries the requested content
+                            // revision — an unversioned or mismatched body must never masquerade as
+                            // the current one, so it is reloaded rather than kept. An unresolved
+                            // request revision is no exemption: no real or absent snapshot revision
+                            // can equal UNRESOLVED_REVISION, so an unprovable snapshot always
+                            // reloads instead of silently skipping validation.
                             existing.job?.cancel()
-                            tracked.remove(memoId)
+                            tracked[memoId] =
+                                Tracked(
+                                    request = want,
+                                    entry = MemoExpandEntry.Loading,
+                                    job = startLoad(want),
+                                    touchedAt = ++touchCounter,
+                                )
+                        } else {
+                            existing.touchedAt = ++touchCounter
+                        }
+                    }
+                    want == null -> {
+                        when (existing.entry) {
+                            is MemoExpandEntry.Loading -> {
+                                existing.job?.cancel()
+                                tracked.remove(memoId)
+                            }
+                            // Collapse releases a terminal failure exactly like it cancels a load:
+                            // a failure for a row the user no longer expanded must not keep
+                            // publishing into the states map. Expanded snapshots stay cached for
+                            // same-revision re-expansion.
+                            is MemoExpandEntry.Failed -> tracked.remove(memoId)
+                            is MemoExpandEntry.Expanded -> Unit
                         }
                     }
                     else -> {
@@ -194,12 +226,16 @@ internal class MemoListExpandCoordinator(
     private fun evictOverflow() {
         var expandedBytes = tracked.values.sumOf { bodyBytes(it.entry) }
         if (expandedBytes <= maxExpandedBodyBytes) return
+        // Only snapshots for rows no longer requested are reclaimable. A still-desired Expanded
+        // row must keep its snapshot — evicting it would drop the states key while the UI still
+        // renders a spinner with no load in flight and no retry affordance. When the desired set
+        // alone exceeds the budget the rows keep their snapshots; the bound applies again as soon
+        // as rows leave the set.
         val evictionOrder =
             tracked.entries
-                .filter { it.value.entry is MemoExpandEntry.Expanded }
+                .filter { it.value.entry is MemoExpandEntry.Expanded && it.key !in desiredIds }
                 .sortedBy { it.value.touchedAt }
-                .partition { it.key !in desiredIds }
-        for ((memoId, trackedEntry) in evictionOrder.first + evictionOrder.second) {
+        for ((memoId, trackedEntry) in evictionOrder) {
             if (expandedBytes <= maxExpandedBodyBytes) break
             expandedBytes -= bodyBytes(trackedEntry.entry)
             tracked.remove(memoId)
@@ -263,7 +299,9 @@ internal fun rememberMemoListExpandStates(
             )
         }
     val mount by readinessRepository.mount.collectAsStateWithLifecycle()
-    val previewRevisions = previewMemos.associate { it.memo.id to it.memo.updatedAt }
+    // contentRevision is the row-visible content identity: it changes on every write, while
+    // updatedAt can survive a preserved-mtime sync apply or a same-millisecond edit.
+    val previewRevisions = previewMemos.associate { it.memo.id to it.memo.contentRevision }
     val workspaceEpoch = mount.location?.raw.orEmpty()
     LaunchedEffect(workspaceEpoch, expandedMemoIds, previewRevisions) {
         coordinator.sync(

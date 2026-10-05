@@ -1,5 +1,7 @@
 package com.lomo.app.feature.main
 
+import androidx.compose.material3.MaterialTheme
+
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -53,7 +55,6 @@ import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.RecoveryDiagnosticReport
 import com.lomo.app.feature.memo.MemoMenuSelection
 import com.lomo.ui.component.common.HeadEnterBaseline
-import com.lomo.ui.theme.MotionTokens
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.collections.immutable.ImmutableList
@@ -469,31 +470,24 @@ private fun MainScreenTransientEffects(
     val draftText by dependencies.editorViewModel.draftText.collectAsStateWithLifecycle()
     val isRecording by dependencies.recordingViewModel.isRecording.collectAsStateWithLifecycle()
     val recordingCaptureId by dependencies.recordingViewModel.recordingCaptureId.collectAsStateWithLifecycle()
+    val openFullMemoEditor =
+        rememberFullMemoEditorOpener(editorController, dependencies.editorViewModel::reportError)
 
-    MainScreenForegroundAutoInputEffect(
-        foregroundEntryId = foregroundEntryId,
-        enabled = autoOpenInputOnForeground,
-        uiState = uiState,
-        explicitEntryPending =
-            sharedContentEvents.isNotEmpty() ||
-                pendingSharedImageEvents.isNotEmpty() ||
-                appActionEvents.isNotEmpty() ||
-                externalAppCommands.isNotEmpty(),
-        editorController = editorController,
-        isRecording = isRecording,
-        hasPendingNewMemoCreation = pendingNewMemoCreationEvent != null,
-        draftText = draftText,
-    )
-
-    MainScreenExternalAppCommandEffects(
+    MainScreenForegroundEffects(
         dependencies = dependencies,
-        externalAppCommands = remember(externalAppCommands) { externalAppCommands.toImmutableList() },
+        foregroundEntryId = foregroundEntryId,
+        autoOpenInputOnForeground = autoOpenInputOnForeground,
         uiState = uiState,
-        voiceDirectoryConfigured = voiceDirectory != null,
-        canOpenCreateMemo = canOpenCreateMemo,
+        sharedContentEvents = sharedContentEvents,
+        pendingSharedImageEvents = pendingSharedImageEvents,
+        appActionEvents = appActionEvents,
+        externalAppCommands = externalAppCommands,
         isRecording = isRecording,
         recordingCaptureId = recordingCaptureId,
         draftText = draftText,
+        voiceDirectoryConfigured = voiceDirectory != null,
+        canOpenCreateMemo = canOpenCreateMemo,
+        pendingNewMemoCreationEvent = pendingNewMemoCreationEvent,
         directoryGuideController = directoryGuideController,
         editorController = editorController,
     )
@@ -512,7 +506,7 @@ private fun MainScreenTransientEffects(
         onAppendMarkdown = editorController::appendMarkdownBlock,
         onAppendImageMarkdown = editorController::appendImageMarkdown,
         onEnsureEditorVisible = editorController::ensureVisible,
-        onOpenEditMemo = editorController::openForEdit,
+        onOpenEditMemo = openFullMemoEditor,
         onFocusMemoInList = { memoId ->
             focusMemoInMainScreenWithFallback(
                 memoId = memoId,
@@ -546,7 +540,12 @@ private fun MainScreenTransientEffects(
             },
         onResolveMemoById = dependencies.mainViewModel.resolveMemoById,
         onSaveImage = { uri, onResult, onError ->
-            dependencies.editorViewModel.saveImage(uri = uri, onResult = onResult, onError = onError)
+            dependencies.editorViewModel.saveImage(
+                uri = uri,
+                draftId = dependencies.editorViewModel.ownerDraftId,
+                onResult = onResult,
+                onError = onError,
+            )
         },
         onRequireImageDirectory = directoryGuideController::requestImage,
         onConsumeSharedContentEvent = dependencies.mainViewModel.consumeSharedContentEvent,
@@ -589,17 +588,6 @@ internal fun MainScreenInteractionBindings(
     val voiceDirectory by dependencies.mainViewModel.voiceDirectory.collectAsStateWithLifecycle()
     val stableImageMap = remember(imageMap) { imageMap.toImmutableMap() }
     val inputHints = rememberInputHints(showInputHints = showInputHints)
-    val context = LocalContext.current
-
-    val locationPermissionLauncher =
-        rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions(),
-        ) { permissions ->
-            val granted = permissions.values.any { it }
-            if (granted) {
-                appendLastKnownLocation(context, editorController::appendMarkdownBlock)
-            }
-        }
 
     val interactionCallbacks =
         rememberMainScreenInteractionCallbacks(
@@ -611,7 +599,8 @@ internal fun MainScreenInteractionBindings(
             snackbarHostState = snackbarHostState,
             unknownErrorMessage = unknownErrorMessage,
         )
-    val openFullMemoEditor = rememberFullMemoEditorOpener(editorController)
+    val openFullMemoEditor =
+        rememberFullMemoEditorOpener(editorController, dependencies.editorViewModel::reportError)
     val memoMenuCommandHandler =
         rememberMemoMenuCommandHandler(
             presentationState =
@@ -639,12 +628,6 @@ internal fun MainScreenInteractionBindings(
         )
 
     val isRecording by dependencies.recordingViewModel.isRecording.collectAsStateWithLifecycle()
-    val onAttachLocation =
-        mainMemoAttachLocationCommand(
-            context = context,
-            onPermissionRequired = { locationPermissionLauncher.launch(mainMemoLocationPermissions()) },
-            onLocationMarkdown = editorController::appendMarkdownBlock,
-        )
     val editorSurface =
         rememberMainMemoEditorSurface(
             dependencies = dependencies,
@@ -660,13 +643,13 @@ internal fun MainScreenInteractionBindings(
             inputToolbarToolOrder = inputToolbarToolOrder,
             isRecording = isRecording,
             onImageDirectoryMissing = directoryGuideController::requestImage,
-            onAttachLocation = onAttachLocation,
         )
 
     MemoInteractionHost(
         menuCommandHandler = memoMenuCommandHandler,
         controller = editorController,
         editorSurface = editorSurface,
+        onEditorOpenFailure = dependencies.editorViewModel::reportError,
     ) { showMenu, openEditor ->
         content(showMenu, openEditor)
     }
@@ -745,7 +728,7 @@ internal fun MainReadyStateEnterContainer(content: @Composable () -> Unit) {
         }
     AnimatedVisibility(
         visibleState = visibleState,
-        enter = MotionTokens.enterContent,
+        enter = androidx.compose.animation.fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
         exit = ExitTransition.None,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {

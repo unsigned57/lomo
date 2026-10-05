@@ -95,7 +95,7 @@ class MemoUiMapper(
             imageMap: Map<String, Uri>,
             reminders: List<com.lomo.domain.model.ReminderMarker> = memo.reminders,
         ): MemoUiModel {
-            val displayContent = appendLegacyMemoGeoLocation(memo.content, memo.geoLocation)
+            val displayContent = memo.content
             val processedContent = displayContent
             val resolvedImages =
                 imageContentResolver.resolveMemoImages(
@@ -211,7 +211,6 @@ class MemoUiMapper(
                 isPinned = memo.isPinned,
                 isDeleted = memo.isDeleted,
                 isPending = memo.isPending,
-                geoLocation = memo.geoLocation,
                 tags = memo.tags,
                 imageUrls = memo.imageUrls,
                 reminderIdentities = reminders.map { reminder ->
@@ -285,7 +284,6 @@ private data class MemoUiCacheKey(
     val isPinned: Boolean,
     val isDeleted: Boolean,
     val isPending: Boolean,
-    val geoLocation: String?,
     val tags: List<String>,
     val imageUrls: List<String>,
     val reminderIdentities: List<Pair<String, String>>,

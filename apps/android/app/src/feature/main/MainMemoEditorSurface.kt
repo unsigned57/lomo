@@ -30,7 +30,6 @@ internal fun rememberMainMemoEditorSurface(
     inputToolbarToolOrder: ImmutableList<String>,
     isRecording: Boolean,
     onImageDirectoryMissing: () -> Unit,
-    onAttachLocation: () -> Unit,
 ): MemoEditorSurface {
     val recordingDuration by dependencies.recordingViewModel.recordingDuration.collectAsStateWithLifecycle()
     val recordingAmplitude by dependencies.recordingViewModel.recordingAmplitude.collectAsStateWithLifecycle()
@@ -38,6 +37,7 @@ internal fun rememberMainMemoEditorSurface(
         session =
             MemoEditorSessionState(
                 imageDirectory = imageDirectory,
+                ownerDraftId = dependencies.editorViewModel.ownerDraftId,
                 rootPath = rootDirectory,
                 imageMap = imageMap,
                 availableTags = availableTags,
@@ -53,16 +53,16 @@ internal fun rememberMainMemoEditorSurface(
         capabilities =
             MemoEditorCapabilities(
                 quickSaveOnBackEnabled = quickSaveOnBackEnabled,
-                toolbarActions = memoEditorToolbarTools(recording = true, location = true),
+                toolbarActions = memoEditorToolbarTools(recording = true),
                 toolbarToolOrder = inputToolbarToolOrder,
             ),
-        commands = mainMemoEditorCommands(dependencies, interactionCallbacks, onAttachLocation),
+        commands = mainMemoEditorCommands(dependencies, interactionCallbacks),
         operations =
             MemoEditorOperations(
                 onSaveImage = dependencies.editorViewModel::saveImage,
-                onSubmit = { submissionId, memo, content, timestampMillis ->
-                    if (memo != null) {
-                        dependencies.editorViewModel.submissions.update(submissionId, memo, content)
+                onSubmit = { submissionId, session, content, timestampMillis ->
+                    if (session != null) {
+                        dependencies.editorViewModel.submissions.update(submissionId, session, content)
                         dependencies.editorViewModel.submissions.await(submissionId)
                     } else {
                         val accepted =
@@ -94,7 +94,6 @@ internal fun rememberMainMemoEditorSurface(
 private fun mainMemoEditorCommands(
     dependencies: MainScreenDependencies,
     interactionCallbacks: MainScreenInteractionCallbacks,
-    onAttachLocation: () -> Unit,
 ): MemoEditorCommandHandler =
     MemoEditorCommandHandler { command ->
         when (command) {
@@ -103,7 +102,6 @@ private fun mainMemoEditorCommands(
             is InputEditorCommand.Action ->
                 when (command.id) {
                     MemoEditorToolbarActionIds.record -> interactionCallbacks.onStartRecording()
-                    MemoEditorToolbarActionIds.location -> onAttachLocation()
                     else -> unsupportedMemoEditorCommand(command)
                 }
             else -> unsupportedMemoEditorCommand(command)

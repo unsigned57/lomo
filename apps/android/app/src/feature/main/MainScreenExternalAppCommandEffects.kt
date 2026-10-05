@@ -24,7 +24,7 @@ internal fun ExternalAppCommandExecutionEffect(
         dependencies.mainViewModel.expireExternalAppCommands(nowMillis)
         commands
             .asSequence()
-            .filterNot { command -> command.isExpired(nowMillis) }
+            .filterNot { command -> command.isExpired(nowMillis) || command.status.isTerminal }
             .sortedBy(ExternalAppCommand::createdAtMillis)
             .forEach { command ->
                 if (command.id == permissionRequestInFlightCommandId) {

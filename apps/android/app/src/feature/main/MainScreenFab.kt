@@ -5,7 +5,6 @@ import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.app.R
-import com.lomo.ui.theme.MotionTokens
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -74,35 +72,26 @@ internal fun MainFab(
 
 @Composable
 private fun MainFabAnimatedLabel(isVisible: Boolean) {
+    val motionScheme = MaterialTheme.motionScheme
     AnimatedVisibility(
         visible = isVisible,
         enter =
             expandHorizontally(
                 animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationMedium2,
-                        easing = MotionTokens.EasingEmphasized,
-                    ),
+                    motionScheme.defaultSpatialSpec(),
             ) +
                 fadeIn(
                     animationSpec =
-                        tween(
-                            durationMillis = MotionTokens.DurationMedium2,
-                        ),
+                        motionScheme.defaultEffectsSpec(),
                 ),
         exit =
             shrinkHorizontally(
                 animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationMedium2,
-                        easing = MotionTokens.EasingEmphasized,
-                    ),
+                    motionScheme.defaultSpatialSpec(),
             ) +
                 fadeOut(
                     animationSpec =
-                        tween(
-                            durationMillis = MotionTokens.DurationMedium2,
-                        ),
+                        motionScheme.defaultEffectsSpec(),
                 ),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

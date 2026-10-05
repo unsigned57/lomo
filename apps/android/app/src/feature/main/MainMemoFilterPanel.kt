@@ -1,5 +1,7 @@
 package com.lomo.app.feature.main
 
+import androidx.compose.material3.SheetValue
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,7 +30,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDatePickerState
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberBottomSheetState
 import com.lomo.ui.component.picker.ExpressiveDatePickerSurface
 import com.lomo.ui.component.picker.ExpressivePickerDialog
 import androidx.compose.runtime.Composable
@@ -68,7 +70,10 @@ internal fun MainMemoFilterSheet(
     onHasUrlChanged: (Boolean?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+    )
     val haptic = LocalAppHapticFeedback.current
     var datePickerTarget by rememberSaveable { mutableStateOf<DatePickerTarget?>(null) }
     val hasDateFilter = filter.startDate != null || filter.endDate != null
@@ -204,23 +209,31 @@ internal fun MainMemoSortButton(
     onClick: () -> Unit,
 ) {
     val haptic = LocalAppHapticFeedback.current
-    val containerColor =
-        if (selected) {
-            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-        }
-    val contentColor =
-        if (selected) {
-            MaterialTheme.colorScheme.onSecondaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        }
+    val containerColor by androidx.compose.animation.animateColorAsState(
+        targetValue =
+            if (selected) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHigh
+            },
+        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+        label = "MemoSortContainer",
+    )
+    val contentColor by androidx.compose.animation.animateColorAsState(
+        targetValue =
+            if (selected) {
+                MaterialTheme.colorScheme.onSecondaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+        label = "MemoSortContent",
+    )
 
     Surface(
         modifier =
             modifier
-                .clip(RoundedCornerShape(12.dp))
+                .clip(com.lomo.ui.theme.AppShapes.LargeIncreased)
                 .benchmarkAnchor(
                     if (selected) {
                         benchmarkSelectedTag ?: benchmarkTag
@@ -232,7 +245,7 @@ internal fun MainMemoSortButton(
                     haptic.medium()
                     onClick()
                 },
-        shape = RoundedCornerShape(12.dp),
+        shape = com.lomo.ui.theme.AppShapes.LargeIncreased,
         color = containerColor,
     ) {
         Column(
@@ -252,14 +265,18 @@ internal fun MainMemoSortButton(
                 style = MaterialTheme.typography.labelMedium,
                 color = contentColor,
             )
-            if (directionLabel != null) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = directionLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = contentColor,
-                    textAlign = TextAlign.Center,
-                )
+            com.lomo.ui.component.common.LomoStateContent(
+                state = directionLabel,
+                contentKey = { it ?: "unselected" },
+            ) { label ->
+                if (label != null) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = contentColor,
+                        textAlign = TextAlign.Center,
+                    )
+                }
             }
         }
     }

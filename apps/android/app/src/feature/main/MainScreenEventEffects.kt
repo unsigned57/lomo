@@ -23,7 +23,8 @@ internal fun MainScreenEventEffectsHost(
     onAppendMarkdown: (String) -> Unit,
     onAppendImageMarkdown: (String) -> Unit,
     onEnsureEditorVisible: () -> Unit,
-    onOpenEditMemo: (Memo) -> Unit,
+    /** Opens the verified full-snapshot editor for this identity — never a row's carried body. */
+    onOpenEditMemo: (String) -> Unit,
     onFocusMemoInList: suspend (String) -> MainScreenFocusAttempt,
     onMainListFocusConsumed: () -> Unit,
     focusRetryKey: Any?,
@@ -101,7 +102,7 @@ internal fun HandleAppActionEvents(
     events: ImmutableList<PendingUiEvent<MainViewModel.AppAction>>,
     focusMemoInList: suspend (String) -> MainScreenFocusAttempt,
     resolveMemoById: suspend (String) -> com.lomo.domain.model.Memo?,
-    openEdit: (com.lomo.domain.model.Memo) -> Unit,
+    openEdit: (String) -> Unit,
     focusRetryKey: Any?,
     onConsume: (Long) -> Unit,
     snackbarHostState: SnackbarHostState,
@@ -115,9 +116,8 @@ internal fun HandleAppActionEvents(
             val attempt =
                 when (action) {
                     is MainViewModel.AppAction.OpenMemo -> {
-                        val memo = resolveMemoById(action.memoId)
-                        if (memo != null) {
-                            openEdit(memo)
+                        if (resolveMemoById(action.memoId) != null) {
+                            openEdit(action.memoId)
                         } else {
                             snackbarHostState.showSnackbar(unknownErrorMessage)
                         }

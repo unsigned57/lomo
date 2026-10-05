@@ -2,31 +2,25 @@ package com.lomo.app.feature.main
 
 /*
  * Behavior Contract:
- * - Unit under test: MemoUiMapperStorageHeaderRecovery
- * - Owning layer: production path under test
+ * - Unit under test: MemoUiMapper
+ * - Owning layer: app
  * - Priority tier: P1
- * - Capability: preserve observable product behavior after Markdown semantic ownership moved to
- *   lomo-workspace (typed IR, workspace scan/render/document commands) with Kotlin adapters only.
+ * - Capability: present the memo body verbatim in the card pipeline.
  *
  * Scenarios:
- * - Given production collaborators expose workspace IR / document-command seams, when this suite
- *   runs, then assertions verify the same user-visible outcomes without Kotlin MarkdownParser.
- * - Given deleted JetBrains or line-authority helpers, when tests construct fakes, then they use
- *   FakeMarkdownWorkspace / content projector adapters instead of dual-authority parsers.
- * - Given invalid or missing readiness inputs, when exercised, then fail-closed outcomes remain.
+ * - Given a memo body, when it is mapped to a card model, then the rendered text equals the
+ *   carried body with no decoration.
  *
  * Observable outcomes:
- * - Public method results, DI wiring, and presentation fields match the post-cutover contracts.
+ * - processedContent and renderDocument.plainText match the memo body.
  *
  * TDD proof:
- * - RED: suites fail to compile or assert against MarkdownParser / JetBrains plan types after cutover.
- * - GREEN: ./kotlin test on this class passes against workspace IR adapters.
+ * - RED before the fix because the mapper appended a legacy geo URI to the display content.
  *
  * Excludes:
- * - Room schema ownership, sync backend redesign, and Compose pixel rendering.
- *
+ * - image resolution and presentation-plan details.
  * Test Change Justification:
- * - Reason category: production Markdown ownership cutover to Rust workspace IR / document commands.
+ * - Reason category: production API signature changed.
  * - Old behavior/assertion being replaced: tests that assumed Kotlin MarkdownParser, MemoTextProcessor,
  *   JetBrains render plans, or dual-authority analysis helpers as production collaborators.
  * - Why old assertion is no longer correct: production storage analysis and presentation consume
@@ -47,7 +41,7 @@ class MemoUiMapperStorageHeaderRecoveryTest : AppFunSpec() {
     private val mapper = testMemoUiMapper()
 
     init {
-        test("mapToUiModel keeps body content when geo location is absent") {
+        test("mapToUiModel keeps the body content verbatim") {
             runTest {
                 val memo =
                     Memo(
@@ -56,28 +50,10 @@ class MemoUiMapperStorageHeaderRecoveryTest : AppFunSpec() {
                         content = "plain body",
                         rawContent = "- 10:00 plain body",
                         dateKey = "2026_03_27",
-                        geoLocation = null,
                     )
                 val ui = mapper.mapToUiModel(memo, null, null, emptyMap())
                 ui.processedContent shouldBe "plain body"
                 ui.renderDocument.plainText shouldBe "plain body"
-            }
-        }
-
-        test("mapToUiModel includes geo in processed content when present") {
-            runTest {
-                val memo =
-                    Memo(
-                        id = "m2",
-                        timestamp = 1L,
-                        content = "with geo",
-                        rawContent = "- 10:00 with geo",
-                        dateKey = "2026_03_27",
-                        geoLocation = "31.2,121.4",
-                    )
-                val ui = mapper.mapToUiModel(memo, null, null, emptyMap())
-                ui.processedContent.contains("with geo") shouldBe true
-                ui.renderDocument shouldBe ui.renderDocument
             }
         }
     }

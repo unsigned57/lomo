@@ -14,8 +14,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.lomo.app.ExternalAppCommand
 import com.lomo.app.ExternalAppCommandTerminalResult
+import com.lomo.app.feature.common.PendingUiEvent
 import com.lomo.app.feature.memo.MemoEditorController
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 
 @Composable
 internal fun MainScreenForegroundAutoInputEffect(
@@ -39,6 +41,54 @@ internal fun MainScreenForegroundAutoInputEffect(
         draftText = draftText,
         onOpenDraftEditor = editorController::openForCreate,
         onRefocusEditor = editorController::ensureVisible,
+    )
+}
+
+@Composable
+internal fun MainScreenForegroundEffects(
+    dependencies: MainScreenDependencies,
+    foregroundEntryId: Long,
+    autoOpenInputOnForeground: Boolean,
+    uiState: MainViewModel.MainScreenState,
+    sharedContentEvents: List<PendingUiEvent<MainViewModel.SharedContent>>,
+    pendingSharedImageEvents: List<PendingUiEvent<android.net.Uri>>,
+    appActionEvents: List<PendingUiEvent<MainViewModel.AppAction>>,
+    externalAppCommands: List<ExternalAppCommand>,
+    isRecording: Boolean,
+    recordingCaptureId: String?,
+    draftText: String,
+    voiceDirectoryConfigured: Boolean,
+    canOpenCreateMemo: Boolean,
+    pendingNewMemoCreationEvent: PendingUiEvent<PendingNewMemoCreationRequest>?,
+    directoryGuideController: MainDirectoryGuideController,
+    editorController: MemoEditorController,
+) {
+    MainScreenForegroundAutoInputEffect(
+        foregroundEntryId = foregroundEntryId,
+        enabled = autoOpenInputOnForeground,
+        uiState = uiState,
+        explicitEntryPending =
+            sharedContentEvents.isNotEmpty() ||
+                pendingSharedImageEvents.isNotEmpty() ||
+                appActionEvents.isNotEmpty() ||
+                externalAppCommands.any { command -> !command.status.isTerminal },
+        editorController = editorController,
+        isRecording = isRecording,
+        hasPendingNewMemoCreation = pendingNewMemoCreationEvent != null,
+        draftText = draftText,
+    )
+
+    MainScreenExternalAppCommandEffects(
+        dependencies = dependencies,
+        externalAppCommands = remember(externalAppCommands) { externalAppCommands.toImmutableList() },
+        uiState = uiState,
+        voiceDirectoryConfigured = voiceDirectoryConfigured,
+        canOpenCreateMemo = canOpenCreateMemo,
+        isRecording = isRecording,
+        recordingCaptureId = recordingCaptureId,
+        draftText = draftText,
+        directoryGuideController = directoryGuideController,
+        editorController = editorController,
     )
 }
 

@@ -1,9 +1,12 @@
 package com.lomo.app.feature.main
 
+import androidx.compose.material3.MotionScheme
+
+import androidx.compose.material3.MaterialTheme
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -29,7 +32,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
@@ -47,7 +49,6 @@ import com.lomo.app.feature.memo.MemoMenuSelection
 import com.lomo.ui.component.navigation.SidebarDrawer
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
-import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.toImmutableSet
@@ -284,9 +285,10 @@ internal fun MainScreenAnimatedBody(
     onExportDiagnostics: () -> Unit,
     isFilterActive: Boolean,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
     AnimatedContent(
         targetState = uiState,
-        transitionSpec = { mainScreenStateTransform() },
+        transitionSpec = { mainScreenStateTransform(motionScheme) },
         label = "MainScreenStateTransition",
     ) { state ->
         when (state) {
@@ -380,6 +382,7 @@ private fun MainReadyContent(
     onSettings: () -> Unit,
     isFilterActive: Boolean,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
     val activeExits by exitAnimationRegistry.entries.collectAsStateWithLifecycle()
     val hasActiveExits = activeExits.isNotEmpty()
 
@@ -405,10 +408,7 @@ private fun MainReadyContent(
         Crossfade(
             targetState = readyContentState,
             animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationMedium2,
-                    easing = MotionTokens.EasingStandard,
-                ),
+                motionScheme.defaultEffectsSpec(),
             label = "ReadyContentCrossfade",
         ) { state ->
             when (state) {
@@ -441,10 +441,7 @@ private fun MainReadyContent(
                     Crossfade(
                         targetState = isFilterActive,
                         animationSpec =
-                            tween(
-                                durationMillis = MotionTokens.DurationMedium2,
-                                easing = MotionTokens.EasingStandard,
-                            ),
+                            motionScheme.defaultEffectsSpec(),
                         label = "FilterActiveCrossfade",
                     ) { filterActive ->
                         androidx.compose.runtime.key(filterActive) {
@@ -494,28 +491,19 @@ internal fun resolvePagedMainReadyContentState(
         else -> MainReadyContentState.Empty
     }
 
-private fun mainScreenStateTransform(): androidx.compose.animation.ContentTransform =
+private fun mainScreenStateTransform(motionScheme: MotionScheme): androidx.compose.animation.ContentTransform =
     (
         fadeIn(
             animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationLong2,
-                    easing = MotionTokens.EasingStandard,
-                ),
+                motionScheme.defaultEffectsSpec(),
         ) +
             scaleIn(
                 initialScale = 0.92f,
                 animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                    ),
+                    motionScheme.defaultSpatialSpec(),
             )
     ) togetherWith
         fadeOut(
             animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationLong2,
-                    easing = MotionTokens.EasingStandard,
-                ),
+                motionScheme.defaultEffectsSpec(),
         )
