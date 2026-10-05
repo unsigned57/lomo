@@ -71,7 +71,7 @@ class FakePreferencesHealthRepository : PreferencesHealthRepository {
         published.value = notice
     }
 
-    override fun acknowledgeCorruptionNotice() {
+    override suspend fun acknowledgeCorruptionNotice() {
         published.value = null
     }
 }

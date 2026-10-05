@@ -68,7 +68,6 @@ class MemoMenuCommandHandlerTest : AppFunSpec() {
                         timestamp = 1234L,
                         tags = listOf("daily"),
                         resolvedImagePaths = listOf("images/a.png"),
-                        geoLocation = "1.0,2.0",
                         showTime = true,
                         showSignature = false,
                         signatureText = "sig",
@@ -114,7 +113,6 @@ class MemoMenuCommandHandlerTest : AppFunSpec() {
                         timestamp = request.timestamp,
                         tags = request.tags,
                         resolvedImagePaths = request.resolvedImagePaths,
-                        geoLocation = request.geoLocation,
                         showTime = request.showTime,
                         showSignature = request.showSignature,
                         signatureText = request.signatureText,
@@ -140,7 +138,6 @@ class MemoMenuCommandHandlerTest : AppFunSpec() {
             tags = persistentListOf("daily"),
             imageUrls = listOf("images/a.png"),
             isPinned = isPinned,
-            geoLocation = "1.0,2.0",
         )
 
     private sealed interface MenuEvent {
@@ -153,7 +150,6 @@ class MemoMenuCommandHandlerTest : AppFunSpec() {
             val timestamp: Long?,
             val tags: List<String>,
             val resolvedImagePaths: List<String>,
-            val geoLocation: String?,
             val showTime: Boolean,
             val showSignature: Boolean,
             val signatureText: String,

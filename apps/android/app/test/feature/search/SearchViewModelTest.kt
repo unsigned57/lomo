@@ -102,6 +102,10 @@ class SearchViewModelTest : AppFunSpec() {
     private val toggleMemoCheckboxUseCase = storeBackedToggleMemoCheckboxUseCase(memoRepository)
 
     private val saveImageUseCase = com.lomo.domain.usecase.FakeSaveImageUseCase(mediaRepository)
+    private val loadEditableMemoUseCase =
+        com.lomo.domain.usecase.LoadEditableMemoUseCase(
+            com.lomo.app.testing.fakes.FakeMemoQueryRepository(memoRepository),
+        )
 
     private fun CoroutineScope.collectPagedData(
         flow: kotlinx.coroutines.flow.Flow<PagingData<MemoUiModel>>
@@ -465,6 +469,7 @@ class SearchViewModelTest : AppFunSpec() {
 
                 viewModel.saveImage(
                     uri = inputUri,
+                    draftId = viewModel.ownerDraftId,
                     onResult = { path -> savedPath = path },
                     onError = { onErrorCalled = true },
                 )
@@ -487,6 +492,7 @@ class SearchViewModelTest : AppFunSpec() {
 
                 viewModel.saveImage(
                     uri = inputUri,
+                    draftId = viewModel.ownerDraftId,
                     onResult = { path -> savedPath = path },
                     onError = { onErrorCalled = true },
                 )
@@ -567,6 +573,7 @@ class SearchViewModelTest : AppFunSpec() {
                 updateMemoContentUseCase = updateMemoContentUseCase,
                 saveImageUseCase = saveImageUseCase,
                 toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
+                loadEditableMemoUseCase = loadEditableMemoUseCase,
                 workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
                     every { mount } returns engineReadinessRepository.mount
                 },
@@ -596,5 +603,8 @@ class SearchViewModelTest : AppFunSpec() {
             content = content,
             rawContent = "- 10:00 $content",
             dateKey = "2026_03_24",
+            contentRevision = 1L,
+            fileFingerprint = "fp-$id",
+            projectedCharCount = "- 10:00 $content".length.toLong(),
         )
 }

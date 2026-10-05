@@ -115,6 +115,7 @@ fun SearchScreen(
         menuCommandHandler = memoMenuCommandHandler,
         controller = editorController,
         editorSurface = editorSurface,
+        onEditorOpenFailure = viewModel::reportError,
     ) { showMenu, openEditor ->
         val onShowSearchMenu =
             rememberSearchMenuHandler(
@@ -309,6 +310,15 @@ private fun FloatingSearchBar(
     onMaxOffsetPxChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val textFieldState = androidx.compose.foundation.text.input.rememberTextFieldState(initialText = query)
+    val searchBarState = androidx.compose.material3.rememberSearchBarState(
+        initialValue = androidx.compose.material3.SearchBarValue.Expanded,
+    )
+    LaunchedEffect(query) {
+        if (textFieldState.text.toString() != query) {
+            textFieldState.edit { replace(0, length, query) }
+        }
+    }
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val morph = rememberSearchInputMorph(isFocused = isFocused)
@@ -331,14 +341,15 @@ private fun FloatingSearchBar(
             shadowElevation = 0.dp,
         ) {
             SearchBarDefaults.InputField(
-                query = query,
-                onQueryChange = onQueryChange,
+                textFieldState = textFieldState,
+                searchBarState = searchBarState,
+                inputTransformation = androidx.compose.foundation.text.input.InputTransformation {
+                    onQueryChange(asCharSequence().toString())
+                },
                 onSearch = {
                     focusManager.clearFocus(force = true)
                     keyboardController?.hide()
                 },
-                expanded = true,
-                onExpandedChange = {},
                 modifier =
                     Modifier
                         .fillMaxWidth()

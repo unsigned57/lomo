@@ -1,5 +1,6 @@
 package com.lomo.app.provider
 
+import com.lomo.domain.model.DraftMediaReconciliation
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.MediaImageDescriptor
@@ -9,6 +10,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
+/**
+ * Test wiring with empty image locations by default. The local fake is copied with [locationsFlow];
+ * an explicitly supplied non-fake [repository] is preserved. This helper does not verify production
+ * storage refresh, import/removal or UI behavior; those belong to their consuming specifications.
+ */
 fun emptyImageMapProvider(
     repository: MediaRepository = FakeMediaRepository(),
     locationsFlow: Flow<Map<MediaEntryId, StorageLocation>> = flowOf(emptyMap()),
@@ -62,6 +68,12 @@ private data class FakeMediaRepository(
         captureLocation: StorageLocation,
         draftId: com.lomo.domain.model.DraftId,
     ) = Unit
+
+    override suspend fun reconcileDraftMedia(
+        draftId: com.lomo.domain.model.DraftId,
+    ): DraftMediaReconciliation = DraftMediaReconciliation(draftId = draftId, records = emptyList())
+
+    override suspend fun releaseDraftLeases(draftId: com.lomo.domain.model.DraftId) = Unit
 
     override suspend fun runOrphanSweepAtOperationBoundary() = Unit
 }

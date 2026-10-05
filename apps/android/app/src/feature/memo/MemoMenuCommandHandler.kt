@@ -6,10 +6,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
+import com.lomo.app.feature.preferences.CustomFontHost
 import com.lomo.app.util.ShareUtils
 import com.lomo.app.util.rememberShareUtils
 import com.lomo.domain.model.Memo
-import com.lomo.ui.theme.resolveCustomCanvasTypeface
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.launch
@@ -33,7 +33,6 @@ data class MemoMenuShareCardRequest(
     val timestamp: Long?,
     val tags: List<String>,
     val resolvedImagePaths: List<String>,
-    val geoLocation: String?,
 )
 
 data class MemoMenuShareTextRequest(
@@ -94,7 +93,6 @@ class MemoMenuCommandHandler(
                 timestamp = memo.timestamp,
                 tags = memo.tags,
                 resolvedImagePaths = selection.state.imageUrls,
-                geoLocation = memo.geoLocation,
             ),
         )
     }
@@ -151,9 +149,9 @@ fun rememberMemoMenuCommandHandler(
 ): MemoMenuCommandHandler {
     val context = LocalContext.current
     val shareUtils = rememberShareUtils()
-    val shareCardTypeface = remember(presentationState.customFontPath) {
-        resolveCustomCanvasTypeface(presentationState.customFontPath)
-    }
+    // Platform typeface construction is owned by CustomFontHost; it resolves lazily inside the
+    // share coroutine (IO dispatcher, identity-cached) instead of blocking composition.
+    val customFontHost = org.koin.compose.koinInject<CustomFontHost>()
     val scope = rememberCoroutineScope()
     val editMemoState = rememberUpdatedState(onEditMemo)
     val deleteMemoState = rememberUpdatedState(onDeleteMemo)
@@ -172,12 +170,12 @@ fun rememberMemoMenuCommandHandler(
         presentationState,
         context,
         shareUtils,
+        customFontHost,
         scope,
         hasLanShare,
         hasTogglePin,
         hasJump,
         hasVersionHistory,
-        shareCardTypeface,
     ) {
         MemoMenuCommandHandler(
             presentationState = presentationState,
@@ -191,7 +189,8 @@ fun rememberMemoMenuCommandHandler(
                         request = request,
                         context = context,
                         shareUtils = shareUtils,
-                        bodyTypeface = shareCardTypeface,
+                        bodyTypeface =
+                            customFontHost.canvasTypefaceOrNull(presentationState.customFontPath),
                     )
                 }
             },
@@ -246,7 +245,6 @@ private suspend fun shareMemoAsImage(
         timestamp = request.timestamp,
         tags = request.tags,
         resolvedImagePaths = request.resolvedImagePaths,
-        geoLocation = request.geoLocation,
         bodyTypeface = bodyTypeface,
     )
 }

@@ -44,7 +44,7 @@ class AppConfigStateProvider(
         val preferencesCorruptionNotice: StateFlow<PreferencesCorruptionNotice?> =
             preferencesHealthRepository.corruptionNotice
 
-        fun acknowledgeCorruptionNotice() = preferencesHealthRepository.acknowledgeCorruptionNotice()
+        suspend fun acknowledgeCorruptionNotice() = preferencesHealthRepository.acknowledgeCorruptionNotice()
 
         val appLockEnabled: StateFlow<Boolean?> =
             appConfigUiCoordinator

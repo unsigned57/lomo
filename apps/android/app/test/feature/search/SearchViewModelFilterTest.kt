@@ -223,6 +223,10 @@ class SearchViewModelFilterTest : AppFunSpec() {
                 updateMemoContentUseCase = updateMemoContentUseCase,
                 saveImageUseCase = saveImageUseCase,
                 toggleMemoCheckboxUseCase = storeBackedToggleMemoCheckboxUseCase(memoRepository),
+                loadEditableMemoUseCase =
+                    com.lomo.domain.usecase.LoadEditableMemoUseCase(
+                        com.lomo.app.testing.fakes.FakeMemoQueryRepository(memoRepository),
+                    ),
                 workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
                     every { mount } returns engineReadinessRepository.mount
                 },

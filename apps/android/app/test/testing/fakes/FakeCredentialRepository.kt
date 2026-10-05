@@ -44,16 +44,15 @@ class FakeCredentialRepository(
             is CredentialReadAuthorization.Denied -> CredentialSecretReadResult.Unauthorized(authorization.reason)
         }
 
-    override suspend fun writeSecret(
-        field: CredentialField,
-        value: String?,
-    ) {
-        if (value == null) {
-            secrets.remove(field)
-            setFieldStatus(field, StoredCredentialStatus.Missing)
-        } else {
-            secrets[field] = value
-            setFieldStatus(field, StoredCredentialStatus.Present)
+    override suspend fun writeSecrets(values: Map<CredentialField, String?>) {
+        values.forEach { (field, value) ->
+            if (value == null) {
+                secrets.remove(field)
+                setFieldStatus(field, StoredCredentialStatus.Missing)
+            } else {
+                secrets[field] = value
+                setFieldStatus(field, StoredCredentialStatus.Present)
+            }
         }
     }
 

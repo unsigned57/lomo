@@ -11,6 +11,7 @@ internal fun searchMemoEditorSurface(
         session =
             MemoEditorSessionState(
                 imageDirectory = uiState.imageDirectory,
+                ownerDraftId = viewModel.ownerDraftId,
                 rootPath = uiState.rootDirectory,
                 imageMap = uiState.imageMap,
                 dateFormat = uiState.dateFormat,

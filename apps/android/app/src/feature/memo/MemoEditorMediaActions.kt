@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
 import com.lomo.app.util.CameraCaptureUtils
+import com.lomo.domain.model.DraftId
 import java.io.File
 
 internal data class MemoEditorMediaActions(
@@ -25,14 +26,18 @@ internal data class MemoEditorMediaActions(
 internal fun rememberMemoEditorMediaActions(
     controller: MemoEditorController,
     imageDirectory: String?,
+    ownerDraftId: DraftId,
     onSaveImage: (
         uri: Uri,
+        draftId: DraftId,
         onResult: (String) -> Unit,
         onError: (() -> Unit)?,
     ) -> Unit,
     onImageDirectoryMissing: (() -> Unit)?,
     onCameraCaptureError: ((Throwable) -> Unit)?,
 ): MemoEditorMediaActions {
+    /** The draft that must own newly staged media: an open edit session's durable draft wins. */
+    fun effectiveDraftId(): DraftId = controller.editingSession?.draftId ?: ownerDraftId
     val context = LocalContext.current
     val settingsNotSetMessage = stringResource(R.string.settings_not_set)
     var pendingCameraFile by remember { mutableStateOf<File?>(null) }
@@ -59,7 +64,7 @@ internal fun rememberMemoEditorMediaActions(
     val imagePicker =
         rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
             uri?.let { selectedUri ->
-                onSaveImage(selectedUri, controller::appendImageMarkdown, null)
+                onSaveImage(selectedUri, effectiveDraftId(), controller::appendImageMarkdown, null)
             }
         }
     val cameraLauncher =
@@ -69,6 +74,7 @@ internal fun rememberMemoEditorMediaActions(
             if (isSuccess && uri != null) {
                 onSaveImage(
                     uri,
+                    effectiveDraftId(),
                     { path ->
                         controller.appendImageMarkdown(path)
                         runCatching { file?.delete() }

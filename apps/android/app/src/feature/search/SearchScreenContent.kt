@@ -1,5 +1,11 @@
 package com.lomo.app.feature.search
 
+import androidx.compose.material3.MotionScheme
+
+import androidx.compose.material3.MaterialTheme
+
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -31,7 +37,6 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.ui.text.LocalSearchHighlightQuery
 import com.lomo.ui.theme.AppSpacing
-import com.lomo.ui.theme.MotionTokens
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import kotlinx.collections.immutable.ImmutableList
@@ -52,6 +57,7 @@ internal fun SearchScreenContent(
     onShowMenu: (MemoMenuSelection) -> Unit,
     onTodoClick: (Memo, com.lomo.domain.model.markdown.MarkdownSourceSpan) -> Unit,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
     val resultListContentPadding = searchResultListContentPadding(padding)
     val activeExits by exitAnimationRegistry.entries.collectAsStateWithLifecycle()
     val showLoading = pagedItems.loadState.refresh is LoadState.Loading && activeExits.isEmpty()
@@ -64,7 +70,7 @@ internal fun SearchScreenContent(
         )
     androidx.compose.animation.AnimatedContent(
         targetState = contentState,
-        transitionSpec = { searchContentTransitionSpec() },
+        transitionSpec = { searchContentTransitionSpec(motionScheme) },
         contentKey = SearchContentState::key,
         label = "SearchContentTransition",
         modifier = Modifier.fillMaxSize(),
@@ -124,21 +130,16 @@ private fun searchResultListContentPadding(screenPadding: PaddingValues): Paddin
 }
 
 @OptIn(androidx.compose.animation.ExperimentalAnimationApi::class)
-private fun androidx.compose.animation.AnimatedContentTransitionScope<SearchContentState>.searchContentTransitionSpec():
-    androidx.compose.animation.ContentTransform =
+private fun AnimatedContentTransitionScope<SearchContentState>.searchContentTransitionSpec(
+    motionScheme: MotionScheme,
+): ContentTransform =
     androidx.compose.animation.fadeIn(
         animationSpec =
-            androidx.compose.animation.core.tween(
-                durationMillis = MotionTokens.DurationMedium2,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
+            motionScheme.defaultEffectsSpec(),
     ) togetherWith
         androidx.compose.animation.fadeOut(
             animationSpec =
-                androidx.compose.animation.core.tween(
-                    durationMillis = MotionTokens.DurationShort4,
-                    easing = MotionTokens.EasingEmphasizedAccelerate,
-                ),
+                motionScheme.fastEffectsSpec(),
         )
 
 @Composable

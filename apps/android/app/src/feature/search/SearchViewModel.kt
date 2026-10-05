@@ -17,6 +17,7 @@ import com.lomo.app.feature.common.memoPager
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.main.MainWorkspaceCoordinator
 import com.lomo.app.feature.memo.MemoActionId
+import com.lomo.app.feature.memo.MemoEditSession
 import com.lomo.app.feature.memo.MemoEditorSubmissionId
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
@@ -25,7 +26,9 @@ import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSearchMode
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.WorkspaceAuthority
+import com.lomo.domain.model.DraftId
 import com.lomo.domain.usecase.DeleteMemoUseCase
+import com.lomo.domain.usecase.LoadEditableMemoUseCase
 import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.SearchMemosPageUseCase
@@ -79,6 +82,7 @@ data class SearchViewModelDependencies(
     val updateMemoContentUseCase: UpdateMemoContentUseCase,
     val saveImageUseCase: SaveImageUseCase,
     val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
+    val loadEditableMemoUseCase: LoadEditableMemoUseCase,
     val workspaceCoordinator: MainWorkspaceCoordinator,
 )
 
@@ -95,6 +99,7 @@ class SearchViewModel(
     private val updateMemoContentUseCase = dependencies.updateMemoContentUseCase
     private val saveImageUseCase = dependencies.saveImageUseCase
     private val toggleMemoCheckboxUseCase = dependencies.toggleMemoCheckboxUseCase
+    private val loadEditableMemoUseCase = dependencies.loadEditableMemoUseCase
     private val workspaceCoordinator = dependencies.workspaceCoordinator
         private val _searchQuery = MutableStateFlow("")
         val searchQuery: StateFlow<String> = _searchQuery
@@ -209,6 +214,7 @@ class SearchViewModel(
                         saveImage = { source, draftId ->
                             saveImageUseCase.saveWithCacheSyncStatus(source, draftId)
                         },
+                        loadEditableMemo = loadEditableMemoUseCase::invoke,
                     ),
                 scope = viewModelScope,
                 mapToUiModel = { memo ->
@@ -273,9 +279,9 @@ class SearchViewModel(
 
         suspend fun submitMemoUpdate(
             submissionId: MemoEditorSubmissionId,
-            memo: Memo,
+            session: MemoEditSession,
             newContent: String,
-        ): Boolean = actionStateHolder.actions.submitMemoUpdate(submissionId, memo, newContent)
+        ): Boolean = actionStateHolder.actions.submitMemoUpdate(submissionId, session, newContent)
 
         fun toggleTodo(
             memo: Memo,
@@ -286,10 +292,20 @@ class SearchViewModel(
 
         fun saveImage(
             uri: android.net.Uri,
+            draftId: DraftId,
             onResult: (String) -> Unit,
             onError: (() -> Unit)? = null,
         ) {
-            actionStateHolder.actions.saveImage(uri, onResult, onError)
+            actionStateHolder.actions.saveImage(uri, draftId, onResult, onError)
+        }
+
+        /** The draft identity this surface's media leases belong to. */
+        internal val ownerDraftId: DraftId
+            get() = actionStateHolder.actions.draftId
+
+        /** Surfaces a non-mutation failure (e.g. editor open) on the shared error channel. */
+        fun reportError(throwable: Throwable) {
+            actionStateHolder.errors.report(throwable, "Failed to open memo")
         }
 
         fun clearError() {

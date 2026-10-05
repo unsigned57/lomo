@@ -10,7 +10,6 @@ object R {
         const val cd_memo_editor_add_tag = 6
         const val cd_memo_editor_add_underline = 7
         const val cd_memo_editor_add_voice_memo = 8
-        const val cd_memo_editor_attach_location = 9
         const val cd_memo_editor_backfill_memo = 10
         const val cd_memo_editor_redo = 11
         const val cd_memo_editor_take_photo = 12

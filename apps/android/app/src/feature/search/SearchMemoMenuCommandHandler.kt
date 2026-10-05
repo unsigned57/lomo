@@ -19,7 +19,7 @@ internal fun rememberSearchMemoMenuCommandHandler(
     onRequestFocusMemo: (String) -> Unit,
     onNavigateToMain: () -> Unit,
 ): MemoMenuCommandHandler {
-    val openFullMemoEditor = rememberFullMemoEditorOpener(editorController)
+    val openFullMemoEditor = rememberFullMemoEditorOpener(editorController, viewModel::reportError)
     return rememberMemoMenuCommandHandler(
         presentationState =
             MemoMenuPresentationState(

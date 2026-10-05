@@ -11,11 +11,10 @@ import androidx.compose.material.icons.rounded.CheckBox
 import androidx.compose.material.icons.rounded.FormatUnderlined
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PhotoCamera
 import com.lomo.app.R
-import com.lomo.domain.model.Memo
+import com.lomo.domain.model.DraftId
 import com.lomo.ui.component.input.InputEditorCommand
 import com.lomo.ui.component.input.InputToolbarActionId
 import com.lomo.ui.component.input.InputToolbarTool
@@ -31,11 +30,15 @@ import kotlinx.coroutines.flow.StateFlow
 
 data class MemoEditorSessionState(
     val imageDirectory: String?,
+    /**
+     * Draft identity that owns media staged while no edit session is open — the surface owner's
+     * own durable draft. When the controller is editing a memo, the session's draftId wins.
+     */
+    val ownerDraftId: DraftId,
     val rootPath: String? = null,
     val imageMap: ImmutableMap<String, Uri> = persistentMapOf(),
     val availableTags: ImmutableList<String> = persistentListOf(),
     val hints: ImmutableList<String> = persistentListOf(),
-    val attachedGeoLocation: String? = null,
     val isRecording: Boolean = false,
     val recordingDuration: Long = 0L,
     val recordingAmplitude: Int? = null,
@@ -48,7 +51,7 @@ data class MemoEditorSessionState(
 data class MemoEditorCapabilities(
     val quickSaveOnBackEnabled: Boolean,
     val toolbarActions: ImmutableSet<InputToolbarActionId> =
-        memoEditorToolbarTools(recording = false, location = false),
+        memoEditorToolbarTools(recording = false),
     val toolbarToolOrder: ImmutableList<String> = persistentListOf(),
 )
 
@@ -57,14 +60,23 @@ fun interface MemoEditorCommandHandler {
 }
 
 data class MemoEditorOperations(
+    /**
+     * Stages an image under the lease of [draftId] — the effective draft the caller resolved
+     * (edit session's durable draft, else the surface owner's). Never invents an owner.
+     */
     val onSaveImage: (
         uri: Uri,
+        draftId: DraftId,
         onResult: (String) -> Unit,
         onError: (() -> Unit)?,
     ) -> Unit,
+    /**
+     * Submits the editor buffer. [session] is non-null exactly when the editor is editing an
+     * existing memo, and carries the verified full snapshot plus the durable draft identity.
+     */
     val onSubmit: suspend (
         submissionId: MemoEditorSubmissionId,
-        memo: Memo?,
+        session: MemoEditSession?,
         content: String,
         timestampMillis: Long?,
     ) -> Boolean,
@@ -76,7 +88,8 @@ data class MemoEditorOperations(
      * must still resolve the editor.
      */
     val submissionState: StateFlow<MemoEditorSubmissionState>,
-    val onDismiss: (() -> Unit)?,
+    /** The effective draft whose leases must be released on dismissal. */
+    val onDismiss: ((DraftId) -> Unit)?,
     val onToolbarOrderChanged: (List<InputToolbarActionId>) -> Unit,
 ) {
     companion object
@@ -91,15 +104,13 @@ data class MemoEditorSurface(
 
 fun memoEditorToolbarTools(
     recording: Boolean,
-    location: Boolean,
-): ImmutableSet<InputToolbarActionId> = memoEditorToolbarActionSet(recording = recording, location = location)
+): ImmutableSet<InputToolbarActionId> = memoEditorToolbarActionSet(recording = recording)
 
 object MemoEditorToolbarActionIds {
     val camera = InputToolbarActionId("camera")
     val image = InputToolbarActionId("image")
     val record = InputToolbarActionId("record")
     val tag = InputToolbarActionId("tag")
-    val location = InputToolbarActionId("location")
     val backfill = InputToolbarActionId("backfill")
     val clearBackfill = InputToolbarActionId("clear-backfill")
     val todo = InputToolbarActionId("todo")
@@ -115,7 +126,6 @@ fun defaultMemoEditorToolbarOrder(): List<InputToolbarActionId> =
         MemoEditorToolbarActionIds.image,
         MemoEditorToolbarActionIds.record,
         MemoEditorToolbarActionIds.tag,
-        MemoEditorToolbarActionIds.location,
         MemoEditorToolbarActionIds.backfill,
         MemoEditorToolbarActionIds.todo,
         MemoEditorToolbarActionIds.reminder,
@@ -129,7 +139,6 @@ fun memoEditorToolbarToolMetadata(
     canUndo: Boolean,
     canRedo: Boolean,
     canBackfill: Boolean,
-    hasAttachedLocation: Boolean,
 ): ImmutableList<InputToolbarTool> =
     defaultMemoEditorToolbarOrder()
         .asSequence()
@@ -140,7 +149,6 @@ fun memoEditorToolbarToolMetadata(
                 canUndo = canUndo,
                 canRedo = canRedo,
                 canBackfill = canBackfill,
-                hasAttachedLocation = hasAttachedLocation,
             )
         }.toImmutableList()
 
@@ -150,10 +158,11 @@ fun unsupportedMemoEditorCommand(command: InputEditorCommand): Nothing =
 fun existingMemoEditorSurface(
     session: MemoEditorSessionState,
     toolbarToolOrder: ImmutableList<String>,
-    onUpdateMemo: suspend (MemoEditorSubmissionId, Memo, String) -> Boolean,
+    onUpdateMemo: suspend (MemoEditorSubmissionId, MemoEditSession, String) -> Boolean,
     submissionState: StateFlow<MemoEditorSubmissionState>,
     onSaveImage: (
         uri: Uri,
+        draftId: DraftId,
         onResult: (String) -> Unit,
         onError: (() -> Unit)?,
     ) -> Unit,
@@ -164,18 +173,18 @@ fun existingMemoEditorSurface(
         capabilities =
             MemoEditorCapabilities(
                 quickSaveOnBackEnabled = false,
-                toolbarActions = memoEditorToolbarTools(recording = false, location = false),
+                toolbarActions = memoEditorToolbarTools(recording = false),
                 toolbarToolOrder = toolbarToolOrder,
             ),
         commands = MemoEditorCommandHandler(::unsupportedMemoEditorCommand),
         operations =
             MemoEditorOperations(
                 onSaveImage = onSaveImage,
-                onSubmit = { submissionId, memo, content, _ ->
-                    checkNotNull(memo) {
+                onSubmit = { submissionId, editSession, content, _ ->
+                    checkNotNull(editSession) {
                         "Existing memo editor surface cannot submit a new memo"
                     }
-                    onUpdateMemo(submissionId, memo, content)
+                    onUpdateMemo(submissionId, editSession, content)
                 },
                 submissionState = submissionState,
                 onDismiss = null,
@@ -187,14 +196,10 @@ fun existingMemoEditorSurface(
 
 private fun memoEditorToolbarActionSet(
     recording: Boolean,
-    location: Boolean,
 ): ImmutableSet<InputToolbarActionId> {
     val actions = defaultMemoEditorToolbarOrder().toMutableSet()
     if (!recording) {
         actions -= MemoEditorToolbarActionIds.record
-    }
-    if (!location) {
-        actions -= MemoEditorToolbarActionIds.location
     }
     return actions.fold(persistentSetOf()) { result, actionId -> result.add(actionId) }
 }
@@ -204,7 +209,6 @@ private fun memoEditorToolbarTool(
     canUndo: Boolean,
     canRedo: Boolean,
     canBackfill: Boolean,
-    hasAttachedLocation: Boolean,
 ): InputToolbarTool =
     when (actionId) {
         MemoEditorToolbarActionIds.camera ->
@@ -233,18 +237,6 @@ private fun memoEditorToolbarTool(
                 contentDescriptionRes = R.string.cd_memo_editor_add_tag,
                 command = InputEditorCommand.ToggleTagSelector,
                 enabled = true,
-            )
-        MemoEditorToolbarActionIds.location ->
-            toolbarTool(
-                actionId = actionId,
-                contentDescriptionRes = R.string.cd_memo_editor_attach_location,
-                icon = Icons.Rounded.LocationOn,
-                tintRole =
-                    if (hasAttachedLocation) {
-                        InputToolbarToolTintRole.Highlight
-                    } else {
-                        InputToolbarToolTintRole.Default
-                    },
             )
         MemoEditorToolbarActionIds.backfill ->
             toolbarTool(

@@ -3,16 +3,40 @@ package com.lomo.app.feature.memo
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import com.lomo.app.testing.AppFunSpec
+import com.lomo.app.testing.verifiedEditSession
 import com.lomo.domain.model.Memo
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoEditorController focus-request policy.
- * - Behavior focus: create, edit, and ensure-visible entry points must each emit a fresh focus request token, while pure content mutations must not request keyboard focus again.
- * - Observable outcomes: focusRequestToken progression across controller actions and unchanged token during content-only mutations.
- * - Red phase: Would fail before the fix because MemoEditorController had no explicit focus-request token, so open and ensure-visible flows could not re-trigger InputSheet focus for an active editor session.
- * - Excludes: Compose sheet rendering, IME activation timing, and memo persistence.
+ * - Owning layer: app.
+ * - Priority tier: P1.
+ * - Capability: create, edit, and ensure-visible entry points each emit a fresh focus request
+ *   token, while pure content mutations never request keyboard focus again.
+ *
+ * Scenarios:
+ * - Given an open-for-create or ensure-visible entry point, when the controller runs it, then the
+ *   focusRequestToken advances.
+ * - Given content-only mutations, when they run, then the focus request token stays unchanged.
+ *
+ * Observable outcomes: focusRequestToken progression across controller actions.
+ *
+ * TDD proof:
+ * - Would fail before the fix because MemoEditorController had no explicit focus-request token,
+ *   so open and ensure-visible flows could not re-trigger InputSheet focus for an active session.
+ *
+ * Excludes:
+ * - Compose sheet rendering, IME activation timing, and memo persistence.
+ *
+ * Test Change Justification:
+ * - Reason category: open-for-edit now requires a verified edit session.
+ * - Old behavior/assertion being replaced: openForEdit consumed a bare Memo preview.
+ * - Why old assertion is no longer correct: a preview cannot become an edit baseline; the
+ *   controller only opens a MemoEditSession verified through the full-snapshot gate.
+ * - Coverage preserved by: identical token-progression scenarios via verifiedEditSession helper.
+ * - Why this is not fitting the test to the implementation: assertions check token outcomes,
+ *   not the session's verification internals.
  */
 class MemoEditorFocusRequestPolicyTest : AppFunSpec() {
     init {
@@ -32,7 +56,7 @@ class MemoEditorFocusRequestPolicyTest : AppFunSpec() {
             controller.openForCreate("draft")
             (controller.focusRequestToken) shouldBe (1L)
 
-            controller.openForEdit(memo)
+            controller.openForEdit(memo.verifiedEditSession())
             (controller.focusRequestToken) shouldBe (2L)
 
             controller.ensureVisible()

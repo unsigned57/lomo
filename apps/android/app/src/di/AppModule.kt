@@ -76,7 +76,10 @@ val appModule = module {
     single<com.lomo.app.feature.preferences.FontFamilyLoader> {
         com.lomo.app.feature.preferences.PlatformFontFamilyLoader()
     }
-    single { com.lomo.app.feature.preferences.CustomFontHost(get(), get(), get()) }
+    single<com.lomo.app.feature.preferences.CanvasTypefaceLoader> {
+        com.lomo.app.feature.preferences.PlatformCanvasTypefaceLoader()
+    }
+    single { com.lomo.app.feature.preferences.CustomFontHost(get(), get(), get(), get()) }
     single { AppConfigStateProvider(get(), get(), get(), get(), get(), get(named("AppScope"))) }
     single { AppConfigUiCoordinator(get()) }
     single { MemoCollectionProjectionMapper(get()) }

@@ -5,12 +5,15 @@ import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.util.runSuspendCatching
+import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.EngineDiagnosticEvent
 import com.lomo.domain.model.EngineDiagnosticsRecorder
+import com.lomo.domain.model.RecoverableDraftFailure
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.usecase.CreateMemoUseCase
 import com.lomo.domain.usecase.DiscardDraftMediaUseCase
 import com.lomo.domain.usecase.LoadCreateDraftUseCase
+import com.lomo.domain.usecase.ReconcileDraftMediaUseCase
 import com.lomo.domain.usecase.SaveCreateDraftUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
@@ -32,12 +35,19 @@ class MemoEditorViewModel(
     private val discardDraftMediaUseCase: DiscardDraftMediaUseCase,
     private val loadCreateDraftUseCase: LoadCreateDraftUseCase,
     private val saveCreateDraftUseCase: SaveCreateDraftUseCase,
+    private val reconcileDraftMediaUseCase: ReconcileDraftMediaUseCase,
     private val diagnostics: EngineDiagnosticsRecorder,
 ) : ViewModel() {
     /** Staged draft media destinations (image + voice relative paths) for discard. */
     // behavior-contract: mutable-payload-ok: private discard ledger for staged-media cleanup; never rendered or exposed
     private val trackedStagedMedia = mutableSetOf<String>()
-    private val draftId = com.lomo.app.feature.common.newDraftId()
+
+    /**
+     * This editor's durable draft identity — the lease owner of every staged media item. It is
+     * minted at construction and adopted from the persisted create draft on recovery, so staged
+     * media survives process death under the same owner.
+     */
+    private val draftId = MutableStateFlow(DraftId.mint())
     private val hasLocalDraftMutation = MutableStateFlow(false)
 
     private val _errorMessage = MutableStateFlow<String?>(null)
@@ -47,7 +57,7 @@ class MemoEditorViewModel(
     val draftText: StateFlow<String> = _draftText
     internal val submissions =
         MemoEditorCommitCoordinator(
-            draftId = draftId,
+            draftId = { draftId.value },
             scope = viewModelScope,
             createMemo = { attempt -> createMemoUseCase(attempt) },
             updateMemo = updateMemoContentUseCase::invoke,
@@ -81,9 +91,19 @@ class MemoEditorViewModel(
 
     init {
         viewModelScope.launch {
-            val persistedDraft = loadCreateDraftUseCase()?.content.orEmpty()
+            val persistedDraft = loadCreateDraftUseCase()
             if (!hasLocalDraftMutation.value) {
-                _draftText.value = persistedDraft
+                _draftText.value = persistedDraft?.content.orEmpty()
+                // Adopt the recovered draft's lease identity so media staged before process death
+                // is still owned by this session, then reconcile it against the stage ledger.
+                persistedDraft?.let { draft ->
+                    draftId.value = draft.draftId
+                    try {
+                        reconcileDraftMediaUseCase(draft.draftId)
+                    } catch (recoverable: RecoverableDraftFailure) {
+                        _errorMessage.value = recoverable.toUserMessage()
+                    }
+                }
             }
         }
         observeStalledSubmissions()
@@ -116,7 +136,7 @@ class MemoEditorViewModel(
             _draftText.value = text
             draftJob?.cancel()
             draftJob = viewModelScope.launch {
-                saveCreateDraftUseCase(text)
+                saveCreateDraftUseCase(draftId.value, text)
             }
         }
 
@@ -125,12 +145,17 @@ class MemoEditorViewModel(
             _draftText.value = ""
             draftJob?.cancel()
             draftJob = viewModelScope.launch {
-                saveCreateDraftUseCase(null)
+                saveCreateDraftUseCase(draftId.value, null)
             }
         }
 
+        /**
+         * Stages an image under the lease of [draftId] — the effective draft the caller resolved
+         * (an open edit session's durable draft, else this editor's own create draft).
+         */
         fun saveImage(
             uri: android.net.Uri,
+            draftId: DraftId,
             onResult: (String) -> Unit,
             onError: (() -> Unit)? = null,
         ) {
@@ -169,7 +194,11 @@ class MemoEditorViewModel(
             trackStagedMedia(dest)
         }
 
-        fun discardInputs() {
+        /**
+         * Discards the media staged under [draftId] — the effective draft that was dismissed —
+         * then releases every lease that draft still owns.
+         */
+        fun discardInputs(draftId: DraftId) {
             viewModelScope.launch {
                 runSuspendCatching {
                     val toDelete = trackedStagedMedia.toList()
@@ -179,6 +208,15 @@ class MemoEditorViewModel(
                     _errorMessage.value = throwable.toUserMessage("Failed to discard input")
                 }
             }
+        }
+
+        /** The draft identity this editor's media leases belong to. */
+        internal val ownerDraftId: DraftId
+            get() = draftId.value
+
+        /** Surfaces a non-mutation failure (e.g. editor open) on the shared error channel. */
+        fun reportError(throwable: Throwable) {
+            _errorMessage.value = throwable.toUserMessage("Failed to open memo")
         }
 
         fun clearError() {

@@ -34,6 +34,7 @@ package com.lomo.app.feature.memo
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import com.lomo.app.testing.AppFunSpec
+import com.lomo.app.testing.verifiedEditSession
 import com.lomo.domain.model.Memo
 import io.kotest.matchers.shouldBe
 class MemoEditorControllerTest : AppFunSpec() {
@@ -130,8 +131,8 @@ class MemoEditorControllerTest : AppFunSpec() {
             (controller.inputValue.text) shouldBe ("manual")
             (controller.inputValue.selection) shouldBe (TextRange(2))
 
-            controller.openForEdit(memo)
-            (controller.editingMemo) shouldBe (memo)
+            controller.openForEdit(memo.verifiedEditSession())
+            (controller.editingMemo?.id) shouldBe (memo.id)
             (controller.inputValue.text) shouldBe ("existing body")
             (controller.inputValue.selection) shouldBe (TextRange(memo.content.length))
 
@@ -204,7 +205,7 @@ class MemoEditorControllerTest : AppFunSpec() {
             (controller.backfillSelection.timestampMillis) shouldBe (timestampMillis)
             (controller.backfillSelection.timestampMillisForCreateSubmit(false)) shouldBe (timestampMillis)
 
-            controller.openForEdit(memo)
+            controller.openForEdit(memo.verifiedEditSession())
 
             (controller.backfillSelection.timestampMillis) shouldBe null
             (controller.backfillSelection.timestampMillisForCreateSubmit(true)) shouldBe null

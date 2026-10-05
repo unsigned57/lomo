@@ -39,6 +39,7 @@ package com.lomo.app.feature.common
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.memo.MemoEditorSubmissionId
 import com.lomo.app.testing.AppFunSpec
+import com.lomo.app.testing.verifiedEditSession
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.ExitAnimationRegistry
 import io.kotest.matchers.shouldBe
@@ -300,6 +301,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                                 },
                                 toggleTodo = { _, _ -> "updated" },
                                 saveImage = { _, _ -> error("not used") },
+                                loadEditableMemo = { error("not used") },
                             ),
                         scope = this,
                         mapToUiModel = { error("not used") },
@@ -309,7 +311,7 @@ class MemoCollectionActionsTest : AppFunSpec() {
                     async {
                         actions.submitMemoUpdate(
                             MemoEditorSubmissionId(20L),
-                            memo,
+                            memo.verifiedEditSession(),
                             "committed",
                         )
                     }

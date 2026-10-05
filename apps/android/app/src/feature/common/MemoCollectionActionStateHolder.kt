@@ -41,7 +41,7 @@ class MemoCollectionActionStateHolder(
         MemoCollectionActions(
             exitAnimationRegistry = exitAnimationRegistry,
             errors = errors,
-            draftId = newDraftId(),
+            draftId = com.lomo.domain.model.DraftId.mint(),
             editorSubmissionStateMachine = editorSubmissionStateMachine,
             capabilities = capabilities,
             scope = scope,

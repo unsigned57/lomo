@@ -7,7 +7,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoEditDraft
 import com.lomo.domain.model.markdown.MarkdownRenderContractException
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
@@ -31,14 +30,14 @@ internal fun MemoEditorDraftAutosaveEffect(
         var lastPersistedMemoId: String? = null
         snapshotFlow {
             MemoEditDraftAutosaveState(
-                memo = controller.editingMemo,
+                session = controller.editingSession,
                 text = controller.inputValue.text,
                 isVisible = controller.isVisible,
             )
         }.distinctUntilChanged()
             .collectLatest { state ->
-                val memo = state.memo
-                val memoId = memo?.id
+                val session = state.session
+                val memoId = session?.run { snapshot.memo.id }
                 if (lastPersistedMemoId != null && lastPersistedMemoId != memoId) {
                     repository.clear(checkNotNull(lastPersistedMemoId))
                     lastPersistedMemoId = null
@@ -50,20 +49,19 @@ internal fun MemoEditorDraftAutosaveEffect(
                     }
                     return@collectLatest
                 }
-                if (memo == null) return@collectLatest
-                val revision = memo.contentRevision
-                val fingerprint = memo.fileFingerprint?.takeIf(String::isNotBlank)
-                if (revision == null || fingerprint == null) return@collectLatest
+                if (session == null) return@collectLatest
+                val baseline = session.snapshot.baseline
                 delay(MEMO_EDITOR_DRAFT_DEBOUNCE_MILLIS)
                 repository.write(
                     MemoEditDraft(
-                        memoId = memo.id,
-                        baselineRevision = revision,
-                        baselineFingerprint = fingerprint,
+                        draftId = session.draftId,
+                        memoId = baseline.memoId,
+                        baselineRevision = baseline.contentRevision,
+                        baselineFingerprint = baseline.fileFingerprint,
                         content = state.text,
                     ),
                 )
-                lastPersistedMemoId = memo.id
+                lastPersistedMemoId = baseline.memoId
             }
     }
 }
@@ -116,7 +114,7 @@ internal fun rememberMemoEditorPreviewState(
 }
 
 private data class MemoEditDraftAutosaveState(
-    val memo: Memo?,
+    val session: MemoEditSession?,
     val text: String,
     val isVisible: Boolean,
 )

@@ -51,8 +51,12 @@ class MemoEditorController
         var focusRequestToken by mutableLongStateOf(0L)
             private set
 
-        var editingMemo: Memo? by mutableStateOf(null)
+        var editingSession: MemoEditSession? by mutableStateOf(null)
             private set
+
+        /** The verified full snapshot of the memo being edited, if a session is open. */
+        val editingMemo: Memo?
+            get() = editingSession?.run { snapshot.memo }
 
         var inputValue by mutableStateOf(TextFieldValue(""))
             private set
@@ -73,7 +77,7 @@ class MemoEditorController
 
         fun openForCreate(initialText: String = "") {
             submission.reset()
-            editingMemo = null
+            editingSession = null
             inputValue = TextFieldValue(initialText, TextRange(initialText.length))
             undoRedoManager.reset()
             mode = MemoEditorMode.Compact
@@ -83,11 +87,11 @@ class MemoEditorController
             focusRequestToken += 1L
         }
 
-        /** Opens a full snapshot, optionally replacing only the editor buffer with a validated
-         * durable draft bound to that snapshot's CAS baseline. */
-        internal fun openForEditContent(memo: Memo, content: String) {
+        /** Opens an edit session, optionally replacing only the editor buffer with a validated
+         * durable draft bound to that session's CAS baseline. */
+        internal fun openForEditContent(session: MemoEditSession, content: String) {
             submission.reset()
-            editingMemo = memo
+            editingSession = session
             inputValue = TextFieldValue(content, TextRange(content.length))
             undoRedoManager.reset()
             mode = MemoEditorMode.Compact
@@ -159,7 +163,7 @@ class MemoEditorController
 
         private fun resetSession() {
             isVisible = false
-            editingMemo = null
+            editingSession = null
             inputValue = TextFieldValue("")
             undoRedoManager.reset()
             mode = MemoEditorMode.Compact
@@ -170,8 +174,8 @@ class MemoEditorController
     }
 
 /** Convenience edit entry kept outside the state holder so the controller remains a small state machine. */
-internal fun MemoEditorController.openForEdit(memo: Memo) {
-    openForEditContent(memo, memo.content)
+internal fun MemoEditorController.openForEdit(session: MemoEditSession) {
+    openForEditContent(session, session.snapshot.memo.content)
 }
 
 fun MemoEditorController.appendMarkdownBlock(markdown: String) {
@@ -310,6 +314,7 @@ fun MemoEditorSheetHost(
         rememberMemoEditorMediaActions(
             controller = controller,
             imageDirectory = session.imageDirectory,
+            ownerDraftId = session.ownerDraftId,
             onSaveImage = surface.operations.onSaveImage,
             onImageDirectoryMissing = session.onImageDirectoryMissing,
             onCameraCaptureError = session.onCameraCaptureError,
@@ -429,7 +434,6 @@ private fun buildMemoEditorSheetState(
                                 canUndo = controller.canUndo,
                                 canRedo = controller.canRedo,
                                 canBackfill = controller.editingMemo == null,
-                                hasAttachedLocation = session.attachedGeoLocation != null,
                             ),
                     ),
                 actionBadge =
@@ -458,8 +462,11 @@ private fun buildMemoEditorSheetCallbacks(
     InputSheetCallbacks(
         onInputValueChange = controller::updateInputValue,
         onDismiss = {
+            // Resolve the lease owner before close() clears the session: an edit session owns
+            // its adopted durable draft, a create session owns the surface owner's draft.
+            val dismissedDraftId = controller.editingSession?.draftId ?: surface.session.ownerDraftId
             if (controller.close()) {
-                surface.operations.onDismiss?.invoke()
+                surface.operations.onDismiss?.invoke(dismissedDraftId)
             }
         },
         onToggleExpanded = { controller.setExpanded(controller.mode == MemoEditorMode.Compact) },
@@ -474,7 +481,7 @@ private fun buildMemoEditorSheetCallbacks(
                 val committed =
                     surface.operations.onSubmit(
                         submissionId,
-                        controller.editingMemo,
+                        controller.editingSession,
                         content,
                         controller.backfillSelection.timestampMillisForCreateSubmit(
                             isEditingExistingMemo = controller.editingMemo != null,

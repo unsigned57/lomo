@@ -7,7 +7,6 @@ import androidx.compose.runtime.setValue
 import com.lomo.app.feature.common.newMemoOperationId
 import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.Memo
-import com.lomo.domain.model.EditableMemoSnapshot
 import com.lomo.domain.model.MemoCreateAttempt
 import com.lomo.domain.model.MemoOperationId
 import com.lomo.domain.model.MemoUpdateAttempt
@@ -229,7 +228,7 @@ internal class MemoEditorSubmissionStateMachine {
 
 /** Executes create/update mutations and exposes the exact durable acknowledgement to editor hosts. */
 internal class MemoEditorCommitCoordinator(
-    draftId: DraftId,
+    draftId: () -> DraftId,
     private val scope: CoroutineScope,
     private val createMemo: suspend (MemoCreateAttempt) -> Memo,
     private val updateMemo: suspend (MemoUpdateAttempt) -> Unit,
@@ -273,12 +272,12 @@ internal class MemoEditorCommitCoordinator(
 
     fun update(
         submissionId: MemoEditorSubmissionId,
-        memo: Memo,
+        session: MemoEditSession,
         newContent: String,
     ) {
         onStarted()
         stateMachine.launch(scope, submissionId, onFailure) { previous ->
-            updateMemo(attempts.update(memo, newContent, previous))
+            updateMemo(attempts.update(session, newContent, previous))
             onUpdateCommitted()
         }
     }
@@ -295,7 +294,7 @@ internal class MemoEditorCommitCoordinator(
 
 /** Adapts one screen-owned memo projection update to the shared submission acknowledgement law. */
 internal class MemoEditorUpdateSubmission(
-    draftId: DraftId,
+    draftId: () -> DraftId,
     private val scope: CoroutineScope,
     private val updateMemo: suspend (MemoUpdateAttempt) -> Unit,
     private val onFailure: (Exception) -> Unit,
@@ -306,19 +305,25 @@ internal class MemoEditorUpdateSubmission(
 
     suspend fun submit(
         submissionId: MemoEditorSubmissionId,
-        memo: Memo,
+        session: MemoEditSession,
         newContent: String,
     ): Boolean {
         stateMachine.launch(scope, submissionId, onFailure) { previous ->
-            updateMemo(attempts.update(memo, newContent, previous))
+            updateMemo(attempts.update(session, newContent, previous))
         }
         return stateMachine.await(submissionId)
     }
 }
 
-/** Owns the frozen payload and retry identity of the active editor draft. */
+/**
+ * Owns the frozen payload and retry identity of the active editor draft.
+ *
+ * [draftId] is read lazily because a recovered durable draft adopts its persisted identity after
+ * construction — a create attempt must lease under the identity that owns the staged media, not
+ * the one minted before recovery ran.
+ */
 internal class MemoEditorAttemptStore(
-    private val draftId: DraftId,
+    private val draftId: () -> DraftId,
 ) {
     private sealed interface Frozen {
         data class Create(val requestedTime: Long?, val command: MemoCreateAttempt) : Frozen
@@ -334,7 +339,7 @@ internal class MemoEditorAttemptStore(
         val command =
             MemoCreateAttempt(
                 operationId = nextOperationId(),
-                draftId = draftId,
+                draftId = draftId(),
                 content = content,
                 timestampMillis = timestampMillis ?: System.currentTimeMillis(),
             )
@@ -342,16 +347,20 @@ internal class MemoEditorAttemptStore(
         return command
     }
 
-    fun update(memo: Memo, content: String, previous: MemoEditorSubmissionState): MemoUpdateAttempt {
-        val snapshot = EditableMemoSnapshot.fromFullSnapshot(memo)
+    /**
+     * Freezes the update attempt bound to the session's verified snapshot and *its* durable draft
+     * identity — the lease owner of the staged media — never the store's create-draft identity.
+     */
+    fun update(session: MemoEditSession, content: String, previous: MemoEditorSubmissionState): MemoUpdateAttempt {
+        val snapshot = session.snapshot
         val existing = frozen as? Frozen.Update
-        if (previous is MemoEditorSubmissionState.Failed && existing != null &&
-            existing.command.snapshot == snapshot && existing.command.content == content
+        if (previous is MemoEditorSubmissionState.Failed &&
+            existing != null && existing.command.replays(session, content)
         ) return existing.command
         val command =
             MemoUpdateAttempt(
                 operationId = nextOperationId(),
-                draftId = draftId,
+                draftId = session.draftId,
                 snapshot = snapshot,
                 content = content,
             )
@@ -361,3 +370,9 @@ internal class MemoEditorAttemptStore(
 
     private fun nextOperationId(): MemoOperationId = newMemoOperationId()
 }
+
+private fun MemoUpdateAttempt.replays(
+    session: MemoEditSession,
+    content: String,
+): Boolean =
+    snapshot == session.snapshot && this.content == content && draftId == session.draftId

@@ -36,8 +36,8 @@
 package com.lomo.app.feature.memo
 
 import com.lomo.app.testing.AppFunSpec
+import com.lomo.domain.model.DraftId
 import com.lomo.ui.component.input.InputEditorCommand
-import com.lomo.ui.component.input.InputToolbarToolTintRole
 import io.kotest.assertions.withClue
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.shouldBe
@@ -50,7 +50,11 @@ class MemoEditorHostSurfaceContractTest : AppFunSpec() {
         test("given memo editor state when surface is built then app owns grouped session and capabilities") {
             val surface =
                 MemoEditorSurface(
-                    session = MemoEditorSessionState(imageDirectory = "/images"),
+                    session =
+                        MemoEditorSessionState(
+                            imageDirectory = "/images",
+                            ownerDraftId = DraftId("contract-draft"),
+                        ),
                     capabilities = MemoEditorCapabilities(quickSaveOnBackEnabled = true),
                     commands = MemoEditorCommandHandler { },
                     operations = MemoEditorOperations.fakeForContract(),
@@ -64,37 +68,39 @@ class MemoEditorHostSurfaceContractTest : AppFunSpec() {
             val commands = mutableListOf<InputEditorCommand>()
             val surface =
                 MemoEditorSurface(
-                    session = MemoEditorSessionState(imageDirectory = "/images"),
+                    session =
+                        MemoEditorSessionState(
+                            imageDirectory = "/images",
+                            ownerDraftId = DraftId("contract-draft"),
+                        ),
                     capabilities = MemoEditorCapabilities(quickSaveOnBackEnabled = false),
                     commands = MemoEditorCommandHandler { command -> commands += command },
                     operations = MemoEditorOperations.fakeForContract(),
                 )
 
             surface.commands.dispatch(InputEditorCommand.Action(MemoEditorToolbarActionIds.image))
-            surface.commands.dispatch(InputEditorCommand.Action(MemoEditorToolbarActionIds.location))
+            surface.commands.dispatch(InputEditorCommand.Action(MemoEditorToolbarActionIds.reminder))
 
             commands shouldContainExactly
                 listOf(
                     InputEditorCommand.Action(MemoEditorToolbarActionIds.image),
-                    InputEditorCommand.Action(MemoEditorToolbarActionIds.location),
+                    InputEditorCommand.Action(MemoEditorToolbarActionIds.reminder),
                 )
         }
 
         test("given memo toolbar metadata when built then app owns memo action labels and command ids") {
             val tools =
                 memoEditorToolbarToolMetadata(
-                    availableActions = memoEditorToolbarTools(recording = true, location = true),
+                    availableActions = memoEditorToolbarTools(recording = true),
                     canUndo = true,
                     canRedo = false,
                     canBackfill = false,
-                    hasAttachedLocation = true,
                 ).associateBy { tool -> tool.id }
 
             (tools.getValue(MemoEditorToolbarActionIds.backfill).contentDescriptionRes > 0) shouldBe true
             tools.getValue(MemoEditorToolbarActionIds.backfill).enabled shouldBe false
             tools.getValue(MemoEditorToolbarActionIds.reminder).command shouldBe
                 InputEditorCommand.Action(MemoEditorToolbarActionIds.reminder)
-            tools.getValue(MemoEditorToolbarActionIds.location).tintRole shouldBe InputToolbarToolTintRole.Highlight
         }
 
         test("given memo editor host source when inspected then flattened editor parameters are deleted") {
@@ -173,9 +179,9 @@ class MemoEditorHostSurfaceContractTest : AppFunSpec() {
 
 private fun MemoEditorOperations.Companion.fakeForContract(): MemoEditorOperations =
     MemoEditorOperations(
-        onSaveImage = { _, _, _ -> },
+        onSaveImage = { _, _, _, _ -> },
         onSubmit = { _, _, _, _ -> true },
         submissionState = MutableStateFlow(MemoEditorSubmissionState.Idle),
-        onDismiss = {},
+        onDismiss = { _ -> },
         onToolbarOrderChanged = {},
     )

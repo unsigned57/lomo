@@ -59,6 +59,7 @@ val viewModelModule = module {
             updateMemoContentUseCase = get(),
             toggleMemoCheckboxUseCase = get(),
             saveImageUseCase = get(),
+            loadEditableMemoUseCase = get(),
             workspaceCoordinator = get(),
         )
     }
@@ -74,6 +75,7 @@ val viewModelModule = module {
             updateMemoContentUseCase = get(),
             saveImageUseCase = get(),
             toggleMemoCheckboxUseCase = get(),
+            loadEditableMemoUseCase = get(),
             workspaceCoordinator = get(),
         )
     }

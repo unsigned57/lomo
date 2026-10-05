@@ -4,10 +4,12 @@ import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.domain.usecase.DailyReviewSessionUseCase
 import com.lomo.domain.usecase.ListMemoTasksUseCase
 import com.lomo.domain.usecase.LoadCreateDraftUseCase
+import com.lomo.domain.usecase.LoadEditableMemoUseCase
 import com.lomo.domain.usecase.MemoStatisticsUseCase
 import com.lomo.domain.usecase.MemoTrashUseCase
 import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.ObserveSidebarStatisticsUseCase
+import com.lomo.domain.usecase.ReconcileDraftMediaUseCase
 import com.lomo.domain.usecase.SaveCreateDraftUseCase
 import org.koin.dsl.module
 
@@ -20,5 +22,7 @@ val domainMemoReadModule = module {
     single { ObserveSidebarStatisticsUseCase(get()) }
     single { MemoTrashUseCase(get()) }
     single { LoadCreateDraftUseCase(get()) }
+    single { LoadEditableMemoUseCase(get()) }
+    single { ReconcileDraftMediaUseCase(get()) }
     single { SaveCreateDraftUseCase(get()) }
 }

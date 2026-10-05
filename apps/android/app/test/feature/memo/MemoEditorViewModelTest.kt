@@ -34,6 +34,9 @@ package com.lomo.app.feature.memo
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
+import com.lomo.app.testing.verifiedEditSession
+import com.lomo.domain.model.DraftId
+import com.lomo.domain.model.DraftMediaReconciliation
 import com.lomo.domain.model.EngineDiagnosticEvent
 import com.lomo.domain.model.EngineDiagnosticsRecorder
 import com.lomo.domain.model.Memo
@@ -42,6 +45,7 @@ import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.usecase.CreateMemoUseCase
 import com.lomo.domain.usecase.DiscardDraftMediaUseCase
 import com.lomo.domain.usecase.LoadCreateDraftUseCase
+import com.lomo.domain.usecase.ReconcileDraftMediaUseCase
 import com.lomo.domain.usecase.SaveCreateDraftUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
@@ -75,6 +79,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
     private val discardDraftMediaUseCase = FakeDiscardDraftMediaUseCase()
     private val loadCreateDraftUseCase = FakeLoadCreateDraftUseCase(sharedDraftText)
     private val saveCreateDraftUseCase = FakeSaveCreateDraftUseCase(sharedDraftText)
+    private val reconcileDraftMediaUseCase = FakeReconcileDraftMediaUseCase()
     private val diagnostics = FakeEngineDiagnosticsRecorder()
 
     init {
@@ -150,14 +155,14 @@ class MemoEditorViewModelTest : AppFunSpec() {
                     SaveImageResult.SavedAndCacheSynced(StorageLocation("images/memo-editor-1.jpg"))
 
                 viewModel.saveDraft("to be cleared")
-                viewModel.saveImage(uri, onResult = {}, onError = null)
+                viewModel.saveImage(uri, viewModel.ownerDraftId, onResult = {}, onError = null)
                 advanceUntilIdle()
 
                 val submissionId = MemoEditorSubmissionId(1L)
                 viewModel.submissions.create(submissionId = submissionId, content = "new memo")
                 advanceUntilIdle()
 
-                viewModel.discardInputs()
+                viewModel.discardInputs(viewModel.ownerDraftId)
                 advanceUntilIdle()
 
                 viewModel.submissions.await(submissionId) shouldBe true
@@ -249,7 +254,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 updateMemoContentUseCase.updateMemoException = IllegalStateException("update failed")
 
                 val submissionId = MemoEditorSubmissionId(3L)
-                viewModel.submissions.update(submissionId, memo, "updated")
+                viewModel.submissions.update(submissionId, memo.verifiedEditSession(), "updated")
                 advanceUntilIdle()
 
                 viewModel.errorMessage.value shouldBe "update failed"
@@ -266,13 +271,13 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 saveImageUseCase.customSaveResults["content://memo-editor/image-success"] =
                     SaveImageResult.SavedAndCacheSynced(StorageLocation("images/memo-editor-success.jpg"))
 
-                viewModel.saveImage(uri, onResult = {}, onError = null)
+                viewModel.saveImage(uri, viewModel.ownerDraftId, onResult = {}, onError = null)
                 advanceUntilIdle()
 
                 val submissionId = MemoEditorSubmissionId(4L)
-                viewModel.submissions.update(submissionId, memo, "updated")
+                viewModel.submissions.update(submissionId, memo.verifiedEditSession(), "updated")
                 advanceUntilIdle()
-                viewModel.discardInputs()
+                viewModel.discardInputs(viewModel.ownerDraftId)
                 advanceUntilIdle()
 
                 updateMemoContentUseCase.updateMemoCalledWithMemo shouldBe memo
@@ -291,9 +296,9 @@ class MemoEditorViewModelTest : AppFunSpec() {
                     SaveImageResult.SavedAndCacheSynced(StorageLocation("images/memo-editor-track.jpg"))
                 var savedPath: String? = null
 
-                viewModel.saveImage(uri, onResult = { savedPath = it }, onError = null)
+                viewModel.saveImage(uri, viewModel.ownerDraftId, onResult = { savedPath = it }, onError = null)
                 advanceUntilIdle()
-                viewModel.discardInputs()
+                viewModel.discardInputs(viewModel.ownerDraftId)
                 advanceUntilIdle()
 
                 savedPath shouldBe "images/memo-editor-track.jpg"
@@ -305,7 +310,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
             runTest {
                 val viewModel = createViewModel()
                 viewModel.trackVoiceMarkdown("![voice](media/voice_20260101_120000.m4a)")
-                viewModel.discardInputs()
+                viewModel.discardInputs(viewModel.ownerDraftId)
                 advanceUntilIdle()
 
                 discardDraftMediaUseCase.discardCalledWith shouldBe
@@ -329,6 +334,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
 
                 viewModel.saveImage(
                     uri = uri,
+                    draftId = viewModel.ownerDraftId,
                     onResult = { path -> savedPath = path },
                     onError = { onErrorCalled = true },
                 )
@@ -360,7 +366,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
                 val viewModel = createViewModel()
                 discardDraftMediaUseCase.discardException = IllegalStateException("discard failed")
 
-                viewModel.discardInputs()
+                viewModel.discardInputs(viewModel.ownerDraftId)
                 advanceUntilIdle()
 
                 viewModel.errorMessage.value shouldBe "Failed to discard input: discard failed"
@@ -416,6 +422,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
             discardDraftMediaUseCase = discardDraftMediaUseCase,
             loadCreateDraftUseCase = loadCreateDraftUseCase,
             saveCreateDraftUseCase = saveCreateDraftUseCase,
+            reconcileDraftMediaUseCase = reconcileDraftMediaUseCase,
             diagnostics = diagnostics,
         )
 
@@ -428,6 +435,7 @@ class MemoEditorViewModelTest : AppFunSpec() {
             dateKey = "2026_03_24",
             contentRevision = 1L,
             fileFingerprint = "editor-source-fingerprint",
+            projectedCharCount = "- 10:00 memo content".length.toLong(),
         )
 
     class FakeCreateMemoUseCase : CreateMemoUseCase(mockk(), mockk(), mockk(), mockk()) {
@@ -531,7 +539,16 @@ class MemoEditorViewModelTest : AppFunSpec() {
 
         override suspend operator fun invoke(): MemoCreateDraft? {
             loadGate?.await()
-            return stored.value?.let { MemoCreateDraft(it) }
+            return stored.value?.let { MemoCreateDraft(DraftId("recovered-create-draft"), it) }
+        }
+    }
+
+    class FakeReconcileDraftMediaUseCase : ReconcileDraftMediaUseCase(mockk()) {
+        val reconciledDraftIds = mutableListOf<DraftId>()
+
+        override suspend operator fun invoke(draftId: DraftId): DraftMediaReconciliation {
+            reconciledDraftIds += draftId
+            return DraftMediaReconciliation(draftId = draftId, records = emptyList())
         }
     }
 
@@ -546,7 +563,10 @@ class MemoEditorViewModelTest : AppFunSpec() {
             saveCalledWithValue = null
         }
 
-        override suspend operator fun invoke(content: String?) {
+        override suspend operator fun invoke(
+            draftId: DraftId,
+            content: String?,
+        ) {
             saveCalledCount++
             saveCalledWithValue = content
             stored.value = content
