@@ -21,6 +21,7 @@ mod tests {
         model::{BodyState, InputMode, View},
         update::apply_command,
     };
+    use lomo_workspace::MemoId;
 
     #[test]
     fn background_notice_cannot_take_over_a_capture_input() {
@@ -30,10 +31,12 @@ mod tests {
             apply_command(&mut model, Command::Type("正在写".to_owned())),
             None
         );
+        let req = model.request(lomo_tui::model::PendingKind::Attachment);
         assert_eq!(
             apply_message(
                 &mut model,
                 RuntimeMessage::Message {
+                    req,
                     title: "attachment".to_owned(),
                     lines: vec!["opened".to_owned()]
                 }
@@ -100,11 +103,14 @@ mod tests {
             .ok_or("memo")
             .expect("fixture and operation must succeed")
             .body = BodyState::Pending;
-        assert!(matches!(
-            lomo_tui::navigation::hydrate_visible(&mut model),
-            Some(lomo_tui::effects::Effect::Bodies { .. })
-        ));
-        model.next_epoch();
+        let Some(lomo_tui::effects::Effect::Bodies { req, .. }) =
+            lomo_tui::navigation::hydrate_visible(&mut model)
+        else {
+            panic!("body hydration request");
+        };
+        // The dead generation's request leaves the registry; its `Loading`
+        // markers become loadable again without any shared epoch.
+        model.pending.cancel(req);
         assert!(matches!(
             lomo_tui::navigation::hydrate_visible(&mut model),
             Some(lomo_tui::effects::Effect::Bodies { .. })
@@ -115,7 +121,10 @@ mod tests {
     fn a_page_finishing_while_reading_is_retained_for_the_returned_feed() {
         let mut model = model_with_memos(2, 80, 24).expect("fixture and operation must succeed");
         let _effect = lomo_tui::update::reload_feed(&mut model);
-        let epoch = model.epoch;
+        let req = super::support::feed_mut(&mut model)
+            .expect("fixture and operation must succeed")
+            .pending_page
+            .expect("page request in flight");
         assert_eq!(apply_command(&mut model, Command::Accept), None);
         let mut updated = super::support::memo("memo-0", "updated snapshot")
             .expect("fixture and operation must succeed");
@@ -124,8 +133,14 @@ mod tests {
             apply_message(
                 &mut model,
                 RuntimeMessage::Page {
-                    epoch,
+                    req,
                     append: false,
+                    // The reply's own card plus the other loaded survivor —
+                    // the live-order sequence the refresh evidence carries.
+                    order: vec![
+                        MemoId::parse("memo-0").expect("fixture and operation must succeed"),
+                        MemoId::parse("memo-1").expect("fixture and operation must succeed"),
+                    ],
                     cards: vec![updated],
                     next: None,
                     total: Some(1),
@@ -142,27 +157,28 @@ mod tests {
 
     #[test]
     fn body_cache_keeps_the_visible_neighborhood_and_releases_distant_versions() {
-        let mut model = model_with_memos(320, 80, 24).expect("fixture and operation must succeed");
+        // Off-window bodies are resident — the cache demotes only once it
+        // exceeds its bounded capacity (512), and then the farthest first.
+        let mut model = model_with_memos(700, 80, 24).expect("fixture and operation must succeed");
         let _effect = lomo_tui::navigation::hydrate_visible(&mut model);
+        let memos = &feed(&model)
+            .expect("fixture and operation must succeed")
+            .memos;
         assert!(matches!(
-            feed(&model)
-                .expect("fixture and operation must succeed")
-                .memos
-                .first()
-                .ok_or("first")
-                .expect("fixture and operation must succeed")
-                .body,
+            memos.first().ok_or("first").expect("fixture").body,
             BodyState::Ready(_)
         ));
+        assert!(
+            matches!(
+                memos.get(300).map(|memo| &memo.body),
+                Some(BodyState::Ready(_))
+            ),
+            "a resident body inside the capacity bound survives the pass"
+        );
         assert_eq!(
-            feed(&model)
-                .expect("fixture and operation must succeed")
-                .memos
-                .last()
-                .ok_or("last")
-                .expect("fixture and operation must succeed")
-                .body,
-            BodyState::Pending
+            memos.last().ok_or("last").expect("fixture").body,
+            BodyState::Pending,
+            "the farthest card beyond the capacity bound releases its body"
         );
     }
 
@@ -172,7 +188,7 @@ mod tests {
         let _effect = apply_command(&mut model, Command::CustomDate);
         let _effect = apply_command(&mut model, Command::Type("today".to_owned()));
         let effect = apply_command(&mut model, Command::Accept).expect("date request");
-        let lomo_tui::effects::Effect::Date { ticket, .. } = effect else {
+        let lomo_tui::effects::Effect::Date { req, .. } = effect else {
             panic!("date request");
         };
         let _effect = apply_command(&mut model, Command::Back);
@@ -180,7 +196,7 @@ mod tests {
         let _effect = apply_message(
             &mut model,
             RuntimeMessage::Date {
-                ticket,
+                req,
                 from: 0,
                 until: 86_400_000,
                 label: "old date".to_owned(),

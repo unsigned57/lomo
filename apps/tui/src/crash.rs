@@ -15,7 +15,16 @@ const CRASH_DIR: &str = "crash";
 /// Installs the process panic hook. Call before entering the alternate screen.
 pub fn install_panic_hook(state_dir: PathBuf) {
     std::panic::set_hook(Box::new(move |info| {
-        restore_terminal();
+        // A lane/watcher/monitor panic is caught by its supervisor and
+        // reported through the outbox — only the UI thread owns the terminal,
+        // so restoring it from a background thread would corrupt the live
+        // frame instead of helping (F-06 supervision keeps the failure loud).
+        let background = thread::current()
+            .name()
+            .is_some_and(|name| name.starts_with("lomo-bg"));
+        if !background {
+            restore_terminal();
+        }
         let report = render_report(info);
         let notice = match write_report(&state_dir, &report) {
             Ok(path) => format!("lomo crashed; report written to {}", path.display()),
@@ -91,6 +100,10 @@ fn restore_terminal() {
     };
     drop(disable_raw_mode());
     let mut out = io::stderr();
+    // Expire transmitted kitty image data before leaving the screen — a
+    // crashed session must not strand pixels on the restored display (D-09).
+    // The APC is ignored by terminals without kitty support.
+    drop(out.write_all(b"\x1b_Ga=d,d=A,q=2\x1b\\"));
     drop(execute!(
         out,
         DisableMouseCapture,

@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use lomo_tui::error::TuiError;
-use lomo_tui::model::{AppModel, BodyState, FeedState, LoadStatus, MemoCard, View};
+use lomo_tui::model::{
+    AppModel, BodyState, FeedState, LoadStatus, MemoCard, PendingKind, Req, View,
+};
 use lomo_workspace::MemoId;
 
 pub type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -63,6 +65,16 @@ pub fn feed_mut(model: &mut AppModel) -> Result<&mut FeedState, &'static str> {
     }
 }
 
+/// Registers a live page request on the current feed — the state `reload_feed`
+/// produces while its `Effect::Query` is in flight, without executing the query.
+/// # Errors
+/// Propagates the missing-feed fixture error.
+pub fn pending_page(model: &mut AppModel) -> Result<Req, &'static str> {
+    let req = model.request(PendingKind::FeedPage);
+    feed_mut(model)?.pending_page = Some(req);
+    Ok(req)
+}
+
 pub struct RuntimeFixture {
     pub root: tempfile::TempDir,
     pub runtime: lomo_tui::ops::TuiRuntime,
@@ -114,6 +126,7 @@ pub fn runtime_at(
     };
     let config = lomo_tui::config::AppConfig {
         workspace: root.join(workspace),
+        media_dir: root.join(format!("{workspace}/media")),
         time_zone: "UTC".to_owned(),
         date_format: lomo_application::calendar::DateFormat::default(),
         editor: Some(vec!["scripted".to_owned()]),
@@ -121,7 +134,19 @@ pub fn runtime_at(
     };
     // The fixture's explicit "create a library" step: opening must not create.
     std::fs::create_dir_all(&config.workspace).map_err(TuiError::from)?;
-    lomo_tui::ops::open_runtime(paths, config, lomo_tui::media::GraphicsProtocol::None)
+    lomo_tui::ops::open_runtime(paths, config)
+}
+
+/// A graphics verdict the way `StdioProber` answers on a capable terminal —
+/// real font metrics with an explicit protocol — installed directly so tests
+/// never touch stdio.
+#[must_use]
+pub fn ready_graphics(
+    protocol: ratatui_image::picker::ProtocolType,
+) -> lomo_tui::graphics::GraphicsVerdict {
+    let mut picker = ratatui_image::picker::Picker::from_fontsize((8, 16));
+    picker.set_protocol_type(protocol);
+    lomo_tui::graphics::GraphicsVerdict::Ready(lomo_tui::graphics::SharedPicker::new(picker))
 }
 
 /// # Errors
@@ -132,9 +157,11 @@ pub fn run_effect(
     effect: Option<lomo_tui::effects::Effect>,
 ) -> Result<(), TuiError> {
     let mut pending = effect;
-    let (results, _inbox) = std::sync::mpsc::channel();
+    let (results, _inbox) = std::sync::mpsc::sync_channel(256);
+    let outbox = lomo_tui::executor::Outbox::new(results);
+    let token = lomo_tui::model::CancelToken::live();
     while let Some(effect) = pending {
-        let reply = lomo_tui::ops::execute(runtime, &effect, &results)?;
+        let reply = lomo_tui::ops::execute(runtime, &effect, &outbox, &token)?;
         pending = lomo_tui::messages::apply_message(model, reply);
     }
     Ok(())

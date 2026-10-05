@@ -60,7 +60,8 @@ mod tests {
         model: &AppModel,
     ) -> Result<EditTarget, Box<dyn std::error::Error>> {
         let id = model.selected_memo().ok_or("selected")?.id.clone();
-        let memo = lomo_tui::queries::load_body(&fixture.runtime, &id)?;
+        let memo = lomo_tui::queries::load_body(&fixture.runtime, &id)?
+            .ok_or("memo exists in this fixture")?;
         let lomo_tui::model::BodyState::Ready(body) = memo.body else {
             return Err("body was not loaded".into());
         };
@@ -92,9 +93,17 @@ mod tests {
                 .expect("fixture and operation must succeed")
                 .pinned
         );
-        let (results, _inbox) = std::sync::mpsc::channel();
-        let reply = execute(&fixture.runtime, &Effect::History(id.clone()), &results)
-            .expect("fixture and operation must succeed");
+        let (results, _inbox) = std::sync::mpsc::sync_channel(256);
+        let reply = execute(
+            &fixture.runtime,
+            &Effect::History {
+                req: lomo_tui::model::Req(1),
+                id: id.clone(),
+            },
+            &lomo_tui::executor::Outbox::new(results),
+            &lomo_tui::model::CancelToken::live(),
+        )
+        .expect("fixture and operation must succeed");
         assert!(matches!(
             reply,
             lomo_tui::effects::RuntimeMessage::History { .. }
@@ -156,7 +165,8 @@ mod tests {
             .expect("fixture and operation must succeed");
         assert!(matches!(
             model.input,
-            InputMode::Confirm(lomo_tui::model::Confirmation::DeleteForever(ref id)) if *id == first
+            InputMode::Confirm(lomo_tui::model::Confirmation::DeleteForever(ref memo))
+                if memo.id == first
         ));
         command(&fixture.runtime, &mut model, Command::Accept)
             .expect("fixture and operation must succeed");
@@ -173,7 +183,7 @@ mod tests {
             .expect("fixture and operation must succeed");
         assert!(matches!(
             model.input,
-            InputMode::Confirm(lomo_tui::model::Confirmation::EmptyTrash)
+            InputMode::Confirm(lomo_tui::model::Confirmation::EmptyTrash { .. })
         ));
         command(&fixture.runtime, &mut model, Command::Accept)
             .expect("fixture and operation must succeed");
@@ -398,10 +408,10 @@ mod tests {
         let attachment = lomo_core::RelativeWorkspacePath::parse(&path).expect("relative path");
         let staged = lomo_tui::mutations::stage_attachment(&fixture.runtime, &attachment)
             .expect("attachment stages under the workspace capability");
-        let error =
-            lomo_tui::media::spawn_player(&MissingPlayer, &fixture.runtime.config.player, &staged)
-                .map(|_| ())
-                .expect_err("missing player");
+        let player = fixture.runtime.config().player;
+        let error = lomo_tui::media::spawn_player(&MissingPlayer, &player, &staged)
+            .map(|_| ())
+            .expect_err("missing player");
         assert!(matches!(error, lomo_tui::error::TuiError::Player { .. }));
         let error = lomo_tui::mutations::import_from_clipboard(
             &fixture.runtime,

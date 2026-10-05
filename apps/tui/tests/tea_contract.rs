@@ -38,9 +38,10 @@ mod tests {
                 },
                 text: TextBuffer::default(),
                 selected: 0,
+                identity: None,
             }),
             InputMode::Date {
-                ticket: 0,
+                req: None,
                 text: TextBuffer::default(),
                 error: None,
             },
@@ -143,13 +144,14 @@ mod tests {
             .selected = Some(
             lomo_workspace::MemoId::parse("memo-1").expect("fixture and operation must succeed"),
         );
-        assert_eq!(
+        assert!(matches!(
             apply_command(&mut model, Command::Accept),
             Some(Effect::Delete {
-                id,
-                fingerprint: "version-1".to_owned()
-            })
-        );
+                id: target,
+                fingerprint,
+                ..
+            }) if target == id && fingerprint == "version-1"
+        ));
     }
 
     #[test]
@@ -177,7 +179,13 @@ mod tests {
                 .text,
             "term"
         );
-        assert_eq!(apply_command(&mut model, Command::Back), None);
+        // The suspended context holds a reading position, not a card
+        // snapshot — restoring it re-reads a bounded window around the
+        // anchor, so Back produces the anchored refresh request.
+        assert!(matches!(
+            apply_command(&mut model, Command::Back),
+            Some(Effect::Query(_))
+        ));
         assert!(
             !feed(&model)
                 .expect("fixture and operation must succeed")
@@ -196,11 +204,12 @@ mod tests {
                 .anchor,
             before.anchor
         );
-        assert_eq!(
+        assert!(
             feed(&model)
                 .expect("fixture and operation must succeed")
-                .epoch,
-            model.epoch
+                .pending_page
+                .is_none_or(|req| model.pending.contains(req)),
+            "the restored feed's outstanding request is always a live one"
         );
     }
 
@@ -214,6 +223,7 @@ mod tests {
             },
             text: TextBuffer::default(),
             selected: 0,
+            identity: None,
         };
         let entries = lomo_tui::menu::entries(&model, &picker);
         for screen in [
@@ -298,14 +308,16 @@ mod tests {
         let InputMode::Picker(picker) = &model.input else {
             panic!("palette");
         };
-        let timeline = lomo_tui::menu::entries(&model, picker)
+        // The current page's Goto row is refused ("already here"), so the
+        // mouse selection targets a page that is actually dispatchable.
+        let target = lomo_tui::menu::entries(&model, picker)
             .iter()
-            .position(|entry| entry.command == Command::Goto(Screen::Timeline))
-            .expect("timeline entry");
+            .position(|entry| entry.command == Command::Goto(Screen::Statistics))
+            .expect("statistics entry");
         assert_eq!(
             apply_command(
                 &mut model,
-                Command::Move(i32::try_from(timeline).expect("fixture and operation must succeed"))
+                Command::Move(i32::try_from(target).expect("fixture and operation must succeed"))
             ),
             None
         );
@@ -313,7 +325,7 @@ mod tests {
             panic!("palette");
         };
         let rows = lomo_tui::menu::rows(&model, picker);
-        let row = lomo_tui::menu::selected_row(&rows, picker.selected);
+        let row = lomo_tui::menu::selected_row(&rows, picker);
         let area = lomo_tui::overlays::picker_area(&model);
         let top = lomo_tui::overlays::picker_top(row, rows.len(), area.height);
         assert!(
@@ -330,7 +342,7 @@ mod tests {
         assert!(matches!(
             effect,
             Some(Effect::Navigate {
-                screen: Screen::Timeline,
+                screen: Screen::Statistics,
                 ..
             })
         ));
@@ -366,13 +378,14 @@ mod tests {
             .selected = Some(
             lomo_workspace::MemoId::parse("memo-1").expect("fixture and operation must succeed"),
         );
-        assert_eq!(
+        assert!(matches!(
             apply_command(&mut model, Command::Accept),
             Some(Effect::Pin {
-                id: original,
-                pinned: true
-            })
-        );
+                id,
+                pinned: true,
+                ..
+            }) if id == original
+        ));
     }
 
     #[test]
@@ -393,7 +406,7 @@ mod tests {
     #[test]
     fn tag_scope_is_chosen_in_the_picker_without_losing_the_reading_context() {
         let mut model = model_with_memos(20, 80, 24).expect("feed");
-        model.tags = vec!["reading/book".to_owned()];
+        model.set_tags(vec!["reading/book".to_owned()]);
         assert_eq!(apply_command(&mut model, Command::Move(12)), None);
         let before = feed(&model).expect("feed").clone();
         let _effect = apply_command(&mut model, Command::Tags);
@@ -420,17 +433,15 @@ mod tests {
     #[test]
     fn tag_picker_includes_parent_scopes_of_observed_child_tags() {
         let mut model = model_with_memos(1, 80, 24).expect("feed");
-        model.tags = vec!["reading/book".to_owned()];
+        model.set_tags(vec!["reading/book".to_owned()]);
         let _effect = apply_command(&mut model, Command::Tags);
         let InputMode::Picker(picker) = &model.input else {
             panic!("tag picker");
         };
         let entries = lomo_tui::menu::entries(&model, picker);
-        assert!(
-            entries
-                .iter()
-                .any(|entry| entry.command == Command::SelectTag(Some("reading".to_owned())))
-        );
+        assert!(entries.iter().any(
+            |entry| entry.command == Command::SelectTag(Some(std::sync::Arc::from("reading")))
+        ));
     }
 
     #[test]
