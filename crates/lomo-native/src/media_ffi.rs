@@ -61,8 +61,10 @@ pub struct MediaPromotePlanDto {
     pub final_relative_path: String,
 }
 
-/// One committed media file for orphan sweep / manifest. The digest is a content witness;
-/// `size`/`modified_ms` are weak reuse hints the next manifest call can re-verify cheaply.
+/// One committed media file for orphan sweep / manifest.
+///
+/// The digest is a byte-derived content identity; `size`/`modified_ms` are stat facts reported
+/// to the host and are never trusted as proof that content is unchanged.
 #[data]
 #[derive(Clone, Debug, Default)]
 pub struct MediaCommittedEntryDto {
@@ -428,10 +430,10 @@ fn stage_release_to_dto(outcome: &lomo_media::StageRelease) -> MediaStageRelease
 
 /// Lists committed media files under `media/` (path + digest wire). No byte bodies.
 ///
-/// `verified_entries` are host-held facts from a previous manifest: when a file's current
-/// size and modification time still match the witnessed values, its digest is reused without
-/// re-reading the bytes. Weak hints never decide correctness — a stat mismatch always falls
-/// back to a fresh streaming hash.
+/// Every entry's digest is re-derived by streaming the current bytes: a stat-only hint
+/// (path + size + mtime) can survive a byte swap (`cp -p`, coarse mtime granularity, explicit
+/// `utimens`), so host-held `verified_entries` are never consulted for content identity. The
+/// parameter stays on the wire so callers keep their manifest-cache call shape.
 ///
 /// # Errors
 ///
@@ -440,15 +442,13 @@ pub fn ffi_query_media_manifest(
     workspace_root: &str,
     verified_entries: Vec<MediaCommittedEntryDto>,
 ) -> Result<MediaManifestDto, EngineError> {
+    // Verified host-held digests are not evidence of content identity; only the bytes are.
+    drop(verified_entries);
     let root = Path::new(workspace_root);
     let media_dir = root.join("media");
     let mut entries = Vec::new();
     if media_dir.is_dir() {
-        let verified = verified_entries
-            .into_iter()
-            .map(|entry| (entry.absolute_path.clone(), entry))
-            .collect::<std::collections::HashMap<_, _>>();
-        collect_media_files(&media_dir, &verified, &mut entries)?;
+        collect_media_files(&media_dir, &mut entries)?;
     }
     Ok(MediaManifestDto {
         stage_dir_name: STAGE_DIR_NAME.to_owned(),
@@ -458,7 +458,6 @@ pub fn ffi_query_media_manifest(
 
 fn collect_media_files(
     dir: &Path,
-    verified: &std::collections::HashMap<String, MediaCommittedEntryDto>,
     out: &mut Vec<MediaCommittedEntryDto>,
 ) -> Result<(), EngineError> {
     let read = std::fs::read_dir(dir).map_err(|error| {
@@ -490,7 +489,7 @@ fn collect_media_files(
             {
                 continue;
             }
-            collect_media_files(&path, verified, out)?;
+            collect_media_files(&path, out)?;
         } else if file_type.is_file() {
             let metadata = std::fs::metadata(&path).map_err(|error| {
                 EngineError::from(boundary_err(
@@ -515,23 +514,12 @@ fn collect_media_files(
                 }
             };
             let absolute_path = path.to_string_lossy().into_owned();
-            // Verified host-held digests are reused only while the weak size+mtime hint
-            // still matches; any drift falls back to a fresh streaming hash.
-            let digest = match verified.get(&absolute_path) {
-                Some(hint)
-                    if hint.size == size
-                        && hint.modified_ms == modified_ms
-                        && modified_ms != 0
-                        && hint.digest.len() == 64 =>
-                {
-                    hint.digest.clone()
-                }
-                _ => ContentDigest::stream_from_path(&path)
-                    .map_err(EngineError::from)?
-                    .0
-                    .as_str()
-                    .to_owned(),
-            };
+            // Content identity tracks bytes, not stat pairs: always rehash.
+            let digest = ContentDigest::stream_from_path(&path)
+                .map_err(EngineError::from)?
+                .0
+                .as_str()
+                .to_owned();
             out.push(MediaCommittedEntryDto {
                 digest,
                 absolute_path,

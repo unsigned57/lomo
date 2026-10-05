@@ -42,7 +42,7 @@ pub use media_ffi::{
 };
 pub use session_ffi::{
     SessionCivilDate, SessionCivilTime, SessionCreateMemoRequest, SessionDateCount,
-    SessionDeleteMemoRequest, SessionFireReminderRequest, SessionHourCount, SessionMediaFailureDto,
+    SessionDeleteMemoRequest, SessionDraftGuardDto, SessionHourCount, SessionMediaFailureDto,
     SessionMediaProtectionDto, SessionMediaSweepReportDto, SessionMemoView, SessionPinMemoRequest,
     SessionRestoreRequest, SessionRestoreRevisionRequest, SessionReviewCandidate, SessionSearchHit,
     SessionSearchMode, SessionSearchOutcome, SessionSearchPage, SessionSearchRequest,
@@ -947,8 +947,15 @@ impl LomoEngine {
                 "pairing time-to-live is owned by lomo-lan",
             )));
         }
-        manager
-            .begin_pairing(&peer, now_ms, lomo_lan::PAIRING_TTL_MS)
+        let exchange = manager
+            .plan_pairing(&peer, now_ms, lomo_lan::PAIRING_TTL_MS)
+            .map_err(EngineError::from)?;
+        drop(manager);
+        // The blocking hello exchange runs off-lock; the answered accept applies under the
+        // lock again so no socket wait can stall unrelated control-plane reads.
+        let reply = exchange.exchange().map_err(EngineError::from)?;
+        self.lan_manager()?
+            .apply_pairing_exchange(exchange, &reply)
             .map(|challenge| lan_ffi::pairing_challenge_to_ffi(&challenge))
             .map_err(EngineError::from)
     }
@@ -1027,8 +1034,13 @@ impl LomoEngine {
         now_ms: i64,
     ) -> Result<(), EngineError> {
         let parsed = lan_ffi::pairing_id_from_ffi(&pairing_id).map_err(EngineError::from)?;
+        let send = self
+            .lan_manager()?
+            .plan_pairing_confirm(&parsed, &signature, now_ms)
+            .map_err(EngineError::from)?;
+        send.deliver().map_err(EngineError::from)?;
         self.lan_manager()?
-            .confirm_pairing(&parsed, &signature, now_ms)
+            .apply_pairing_confirmed(&parsed, now_ms)
             .map_err(EngineError::from)?;
         self.lan_pump.bump();
         Ok(())
@@ -1087,8 +1099,15 @@ impl LomoEngine {
                 "session time-to-live is owned by lomo-lan",
             )));
         }
-        manager
-            .begin_session(&peer, now_ms, lomo_lan::SESSION_TTL_MS)
+        let exchange = manager
+            .plan_session(&peer, now_ms, lomo_lan::SESSION_TTL_MS)
+            .map_err(EngineError::from)?;
+        drop(manager);
+        // The blocking hello exchange runs off-lock; the answered accept applies under the
+        // lock again so no socket wait can stall unrelated control-plane reads.
+        let reply = exchange.exchange().map_err(EngineError::from)?;
+        self.lan_manager()?
+            .apply_session_exchange(exchange, &reply)
             .map(|challenge| lan_ffi::session_challenge_to_ffi(&challenge))
             .map_err(EngineError::from)
     }
@@ -1110,8 +1129,13 @@ impl LomoEngine {
         now_ms: i64,
     ) -> Result<(), EngineError> {
         let parsed = lan_ffi::session_id_from_ffi(&session_id).map_err(EngineError::from)?;
+        let send = self
+            .lan_manager()?
+            .plan_session_confirm(&parsed, &signature, now_ms)
+            .map_err(EngineError::from)?;
+        send.deliver().map_err(EngineError::from)?;
         self.lan_manager()?
-            .confirm_session(&parsed, &signature, now_ms)
+            .apply_session_confirmed(&parsed, now_ms)
             .map_err(EngineError::from)?;
         self.lan_pump.bump();
         Ok(())
@@ -1162,8 +1186,16 @@ impl LomoEngine {
         let parsed_session =
             lan_ffi::session_id_from_ffi(&session_id).map_err(EngineError::from)?;
         let plan = lan_ffi::batch_plan_from_ffi(&batch_id, &items).map_err(EngineError::from)?;
+        let now_ms = lan_pump::unix_now_ms();
+        let exchange = self
+            .lan_manager()?
+            .plan_batch_prepare(&parsed_session, plan, now_ms)
+            .map_err(EngineError::from)?;
+        // The durable outgoing record committed during planning; only the blocking prepare
+        // exchange runs off-lock, then the sealed reply applies under the lock again.
+        let reply = exchange.exchange().map_err(EngineError::from)?;
         self.lan_manager()?
-            .prepare_batch(&parsed_session, plan, lan_pump::unix_now_ms())
+            .apply_batch_prepare_reply(&exchange, &reply, now_ms)
             .map_err(EngineError::from)?;
         self.lan_pump.bump();
         Ok(())
@@ -1200,8 +1232,9 @@ impl LomoEngine {
                 "approval time-to-live is owned by lomo-lan",
             )));
         }
-        self.lan_manager()?
-            .approve_batch(
+        let send = self
+            .lan_manager()?
+            .plan_batch_approve(
                 &parsed_session,
                 &parsed_batch,
                 generation,
@@ -1209,6 +1242,9 @@ impl LomoEngine {
                 lomo_lan::APPROVAL_TTL_MS,
             )
             .map_err(EngineError::from)?;
+        // The durable approval committed during planning; only delivery touches the socket,
+        // off-lock.
+        send.deliver().map_err(EngineError::from)?;
         self.lan_pump.bump();
         Ok(())
     }
@@ -1232,9 +1268,13 @@ impl LomoEngine {
         let parsed_session =
             lan_ffi::session_id_from_ffi(&session_id).map_err(EngineError::from)?;
         let parsed_batch = lomo_lan::LanBatchId::parse(&batch_id).map_err(EngineError::from)?;
-        self.lan_manager()?
-            .reject_batch(&parsed_session, &parsed_batch, rejected_at_ms)
+        let send = self
+            .lan_manager()?
+            .plan_batch_reject(&parsed_session, &parsed_batch, rejected_at_ms)
             .map_err(EngineError::from)?;
+        // The durable rejection committed during planning; only delivery touches the socket,
+        // off-lock.
+        send.deliver().map_err(EngineError::from)?;
         self.lan_pump.bump();
         Ok(())
     }
@@ -1273,21 +1313,28 @@ impl LomoEngine {
                 })
                 .collect::<Result<Vec<_>, _>>()?
         };
-        let drained = self
-            .lan_pool
-            .send_chunks(&plans)
-            .map_err(EngineError::from)?;
+        let mut drained = Vec::new();
+        let send = self.lan_pool.send_chunks(&plans, &mut drained);
         let now_ms = lan_pump::unix_now_ms();
         let mut manager = self.lan_manager()?;
+        // A refusal is a durable fact the receiver already committed: drained receipts apply
+        // even when a later window read failed, and the first receipt error wins over the
+        // network error so the caller sees the peer's terminal decision.
+        let mut first_apply_error = None;
         for (confirmed, response) in &drained {
-            manager
-                .apply_chunk_receipt(confirmed, response, now_ms)
-                .map_err(EngineError::from)?;
+            if let Err(error) = manager.apply_chunk_receipt(confirmed, response, now_ms) {
+                first_apply_error.get_or_insert(error);
+            }
         }
         drop(manager);
-        // Receipts advanced durable confirmed state: observers must see the progress fact.
-        self.lan_pump.bump();
-        Ok(())
+        if !drained.is_empty() {
+            // Receipts advanced durable confirmed state: observers must see the progress fact.
+            self.lan_pump.bump();
+        }
+        if let Some(error) = first_apply_error {
+            return Err(EngineError::from(error));
+        }
+        send.map_err(EngineError::from)
     }
 
     /// Returns only the durable missing chunk indices for one received payload.
@@ -2706,7 +2753,11 @@ fn render_document_to_ffi(
         plain_text: document.plain_text().to_owned(),
         node_count: document.node_count(),
         tag_names: document.tag_names().to_vec(),
-        attachment_destinations: document.attachment_destinations().to_vec(),
+        attachment_destinations: document
+            .attachment_destinations()
+            .iter()
+            .map(workspace::ImageDest::projected)
+            .collect(),
         nodes,
     })
 }
@@ -2876,7 +2927,9 @@ fn render_inline_node(inline: &workspace::RenderInline, depth: u32) -> RenderNod
             ..
         } => {
             node.text = Some(alt.clone());
-            node.destination = Some(destination.clone());
+            // The authored token, not the canonical key: downstream renderers resolve
+            // the destination against the same workspace the document came from.
+            node.destination = Some(destination.raw().to_owned());
             node.title.clone_from(title);
         }
         workspace::RenderInline::Tag { name, .. } => node.text = Some(name.clone()),

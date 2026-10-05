@@ -203,14 +203,6 @@ pub struct SessionRestoreRevisionRequest {
 
 #[data]
 #[derive(Clone, Debug)]
-pub struct SessionFireReminderRequest {
-    pub operation_id: String,
-    pub memo_id: String,
-    pub opaque_id: String,
-}
-
-#[data]
-#[derive(Clone, Debug)]
 pub struct SessionStatisticsSnapshot {
     pub zone: String,
     pub as_of: SessionCivilDate,
@@ -300,6 +292,19 @@ pub struct SessionMediaFailureDto {
     pub message: String,
 }
 
+/// A draft body supplied by a host editor whose drafts live outside the Rust draft store.
+///
+/// The engine projects its attachment references into the sweep keep-set for the duration of
+/// one guarded sweep; nothing is persisted.
+#[data]
+#[derive(Clone, Debug, Default)]
+pub struct SessionDraftGuardDto {
+    /// Opaque owner identity for diagnostics (the host's draft id).
+    pub owner_id: String,
+    /// The draft body text.
+    pub content: String,
+}
+
 /// Observable result of the session-owned two-phase media orphan sweep.
 #[data]
 #[derive(Clone, Debug, Default)]
@@ -326,6 +331,49 @@ const fn reference_source_to_wire(source: lomo_media::ReferenceSource) -> &'stat
         lomo_media::ReferenceSource::Draft => "draft",
         lomo_media::ReferenceSource::PendingOperation => "pending_operation",
         lomo_media::ReferenceSource::StageLease => "stage_lease",
+    }
+}
+
+fn sweep_report_to_dto(
+    report: lomo_application::media_sweep::MediaSweepReport,
+) -> SessionMediaSweepReportDto {
+    let kept_live = u64::try_from(report.protections.len()).unwrap_or(u64::MAX);
+    SessionMediaSweepReportDto {
+        candidates: report.candidates,
+        protections: report
+            .protections
+            .into_iter()
+            .map(|item| SessionMediaProtectionDto {
+                relative_path: item.relative_path,
+                source: reference_source_to_wire(item.source).to_owned(),
+                owner_key: item.owner_key,
+            })
+            .collect(),
+        moved_to_trash: report
+            .moved_to_trash
+            .into_iter()
+            .map(|entry| crate::media_ffi::MediaTrashEntryDto {
+                digest: entry.digest.as_str().to_owned(),
+                trash_path: entry.trash_path.to_string_lossy().into_owned(),
+                trashed_at_ms: entry.trashed_at_ms,
+                expires_at_ms: entry.expires_at_ms,
+            })
+            .collect(),
+        permanently_deleted_digests: report
+            .permanently_deleted
+            .into_iter()
+            .map(|intent| intent.digest.as_str().to_owned())
+            .collect(),
+        kept_live,
+        failures: report
+            .failures
+            .into_iter()
+            .map(|failure| SessionMediaFailureDto {
+                relative_path: failure.relative_path,
+                code: failure.code,
+                message: failure.message,
+            })
+            .collect(),
     }
 }
 
@@ -471,66 +519,35 @@ impl LomoEngine {
             .map(|result| commit_to_ffi(&memo_id, result.commit_result))
     }
 
-    /// Runs the session-owned two-phase media orphan sweep.
+    /// Runs the media orphan sweep while guarding references held by external editor drafts.
     ///
-    /// The session enumerates `media/` candidates outside the mutation lock, then recomputes the
-    /// protection set and re-verifies every candidate inside the transaction lock before moving
-    /// unreferenced objects to media-trash and purging expired entries. The report carries
-    /// candidates, protections, moves, deletions, and per-candidate failures; it never hides a
-    /// reference-collection failure as an empty keep-set.
+    /// Host drafts that were never persisted as Rust conflict evidence still protect the
+    /// attachments they reference: each supplied body is projected by the render owner inside
+    /// the write lock, exactly like an internal draft, and is never persisted.
     ///
     /// # Errors
     ///
-    /// Session, lock, projection, or platform listing failures abort before any mutation.
-    pub fn session_media_orphan_sweep(
+    /// Session, lock, projection, or platform listing failures abort before any mutation; an
+    /// external draft body that fails projection aborts the sweep rather than silently
+    /// dropping its protection.
+    pub fn session_media_orphan_sweep_guarding(
         &self,
         now_ms: Option<u64>,
         recovery_window_ms: u64,
+        external_drafts: Vec<SessionDraftGuardDto>,
     ) -> Result<SessionMediaSweepReportDto, EngineError> {
         let now = now_ms.unwrap_or_else(lomo_media::wall_clock_ms);
+        let drafts = external_drafts
+            .into_iter()
+            .map(|dto| lomo_application::GuardedDraftBody {
+                owner_id: dto.owner_id,
+                content: dto.content,
+            })
+            .collect::<Vec<_>>();
         with_session(self, |session| {
-            session.media_orphan_sweep(now, recovery_window_ms)
+            session.media_orphan_sweep_guarding(now, recovery_window_ms, &drafts)
         })
-        .map(|report| {
-            let kept_live = u64::try_from(report.protections.len()).unwrap_or(u64::MAX);
-            SessionMediaSweepReportDto {
-                candidates: report.candidates,
-                protections: report
-                    .protections
-                    .into_iter()
-                    .map(|item| SessionMediaProtectionDto {
-                        relative_path: item.relative_path,
-                        source: reference_source_to_wire(item.source).to_owned(),
-                        owner_key: item.owner_key,
-                    })
-                    .collect(),
-                moved_to_trash: report
-                    .moved_to_trash
-                    .into_iter()
-                    .map(|entry| crate::media_ffi::MediaTrashEntryDto {
-                        digest: entry.digest.as_str().to_owned(),
-                        trash_path: entry.trash_path.to_string_lossy().into_owned(),
-                        trashed_at_ms: entry.trashed_at_ms,
-                        expires_at_ms: entry.expires_at_ms,
-                    })
-                    .collect(),
-                permanently_deleted_digests: report
-                    .permanently_deleted
-                    .into_iter()
-                    .map(|intent| intent.digest.as_str().to_owned())
-                    .collect(),
-                kept_live,
-                failures: report
-                    .failures
-                    .into_iter()
-                    .map(|failure| SessionMediaFailureDto {
-                        relative_path: failure.relative_path,
-                        code: failure.code,
-                        message: failure.message,
-                    })
-                    .collect(),
-            }
-        })
+        .map(sweep_report_to_dto)
     }
 
     /// Pins or unpins one memo through the shared write transaction.
@@ -585,6 +602,9 @@ impl LomoEngine {
             },
             text: request.text,
             cursor,
+            // Anchored starts are a TUI refresh concern; the FFI surface pages
+            // by cursor or from the head only.
+            anchor: None,
             page_size: PageSize::new(request.page_size).map_err(EngineError::from)?,
         };
         with_session(self, |session| session.search(&inner)).map(search_outcome_to_ffi)

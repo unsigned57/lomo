@@ -41,10 +41,10 @@ mod tests {
     };
     use lomo_platform_fs::FsPlatformActionExecutor;
     use lomo_sync::{
-        ConflictPathStatus, ContentDigest, SyncIdentityFence, SyncPath, SyncPaths,
-        conflict_path_from_open, write_conflict_artifact, write_conflict_session,
+        ConflictPathStatus, ContentDigest, SyncBackendConfig, SyncIdentityFence, SyncPath,
+        SyncPaths, conflict_path_from_open, write_conflict_artifact, write_conflict_session,
     };
-    use lomo_workspace::{RemoteDatasetId, RemoteIdentityDigest, WorkspaceGenerationId};
+    use lomo_workspace::{RemoteDatasetId, RemoteIdentityDigest};
     use tempfile::tempdir;
 
     struct PosixBatchHost {
@@ -111,11 +111,20 @@ mod tests {
             .test_ok("open session");
     }
 
-    fn fence() -> SyncIdentityFence {
+    /// The durable fence must match the live (generation, dataset, canonical identity)
+    /// triple — seeding an arbitrary fence is rejected as `sync_identity_mismatch`.
+    fn fence(workspace: &std::path::Path, dataset: &str) -> SyncIdentityFence {
+        let generation = lomo_workspace::load_or_mint_workspace_generation(workspace)
+            .test_ok("workspace generation");
+        let canonical = SyncBackendConfig::HermeticFake {
+            remote_dataset_id: dataset.to_owned(),
+        }
+        .canonical_identity();
+        let identity = RemoteIdentityDigest::from_canonical_config_bytes(canonical.as_bytes());
         SyncIdentityFence::from_parts(
-            &WorkspaceGenerationId::parse(&"ab".repeat(32)).test_ok("gen"),
-            &RemoteDatasetId::parse("ds-keep-remote").test_ok("ds"),
-            &RemoteIdentityDigest::parse(&"cd".repeat(32)).test_ok("id"),
+            &generation,
+            &RemoteDatasetId::parse(dataset).test_ok("ds"),
+            &identity,
         )
     }
 
@@ -181,8 +190,12 @@ mod tests {
             .test_ok("remote artifact"),
         );
         record.status = ConflictPathStatus::ResolvedKeepRemote;
-        let conflict = lomo_sync::ConflictSession::open(fence(), session_id, vec![record])
-            .test_ok("open conflict session");
+        let conflict = lomo_sync::ConflictSession::open(
+            fence(&session.workspace, "ds-keep-remote"),
+            session_id,
+            vec![record],
+        )
+        .test_ok("open conflict session");
         write_conflict_session(&paths, &conflict).test_ok("write conflict session");
         (commit.memo_id, source_path)
     }

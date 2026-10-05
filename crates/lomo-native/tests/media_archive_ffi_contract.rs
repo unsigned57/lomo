@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn manifest_reuses_verified_digest_only_while_size_and_mtime_match() {
+    fn manifest_never_trusts_host_supplied_digest_hints() {
         let tmp = tempdir().expect("tmp");
         let ws = tmp.path().join("ws");
         let control = tmp.path().join("control");
@@ -185,8 +185,9 @@ mod tests {
         let true_digest = entry.digest.clone();
         assert!(entry.size > 0 && entry.modified_ms > 0);
 
-        // A host-verified hint with matching size+mtime is reused without re-reading bytes:
-        // a sentinel digest that cannot be the real hash survives only when reuse wins.
+        // `verified_entries` is retained on the wire for compatibility but is never
+        // authoritative: identity is always re-derived from current bytes, so a sentinel
+        // digest can never be echoed back even when size+mtime still match.
         let sentinel = "f".repeat(64);
         let hint = lomo_native::MediaCommittedEntryDto {
             digest: sentinel.clone(),
@@ -194,33 +195,42 @@ mod tests {
             size: entry.size,
             modified_ms: entry.modified_ms,
         };
-        let reused = engine
+        let rehashed = engine
             .query_media_manifest(ws.to_string_lossy().into_owned(), vec![hint])
             .test_ok("manifest");
         assert_eq!(
-            reused
+            rehashed
                 .entries
                 .iter()
                 .find(|e| e.absolute_path == entry.absolute_path)
                 .map(|e| e.digest.as_str()),
-            Some(sentinel.as_str()),
-            "verified hint is reused without rehashing unchanged bytes",
+            Some(true_digest.as_str()),
+            "host hint is not authoritative: the digest always comes from current bytes",
         );
 
-        // The same path holding new bytes must not keep the old identity: a size change
-        // invalidates the hint and the real digest is recomputed.
-        let grown: Vec<u8> = PNG_1X1.iter().copied().chain([0x00]).collect();
-        write_bytes_for_tests(&image, &grown).expect("grown png");
-        let stale_hint = lomo_native::MediaCommittedEntryDto {
-            digest: sentinel.clone(),
+        // A same-size byte swap that preserves the original mtime (cp -p / exFAT host
+        // shapes) must still produce a new digest — stat facts can never rescue a stale
+        // identity.
+        let swapped: Vec<u8> = PNG_1X1.iter().map(|b| b ^ 0xFF).collect();
+        write_bytes_for_tests(&image, &swapped).expect("swapped png");
+        fs::File::options()
+            .write(true)
+            .open(&image)
+            .expect("reopen image")
+            .set_modified(
+                std::time::UNIX_EPOCH + std::time::Duration::from_millis(entry.modified_ms),
+            )
+            .expect("restore mtime");
+        let preserved_stat_hint = lomo_native::MediaCommittedEntryDto {
+            digest: true_digest.clone(),
             absolute_path: entry.absolute_path.clone(),
             size: entry.size,
             modified_ms: entry.modified_ms,
         };
-        let refreshed = engine
-            .query_media_manifest(ws.to_string_lossy().into_owned(), vec![stale_hint])
+        let after_swap = engine
+            .query_media_manifest(ws.to_string_lossy().into_owned(), vec![preserved_stat_hint])
             .test_ok("manifest");
-        let updated = refreshed
+        let updated = after_swap
             .entries
             .iter()
             .find(|e| e.absolute_path == entry.absolute_path)
@@ -377,7 +387,7 @@ mod tests {
         write_bytes_for_tests(&ws.join("media/orphan.png"), PNG_1X1).expect("png");
 
         let sweep = engine
-            .session_media_orphan_sweep(Some(20_000), 1_000)
+            .session_media_orphan_sweep_guarding(Some(20_000), 1_000, Vec::new())
             .test_ok("sweep");
         assert_eq!(sweep.candidates, 1);
         assert_eq!(sweep.moved_to_trash.len(), 1);
@@ -395,7 +405,7 @@ mod tests {
 
         // A second run keeps nothing new: the trash entry still sits inside its window.
         let again = engine
-            .session_media_orphan_sweep(Some(20_500), 1_000)
+            .session_media_orphan_sweep_guarding(Some(20_500), 1_000, Vec::new())
             .test_ok("second sweep");
         assert!(again.moved_to_trash.is_empty());
         assert!(again.permanently_deleted_digests.is_empty());
@@ -424,7 +434,7 @@ mod tests {
             .test_ok("create memo");
 
         let sweep = engine
-            .session_media_orphan_sweep(Some(20_000), 1_000)
+            .session_media_orphan_sweep_guarding(Some(20_000), 1_000, Vec::new())
             .test_ok("sweep");
         assert!(sweep.moved_to_trash.is_empty());
         assert_eq!(sweep.protections.len(), 1);
