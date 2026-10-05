@@ -73,6 +73,35 @@ mod tests {
         assert!(events.iter().any(|event| event.path == new.join("memo.md")));
     }
 
+    /// A rename is one file identity arriving under a new path: the event stream must attest
+    /// BOTH endpoints — the source so scoped consumers retire its derived state, the
+    /// destination so they pick the file up. This matches the inotify contract, where
+    /// `MOVED_FROM` and `MOVED_TO` each surface as a `Renamed` event.
+    #[test]
+    fn renamed_file_reports_both_source_and_destination_paths() {
+        let temp = TempDir::new().must_succeed("root");
+        let root = temp.path().join("watched");
+        fs::create_dir_all(&root).must_succeed("watched dir");
+        let source = root.join("source.md");
+        fs::write(&source, b"body").must_succeed("write source");
+        let mut watcher = DirectoryWatcher::new(&root).must_succeed("watcher init");
+
+        let destination = root.join("destination.md");
+        fs::rename(&source, &destination).must_succeed("rename");
+        sleep(Duration::from_millis(50));
+        let events = watcher.poll_events().must_succeed("poll rename");
+        assert!(
+            events.iter().any(|event| event.path.ends_with("source.md")),
+            "the source endpoint must be attested: {events:?}"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event.path.ends_with("destination.md")),
+            "the destination endpoint must be attested: {events:?}"
+        );
+    }
+
     #[test]
     fn directory_watcher_captures_create_modify_delete_events() {
         let temp_dir = TempDir::new().must_succeed("temp dir");

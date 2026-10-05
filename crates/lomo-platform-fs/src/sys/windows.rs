@@ -397,6 +397,31 @@ impl Node {
     pub fn into_file(self) -> File {
         self.file
     }
+
+    /// Metadata-only change token for listing evidence: volume, file index,
+    /// size, write and change timestamps. No byte is read; the token changes
+    /// on every write or rename-in-place a reconcile diff must observe.
+    ///
+    /// # Errors
+    /// Storage error on `metadata` failure.
+    pub fn change_token(&self) -> Result<(u64, String), LomoError> {
+        use std::os::windows::fs::MetadataExt;
+        let metadata = self
+            .file
+            .metadata()
+            .map_err(|err| storage("stat_failed", &format!("fstat failed: {err}")))?;
+        Ok((
+            metadata.file_size(),
+            format!(
+                "st.{:x}.{:x}.{}.{}.{}",
+                metadata.volume_serial_number().unwrap_or_default(),
+                metadata.file_index().unwrap_or_default(),
+                metadata.file_size(),
+                metadata.last_write_time(),
+                metadata.change_time()
+            ),
+        ))
+    }
 }
 
 /// Resolves `rel` beneath `root` by walking components; each level opens the

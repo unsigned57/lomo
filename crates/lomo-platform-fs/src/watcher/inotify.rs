@@ -15,6 +15,10 @@ pub struct DirectoryWatcher {
     root: PathBuf,
     fd: OwnedFd,
     watch_descriptors: BTreeMap<i32, PathBuf>,
+    /// The root watch died with its inode. Every poll retries the rebind so a
+    /// replaced root is re-observed; while the root stays unreadable the watcher
+    /// reports the failure instead of staying silently deaf.
+    root_lost: bool,
 }
 
 fn watch_flags() -> WatchFlags {
@@ -92,6 +96,7 @@ impl DirectoryWatcher {
             root,
             fd,
             watch_descriptors,
+            root_lost: false,
         })
     }
 
@@ -103,8 +108,7 @@ impl DirectoryWatcher {
     /// a non-UTF-8 filename is encountered, or an unknown watch descriptor is reported.
     pub fn poll_events(&mut self) -> Result<Vec<DirectoryChangeEvent>, LomoError> {
         let mut events = Vec::new();
-        let mut rebuild = false;
-        let mut root_invalidated = false;
+        let mut rebuild = self.root_lost;
         {
             let mut buf = [MaybeUninit::uninit(); 4096];
             let mut reader = inotify::Reader::new(&self.fd, &mut buf);
@@ -112,6 +116,7 @@ impl DirectoryWatcher {
                 let entry = match reader.next() {
                     Ok(entry) => entry,
                     Err(Errno::WOULDBLOCK) => break,
+                    Err(Errno::INTR) => continue,
                     Err(error) => return Err(storage("inotify_read_failed", &error.to_string())),
                 };
                 let mask = entry.events();
@@ -135,7 +140,6 @@ impl DirectoryWatcher {
                         kind: ChangeKind::Invalidated,
                         path: base.clone(),
                     });
-                    root_invalidated |= base == &self.root;
                     rebuild = true;
                     continue;
                 }
@@ -160,16 +164,33 @@ impl DirectoryWatcher {
                 }
             }
         }
-        if rebuild && !root_invalidated {
-            // Register the new graph before publishing Rescan. Any changes in the transition
-            // window are covered by the following application scan.
-            let next = Self::new(&self.root)?;
-            self.fd = next.fd;
-            self.watch_descriptors = next.watch_descriptors;
-            events.push(DirectoryChangeEvent {
-                kind: ChangeKind::Rescan,
-                path: self.root.clone(),
-            });
+        if rebuild {
+            // Register the new graph before publishing Rescan — including after a root
+            // invalidation, where the old watches died with the moved inode. Any changes
+            // in the transition window are covered by the following application scan.
+            match Self::new(&self.root) {
+                Ok(next) => {
+                    self.fd = next.fd;
+                    self.watch_descriptors = next.watch_descriptors;
+                    self.root_lost = false;
+                    events.push(DirectoryChangeEvent {
+                        kind: ChangeKind::Rescan,
+                        path: self.root.clone(),
+                    });
+                }
+                Err(error) => {
+                    // A root that is gone (or replaced by something unreadable) leaves
+                    // this watcher's descriptors dead; clearing them keeps the next poll
+                    // retrying the rebind instead of trusting a stale graph. Buffered
+                    // events are still delivered first — the error reports once the
+                    // queue is drained and the rebind is still failing.
+                    self.watch_descriptors.clear();
+                    self.root_lost = true;
+                    if events.is_empty() {
+                        return Err(error);
+                    }
+                }
+            }
         }
 
         Ok(events)
@@ -200,8 +221,13 @@ impl DirectoryWatcher {
                 &self.fd,
                 rustix::event::PollFlags::IN,
             )];
-            rustix::event::poll(&mut fds, Some(&timespec))
-                .map_err(|error| storage("inotify_poll_failed", &error.to_string()))?;
+            match rustix::event::poll(&mut fds, Some(&timespec)) {
+                // EINTR during the timed wait retries with a fresh deadline slice.
+                Ok(_) | Err(Errno::INTR) => {}
+                Err(error) => {
+                    return Err(storage("inotify_poll_failed", &error.to_string()));
+                }
+            }
         }
     }
 }

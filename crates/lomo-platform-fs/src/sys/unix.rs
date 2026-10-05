@@ -402,6 +402,27 @@ impl Node {
     pub fn into_file(self) -> File {
         File::from(self.fd)
     }
+
+    /// Metadata-only change token for listing evidence: device, inode, size,
+    /// modification and status-change nanoseconds. No byte is read; the token
+    /// changes on every write, rename-in-place or metadata mutation, which is
+    /// exactly the signal a reconcile diff needs before re-hashing anything.
+    ///
+    /// # Errors
+    /// Storage error on `fstat` failure.
+    pub fn change_token(&self) -> Result<(u64, String), LomoError> {
+        let stat = rustix::fs::fstat(&self.fd)
+            .map_err(|err| storage("stat_failed", &format!("fstat failed: {err}")))?;
+        let length = u64::try_from(stat.st_size)
+            .map_err(|_err| storage("stat_failed", "negative file length"))?;
+        Ok((
+            length,
+            format!(
+                "st.{:x}.{:x}.{}.{}.{}",
+                stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_nsec, stat.st_ctime_nsec
+            ),
+        ))
+    }
 }
 
 /// Resolves `rel` beneath `root` in one `openat2` call on Linux, else walks

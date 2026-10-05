@@ -165,7 +165,11 @@ impl DirectoryWatcher {
             }
         }
 
-        // Pair creates with deletes sharing one file identity into renames.
+        // Pair creates with deletes sharing one file identity into renames. Both endpoints
+        // are reported as `Renamed` — the inotify backend emits one event for MOVED_FROM and
+        // one for MOVED_TO, so the poll backend must carry the same two-endpoint attestation:
+        // consumers treat each event path as observed coverage, and a destination-only report
+        // would leave the source path's derived state certified stale.
         for create in std::mem::take(&mut created) {
             let identity = next[&create].identity;
             let pair = identity.and_then(|id| {
@@ -174,7 +178,11 @@ impl DirectoryWatcher {
                     .position(|gone| self.snapshot[gone].identity == Some(id))
             });
             if let Some(pos) = pair {
-                deleted.remove(pos);
+                let source = deleted.remove(pos);
+                events.push(DirectoryChangeEvent {
+                    kind: ChangeKind::Renamed,
+                    path: source,
+                });
                 events.push(DirectoryChangeEvent {
                     kind: ChangeKind::Renamed,
                     path: create,

@@ -143,6 +143,25 @@ pub fn stat_document(root: &Root, target: &WorkspaceTarget) -> Result<DocumentMe
     metadata_for(node, target.clone(), &handle_str)
 }
 
+/// Queries listing metadata for `target` beneath `root` without hashing bytes.
+///
+/// Directory enumeration is the reconcile worklist: hashing every child at listing
+/// time makes an unchanged workspace cost a full library read. The returned evidence
+/// carries an `Unknown` digest and a stat change token as its fingerprint, so
+/// callers that need content authority ([`crate::sys::stat_document`],
+/// `read_document_stream`) still obtain verified digests while unchanged paths are
+/// cheap to compare.
+///
+/// # Errors
+/// Permission on symlink escape, storage on missing target or I/O failure.
+pub fn list_document(
+    root: &Root,
+    rel: &RelativeWorkspacePath,
+) -> Result<DocumentMetadata, LomoError> {
+    let node = open_node_at(root, rel.as_str())?;
+    metadata_for_token(&node, WorkspaceTarget::Relative(rel.clone()), rel.as_str())
+}
+
 /// Reads source bytes in a single streaming operation with authoritative evidence.
 ///
 /// # Errors
@@ -199,6 +218,45 @@ fn metadata_for(
             let (length, digest) = stream_sha256(&mut file)?;
             let fp = digest.as_str().to_owned();
             let evidence = ActionEvidence::verified(length, digest, &fp)?;
+            DocumentMetadata::new_with_handle(
+                target,
+                doc_handle,
+                DocumentKind::File,
+                Some(mime_for(handle_str)),
+                evidence,
+            )
+        }
+        NodeKind::Other => Err(storage(
+            "unsupported_document_kind",
+            "workspace documents must be regular files or directories",
+        )),
+    }
+}
+
+/// Builds `DocumentMetadata` from stat evidence alone: files get an `Unknown`
+/// digest plus a backend change token as the listing fingerprint. Only
+/// [`Node::kind`] and [`Node::change_token`] touch the node — no byte is read.
+fn metadata_for_token(
+    node: &Node,
+    target: WorkspaceTarget,
+    handle_str: &str,
+) -> Result<DocumentMetadata, LomoError> {
+    let doc_handle = DocumentHandle::parse(handle_str)?;
+    match node.kind()? {
+        NodeKind::Directory => {
+            let fp = compute_sha256_bytes(handle_str.as_bytes())?;
+            let evidence = ActionEvidence::unknown(0, fp.as_str())?;
+            DocumentMetadata::new_with_handle(
+                target,
+                doc_handle,
+                DocumentKind::Directory,
+                None,
+                evidence,
+            )
+        }
+        NodeKind::File => {
+            let (length, token) = node.change_token()?;
+            let evidence = ActionEvidence::unknown(length, &token)?;
             DocumentMetadata::new_with_handle(
                 target,
                 doc_handle,

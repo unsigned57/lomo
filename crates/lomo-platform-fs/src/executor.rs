@@ -321,11 +321,14 @@ impl FsPlatformActionExecutor {
             } else {
                 format!("{rel_prefix}/{name}")
             };
-            let child = match RelativeWorkspacePath::parse(&relative) {
-                Ok(path) => WorkspaceTarget::Relative(path),
+            let relative_path = match RelativeWorkspacePath::parse(&relative) {
+                Ok(path) => path,
                 Err(error) => return ActionOutcome::Failed(error),
             };
-            match sys::stat_document(bound.root(), &child) {
+            // Listing evidence is a metadata token, not a byte hash: reconcile diffs the
+            // token stream against the committed `file_listing` snapshot so an unchanged
+            // workspace costs one stat per path, never a full-library read.
+            match sys::list_document(bound.root(), &relative_path) {
                 Ok(metadata) => items.push(metadata),
                 Err(error) => return ActionOutcome::Failed(error),
             }
