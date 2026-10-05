@@ -23,6 +23,13 @@ skip = [
     { name = "unicode-width", version = "0.1" },
     # clap_derive 4.6 moved to syn 3 while the rest of the proc-macro graph stays on 2.
     { name = "syn", version = "3" },
+    # ratatui-image 8.0.1 pins base64 0.21 for Kitty/iTerm2 payloads; the HTTP graph uses 0.22.
+    { name = "base64", version = "0.21" },
+    # ratatui-image's rand 0.8 / rand_core 0.6 graph still resolves getrandom 0.2.
+    { name = "getrandom", version = "0.2" },
+    # ratatui-image 8.0.1 stays on thiserror 1 while the workspace uses thiserror 2.
+    { name = "thiserror", version = "1.0" },
+    { name = "thiserror-impl", version = "1.0" },
 ]
 
 [licenses]

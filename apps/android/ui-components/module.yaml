@@ -15,7 +15,7 @@ settings:
   jvm:
     release: 25
     jdk:
-      version: 26
+      version: 27
       selectionMode: javaHome
   kotlin:
     allWarningsAsErrors: true
@@ -26,19 +26,20 @@ settings:
       version: 1.11.0
 
 dependencies:
+  - com.materialkolor:material-color-utilities:5.0.1
   - //domain: exported
-  - androidx.compose.ui:ui:1.12.0-alpha02
-  - androidx.compose.ui:ui-graphics:1.12.0-alpha02
-  - androidx.compose.ui:ui-tooling-preview:1.12.0-alpha02
-  - androidx.compose.material3:material3-android:1.5.0-alpha19: exported
+  - androidx.compose.ui:ui:1.13.0-alpha02
+  - androidx.compose.ui:ui-graphics:1.13.0-alpha02
+  - androidx.compose.ui:ui-tooling-preview:1.13.0-alpha02
+  - androidx.compose.material3:material3-android:1.5.0-alpha29: exported
   - androidx.activity:activity-compose:1.13.0
   - androidx.compose.material:material-icons-extended:1.7.8
   - io.coil-kt.coil3:coil-compose:3.4.0
   - io.coil-kt.coil3:coil-network-okhttp:3.4.0
   - org.jetbrains.kotlinx:kotlinx-collections-immutable:0.4.0
   - sh.calvin.reorderable:reorderable:3.1.0
-  - androidx.compose.ui:ui-tooling:1.12.0-alpha02: runtime-only
-  - androidx.compose.ui:ui-test-manifest:1.12.0-alpha02: runtime-only
+  - androidx.compose.ui:ui-tooling:1.13.0-alpha02: runtime-only
+  - androidx.compose.ui:ui-test-manifest:1.13.0-alpha02: runtime-only
   - androidx.media3:media3-exoplayer:1.10.1
 
 test-dependencies:
@@ -51,4 +52,4 @@ test-dependencies:
   - app.cash.turbine:turbine:1.2.1
   - io.mockk:mockk:1.14.9
   - androidx.test.ext:junit:1.3.0
-  - androidx.compose.ui:ui-test-junit4:1.12.0-alpha02
+  - androidx.compose.ui:ui-test-junit4:1.13.0-alpha02

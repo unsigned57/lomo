@@ -14,7 +14,7 @@ settings:
   jvm:
     release: 25
     jdk:
-      version: 26
+      version: 27
       selectionMode: javaHome
   kotlin:
     allWarningsAsErrors: true
@@ -38,9 +38,9 @@ dependencies:
   - androidx.core:core-splashscreen:1.2.0
   - androidx.appcompat:appcompat:1.7.1
   - androidx.biometric:biometric:1.4.0-alpha07
-  - androidx.compose.ui:ui:1.12.0-alpha02
-  - androidx.compose.ui:ui-graphics:1.12.0-alpha02
-  - androidx.compose.material3:material3-android:1.5.0-alpha19
+  - androidx.compose.ui:ui:1.13.0-alpha02
+  - androidx.compose.ui:ui-graphics:1.13.0-alpha02
+  - androidx.compose.material3:material3-android:1.5.0-alpha29
   - androidx.compose.material:material-icons-extended:1.7.8
   - androidx.compose.material3.adaptive:adaptive:1.2.0
   - io.insert-koin:koin-android:4.0.0
@@ -58,8 +58,8 @@ dependencies:
   - androidx.glance:glance-appwidget:1.1.1
   - androidx.media3:media3-exoplayer:1.10.1
   - androidx.media3:media3-common:1.10.1
-  - androidx.compose.ui:ui-tooling:1.12.0-alpha02: runtime-only
-  - androidx.compose.ui:ui-test-manifest:1.12.0-alpha02: runtime-only
+  - androidx.compose.ui:ui-tooling:1.13.0-alpha02: runtime-only
+  - androidx.compose.ui:ui-test-manifest:1.13.0-alpha02: runtime-only
 
 test-dependencies:
   - io.insert-koin:koin-test:4.0.0
@@ -72,4 +72,4 @@ test-dependencies:
   - org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0
   - app.cash.turbine:turbine:1.2.1
   - androidx.test.ext:junit:1.3.0
-  - androidx.compose.ui:ui-test-junit4:1.12.0-alpha02
+  - androidx.compose.ui:ui-test-junit4:1.13.0-alpha02

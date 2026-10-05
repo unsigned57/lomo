@@ -11,7 +11,7 @@ settings:
   jvm:
     release: 25
     jdk:
-      version: 26
+      version: 27
       selectionMode: javaHome
   kotlin:
     allWarningsAsErrors: true
