@@ -69,6 +69,22 @@ path = "tests/cycle_state_contract.rs"
 name = "provider_smoke"
 path = "tests/provider_smoke.rs"
 
+[[test]]
+name = "sync_session_contract"
+path = "tests/sync_session_contract.rs"
+
+[[test]]
+name = "sync_cycle_contract"
+path = "tests/sync_cycle_contract.rs"
+
+[[test]]
+name = "multipart_cas_contract"
+path = "tests/multipart_cas_contract.rs"
+
+[[test]]
+name = "sync_baseline_fence_contract"
+path = "tests/sync_baseline_fence_contract.rs"
+
 [dependencies]
 lomo-core = { path = "../lomo-core" }
 lomo-workspace = { path = "../lomo-workspace" }

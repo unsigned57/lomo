@@ -1009,56 +1009,90 @@ fn conflict_records_from_open_intents(
         else {
             continue;
         };
-        let path_s = path.as_str();
-        let candidate = bodies.get(path_s).ok_or_else(|| {
-            validation(
-                "conflict_candidate_body_missing",
-                "OpenConflict requires durable candidate bodies before the session is open",
-            )
-        })?;
-        // At least one side body is required so KeepLocal/KeepRemote/Merged can proceed later.
-        if candidate.local.is_none() && candidate.remote.is_none() {
-            return Err(validation(
-                "conflict_candidate_body_missing",
-                "OpenConflict requires local and/or remote candidate body bytes",
-            ));
-        }
-
-        if let Some(bytes) = candidate.local.as_deref() {
-            assert_body_matches_digest(bytes, local_digest, "local")?;
-        }
-        if let Some(bytes) = candidate.remote.as_deref() {
-            assert_body_matches_digest(bytes, remote_digest, "remote")?;
-        }
-        if let (Some(bytes), Some(expected)) =
-            (candidate.baseline.as_deref(), baseline_digest.as_ref())
-        {
-            assert_body_matches_digest(bytes, expected, "baseline")?;
-        }
-
-        let mut record = conflict_path_from_open(
-            path,
-            Some(local_digest),
-            Some(remote_digest),
-            baseline_digest.as_ref(),
-            remote_tokens.get(path_s).map(String::as_str),
-        )?;
-
-        if let Some(bytes) = candidate.local.as_deref() {
-            let artifact = write_conflict_artifact(paths, session_id, "local", path_s, bytes)?;
-            record.local_artifact_ref = Some(artifact);
-        }
-        if let Some(bytes) = candidate.remote.as_deref() {
-            let artifact = write_conflict_artifact(paths, session_id, "remote", path_s, bytes)?;
-            record.remote_artifact_ref = Some(artifact);
-        }
-        if let Some(bytes) = candidate.baseline.as_deref() {
-            let artifact = write_conflict_artifact(paths, session_id, "baseline", path_s, bytes)?;
-            record.baseline_artifact_ref = Some(artifact);
-        }
-        records.push(record);
+        records.push(materialize_open_intent_record(
+            paths,
+            session_id,
+            &OpenIntentFacts {
+                path,
+                local_digest,
+                remote_digest,
+                baseline_digest: baseline_digest.as_ref(),
+                remote_token: remote_tokens.get(path.as_str()).map(String::as_str),
+            },
+            bodies,
+        )?);
     }
     Ok(records)
+}
+
+/// Identity facts of one planned `OpenConflict` intent plus its listing-side remote token —
+/// the exact divergence the durable record must pin.
+struct OpenIntentFacts<'a> {
+    path: &'a SyncPath,
+    local_digest: &'a ContentDigest,
+    remote_digest: &'a ContentDigest,
+    baseline_digest: Option<&'a ContentDigest>,
+    remote_token: Option<&'a str>,
+}
+
+/// Builds one `Open` record for a planned `OpenConflict`, digest-verifying supplied candidate
+/// bodies and writing durable artifacts for each supplied side.
+///
+/// # Errors
+///
+/// Validation when no candidate body is supplied (hollow open) or body/digest mismatch.
+fn materialize_open_intent_record(
+    paths: &SyncPaths,
+    session_id: &str,
+    facts: &OpenIntentFacts<'_>,
+    bodies: &ConflictBodySource,
+) -> Result<ConflictPathRecord, LomoError> {
+    let path_s = facts.path.as_str();
+    let candidate = bodies.get(path_s).ok_or_else(|| {
+        validation(
+            "conflict_candidate_body_missing",
+            "OpenConflict requires durable candidate bodies before the session is open",
+        )
+    })?;
+    // At least one side body is required so KeepLocal/KeepRemote/Merged can proceed later.
+    if candidate.local.is_none() && candidate.remote.is_none() {
+        return Err(validation(
+            "conflict_candidate_body_missing",
+            "OpenConflict requires local and/or remote candidate body bytes",
+        ));
+    }
+
+    if let Some(bytes) = candidate.local.as_deref() {
+        assert_body_matches_digest(bytes, facts.local_digest, "local")?;
+    }
+    if let Some(bytes) = candidate.remote.as_deref() {
+        assert_body_matches_digest(bytes, facts.remote_digest, "remote")?;
+    }
+    if let (Some(bytes), Some(expected)) = (candidate.baseline.as_deref(), facts.baseline_digest) {
+        assert_body_matches_digest(bytes, expected, "baseline")?;
+    }
+
+    let mut record = conflict_path_from_open(
+        facts.path,
+        Some(facts.local_digest),
+        Some(facts.remote_digest),
+        facts.baseline_digest,
+        facts.remote_token,
+    )?;
+
+    if let Some(bytes) = candidate.local.as_deref() {
+        let artifact = write_conflict_artifact(paths, session_id, "local", path_s, bytes)?;
+        record.local_artifact_ref = Some(artifact);
+    }
+    if let Some(bytes) = candidate.remote.as_deref() {
+        let artifact = write_conflict_artifact(paths, session_id, "remote", path_s, bytes)?;
+        record.remote_artifact_ref = Some(artifact);
+    }
+    if let Some(bytes) = candidate.baseline.as_deref() {
+        let artifact = write_conflict_artifact(paths, session_id, "baseline", path_s, bytes)?;
+        record.baseline_artifact_ref = Some(artifact);
+    }
+    Ok(record)
 }
 
 fn assert_body_matches_digest(
@@ -1074,6 +1108,223 @@ fn assert_body_matches_digest(
         ));
     }
     Ok(())
+}
+
+/// True when the durable record pinned the same divergence the planner just observed.
+/// Path membership alone can never prove coverage — a resolved record on the same path is
+/// evidence for the *old* divergence only.
+pub fn conflict_record_matches_digests(
+    record: &ConflictPathRecord,
+    local_digest: &ContentDigest,
+    remote_digest: &ContentDigest,
+) -> bool {
+    record.local_digest.as_deref() == Some(local_digest.as_str())
+        && record.remote_digest.as_deref() == Some(remote_digest.as_str())
+}
+
+/// True when a durable decision was recorded for this path (pending apply or already applied).
+pub const fn conflict_record_is_resolved(record: &ConflictPathRecord) -> bool {
+    matches!(
+        record.status,
+        ConflictPathStatus::ResolvedKeepLocal
+            | ConflictPathStatus::ResolvedKeepRemote
+            | ConflictPathStatus::ResolvedMerged
+    )
+}
+
+/// True when every recorded candidate digest still has its durable artifact ref: an
+/// `Open`/`SkippedForNow` record missing a side's bytes is not yet decision-ready.
+pub const fn conflict_record_is_armed(record: &ConflictPathRecord) -> bool {
+    (record.local_digest.is_none() || record.local_artifact_ref.is_some())
+        && (record.remote_digest.is_none() || record.remote_artifact_ref.is_some())
+}
+
+/// True when the durable record covers this planned divergence: digests match and the record is
+/// either decided or still armed with its candidate artifacts. An unarmed open record is not
+/// covering — the next cycle re-materializes its candidates.
+pub fn conflict_record_covers_divergence(
+    record: &ConflictPathRecord,
+    local_digest: &ContentDigest,
+    remote_digest: &ContentDigest,
+) -> bool {
+    conflict_record_matches_digests(record, local_digest, remote_digest)
+        && (conflict_record_is_resolved(record) || conflict_record_is_armed(record))
+}
+
+/// Reconciles one planned `OpenConflict` with any durable record on the same path.
+///
+/// - Covering record (same digests, decided or armed) → kept verbatim.
+/// - Same digests but unarmed → candidate artifacts re-materialize while the recorded
+///   deferral/`Open` status is preserved.
+/// - Different digests → reopened at the observed divergence; a side's artifact ref survives
+///   only while that side's digest did not move.
+/// - No durable record → fresh materialization (hollow open stays rejected).
+///
+/// # Errors
+///
+/// Validation when a materializing branch lacks candidate bodies.
+fn merge_intent_record(
+    paths: &SyncPaths,
+    session_id: &str,
+    existing: Option<&ConflictPathRecord>,
+    intent: &OpenIntentFacts<'_>,
+    bodies: Option<&ConflictBodySource>,
+) -> Result<ConflictPathRecord, LomoError> {
+    match existing {
+        Some(record)
+            if conflict_record_covers_divergence(
+                record,
+                intent.local_digest,
+                intent.remote_digest,
+            ) =>
+        {
+            Ok(record.clone())
+        }
+        Some(record)
+            if conflict_record_matches_digests(
+                record,
+                intent.local_digest,
+                intent.remote_digest,
+            ) =>
+        {
+            // Same divergence but the durable record lost its candidate artifacts — re-arm
+            // while preserving the recorded deferral.
+            let body_source = bodies.ok_or_else(|| {
+                validation(
+                    "conflict_candidate_body_missing",
+                    "OpenConflict materialize requires candidate body source",
+                )
+            })?;
+            let mut fresh = materialize_open_intent_record(paths, session_id, intent, body_source)?;
+            fresh.status = record.status;
+            Ok(fresh)
+        }
+        Some(record) => {
+            // Fresh divergence on a previously-recorded path: reopen at the observed
+            // digests. Artifact refs survive only for a side whose digest did not move.
+            let mut record = record.clone();
+            if record.local_digest.as_deref() != Some(intent.local_digest.as_str()) {
+                record.local_artifact_ref = None;
+            }
+            if record.remote_digest.as_deref() != Some(intent.remote_digest.as_str()) {
+                record.remote_artifact_ref = None;
+            }
+            if record.baseline_digest.as_deref()
+                != intent.baseline_digest.map(ContentDigest::as_str)
+            {
+                record.baseline_artifact_ref = None;
+            }
+            record.local_digest = Some(intent.local_digest.as_str().to_owned());
+            record.remote_digest = Some(intent.remote_digest.as_str().to_owned());
+            record.baseline_digest = intent
+                .baseline_digest
+                .map(|digest| digest.as_str().to_owned());
+            record.remote_token = intent.remote_token.map(str::to_owned);
+            record.status = ConflictPathStatus::Open;
+            Ok(record)
+        }
+        None => {
+            let body_source = bodies.ok_or_else(|| {
+                validation(
+                    "conflict_candidate_body_missing",
+                    "OpenConflict materialize requires candidate body source",
+                )
+            })?;
+            materialize_open_intent_record(paths, session_id, intent, body_source)
+        }
+    }
+}
+
+/// Reconciles this cycle's `OpenConflict` intents with the durable conflict session.
+///
+/// - A record whose digests still match the observed divergence is kept verbatim — an
+///   unresolved or already-applied durable decision is never silently reset to `Open`.
+/// - A record whose digests no longer match is **reopened** in place: status returns to
+///   `Open`, digests/remote token are refreshed, and each side's artifact ref survives only
+///   while that side's digest is unchanged (stale bytes are never re-pinned under a new
+///   divergence). Reopen needs no candidate bodies; the record stays honest even when unarmed
+///   because `conflict_record_covers_divergence` never treats it as covering, so a later
+///   cycle re-materializes its candidates.
+/// - A never-conflicted path materializes fresh candidate artifacts from `bodies` (hollow open
+///   stays rejected).
+/// - Resolved records outside the planned set are preserved: pending applies must not be
+///   silently dropped when a new conflict page materializes.
+///
+/// The merged session always carries `existing.conflict_revision + 1`: any session mutation
+/// bumps the revision so a stale resolution submission cannot land on mutated state.
+///
+/// # Errors
+///
+/// Same as [`materialize_conflicts_from_plan`].
+pub fn merge_conflicts_into_session(
+    paths: &SyncPaths,
+    fence: &SyncIdentityFence,
+    session_id: &str,
+    intents: &[ProviderNeutralIntent],
+    remote_tokens: &BTreeMap<String, String>,
+    bodies: Option<&ConflictBodySource>,
+    existing: Option<&ConflictSession>,
+) -> Result<Option<ConflictSession>, LomoError> {
+    let existing_by_path: BTreeMap<&str, &ConflictPathRecord> =
+        existing.map_or_else(BTreeMap::new, |session| {
+            session
+                .paths
+                .iter()
+                .map(|record| (record.path.as_str(), record))
+                .collect()
+        });
+    let mut planned_paths = std::collections::BTreeSet::new();
+    let mut records = Vec::new();
+    for intent in intents {
+        let ProviderNeutralIntent::OpenConflict {
+            path,
+            local_digest,
+            remote_digest,
+            baseline_digest,
+        } = intent
+        else {
+            continue;
+        };
+        let path_s = path.as_str();
+        planned_paths.insert(path_s.to_owned());
+        let facts = OpenIntentFacts {
+            path,
+            local_digest,
+            remote_digest,
+            baseline_digest: baseline_digest.as_ref(),
+            remote_token: remote_tokens.get(path_s).map(String::as_str),
+        };
+        records.push(merge_intent_record(
+            paths,
+            session_id,
+            existing_by_path.get(path_s).copied(),
+            &facts,
+            bodies,
+        )?);
+    }
+    // Resolved records outside this cycle's planned set carry pending applies — keep them.
+    if let Some(existing) = existing {
+        for record in &existing.paths {
+            if !planned_paths.contains(record.path.as_str()) && conflict_record_is_resolved(record)
+            {
+                records.push(record.clone());
+            }
+        }
+    }
+    if records.is_empty() {
+        return Ok(None);
+    }
+    let mut session = ConflictSession::open(fence.clone(), session_id, records)?;
+    if let Some(existing) = existing {
+        session.conflict_revision = existing.conflict_revision.checked_add(1).ok_or_else(|| {
+            corrupt_state(
+                "conflict_revision_overflow",
+                "conflict revision counter overflowed",
+            )
+        })?;
+    }
+    write_conflict_session(paths, &session)?;
+    Ok(Some(session))
 }
 
 /// Filters baseline upsert/remove so open / `SkipForNow` conflict paths never advance.

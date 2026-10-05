@@ -331,6 +331,13 @@ pub fn require_remote_capabilities(
     Ok(())
 }
 
+/// A present-but-empty (or whitespace-only) CAS anchor is malformed input, never "no
+/// expectation": the named precondition is unverifiable, so publish paths must fail
+/// closed as [`PathPublishStatus::PreconditionFailed`] rather than commit unconditionally.
+pub fn remote_cas_token_is_malformed(token: &str) -> bool {
+    token.trim().is_empty()
+}
+
 /// Atomicity of a prepared remote batch.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

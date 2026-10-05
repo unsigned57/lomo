@@ -284,16 +284,20 @@ impl S3Transport {
             })
     }
 
-    /// `CompleteMultipartUpload`.
+    /// `CompleteMultipartUpload` carrying the publish CAS anchor as a commit-time
+    /// conditional (`If-Match` for an expected live `ETag`, `If-None-Match: *` for
+    /// create-only) so the precondition checked before upload still holds at commit.
     ///
     /// # Errors
     ///
-    /// Wire errors.
+    /// Wire errors; `s3_precondition_failed` (412) when the anchor no longer holds.
     pub fn complete_multipart_upload(
         &self,
         key: &str,
         upload_id: &str,
         parts: &[(u32, String)],
+        if_match: Option<&str>,
+        if_none_match: bool,
     ) -> Result<Option<String>, LomoError> {
         let mut url = self.endpoint.object_url(key)?;
         url.query_pairs_mut().append_pair("uploadId", upload_id);
@@ -308,7 +312,14 @@ impl S3Transport {
             xml.push_str("</ETag></Part>");
         }
         xml.push_str("</CompleteMultipartUpload>");
-        let response = self.signed_request(Method::POST, &url, xml.into_bytes(), None, true)?;
+        let mut extra = HeaderMap::new();
+        if let Some(token) = if_match {
+            insert_header(&mut extra, "if-match", token)?;
+        } else if if_none_match {
+            insert_header(&mut extra, "if-none-match", "*")?;
+        }
+        let response =
+            self.signed_request(Method::POST, &url, xml.into_bytes(), Some(extra), true)?;
         if !response.status().is_success() {
             return Err(map_status_response("COMPLETE_MULTIPART", &response));
         }

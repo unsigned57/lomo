@@ -7,9 +7,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::conflict::{
     ConflictBodySource, ConflictPathStatus, ConflictSession, ConflictSessionState,
-    apply_resolved_conflicts_remote, load_conflict_bodies_for_open_intents,
-    load_conflict_bodies_for_open_pages, materialize_conflicts_from_intent_pages,
-    materialize_conflicts_from_plan, may_advance_baseline_for_path, read_conflict_session_state,
+    apply_resolved_conflicts_remote, conflict_record_covers_divergence, conflict_record_is_armed,
+    conflict_record_is_resolved, conflict_record_matches_digests,
+    load_conflict_bodies_for_open_intents, may_advance_baseline_for_path,
+    merge_conflicts_into_session, read_conflict_session_state,
 };
 use crate::durable::{
     BaselineHead, SessionKind, SyncIdentityFence, SyncPaths, SyncSession, TombstoneSet,
@@ -717,23 +718,28 @@ pub fn run_sync_cycle(
     apply_remote: bool,
     conflict_bodies: Option<&ConflictBodySource>,
 ) -> Result<SyncCycleResult, LomoError> {
-    if apply_remote && let Some(sync_paths) = paths {
-        execute_pending_resolved_remote_apply(sync_paths, remote)?;
-    }
     let local_snap = local.snapshot()?;
+    revalidate_durable_fences(session, &local_snap, &baseline)?;
+    if apply_remote && let Some(sync_paths) = paths {
+        // Durable cancel gates the pending resolved-conflict publish too — it is a remote
+        // publication like any plan page.
+        refuse_if_cancel_requested(sync_paths, 0)?;
+        execute_pending_resolved_remote_apply(sync_paths, session, remote)?;
+    }
     let mut remote_snap = remote.list_remote()?;
     let mut resolved = ResolvedObjectCache::new(remote);
+    let mut tombstones = paths
+        .map(crate::durable::read_tombstones)
+        .transpose()?
+        .unwrap_or_else(TombstoneSet::empty);
     resolve_listing_digests(
         &mut resolved,
         remote_snap.entries.iter_mut(),
         &local_snap,
         &baseline,
+        &tombstones,
     )?;
     let remote = &resolved;
-    let mut tombstones = paths
-        .map(crate::durable::read_tombstones)
-        .transpose()?
-        .unwrap_or_else(TombstoneSet::empty);
     if let Some(sync_paths) = paths {
         record_observed_user_deletes(
             session,
@@ -766,7 +772,8 @@ pub fn run_sync_cycle(
     )?;
     merge_recovery_ensure_absent(&mut batch, recovery_intents);
 
-    let loaded_bodies = owned_conflict_bodies_for_batch(conflict_bodies, paths, &batch, remote)?;
+    let loaded_bodies =
+        owned_conflict_bodies_for_batch(conflict_bodies, paths, session, &batch, remote)?;
     let bodies = conflict_bodies.or(loaded_bodies.as_ref());
     let conflict_session =
         materialize_or_load_conflict_session(session, paths, &batch, &remote_snap, bodies)?;
@@ -782,6 +789,9 @@ pub fn run_sync_cycle(
         });
     }
 
+    if let Some(sync_paths) = paths {
+        refuse_if_cancel_requested(sync_paths, 0)?;
+    }
     let (receipt, verified) = publish_and_verify(remote, &batch, &local_snap, &remote_snap)?;
     let baseline_advanced = advance_baseline_after_verify(
         session,
@@ -827,12 +837,20 @@ pub fn run_sync_cycle_streaming(
     apply_remote: bool,
     conflict_bodies: Option<&ConflictBodySource>,
 ) -> Result<StreamingSyncCycleResult, LomoError> {
-    if apply_remote && let Some(sync_paths) = paths {
-        execute_pending_resolved_remote_apply(sync_paths, remote)?;
-    }
     let local_snap = local.snapshot()?;
     let local_entry_count = count_u32(local_snap.entries.len())?;
-    let facts = observe_streaming_listing(remote, &local_snap, &baseline)?;
+    revalidate_durable_fences(session, &local_snap, &baseline)?;
+    let mut tombstones = paths
+        .map(crate::durable::read_tombstones)
+        .transpose()?
+        .unwrap_or_else(TombstoneSet::empty);
+    if apply_remote && let Some(sync_paths) = paths {
+        // Durable cancel gates the pending resolved-conflict publish too — it is a remote
+        // publication like any plan page.
+        refuse_if_cancel_requested(sync_paths, 0)?;
+        execute_pending_resolved_remote_apply(sync_paths, session, remote)?;
+    }
+    let facts = observe_streaming_listing(remote, &local_snap, &baseline, &tombstones)?;
     let remote_listed_count = facts.listed_count_u32()?;
     let listing = facts.listing;
     let overall_completeness = listing.overall_completeness;
@@ -840,10 +858,6 @@ pub fn run_sync_cycle_streaming(
     let remote_view = facts.remote_view;
     let resolved = facts.resolved;
     let remote = &resolved;
-    let mut tombstones = paths
-        .map(crate::durable::read_tombstones)
-        .transpose()?
-        .unwrap_or_else(TombstoneSet::empty);
     if let Some(sync_paths) = paths {
         record_observed_user_deletes(
             session,
@@ -880,7 +894,7 @@ pub fn run_sync_cycle_streaming(
     let first_page_batch = first_streaming_batch(&plan, publish_contract, recovery_intents)?;
 
     let loaded_bodies =
-        owned_conflict_bodies_for_streaming_plan(conflict_bodies, paths, &plan, remote)?;
+        owned_conflict_bodies_for_streaming_plan(conflict_bodies, paths, session, &plan, remote)?;
     let bodies = conflict_bodies.or(loaded_bodies.as_ref());
     let conflict_session =
         materialize_or_load_streaming_conflict_session(session, paths, &plan, bodies)?;
@@ -1070,6 +1084,7 @@ fn observe_streaming_listing<'r>(
     remote: &'r dyn RemoteSyncPort,
     local_snap: &LocalSnapshot,
     baseline: &BaselineHead,
+    tombstones: &TombstoneSet,
 ) -> Result<StreamingListingFacts<'r>, LomoError> {
     let mut listing = remote.list_remote_pages()?;
     let publish_contract = RemotePublishContract::from_atomicity(
@@ -1083,6 +1098,7 @@ fn observe_streaming_listing<'r>(
         listing.pages.iter_mut().flatten(),
         local_snap,
         baseline,
+        tombstones,
     )?;
     // First page view only for conflict materialize / same-byte verify helpers (page-bounded).
     // Empty listing → empty entries (domain-empty, not a silent default of missing data).
@@ -1234,6 +1250,7 @@ fn merge_recovery_ensure_absent(
 fn owned_conflict_bodies_for_streaming_plan(
     injected: Option<&ConflictBodySource>,
     paths: Option<&SyncPaths>,
+    session: &SyncSession,
     plan: &StreamingPlanOutcome,
     remote: &dyn RemoteSyncPort,
 ) -> Result<Option<ConflictBodySource>, LomoError> {
@@ -1246,17 +1263,36 @@ fn owned_conflict_bodies_for_streaming_plan(
     if plan.open_conflict_count() == 0 {
         return Ok(None);
     }
-    let planned = planned_open_conflict_paths(
+    let existing = read_fenced_conflict_session(sync_paths, &session.fence)?;
+    let planned = planned_open_conflict_facts(
         plan.intent_pages
             .iter()
             .flat_map(|page| page.intents.iter()),
     );
-    if existing_session_covers_open_paths(sync_paths, &planned)? {
+    if let ConflictSessionState::Present(existing) = &existing
+        && session_covers_open_facts(existing, &planned)
+    {
         return Ok(None);
     }
-    Ok(Some(load_conflict_bodies_for_open_pages(
+    // Only intents without a covering durable record need fresh candidate bodies; digest-
+    // mismatched records reopen in place and never reach a body fetch.
+    let existing_session = match &existing {
+        ConflictSessionState::Present(session) => Some(session),
+        ConflictSessionState::Absent => None,
+    };
+    let needing: Vec<ProviderNeutralIntent> = plan
+        .intent_pages
+        .iter()
+        .flat_map(|page| page.intents.iter())
+        .filter(|intent| intent_needs_conflict_bodies(intent, existing_session))
+        .cloned()
+        .collect();
+    if needing.is_empty() {
+        return Ok(Some(ConflictBodySource::empty()));
+    }
+    Ok(Some(load_conflict_bodies_for_open_intents(
         &sync_paths.workspace_root,
-        &plan.intent_pages,
+        &needing,
         remote,
     )?))
 }
@@ -1264,6 +1300,7 @@ fn owned_conflict_bodies_for_streaming_plan(
 fn owned_conflict_bodies_for_batch(
     injected: Option<&ConflictBodySource>,
     paths: Option<&SyncPaths>,
+    session: &SyncSession,
     batch: &PreparedRemoteBatch,
     remote: &dyn RemoteSyncPort,
 ) -> Result<Option<ConflictBodySource>, LomoError> {
@@ -1276,25 +1313,45 @@ fn owned_conflict_bodies_for_batch(
     if batch.open_conflict_count() == 0 {
         return Ok(None);
     }
-    let planned = planned_open_conflict_paths(batch.intents.iter());
-    if existing_session_covers_open_paths(sync_paths, &planned)? {
+    let existing = read_fenced_conflict_session(sync_paths, &session.fence)?;
+    let planned = planned_open_conflict_facts(batch.intents.iter());
+    if let ConflictSessionState::Present(existing) = &existing
+        && session_covers_open_facts(existing, &planned)
+    {
         return Ok(None);
+    }
+    let existing_session = match &existing {
+        ConflictSessionState::Present(session) => Some(session),
+        ConflictSessionState::Absent => None,
+    };
+    let needing: Vec<ProviderNeutralIntent> = batch
+        .intents
+        .iter()
+        .filter(|intent| intent_needs_conflict_bodies(intent, existing_session))
+        .cloned()
+        .collect();
+    if needing.is_empty() {
+        return Ok(Some(ConflictBodySource::empty()));
     }
     Ok(Some(load_conflict_bodies_for_open_intents(
         &sync_paths.workspace_root,
-        &batch.intents,
+        &needing,
         remote,
     )?))
 }
 
 fn execute_pending_resolved_remote_apply(
     paths: &SyncPaths,
+    session: &SyncSession,
     remote: &dyn RemoteSyncPort,
 ) -> Result<(), LomoError> {
-    let ConflictSessionState::Present(session) = read_conflict_session_state(paths)? else {
+    let ConflictSessionState::Present(conflict) = read_conflict_session_state(paths)? else {
         return Ok(());
     };
-    let needs_remote = session.paths.iter().any(|record| {
+    // The durable conflict session is fenced to the sync identity that materialized it; a stale
+    // fence must never drive remote publication.
+    crate::recovery::assert_fence_for_revival(&conflict.fence, &session.fence)?;
+    let needs_remote = conflict.paths.iter().any(|record| {
         matches!(
             record.status,
             ConflictPathStatus::ResolvedKeepLocal | ConflictPathStatus::ResolvedMerged
@@ -1304,16 +1361,23 @@ fn execute_pending_resolved_remote_apply(
         return Ok(());
     }
     let baseline = read_baseline(paths)?;
-    apply_resolved_conflicts_remote(paths, session.conflict_revision, remote, baseline)?;
+    apply_resolved_conflicts_remote(paths, conflict.conflict_revision, remote, baseline)?;
     Ok(())
 }
 
-fn planned_open_conflict_paths<'a>(
+/// Planned `OpenConflict` facts: path → (`local_digest`, `remote_digest`). Coverage is digest-aware —
+/// a durable record only covers a divergence when it pinned the same candidate digests.
+fn planned_open_conflict_facts<'a>(
     intents: impl Iterator<Item = &'a ProviderNeutralIntent>,
-) -> BTreeSet<&'a str> {
+) -> BTreeMap<&'a str, (&'a ContentDigest, &'a ContentDigest)> {
     intents
         .filter_map(|intent| match intent {
-            ProviderNeutralIntent::OpenConflict { path, .. } => Some(path.as_str()),
+            ProviderNeutralIntent::OpenConflict {
+                path,
+                local_digest,
+                remote_digest,
+                ..
+            } => Some((path.as_str(), (local_digest, remote_digest))),
             ProviderNeutralIntent::EnsurePresent { .. }
             | ProviderNeutralIntent::EnsureAbsent { .. }
             | ProviderNeutralIntent::PullPresent { .. }
@@ -1323,28 +1387,79 @@ fn planned_open_conflict_paths<'a>(
         .collect()
 }
 
-fn session_covers_open_paths(session: &ConflictSession, planned: &BTreeSet<&str>) -> bool {
+/// A durable session covers the planned open set only when every planned path has a record that
+/// pinned the *same* digests and is still decision-ready (resolved, or armed with candidates).
+/// Path-only membership would let a stale resolved record mask a fresh divergence.
+fn session_covers_open_facts(
+    session: &ConflictSession,
+    planned: &BTreeMap<&str, (&ContentDigest, &ContentDigest)>,
+) -> bool {
     if planned.is_empty() {
         return false;
     }
-    let existing: BTreeSet<&str> = session
-        .paths
-        .iter()
-        .map(|record| record.path.as_str())
-        .collect();
-    planned.iter().all(|path| existing.contains(path))
+    planned.iter().all(|(path, (local, remote))| {
+        session.paths.iter().any(|record| {
+            record.path.as_str() == *path
+                && conflict_record_covers_divergence(record, local, remote)
+        })
+    })
 }
 
-fn existing_session_covers_open_paths(
+/// Reads the durable conflict session and refuses one fenced to a different sync identity.
+fn read_fenced_conflict_session(
     paths: &SyncPaths,
-    planned: &BTreeSet<&str>,
-) -> Result<bool, LomoError> {
-    match read_conflict_session_state(paths)? {
-        ConflictSessionState::Present(existing) => {
-            Ok(session_covers_open_paths(&existing, planned))
-        }
-        ConflictSessionState::Absent => Ok(false),
+    fence: &SyncIdentityFence,
+) -> Result<ConflictSessionState, LomoError> {
+    let state = read_conflict_session_state(paths)?;
+    if let ConflictSessionState::Present(existing) = &state {
+        crate::recovery::assert_fence_for_revival(&existing.fence, fence)?;
     }
+    Ok(state)
+}
+
+/// True when this `OpenConflict` intent needs fresh candidate bodies: either no durable record
+/// exists for the path, or a same-divergence record exists but lost its candidate artifacts and
+/// must re-materialize. Digest-mismatched records reopen in place and need no body fetch.
+fn intent_needs_conflict_bodies(
+    intent: &ProviderNeutralIntent,
+    existing: Option<&ConflictSession>,
+) -> bool {
+    let ProviderNeutralIntent::OpenConflict {
+        path,
+        local_digest,
+        remote_digest,
+        ..
+    } = intent
+    else {
+        return false;
+    };
+    let Some(existing) = existing else {
+        return true;
+    };
+    existing
+        .paths
+        .iter()
+        .find(|record| record.path.as_str() == path.as_str())
+        .is_none_or(|record| {
+            conflict_record_matches_digests(record, local_digest, remote_digest)
+                && !conflict_record_is_resolved(record)
+                && !conflict_record_is_armed(record)
+        })
+}
+
+/// Remote listing validators for the conflict paths (token captured at conflict open).
+fn conflict_remote_tokens<'a>(
+    entries: impl IntoIterator<Item = &'a RemotePathEntry>,
+) -> BTreeMap<String, String> {
+    entries
+        .into_iter()
+        .filter_map(|entry| {
+            entry
+                .validator
+                .token()
+                .map(|token| (entry.path.as_str().to_owned(), token.to_owned()))
+        })
+        .collect()
 }
 
 fn materialize_or_load_streaming_conflict_session(
@@ -1357,37 +1472,41 @@ fn materialize_or_load_streaming_conflict_session(
         return Ok(None);
     };
     if plan.open_conflict_count() == 0 {
-        return match read_conflict_session_state(sync_paths)? {
+        return match read_fenced_conflict_session(sync_paths, &session.fence)? {
             ConflictSessionState::Absent => Ok(None),
             ConflictSessionState::Present(existing) => Ok(Some(existing)),
         };
     }
-    if let ConflictSessionState::Present(existing) = read_conflict_session_state(sync_paths)?
-        && session_covers_open_paths(
-            &existing,
-            &planned_open_conflict_paths(
-                plan.intent_pages
-                    .iter()
-                    .flat_map(|page| page.intents.iter()),
-            ),
-        )
+    let planned = planned_open_conflict_facts(
+        plan.intent_pages
+            .iter()
+            .flat_map(|page| page.intents.iter()),
+    );
+    let existing = read_fenced_conflict_session(sync_paths, &session.fence)?;
+    if let ConflictSessionState::Present(existing) = &existing
+        && session_covers_open_facts(existing, &planned)
     {
-        return Ok(Some(existing));
+        return Ok(Some(existing.clone()));
     }
-    let bodies = conflict_bodies.ok_or_else(|| {
-        validation(
-            "conflict_candidate_body_missing",
-            "OpenConflict materialize requires candidate body source",
-        )
-    })?;
     let conflict_session_id = crate::conflict::conflict_session_id(&session.session_id);
-    materialize_conflicts_from_intent_pages(
+    let remote_tokens = conflict_remote_tokens(plan.conflict_remote_entries.iter());
+    let intents: Vec<ProviderNeutralIntent> = plan
+        .intent_pages
+        .iter()
+        .flat_map(|page| page.intents.iter())
+        .cloned()
+        .collect();
+    merge_conflicts_into_session(
         sync_paths,
         &session.fence,
         &conflict_session_id,
-        &plan.intent_pages,
-        &plan.conflict_remote_entries,
-        bodies,
+        &intents,
+        &remote_tokens,
+        conflict_bodies,
+        match &existing {
+            ConflictSessionState::Present(existing) => Some(existing),
+            ConflictSessionState::Absent => None,
+        },
     )
 }
 
@@ -1401,33 +1520,31 @@ fn materialize_or_load_conflict_session(
     let Some(sync_paths) = paths else {
         return Ok(None);
     };
+    let existing = read_fenced_conflict_session(sync_paths, &session.fence)?;
     if batch.open_conflict_count() > 0 {
-        if let ConflictSessionState::Present(existing) = read_conflict_session_state(sync_paths)?
-            && session_covers_open_paths(
-                &existing,
-                &planned_open_conflict_paths(batch.intents.iter()),
-            )
+        let planned = planned_open_conflict_facts(batch.intents.iter());
+        if let ConflictSessionState::Present(existing) = &existing
+            && session_covers_open_facts(existing, &planned)
         {
-            return Ok(Some(existing));
+            return Ok(Some(existing.clone()));
         }
-        let bodies = conflict_bodies.ok_or_else(|| {
-            validation(
-                "conflict_candidate_body_missing",
-                "OpenConflict materialize requires candidate body source",
-            )
-        })?;
         let conflict_session_id = crate::conflict::conflict_session_id(&session.session_id);
-        return materialize_conflicts_from_plan(
+        let remote_tokens = conflict_remote_tokens(remote_snap.entries.iter());
+        return merge_conflicts_into_session(
             sync_paths,
             &session.fence,
             &conflict_session_id,
-            batch,
-            remote_snap,
-            bodies,
+            &batch.intents,
+            &remote_tokens,
+            conflict_bodies,
+            match &existing {
+                ConflictSessionState::Present(existing) => Some(existing),
+                ConflictSessionState::Absent => None,
+            },
         );
     }
     // Load existing session if present so baseline hold still applies across cycles.
-    match read_conflict_session_state(sync_paths)? {
+    match existing {
         ConflictSessionState::Absent => Ok(None),
         ConflictSessionState::Present(existing) => Ok(Some(existing)),
     }
@@ -1492,25 +1609,14 @@ fn publish_and_verify(
         }
     }
 
-    // PullPresent is local-store apply; remote verify still confirms token/digest.
-    // Same-byte paths may establish baseline after verify of remote presence (no publish needed).
-    for intent in &batch.intents {
-        if let ProviderNeutralIntent::PullPresent {
-            path,
-            digest,
-            remote_token,
-        } = intent
-            && !verify_expectations
-                .iter()
-                .any(|expectation| expectation.path.as_str() == path.as_str())
-        {
-            verify_expectations.push(VerifyExpectation {
-                path: path.clone(),
-                expected_digest: Some(digest.clone()),
-                expected_token: remote_token.clone(),
-            });
-        }
-    }
+    // Baseline may only record facts the workspace actually holds. `PullPresent` is a local-apply
+    // intent: the bytes are not yet landed, so a remote-side verify proves nothing about local
+    // state and must never reach baseline. Pulls advance baseline only through the same-byte
+    // confirm below (a later cycle observing local digest == remote digest) or through
+    // `advance_baseline_after_local_pull` after the host lands the bytes.
+    //
+    // Same-byte paths may establish baseline after verify of remote presence (no publish needed):
+    // local digest == remote digest means the bytes exist on both sides already.
     for entry in &remote_snap.entries {
         if let Some(local_entry) = local_snap
             .entries
@@ -1537,7 +1643,21 @@ fn publish_and_verify(
             results: Vec::new(),
         }
     } else {
-        remote.verify(&verify_expectations)?
+        let mut verified = remote.verify(&verify_expectations)?;
+        // Only results for paths this cycle actually asked to verify are authoritative — a port
+        // cannot inject a verified fact for an unrequested path into baseline advancement.
+        let expected_paths: BTreeSet<&str> = verify_expectations
+            .iter()
+            .map(|expectation| expectation.path.as_str())
+            .collect();
+        verified.results.retain(|result| {
+            expected_paths.contains(match result {
+                VerifyStatus::Verified { path, .. }
+                | VerifyStatus::AbsentVerified { path }
+                | VerifyStatus::Failed { path, .. } => path.as_str(),
+            })
+        });
+        verified
     };
     Ok((receipt, verified))
 }
@@ -2320,15 +2440,19 @@ fn ensure_session_for_composition(
     workspace_generation: &str,
     config: &SyncBackendConfig,
 ) -> Result<(), LomoError> {
-    if paths.session.exists() {
-        return Ok(());
-    }
     let generation = lomo_workspace::WorkspaceGenerationId::parse(workspace_generation)?;
     let dataset = lomo_workspace::RemoteDatasetId::parse(config.remote_dataset_id())?;
     // Canonical identity: backend kind + endpoint + non-secret identity fields (never secret bytes).
     let canonical = config.canonical_identity();
     let identity =
         lomo_workspace::RemoteIdentityDigest::from_canonical_config_bytes(canonical.as_bytes());
+    if paths.session.exists() {
+        // An existing durable session is only trustworthy under the exact identity triple it
+        // was minted for — a session that survived an endpoint/dataset re-point must refuse,
+        // never silently drive cycles and never be clean-slated here.
+        let session = read_session(paths)?;
+        return session.fence.matches(&generation, &dataset, &identity);
+    }
     let fence = SyncIdentityFence::from_parts(&generation, &dataset, &identity);
     let session = SyncSession::for_first_takeover(fence, &dataset)?;
     write_session(paths, &session)
@@ -2448,10 +2572,17 @@ impl RemoteSyncPort for ResolvedObjectCache<'_> {
 /// Resolves [`RemoteDigestFact::Unresolved`] listing digests for exactly the paths the planner
 /// needs byte-level facts for.
 ///
-/// A path is skipped (digest stays unresolved, no fetch) only when the listing already proves it
-/// fully in-sync: the strong validator still equals the durable baseline token and the local
-/// digest still equals the baseline digest. Every other unresolved path — pulls, deletes under
-/// tombstone gates, conflicts, local updates — is resolved through
+/// A path is skipped (digest stays unresolved, no fetch) when the planner needs no remote-byte
+/// fact for it:
+/// - the listing already proves it fully in-sync (strong validator == baseline token and local
+///   digest == baseline digest), or
+/// - the remote side is *proven unchanged* against the durable baseline while a local path
+///   exists — the whole decision is then in-sync or conditional upload driven by the strong
+///   validator, so downloading the remote body would fetch bytes the planner never consumes.
+///
+/// Tombstoned paths always resolve (delete-vs-conflict is a byte-level decision), as do pulls
+/// (the pull needs the remote digest) and remote-changed paths (pull/conflict/update decision).
+/// Every resolved path is fetched through
 /// [`crate::ports::RemoteSyncPort::resolve_remote_object`] once, and the body is retained in
 /// `cache` for downstream `load_object` reuse. An object that vanishes between listing and
 /// resolution fails the cycle closed; the next listing converges.
@@ -2460,6 +2591,7 @@ fn resolve_listing_digests<'a, I>(
     entries: I,
     local_snap: &LocalSnapshot,
     baseline: &BaselineHead,
+    tombstones: &TombstoneSet,
 ) -> Result<(), LomoError>
 where
     I: IntoIterator<Item = &'a mut RemotePathEntry>,
@@ -2470,7 +2602,13 @@ where
         .map(|entry| (entry.path.as_str(), &entry.digest))
         .collect();
     for entry in entries {
-        if entry.digest.known().is_some() || remote_path_in_sync(entry, &local_map, baseline) {
+        let path_str = entry.path.as_str();
+        let remote_proven_unchanged = remote_entry_proven_unchanged(entry, baseline);
+        let local_present = local_map.contains_key(path_str);
+        if entry.digest.known().is_some()
+            || remote_path_in_sync(entry, &local_map, baseline)
+            || (local_present && remote_proven_unchanged && !tombstones.contains_path(path_str))
+        {
             continue;
         }
         let Some(object) = cache.inner.resolve_remote_object(&entry.path)? else {
@@ -2481,6 +2619,47 @@ where
         };
         entry.digest = RemoteDigestFact::Known(object.digest.clone());
         cache.objects.insert(entry.path.as_str().to_owned(), object);
+    }
+    Ok(())
+}
+
+/// Revalidates the durable sync identity fence against the live cycle facts.
+///
+/// The durable session is only valid for the workspace generation the live local snapshot
+/// reports: a re-minted workspace (or a durable tree that survived an identity change) must not
+/// keep driving cycles with mixed-generation facts. Ports that report no generation (hermetic
+/// fakes) cannot prove a mismatch and skip the check — the composed edge always supplies one.
+/// An established baseline must share the session's exact fence; a stale baseline under a
+/// re-pointed remote is refused via `sync_identity_mismatch`, never trusted.
+fn revalidate_durable_fences(
+    session: &SyncSession,
+    local_snap: &LocalSnapshot,
+    baseline: &BaselineHead,
+) -> Result<(), LomoError> {
+    if let Some(live_generation) = local_snap.workspace_generation.as_deref()
+        && live_generation != session.fence.workspace_generation.as_str()
+    {
+        return Err(validation(
+            "sync_identity_mismatch",
+            "durable sync session fence does not match the live workspace generation",
+        ));
+    }
+    if let Some(baseline_fence) = baseline.fence.as_ref() {
+        crate::recovery::assert_fence_for_revival(baseline_fence, &session.fence)?;
+    }
+    Ok(())
+}
+
+/// Durable-cancel publication gate: a bound cancel request observed while the cycle record is
+/// `Running` stops every later remote publication — the cycle record is marked `Cancelled` and
+/// the cycle exits with the `sync_cycle_cancelled` owner error.
+fn refuse_if_cancel_requested(paths: &SyncPaths, pages_applied: u32) -> Result<(), LomoError> {
+    if crate::cycle_state::sync_cycle_cancel_requested(paths)? {
+        crate::cycle_state::mark_sync_cycle_cancelled(paths, pages_applied)?;
+        return Err(crate::error::cancelled(
+            crate::cycle_state::CYCLE_CANCELLED_CODE,
+            "durable cancel request observed before remote publication",
+        ));
     }
     Ok(())
 }

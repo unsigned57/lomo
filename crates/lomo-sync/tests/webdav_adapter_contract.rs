@@ -1001,6 +1001,90 @@ mod tests {
         assert!(!server.has("memo/z.md"));
     }
 
+    /// A present-but-empty CAS anchor is malformed input — the named precondition is
+    /// unverifiable, so publish must fail closed with `PreconditionFailed` and the remote
+    /// object must remain untouched on both the PUT and DELETE paths.
+    #[test]
+    fn empty_cas_anchor_fails_closed_on_put_and_delete() {
+        let server = FaultServer::start();
+        server.put_object("memo/keep.md", b"remote");
+        let etag_before = server.etag_of("memo/keep.md");
+        let body = b"local-bytes";
+        let mut objects = MapObjectSource::default();
+        objects
+            .objects
+            .insert("memo/keep.md".to_owned(), body.to_vec());
+        let (_dir, adapter) = adapter_with(&server, objects);
+
+        let put_batch = PreparedRemoteBatch::new(
+            BatchAtomicity::PerPath,
+            vec![ProviderNeutralIntent::EnsurePresent {
+                path: path("memo/keep.md"),
+                digest: digest_of(body),
+                expected_remote_token: Some(String::new()),
+            }],
+        )
+        .expect("put batch");
+        let receipt = adapter.publish(&put_batch).expect("publish put");
+        assert!(
+            matches!(
+                receipt.path_results[0].1,
+                PathPublishStatus::PreconditionFailed
+            ),
+            "empty CAS anchor on ensure-present must fail closed: {:?}",
+            receipt.path_results[0].1
+        );
+
+        // A whitespace-only anchor is malformed the same way — never "no expectation".
+        let whitespace_batch = PreparedRemoteBatch::new(
+            BatchAtomicity::PerPath,
+            vec![ProviderNeutralIntent::EnsurePresent {
+                path: path("memo/keep.md"),
+                digest: digest_of(body),
+                expected_remote_token: Some(" \t ".to_owned()),
+            }],
+        )
+        .expect("whitespace put batch");
+        let receipt = adapter
+            .publish(&whitespace_batch)
+            .expect("publish whitespace put");
+        assert!(
+            matches!(
+                receipt.path_results[0].1,
+                PathPublishStatus::PreconditionFailed
+            ),
+            "whitespace CAS anchor on ensure-present must fail closed: {:?}",
+            receipt.path_results[0].1
+        );
+        assert_eq!(
+            server.etag_of("memo/keep.md"),
+            etag_before,
+            "empty CAS anchor must not commit an unconditional overwrite"
+        );
+
+        let delete_batch = PreparedRemoteBatch::new(
+            BatchAtomicity::PerPath,
+            vec![ProviderNeutralIntent::EnsureAbsent {
+                path: path("memo/keep.md"),
+                expected_remote_token: String::new(),
+            }],
+        )
+        .expect("delete batch");
+        let receipt = adapter.publish(&delete_batch).expect("publish delete");
+        assert!(
+            matches!(
+                receipt.path_results[0].1,
+                PathPublishStatus::PreconditionFailed
+            ),
+            "empty CAS anchor on ensure-absent must fail closed: {:?}",
+            receipt.path_results[0].1
+        );
+        assert!(
+            server.has("memo/keep.md"),
+            "empty CAS anchor must not delete the remote object"
+        );
+    }
+
     fn assert_webdav_pure_status_map() {
         // Full LomoError category + RetryDisposition on map_http_status.
         // PathPublishStatus only carries stable codes (asserted separately).

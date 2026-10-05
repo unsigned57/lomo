@@ -254,6 +254,12 @@ impl<S: WebDavObjectSource> WebDavAdapter<S> {
         digest: &ContentDigest,
         expected_remote_token: Option<&str>,
     ) -> PathPublishStatus {
+        // A present-but-empty CAS anchor is malformed input, never "no expectation":
+        // the named precondition is unverifiable, so the publish fails closed before
+        // any remote mutation (including parent MKCOL).
+        if expected_remote_token.is_some_and(crate::pipeline::remote_cas_token_is_malformed) {
+            return PathPublishStatus::PreconditionFailed;
+        }
         if let Err(error) = self.ensure_parent_collections(path.as_str()) {
             return PathPublishStatus::Failed {
                 code: error.code().to_owned(),
@@ -328,6 +334,11 @@ impl<S: WebDavObjectSource> WebDavAdapter<S> {
         path: &SyncPath,
         expected_remote_token: &str,
     ) -> PathPublishStatus {
+        // An empty CAS anchor on a delete is malformed input: the precondition is
+        // unverifiable, so the delete must not proceed unconditionally.
+        if crate::pipeline::remote_cas_token_is_malformed(expected_remote_token) {
+            return PathPublishStatus::PreconditionFailed;
+        }
         let url = match self.transport.endpoint().resolve_path(path.as_str()) {
             Ok(url) => url,
             Err(error) => {

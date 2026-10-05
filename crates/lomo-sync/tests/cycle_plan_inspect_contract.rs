@@ -629,6 +629,57 @@ mod tests {
     }
 
     #[test]
+    fn composed_cycle_rejects_session_under_foreign_remote_identity() {
+        let temporary = tempdir().expect("temp");
+        let workspace = temporary.path().join("ws");
+        std::fs::create_dir_all(&workspace).expect("ws");
+        lomo_workspace::load_or_mint_workspace_generation(&workspace)
+            .expect("workspace generation");
+        run_rebuild(&workspace, 8).expect("index seed");
+
+        // First composed cycle under dataset ds-a mints the durable session fence.
+        run_composed_sync_cycle(
+            &workspace,
+            &SyncBackendConfig::hermetic_fake("ds-a"),
+            None,
+            false,
+        )
+        .expect("first composed cycle");
+
+        // Same workspace generation, different remote dataset: the durable fence must refuse
+        // instead of silently driving cycles under the foreign identity.
+        let err = run_composed_sync_cycle(
+            &workspace,
+            &SyncBackendConfig::hermetic_fake("ds-b"),
+            None,
+            false,
+        )
+        .expect_err("foreign dataset must refuse");
+        assert_eq!(err.code(), "sync_identity_mismatch");
+
+        // Same dataset id, drifted canonical identity (different backend/endpoint): also refused
+        // — and the refusal happens before secret/config validation touches the remote.
+        let drifted = SyncBackendConfig::WebDav {
+            endpoint_url: "https://dav.example/remote.php/dav".into(),
+            username: "alice".into(),
+            remote_dataset_id: "ds-a".into(),
+        };
+        let err = run_composed_sync_cycle(&workspace, &drifted, None, false)
+            .expect_err("identity drift must refuse");
+        assert_eq!(err.code(), "sync_identity_mismatch");
+
+        // Never clean-slated: the original session survives and still drives cycles.
+        let summary = run_composed_sync_cycle(
+            &workspace,
+            &SyncBackendConfig::hermetic_fake("ds-a"),
+            None,
+            false,
+        )
+        .expect("original identity must still run");
+        assert_eq!(summary.session_kind, SessionKind::FirstTakeover);
+    }
+
+    #[test]
     fn composed_webdav_missing_secret_fail_closed() {
         let temporary = tempdir().expect("temp");
         let workspace = temporary.path().join("ws");

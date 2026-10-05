@@ -525,6 +525,11 @@ impl<S: S3ObjectSource> S3Adapter<S> {
         digest: &ContentDigest,
         expected_remote_token: Option<&str>,
     ) -> PathPublishStatus {
+        // A present-but-empty CAS anchor is malformed input, never "no expectation":
+        // the named precondition is unverifiable, so the publish must fail closed.
+        if expected_remote_token.is_some_and(crate::pipeline::remote_cas_token_is_malformed) {
+            return PathPublishStatus::PreconditionFailed;
+        }
         let key = match self.transport.endpoint().object_key(path.as_str()) {
             Ok(key) => key,
             Err(error) => {
@@ -633,15 +638,24 @@ impl<S: S3ObjectSource> S3Adapter<S> {
             .iter()
             .map(|part| (part.part_number, part.etag.clone()))
             .collect();
-        match self
-            .transport
-            .complete_multipart_upload(key, &session.upload_id, &parts)
-        {
+        // Commit carries the same CAS anchor checked at preflight: `If-Match` for an
+        // expected live ETag, `If-None-Match: *` for create-only, so a remote change
+        // between preflight and complete fails closed instead of overwriting silently.
+        match self.transport.complete_multipart_upload(
+            key,
+            &session.upload_id,
+            &parts,
+            expected_remote_token,
+            expected_remote_token.is_none(),
+        ) {
             Ok(etag) => {
                 self.clear_multipart_session(path.as_str());
                 PathPublishStatus::Applied {
                     new_token: etag.unwrap_or_else(String::new),
                 }
+            }
+            Err(error) if error.code() == "s3_precondition_failed" => {
+                PathPublishStatus::PreconditionFailed
             }
             Err(error) => PathPublishStatus::Failed {
                 code: error.code().to_owned(),
@@ -669,11 +683,16 @@ impl<S: S3ObjectSource> S3Adapter<S> {
                 Ok(Some(_)) => None,
             };
         }
-        if let Ok(Some(_etag)) = self.transport.head(key) {
-            // If-None-Match semantics for create-only: object already present.
-            return Some(PathPublishStatus::PreconditionFailed);
+        // Create-only (`If-None-Match: *`): HEAD is the preflight proof of absence.
+        // A faulting probe is not proof of absence — fail closed rather than commit
+        // unconditionally over an unobserved remote object.
+        match self.transport.head(key) {
+            Ok(_) => Some(PathPublishStatus::PreconditionFailed),
+            Err(error) if error.code() == "s3_not_found" => None,
+            Err(error) => Some(PathPublishStatus::Failed {
+                code: error.code().to_owned(),
+            }),
         }
-        None
     }
 
     fn lookup_multipart_session(&self, path: &str) -> Result<Option<MultipartSession>, LomoError> {
@@ -765,6 +784,11 @@ impl<S: S3ObjectSource> S3Adapter<S> {
         path: &SyncPath,
         expected_remote_token: &str,
     ) -> PathPublishStatus {
+        // An empty CAS anchor on a delete is malformed input: the precondition is
+        // unverifiable, so the delete must not proceed unconditionally.
+        if crate::pipeline::remote_cas_token_is_malformed(expected_remote_token) {
+            return PathPublishStatus::PreconditionFailed;
+        }
         let key = match self.transport.endpoint().object_key(path.as_str()) {
             Ok(key) => key,
             Err(error) => {

@@ -347,6 +347,7 @@ mod tests {
                 wire_log,
                 &key,
                 &query,
+                &headers,
             );
         }
         if method == "DELETE" && query.contains("uploadId=") {
@@ -611,6 +612,9 @@ mod tests {
         write_status(stream, 200, b"part", &extra)
     }
 
+    /// `CompleteMultipartUpload` — honours the commit-time CAS anchor exactly like the
+    /// conditional-write contract on `PUT`: `If-None-Match: *` requires the key absent and
+    /// `If-Match` requires the stored `ETag` to still match, otherwise 412 without commit.
     fn write_complete_multipart(
         stream: &mut TcpStream,
         store: &Mutex<HashMap<String, StoredObject>>,
@@ -618,10 +622,30 @@ mod tests {
         wire_log: &Mutex<Vec<MultipartWireEvent>>,
         key: &str,
         query: &str,
+        headers: &HashMap<String, String>,
     ) -> std::io::Result<()> {
         let Some(upload_id) = query_value(query, "uploadId") else {
             return write_status(stream, 400, b"missing-upload-id", "");
         };
+        let if_match = headers.get("if-match").cloned();
+        let if_none_star = headers
+            .get("if-none-match")
+            .is_some_and(|v| v.trim() == "*");
+        if if_none_star || if_match.is_some() {
+            let existing = match store.lock() {
+                Ok(guard) => guard.get(key).cloned(),
+                Err(_) => return write_status(stream, 500, b"store-lock", ""),
+            };
+            if if_none_star && existing.is_some() {
+                return write_status(stream, 412, b"precondition", "");
+            }
+            if let Some(expected) = if_match {
+                match existing {
+                    Some(obj) if strip_q(&obj.etag) == strip_q(&expected) => {}
+                    _ => return write_status(stream, 412, b"precondition", ""),
+                }
+            }
+        }
         let upload = match multiparts.lock() {
             Ok(mut guard) => guard.remove(&upload_id),
             Err(_) => return write_status(stream, 500, b"multipart-lock", ""),
@@ -1270,6 +1294,139 @@ mod tests {
             PathPublishStatus::Applied { .. }
         ));
         assert!(!server.has("lomo/memo/del.md"));
+    }
+
+    /// A present-but-empty CAS anchor is malformed input — the named precondition is
+    /// unverifiable, so publish must fail closed with `PreconditionFailed` and the remote
+    /// object must remain untouched on both the PUT and DELETE paths.
+    #[test]
+    fn empty_cas_anchor_fails_closed_on_put_and_delete() {
+        let server = FaultServer::start();
+        server.put_object("lomo/memo/keep.md", b"remote");
+        let etag_before = server.etag_of("lomo/memo/keep.md");
+        let body = b"local-bytes";
+        let mut objects = MapS3ObjectSource::default();
+        objects
+            .objects
+            .insert("memo/keep.md".to_owned(), body.to_vec());
+        let (_dir, adapter) = adapter_with(&server, objects);
+
+        let put_batch = PreparedRemoteBatch::new(
+            BatchAtomicity::PerPath,
+            vec![ProviderNeutralIntent::EnsurePresent {
+                path: path("memo/keep.md"),
+                digest: digest_of(body),
+                expected_remote_token: Some(String::new()),
+            }],
+        )
+        .expect("put batch");
+        let receipt = adapter.publish(&put_batch).expect("publish put");
+        assert!(
+            matches!(
+                receipt.path_results[0].1,
+                PathPublishStatus::PreconditionFailed
+            ),
+            "empty CAS anchor on ensure-present must fail closed: {:?}",
+            receipt.path_results[0].1
+        );
+
+        // A whitespace-only anchor is malformed the same way — never "no expectation".
+        let whitespace_batch = PreparedRemoteBatch::new(
+            BatchAtomicity::PerPath,
+            vec![ProviderNeutralIntent::EnsurePresent {
+                path: path("memo/keep.md"),
+                digest: digest_of(body),
+                expected_remote_token: Some("   ".to_owned()),
+            }],
+        )
+        .expect("whitespace put batch");
+        let receipt = adapter
+            .publish(&whitespace_batch)
+            .expect("publish whitespace put");
+        assert!(
+            matches!(
+                receipt.path_results[0].1,
+                PathPublishStatus::PreconditionFailed
+            ),
+            "whitespace CAS anchor on ensure-present must fail closed: {:?}",
+            receipt.path_results[0].1
+        );
+        assert_eq!(
+            server.etag_of("lomo/memo/keep.md"),
+            etag_before,
+            "empty CAS anchor must not commit an unconditional overwrite"
+        );
+
+        let delete_batch = PreparedRemoteBatch::new(
+            BatchAtomicity::PerPath,
+            vec![ProviderNeutralIntent::EnsureAbsent {
+                path: path("memo/keep.md"),
+                expected_remote_token: String::new(),
+            }],
+        )
+        .expect("delete batch");
+        let receipt = adapter.publish(&delete_batch).expect("publish delete");
+        assert!(
+            matches!(
+                receipt.path_results[0].1,
+                PathPublishStatus::PreconditionFailed
+            ),
+            "empty CAS anchor on ensure-absent must fail closed: {:?}",
+            receipt.path_results[0].1
+        );
+        assert!(
+            server.has("lomo/memo/keep.md"),
+            "empty CAS anchor must not delete the remote object"
+        );
+    }
+
+    /// The same malformed-anchor guard covers the multipart path: the token check runs
+    /// before threshold dispatch, so an oversized body with `Some("")` never creates an
+    /// upload or commits.
+    #[test]
+    fn empty_cas_anchor_fails_closed_on_multipart_path() {
+        let server = FaultServer::start();
+        server.put_object("lomo/memo/big.md", b"remote");
+        let etag_before = server.etag_of("lomo/memo/big.md");
+        let body = b"0123456789abcdef0123456789abcdef";
+        let mut objects = MapS3ObjectSource::default();
+        objects
+            .objects
+            .insert("memo/big.md".to_owned(), body.to_vec());
+        let dir = tempdir().expect("temp");
+        let adapter = connect_map_s3_source(lomo_sync::MapS3ConnectParams {
+            endpoint_url: &server.base_url(),
+            bucket: "bucket",
+            prefix: "lomo/",
+            region: "us-east-1",
+            access_key_id: "test-access",
+            secret_access_key: "test-secret",
+            temp_dir: dir.path(),
+            objects,
+            timeout: Duration::from_secs(5),
+        })
+        .expect("adapter")
+        .with_multipart_threshold(8);
+
+        let batch = PreparedRemoteBatch::new(
+            BatchAtomicity::PerPath,
+            vec![ProviderNeutralIntent::EnsurePresent {
+                path: path("memo/big.md"),
+                digest: digest_of(body),
+                expected_remote_token: Some(String::new()),
+            }],
+        )
+        .expect("batch");
+        let receipt = adapter.publish(&batch).expect("publish");
+        assert!(matches!(
+            receipt.path_results[0].1,
+            PathPublishStatus::PreconditionFailed
+        ));
+        assert!(
+            server.multipart_wire_log().is_empty(),
+            "malformed anchor must never open a multipart upload"
+        );
+        assert_eq!(server.etag_of("lomo/memo/big.md"), etag_before);
     }
 
     #[test]

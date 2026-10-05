@@ -115,6 +115,21 @@ mod tests {
         .expect("port")
     }
 
+    /// Fence whose workspace generation matches the store's live minted generation — the
+    /// preflight session must fence to the workspace it plans against, never a stale one.
+    fn fence_for_store_generation(local: &StoreLocalSnapshotPort) -> SyncIdentityFence {
+        let generation = local
+            .snapshot()
+            .expect("local")
+            .workspace_generation
+            .expect("store port always reports a generation");
+        SyncIdentityFence::from_parts(
+            &WorkspaceGenerationId::parse(&generation).expect("gen"),
+            &RemoteDatasetId::parse("ds").expect("ds"),
+            &RemoteIdentityDigest::parse(&"cd".repeat(32)).expect("id"),
+        )
+    }
+
     fn body_digest(body: &[u8]) -> ContentDigest {
         let hex = format!("{:x}", Sha256::digest(body));
         ContentDigest::parse(&hex).expect("digest")
@@ -134,8 +149,13 @@ mod tests {
                 results: Vec::new(),
             },
         );
-        let (_session, result) =
-            first_takeover_preflight(fence_g1(), "take-s1", &local, &remote).expect("preflight");
+        let (_session, result) = first_takeover_preflight(
+            fence_for_store_generation(&local),
+            "take-s1",
+            &local,
+            &remote,
+        )
+        .expect("preflight");
         assert_eq!(result.batch.ensure_absent_count(), 0);
         assert!(
             result.batch.ensure_present_count() >= 1,
@@ -371,8 +391,13 @@ mod tests {
                 results: Vec::new(),
             },
         );
-        let (session, result) =
-            migration_preflight(fence_g1(), "mig-s1", &local, &remote).expect("preflight");
+        let (session, result) = migration_preflight(
+            fence_for_store_generation(&local),
+            "mig-s1",
+            &local,
+            &remote,
+        )
+        .expect("preflight");
         assert_eq!(session.kind, SessionKind::Migration);
         assert_eq!(result.batch.ensure_absent_count(), 0);
         assert!(

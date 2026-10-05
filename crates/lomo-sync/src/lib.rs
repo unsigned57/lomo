@@ -35,9 +35,10 @@ pub use conflict::{
     decode_conflict_session_bytes, encode_conflict_session, is_markdown_sync_path,
     list_sync_conflicts, load_conflict_bodies_for_open_intents,
     load_conflict_bodies_for_open_pages, materialize_conflicts_from_intent_pages,
-    materialize_conflicts_from_plan, may_advance_baseline_for_path, read_conflict_artifact,
-    read_conflict_session, read_conflict_session_state, resolve_sync_conflicts,
-    validate_merged_markdown_body, write_conflict_artifact, write_conflict_session,
+    materialize_conflicts_from_plan, may_advance_baseline_for_path, merge_conflicts_into_session,
+    read_conflict_artifact, read_conflict_session, read_conflict_session_state,
+    resolve_sync_conflicts, validate_merged_markdown_body, write_conflict_artifact,
+    write_conflict_session,
 };
 pub use conflict_suggest::{
     ConflictSuggestion, ConflictSuggestionChoice, suggest_conflict_resolution,
