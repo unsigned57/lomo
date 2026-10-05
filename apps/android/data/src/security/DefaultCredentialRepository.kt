@@ -55,7 +55,17 @@ class DefaultCredentialRepository(
             }.toCredentialSecretReadResult()
         }
 
-        override suspend fun writeSecret(
+        override suspend fun writeSecrets(values: Map<CredentialField, String?>) {
+            // The underlying store writes are plain non-suspending calls, so the batch commits
+            // without a suspension point: a pending cancellation is observed before this call
+            // resumes or after it returns — never between two fields of one batch.
+            values.forEach { (field, value) -> put(field, value) }
+            if (values.isNotEmpty()) {
+                changes.tryEmit(Unit)
+            }
+        }
+
+        private fun put(
             field: CredentialField,
             value: String?,
         ) {
@@ -71,7 +81,6 @@ class DefaultCredentialRepository(
                 CredentialField.S3_ENCRYPTION_PASSWORD2,
                 -> s3CredentialStore.setSecret(field, value)
             }
-            changes.tryEmit(Unit)
         }
     }
 

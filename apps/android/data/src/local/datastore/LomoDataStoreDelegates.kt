@@ -548,11 +548,7 @@ internal class AppSecurityStoreImpl(
     override fun observeAppLockPreference(): Flow<AppLockPreference> =
         dataStore.data
             .map { prefs ->
-                if (prefs[LomoDataStoreKeys.APP_LOCK_ENABLED] == true) {
-                    AppLockPreference.Enabled
-                } else {
-                    AppLockPreference.Disabled
-                }
+                prefs.appLockPreference()
             }.catch { throwable ->
                 if (throwable is IOException) {
                     emit(AppLockPreference.Unreadable)
@@ -563,14 +559,30 @@ internal class AppSecurityStoreImpl(
 
     override suspend fun readAppLockPreference(): AppLockPreference =
         try {
-            val prefs = dataStore.data.first()
-            if (prefs[LomoDataStoreKeys.APP_LOCK_ENABLED] == true) {
-                AppLockPreference.Enabled
-            } else {
-                AppLockPreference.Disabled
-            }
+            dataStore.data
+                .first()
+                .appLockPreference()
         } catch (_: IOException) {
             AppLockPreference.Unreadable
+        }
+
+    /**
+     * Absent key is ambiguous: on a healthy store it is the first-launch "lock off" fact, but
+     * on a store rebuilt after corruption it means "the recorded choice was destroyed" — the
+     * reader must not pretend the user disabled the lock, so it reports [AppLockPreference.Unreadable].
+     * The witness is the persisted sentinel itself, so this holds across process restarts.
+     * An explicitly stored `false` is still honored as a deliberate opt-out.
+     */
+    private fun Preferences.appLockPreference(): AppLockPreference =
+        when (this[LomoDataStoreKeys.APP_LOCK_ENABLED]) {
+            true -> AppLockPreference.Enabled
+            false -> AppLockPreference.Disabled
+            null ->
+                if (corruptionWitnessed()) {
+                    AppLockPreference.Unreadable
+                } else {
+                    AppLockPreference.Disabled
+                }
         }
 
     override suspend fun updateCheckUpdatesOnStartup(enabled: Boolean) {
@@ -753,12 +765,25 @@ internal class AppVersionStoreImpl(
 internal class GitSyncBehaviorStoreImpl(
     private val dataStore: DataStore<Preferences>,
 ) : LomoGitSyncBehaviorStore {
+    /**
+     * `sync_backend_type` is the sole backend-selection fact, so its absent-vs-unknown split
+     * must stay honest: absent on a healthy store means "none recorded"; absent on a store
+     * rebuilt after corruption means "the recorded selection was destroyed" and reads as
+     * [SyncBackendType.UNKNOWN] so schedulers leave existing work untouched instead of
+     * cancelling it as an explicit opt-out. The witness is the persisted sentinel, so the split
+     * holds across process restarts. An IOException mid-read reports UNKNOWN for the same
+     * reason — a failed read is unavailability, not a recorded `none`.
+     */
     override val syncBackendType: Flow<String> =
-        dataStore.stringFlow(
-            key = LomoDataStoreKeys.SYNC_BACKEND_TYPE,
-            flowName = "syncBackendType",
-            default = PreferenceKeys.Defaults.SYNC_BACKEND_TYPE,
-        )
+        dataStore.data
+            .map { prefs ->
+                prefs[LomoDataStoreKeys.SYNC_BACKEND_TYPE]
+                    ?: if (prefs.corruptionWitnessed()) {
+                        SyncBackendType.UNKNOWN.storageValue()
+                    } else {
+                        PreferenceKeys.Defaults.SYNC_BACKEND_TYPE
+                    }
+            }.catchOnlyIOException("syncBackendType", SyncBackendType.UNKNOWN.storageValue())
 
     override val gitSyncEnabled: Flow<Boolean> =
         syncBackendType.map {

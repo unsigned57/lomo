@@ -13,6 +13,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import com.lomo.data.util.PreferenceKeys
+import com.lomo.data.webdav.WebDavCredentialStore
 import com.lomo.domain.model.SettingDescriptor
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SettingValue
@@ -28,11 +29,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.io.IOException
 
 
-private const val LOMO_DATA_STORE_TAG = "LomoDataStore"
+internal const val LOMO_DATA_STORE_TAG = "LomoDataStore"
 
 /**
  * Process-wide preferences store. Built through [PreferenceDataStoreFactory] (not the
@@ -52,22 +54,42 @@ private object LomoAppDataStoreHolder {
     ): DataStore<Preferences> =
         instance ?: synchronized(this) {
             instance
-                ?: PreferenceDataStoreFactory
-                    .create(
-                        corruptionHandler =
-                            lomoPreferencesCorruptionHandler(
-                                corruptionFile = { context.preferencesFile() },
-                                registry = PreferencesCorruptionRegistry.shared,
-                            ),
-                        migrations =
-                            listOf(
-                                UnifyStorageLocationMigration,
-                                GitSyncPreferenceMigration,
-                                SyncBackendPreferenceMigration,
-                            ),
-                        scope = CoroutineScope(SupervisorJob() + dispatcher),
-                        produceFile = { context.preferencesFile() },
-                    ).also { instance = it }
+                ?: run {
+                    val storeScope = CoroutineScope(SupervisorJob() + dispatcher)
+                    val created =
+                        PreferenceDataStoreFactory
+                            .create(
+                                corruptionHandler =
+                                    lomoPreferencesCorruptionHandler(
+                                        corruptionFile = { context.preferencesFile() },
+                                        registry = PreferencesCorruptionRegistry.shared,
+                                    ),
+                                migrations =
+                                    listOf(
+                                        UnifyStorageLocationMigration,
+                                        GitSyncPreferenceMigration,
+                                        SyncBackendPreferenceMigration,
+                                        // B15: drain the retired plaintext WebDAV username at first
+                                        // access instead of waiting for a settings-screen read.
+                                        LegacyWebDavUsernameDrainMigration(
+                                            credentialStoreFactory = {
+                                                WebDavCredentialStore(context.applicationContext)
+                                            },
+                                        ),
+                                    ),
+                                scope = storeScope,
+                                produceFile = { context.preferencesFile() },
+                            )
+                    // The witness sentinel lives in the rebuilt file, so fail-closed readers
+                    // need no warm-up. This only revives the user-facing notice after a
+                    // restart destroyed the original in-memory emission.
+                    PreferencesCorruptionRegistry.shared.bindWitnessStore(created)
+                    storeScope.launch {
+                        PreferencesCorruptionRegistry.shared.republishPersistedNotice(created)
+                    }
+                    instance = created
+                    created
+                }
         }
 
     private fun Context.preferencesFile() =
@@ -655,6 +677,18 @@ internal object LomoDataStoreKeys {
     val S3_AUTO_SYNC_ENABLED = booleanPreferencesKey(PreferenceKeys.S3_AUTO_SYNC_ENABLED)
     val S3_AUTO_SYNC_INTERVAL = stringPreferencesKey(PreferenceKeys.S3_AUTO_SYNC_INTERVAL)
     val S3_SYNC_ON_REFRESH = booleanPreferencesKey(PreferenceKeys.S3_SYNC_ON_REFRESH)
+    /**
+     * Persisted corruption witness, written by the corruption handler into the rebuilt store.
+     * Its presence means "this file was replaced after corruption": absent security/sync keys
+     * read as destroyed, never as first-launch defaults. The value carries the notice payload
+     * (`quarantined file name` + `\n` + `diagnostic`) so the user-facing notice is recoverable
+     * across restarts.
+     */
+    val PREFERENCES_CORRUPTION_WITNESS = stringPreferencesKey("preferences_corruption_witness")
+
+    /** Set once the user-facing corruption notice has been acknowledged. */
+    val PREFERENCES_CORRUPTION_NOTICE_ACKED = booleanPreferencesKey("preferences_corruption_notice_acked")
+
     /** Retired plain-text draft key: read once by the create-draft import, then removed. */
     val RETIRED_DRAFT_TEXT = stringPreferencesKey(PreferenceKeys.DRAFT_TEXT)
     val MEMO_CREATE_DRAFT = stringPreferencesKey("memo_create_draft")

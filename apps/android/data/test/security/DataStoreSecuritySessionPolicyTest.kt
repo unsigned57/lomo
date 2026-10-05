@@ -13,6 +13,14 @@ package com.lomo.data.security
  * Observable outcomes: CredentialReadAuthorization, SecuritySessionState, resume invocations.
  * TDD proof: ./kotlin test --include-module=data --include-classes='com.lomo.data.security.DataStoreSecuritySessionPolicyTest'
  * Excludes: BiometricPrompt, FLAG_SECURE window, Keystore userAuthenticationRequired, foreground timer.
+ *
+ * Test Change Justification:
+ * - Reason category: formatting-only realignment under the corruption-witness datastore change.
+ * - Old behavior/assertion being replaced: none — a call site was re-wrapped to satisfy the line
+ *   length limit; every scenario and assertion is unchanged.
+ * - Why old assertion is no longer correct: not applicable; no assertion was replaced.
+ * - Coverage preserved by: all session/credential-read scenarios run identically.
+ * - Why this is not fitting the test to the implementation: the diff contains no semantic change.
  */
 
 import com.lomo.data.local.datastore.AppSecurityStoreImpl
@@ -141,7 +149,8 @@ class DataStoreSecuritySessionPolicyTest : DataFunSpec() {
                         ): Preferences = error("unused")
                     }
 
-                AppSecurityStoreImpl(dataStore).readAppLockPreference() shouldBe
+                AppSecurityStoreImpl(dataStore)
+                    .readAppLockPreference() shouldBe
                     AppLockPreference.Unreadable
             }
         }

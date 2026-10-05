@@ -20,21 +20,37 @@ import java.nio.file.Files
  * - Owning layer: data/local datastore
  * - Priority tier: P0
  * - Capability: a corrupted preferences file is quarantined as evidence instead of silently
- *   erased, empty preferences replace it for the running session, and a typed notice is
- *   published so the app can present recovery.
+ *   erased, and DataStore's rebuild persists a preferences set carrying only the corruption
+ *   witness sentinel; a typed notice is published so the app can present recovery.
  *
  * Scenarios:
  * - Given a preferences file holding invalid bytes, when the store is first read, then reads
- *   succeed on empty preferences, the original bytes are moved aside under a quarantined
- *   name, and the notice records the quarantined file.
+ *   succeed on a witness-bearing preferences set, the original bytes are preserved under a
+ *   quarantined name, the rebuilt file carries the sentinel, and the notice records the
+ *   quarantined file.
  * - Given a published corruption notice, when the user-facing surface acknowledges it, then
  *   the notice clears without deleting the quarantined evidence.
  *
- * Observable outcomes: read success, quarantined file presence, notice contents.
+ * Observable outcomes: read success, sentinel presence in the rebuilt store/file, quarantined
+ * file presence, notice contents.
  *
  * TDD proof:
  * - Fails before the fix because the contract surface under test did not exist.
  * Excludes: UI rendering of the notice, backup/restore migration flows.
+ *
+ * Test Change Justification:
+ * - Reason category: F-1 re-audit-2 fix (audit/11-再复审-Android域.md).
+ * - Old behavior/assertion being replaced: rebuilt preferences were asserted empty and the
+ *   backing file absent.
+ * - Why old assertion is no longer correct: the persisted corruption-witness sentinel is the
+ *   fix itself — DataStore re-reads under its corruption lock and only writes the handler's
+ *   replacement while the re-read still fails, so the corrupt bytes are copied aside and the
+ *   rewritten store file carries `preferences_corruption_witness`.
+ * - Coverage preserved by: notice publication, quarantined evidence, and acknowledgement
+ *   semantics remain asserted; restart persistence is locked by
+ *   PreferencesCorruptionPersistenceReaudit2Test.
+ * - Why this is not fitting the test to the implementation: the sentinel's presence is the
+ *   security invariant — an absent security key after rebuild must keep reading as destroyed.
  */
 class PreferencesCorruptionHandlerTest : DataFunSpec() {
     init {
@@ -56,8 +72,10 @@ class PreferencesCorruptionHandlerTest : DataFunSpec() {
 
                 val prefs = store.data.first()
 
-                prefs.asMap().isEmpty() shouldBe true
-                backing.exists() shouldBe false
+                // The rebuilt set is not "empty": it carries the persisted corruption witness,
+                // and DataStore wrote it back over the corrupt bytes.
+                prefs[LomoDataStoreKeys.PREFERENCES_CORRUPTION_WITNESS].shouldNotBeNull()
+                backing.exists() shouldBe true
                 val quarantined =
                     backing.parentFile!!
                         .listFiles { file -> file.name.startsWith(backing.name + ".corrupt-") }
