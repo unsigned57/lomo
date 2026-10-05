@@ -5,10 +5,12 @@
 
 ## Architecture Impact
 
-- Layer owner: `app` / `domain` / `data` / `ui-components`
-- Domain API or use case added or reused:
-- Any new boundary exception:
-- Why the change still respects `UI -> Domain -> Data`:
+For an architecture-sensitive change; otherwise write "not applicable".
+
+- Owning module/crate and path:
+- Existing contract reused or changed:
+- Dependency/authority effect under [ARCHITECTURE.md](../ARCHITECTURE.md):
+- Explicit boundary exception and evidence, if any:
 
 ## Meaningful Test Notes
 
@@ -19,5 +21,6 @@
 
 ## Verification
 
-- Commands run:
-- Risks or follow-up:
+- Applicable checks under [Quality](../quality/README.md#gate-selection-and-evidence), commands and actual results:
+- Remaining verification blockers and integration readiness:
+- Dependency Decision, if applicable: candidates/versions, sources, reasons and validation evidence:

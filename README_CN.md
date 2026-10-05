@@ -143,7 +143,8 @@ Lomo 的灵感来自于许多优秀的前辈，如 **Memos**、**Flomo**、**Moe
 <details>
 <summary>构建指南</summary>
 
-**前置要求：** JDK 26 · Android SDK API 37 · Rustup · just
+**前置要求：** Rustup、just，以及 [app 模块](apps/android/app/module.yaml) 声明的 JDK 和 Android SDK 版本。
+版本与路径的唯一来源见[构建输入](quality/README.md#canonical-build-inputs)。
 
 ```bash
 # 安装固定版本的 Rust 工具、targets 与 Android NDK
@@ -158,16 +159,17 @@ cargo run -p lomo-tui --release --locked
 # 工作树迭代门禁（加 --tests-only 跳过静态分析）
 just dev
 
-# 移交 / 合并门禁
+# 代码移交 / 合并门禁（适用范围见 Quality）
 just check
 just ci
 ```
 
-`native-bindings/src` 与 native `.so` 都是可再生、被忽略的构建产物；clean checkout 是标准输入。
-签名 release 使用 `just android release`，必须按 `quality/release.md` 明确提供 keystore 配置。
+`native-bindings/src` 与 native `.so` 都是可再生、被忽略的构建产物。构建必须支持干净检出，
+也支持并保留已有本地编辑。签名 release 使用 `just android release`，必须提供[发布规范](quality/release.md)中的 keystore 配置。
 
 生产 FFI 身份为 `native-bindings` / `com.lomo.nativebridge` / `liblomo_native_jni.so`。
-当前行为合同位于 `fixtures/contracts/`，可执行基线位于 `fixtures/baselines/`。
+能力测试材料见 [fixtures](fixtures/README.md)，模块权威以[架构规范](ARCHITECTURE.md)为准。
+[文档索引](docs/README.md)列出了各文档的唯一职责。
 
 Android Studio 仍可用于编辑和设备调试，但仓库门禁与 native 生成必须使用上述命令。
 

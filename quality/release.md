@@ -1,6 +1,16 @@
-# Android Release
+# Release Contract
 
+Read for signing, release resources or publishing. Gate selection and JSON evidence are defined in
+[Quality Contract](README.md); module ownership remains in [Architecture](../ARCHITECTURE.md).
 Release builds use the same xtask graph as local development and pull-request CI.
+
+This file describes release preparation and execution, not a blanket instruction to publish.
+Apply build/signing steps when producing a release; a resource review or prose change uses the
+applicable Quality checks. Local APK publication means copying a validated artifact into the
+repository's output directory; it is not a GitHub Release. Remote publication, release-tag pushes
+and system installation require applicable task authorization under [AGENTS](../AGENTS.md).
+Existing authorization remains valid; do not request it again for each documented step.
+Write user-facing release notes using the [format guide](../docs/release_notes_format_guide.md).
 
 ## Prerequisites
 
@@ -9,7 +19,7 @@ just bootstrap
 just ci
 ```
 
-The release boundary requires all four signing values, either in `app/keystore.properties` using
+The release boundary requires all four signing values, either in `apps/android/app/keystore.properties` using
 camelCase or uppercase keys, or as environment variables:
 
 ```text
@@ -25,13 +35,16 @@ or debug signing fallback exists.
 ## Build
 
 ```bash
-just android release [abi]
+just android release all
 ```
+
+Use an explicit ABI for split builds. Omission selects arm64 at the Just entrypoint.
+A JSON result is successful only after artifact validation and signature verification finish.
 
 xtask performs the following as one graph:
 
 1. validates baseline profile sources and signing configuration;
-2. builds `lomo-native` for the target ABI(s) with NDK 29/API 26 and the release-android profile;
+2. builds `lomo-native` for the target ABI(s) with the pinned NDK/API and release-android profile;
 3. generates BoltFFI Kotlin/JNI into `native-bindings` / `com.lomo.nativebridge` and packages
    only `liblomo_native_jni.so` per ABI;
 4. builds the Kotlin Toolchain release APK with non-destructive ABI stashing isolation;
@@ -41,36 +54,35 @@ xtask performs the following as one graph:
 
 The final artifacts are `target/lomo/apk/release/Lomo-<version>-<abi>.apk` for release and
 `target/lomo/apk/debug/Lomo-<version>-<abi>.apk` for debug, where `<version>` is the app `versionName`
-from `app/module.yaml` and `<abi>` is the ABI tag (`all` for universal packages), for example
-`Lomo-1.6.2-arm64-v8a.apk`. Build intermediates stay in the single configured shared
+from `app/module.yaml` and `<abi>` is the ABI tag (`all` for universal packages), as reported by `data.apk` in the command result. Build intermediates stay in the single configured shared
 Kotlin build directory.
 
 Tag workflow `.github/workflows/android_release.yml` invokes the same commands and publishes all split and universal release artifacts (`target/lomo/apk/release/Lomo-*.apk`). It must not grow a second native, Kotlin, signing, or APK validation implementation.
 
 ## Resource Review
 
-`just ci` includes string-resource key parity. `just android release` additionally validates all
+`just ci` includes string-resource key parity. `just android release` additionally validates the selected
 native ABIs, ELF metadata, BoltFFI-only packaging (`liblomo_native_jni.so`), baseline profile
 assets, signing, and the final APK signature.
 
-The parity check compares `string`, `plurals`, and `string-array` keys between:
-
-- `app/res/values/strings.xml` and `app/res/values-zh-rCN/strings.xml`
-- `data/res/values/strings.xml` and `data/res/values-zh-rCN/strings.xml`
-- `ui-components/composeResources/values/strings.xml` and
-  `ui-components/composeResources/values-zh-rCN/strings.xml`
+The [parity checker](scripts/check_string_resource_parity.sh) owns the module/resource-root mapping.
+It compares `string`, `plurals` and `string-array` keys between `values` and `values-zh-rCN` for
+modules that own string resources. Do not create empty resource trees to satisfy a stale inventory.
 
 No allowlist is currently needed. Key parity does not prove translation quality, placeholder
 semantics, unused-resource cleanup, or Android resource merge behavior.
 
 | Resource area | Owner | Risk | Release review |
 | --- | --- | --- | --- |
-| FileProvider paths | App release and share/update owners | Overbroad paths or stale cache files can expose unintended content. | Confirm `file_paths.xml` exposes only generated share images and validated update APKs; grants are user-driven and stale files are cleaned. |
+| FileProvider paths | App release and share/update owners | Overbroad paths or stale cache files can expose unintended content. | Verify `file_paths.xml` exposes only generated share images and validated update APKs; grants are user-driven and stale files are cleaned. |
 | Backup and data extraction | App release and data/security owners | Source extraction rules can be mistaken for active backup policy. | Inspect the merged manifest for `allowBackup`, `fullBackupContent`, and `dataExtractionRules`; record the intended cloud-backup and device-transfer behavior. |
-| Locale config and string parity | App release and i18n reviewer | Locale declarations and cross-module copy can drift. | Confirm every shipped locale has complete keys and that permission, sync, recovery, update, and destructive-action copy has equivalent meaning. |
-| Permission and recovery strings | App release and capability owner | Copy can promise behavior unavailable after OS denial. | Confirm every permission has an owner, purpose, denial/retry path, and settings recovery route. |
+| Locale config and string parity | App release and i18n reviewer | Locale declarations and cross-module copy can drift. | Verify every shipped locale has complete keys and that permission, sync, recovery, update, and destructive-action copy has equivalent meaning. |
+| Permission and recovery strings | App release and capability owner | Copy can promise behavior unavailable after OS denial. | Verify every permission has an owner, purpose, denial/retry path, and settings recovery route. |
 | Widget preview resources | Widget and app release owners | Launcher previews can diverge from Glance behavior or localized copy. | Validate supported sizes, localized strings, entry actions, and launcher rendering. |
 | Shader and visual fallback resources | Update and UI owners | API 33 shader loading or compilation can break update progress. | Verify the API gate, reduced-animation behavior, pre-33 path, and usable fallback when the shader is unavailable. |
+
+These are evidence checks performed by the reviewer, not requests for a new user approval per row.
+Product consent and permission flows remain part of the behavior being verified.
 
 Before shipping backup, migration, credential, or restore changes:
 
@@ -86,20 +98,15 @@ builds and packages `lomo-tui` natively per target. Each matrix job runs the
 `lomo-platform-fs` contract suite on the real kernel before packaging, so a backend
 that only compiles cannot ship.
 
-| Artifact | Runner | Target |
-| --- | --- | --- |
-| `lomo-<ver>-x86_64-unknown-linux-gnu.tar.gz` | `ubuntu-latest` | `x86_64-unknown-linux-gnu` |
-| `lomo-<ver>-x86_64-apple-darwin.tar.gz` | `macos-13` | `x86_64-apple-darwin` |
-| `lomo-<ver>-aarch64-apple-darwin.tar.gz` | `macos-latest` | `aarch64-apple-darwin` |
-| `lomo-<ver>-x86_64-pc-windows-msvc.zip` | `windows-latest` | `x86_64-pc-windows-msvc` |
+The target/runner matrix is owned by
+[the TUI workflow](../.github/workflows/tui_release.yml); do not duplicate it in agent instructions.
 
 Every archive carries the binary, `LICENSE`, shell completions (bash/zsh/fish,
 plus PowerShell on Windows), and a `<file>.sha256` checksum; the `publish` job
 attaches all of them to the GitHub Release.
 
-```bash
-git tag tui-v0.1.0 && git push origin tui-v0.1.0
-```
+Once a TUI release is authorized and its artifacts are verified, create and push the corresponding
+`tui-v<semver>` tag. A tag command example does not itself authorize publication.
 
 `workflow_dispatch` repackages the Cargo.toml version without publishing a release.
 macOS archives are unsigned — Gatekeeper quarantine is cleared by the user
@@ -112,6 +119,12 @@ to AUR.
 `apps/tui/packaging/arch/lomo-local/PKGBUILD` (`lomo-local`) packages the worktree build at
 `target/release/lomo` for local iteration — `pkgver()` tracks `HEAD`, no network fetch:
 
+Build/package explicitly when local packaging is requested:
+
 ```bash
-just install-tui
+cargo build -p lomo-tui --release --locked
+(cd apps/tui/packaging/arch/lomo-local && makepkg -f)
 ```
+
+`install-tui` is retired: quality commands do not enter sudo/pacman installation prompts.
+Installing the resulting package is a separate system operation.

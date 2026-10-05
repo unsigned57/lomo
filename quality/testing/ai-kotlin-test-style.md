@@ -2,12 +2,16 @@
 
 Read `ai-meaningful-tests.md` first. This file owns Kotlin test conventions, not gate commands.
 
-## Approved stack and spec shape
+## Prescribed stack and spec shape
 
-Use Kotest 6.x (`kotest-runner-junit5`, assertions, property and engine), MockK where appropriate,
+Use the manifest-pinned Kotest stack (`kotest-runner-junit5`, assertions, property and engine), MockK where appropriate,
 `kotlinx-coroutines-test`, and Turbine. Do not add direct JUnit APIs, JUnit Vintage/JUnit4 tests,
 Mockito, AssertK, Strikt, AssertJ, Power-Assert or another runner. JUnit Platform is the Kotest host,
 not an instruction to author JUnit tests.
+
+This is a stack constraint, not a requirement to obtain approval for each use of these libraries.
+Task-related version selection follows [Dependency Selection](../dependencies.md); replacing the
+prescribed stack must be within the task's authorized scope.
 
 Use exactly one `FunSpec({ ... })` constructor block or one `init { ... }` in a project base spec.
 Test names describe Given/When/Then behavior; no separate BDD framework is needed.

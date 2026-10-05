@@ -1,0 +1,32 @@
+{
+  "timestamp": "2026-09-30T00:00:00+08:00",
+  "commit": "4203a11c (HEAD; working tree dirty: 284 M / 4 D / 69 ?? at audit time)",
+  "modes": [
+    "full"
+  ],
+  "scope": "entire repository (current worktree)",
+  "overall_score": 8,
+  "dimension_scores": {
+    "security": 7.5,
+    "stability": 8,
+    "performance": 8.5,
+    "testing": 9.5,
+    "maintainability": 7,
+    "design": 8.5,
+    "release": 7
+  },
+  "finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 4,
+    "low": 5,
+    "info": 3,
+    "total": 12
+  },
+  "report": "audit-report-lomo-2026-09-30.html",
+  "language": "zh-CN",
+  "format": "html",
+  "document_role": "historical_audit_snapshot",
+  "report_status": "source_html_unavailable_in_current_checkout",
+  "applicability": "Scores and recommendations describe the recorded revision only. They do not authorize changes or override current AGENTS.md, architecture, dependency preferences or verification evidence."
+}
