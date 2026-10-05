@@ -349,20 +349,10 @@ private fun currentPickerLocale(): Locale {
     return if (locales.isEmpty) Locale.ROOT else locales[0]
 }
 
+/** Compose uses a duration scale of one when the composition has no explicit override. */
 @Composable
 private fun systemReduceMotionEnabled(): Boolean {
-    val context = LocalContext.current
-    return remember(context) {
-        // behavior-contract: silent-result-ok: Settings.Global key may be missing; false is the safe default
-        runCatching {
-            Settings.Global.getFloat(
-                context.contentResolver,
-                Settings.Global.ANIMATOR_DURATION_SCALE,
-                DEFAULT_ANIMATOR_DURATION_SCALE,
-            ) == DISABLED_ANIMATOR_DURATION_SCALE
-        }.getOrDefault(false)
-    }
+    val context = androidx.compose.runtime.rememberCoroutineScope().coroutineContext
+    val scale = context[androidx.compose.ui.MotionDurationScale]?.scaleFactor ?: 1f
+    return scale == 0f
 }
-
-private const val DEFAULT_ANIMATOR_DURATION_SCALE = 1f
-private const val DISABLED_ANIMATOR_DURATION_SCALE = 0f

@@ -1,7 +1,6 @@
 package com.lomo.ui.component.media
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,7 +50,6 @@ import kotlinx.coroutines.flow.flowOf
 private const val AUDIO_TIME_MILLIS_PER_SECOND = 1000
 private const val AUDIO_TIME_SECONDS_PER_MINUTE = 60
 private const val AUDIO_PLAYBACK_PROGRESS_TAG = "audio_playback_progress"
-private const val AUDIO_PROGRESS_ANIMATION_DURATION_MS = 180
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @Composable
@@ -59,6 +57,7 @@ fun AudioPlayerCard(
     relativeFilePath: String,
     modifier: Modifier = Modifier,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
     val playerManager = LocalAudioPlayerManager.current
     val playDescription = stringResource(Res.string.cd_play_audio)
     val pauseDescription = stringResource(Res.string.cd_pause_audio)
@@ -73,7 +72,7 @@ fun AudioPlayerCard(
     val animatedProgress by
         animateFloatAsState(
             targetValue = progress.coerceIn(0f, 1f),
-            animationSpec = tween(durationMillis = AUDIO_PROGRESS_ANIMATION_DURATION_MS),
+            animationSpec = motionScheme.defaultSpatialSpec(),
             label = "audioPlaybackProgress",
         )
     val displayProgress = animatedProgress.coerceIn(0f, 1f)
@@ -175,27 +174,32 @@ private fun PlaybackControlButton(
                     ),
             contentAlignment = Alignment.Center,
         ) {
+            com.lomo.ui.component.common.LomoStateContent(
+                state = isPlaying to failed,
+                contentKey = { it },
+            ) { (playing, error) ->
             Icon(
                 imageVector =
                     when {
-                        failed -> Icons.Rounded.ErrorOutline
-                        isPlaying -> Icons.Rounded.Pause
+                        error -> Icons.Rounded.ErrorOutline
+                        playing -> Icons.Rounded.Pause
                         else -> Icons.Rounded.PlayArrow
                     },
                 contentDescription =
                     when {
-                        failed -> failedDescription
-                        isPlaying -> pauseDescription
+                        error -> failedDescription
+                        playing -> pauseDescription
                         else -> playDescription
                     },
                 tint =
-                    if (failed) {
+                    if (error) {
                         MaterialTheme.colorScheme.onErrorContainer
                     } else {
                         MaterialTheme.colorScheme.onSecondary
                     },
                 modifier = Modifier.size(AudioPlayerCardTokens.ControlIconSize),
             )
+            }
         }
     }
 }

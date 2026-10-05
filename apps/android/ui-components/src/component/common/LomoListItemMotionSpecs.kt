@@ -8,21 +8,26 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntOffset
-import com.lomo.ui.theme.MotionTokens
+import androidx.compose.animation.core.CubicBezierEasing
 
+/** The user-preserved memo insertion/deletion choreography is independent of the theme scheme. */
 object LomoListItemMotionSpecs {
-    const val EXIT_ANIMATION_DURATION_MILLIS = MotionTokens.DurationMedium2 * 2L
+    private const val PHASE_DURATION_MILLIS = 300
+    private const val ENTER_FADE_DURATION_MILLIS = 500
+    private val phaseEasing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)
+    private val enterEasing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
+    const val EXIT_ANIMATION_DURATION_MILLIS = PHASE_DURATION_MILLIS * 2L
 
     val fadeInSpec: FiniteAnimationSpec<Float> = keyframes {
-        durationMillis = MotionTokens.DurationLong2
+        durationMillis = ENTER_FADE_DURATION_MILLIS
         0f at 0
-        1f at MotionTokens.DurationLong2 using MotionTokens.EasingEmphasizedDecelerate
+        1f at ENTER_FADE_DURATION_MILLIS using enterEasing
     }
 
     val fadeOutSpec: FiniteAnimationSpec<Float> = keyframes {
-        durationMillis = MotionTokens.DurationMedium2
+        durationMillis = PHASE_DURATION_MILLIS
         1f at 0
-        0f at MotionTokens.DurationMedium2 using MotionTokens.EasingStandard
+        0f at PHASE_DURATION_MILLIS using phaseEasing
     }
 
     val placementSpec: FiniteAnimationSpec<IntOffset> = spring(
@@ -31,8 +36,8 @@ object LomoListItemMotionSpecs {
     )
 
     val heightFractionSpec: FiniteAnimationSpec<Float> = tween(
-        durationMillis = MotionTokens.DurationMedium2,
-        easing = MotionTokens.EasingStandard,
+        durationMillis = PHASE_DURATION_MILLIS,
+        easing = phaseEasing,
     )
 }
 

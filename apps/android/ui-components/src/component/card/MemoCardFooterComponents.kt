@@ -46,7 +46,7 @@ internal fun MemoCardTagPills(
             ) {
                 Text(
                     text = "#$tag",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = colors.contentColor,
                 )
             }
@@ -92,7 +92,7 @@ internal fun MemoCardReminderPills(
                 val displayText = ReminderDisplayFormatter.format(reminder, formatter, doneLabel)
                 Text(
                     text = displayText,
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = colors.contentColor,
                 )
             }

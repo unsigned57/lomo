@@ -74,6 +74,7 @@ private fun ConflictReviewCard(
     content: @Composable () -> Unit,
 ) {
     val cardColor by animateColorAsState(
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
         targetValue = if (choiceSelected) {
             MaterialTheme.colorScheme.surfaceContainer
         } else {
@@ -86,7 +87,7 @@ private fun ConflictReviewCard(
         shape = AppShapes.ExtraLarge,
         colors = CardDefaults.cardColors(containerColor = cardColor),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier.animateContentSize(),
+        modifier = Modifier.animateContentSize(animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()),
     ) {
         Column(modifier = Modifier.padding(AppSpacing.Medium)) {
             content()

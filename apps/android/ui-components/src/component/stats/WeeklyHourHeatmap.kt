@@ -2,7 +2,6 @@ package com.lomo.ui.component.stats
 
 import android.graphics.Paint
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -39,7 +38,6 @@ import androidx.compose.ui.platform.LocalDensity
 import org.jetbrains.compose.resources.pluralStringResource
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.calendar_heatmap_memo_count
-import com.lomo.ui.theme.MotionTokens
 import java.time.DayOfWeek
 import java.time.format.TextStyle
 import java.util.Locale
@@ -247,6 +245,7 @@ private fun WeeklyHeatmapSelectionPopup(
     density: androidx.compose.ui.unit.Density,
     onDismiss: () -> Unit,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
     var activeData by remember { mutableStateOf<WeeklyHeatmapCellHit?>(null) }
     var isVisible by remember { mutableStateOf(false) }
 
@@ -285,10 +284,10 @@ private fun WeeklyHeatmapSelectionPopup(
     ) {
         transition.AnimatedVisibility(
             visible = { it },
-            enter = fadeIn(animationSpec = tween(durationMillis = MotionTokens.DurationShort4)) +
-                scaleIn(initialScale = 0.8f, animationSpec = tween(durationMillis = MotionTokens.DurationShort4)),
-            exit = fadeOut(animationSpec = tween(durationMillis = MotionTokens.DurationShort4)) +
-                scaleOut(targetScale = 0.8f, animationSpec = tween(durationMillis = MotionTokens.DurationShort4)),
+            enter = fadeIn(animationSpec = motionScheme.fastEffectsSpec()) +
+                scaleIn(initialScale = 0.8f, animationSpec = motionScheme.fastSpatialSpec()),
+            exit = fadeOut(animationSpec = motionScheme.fastEffectsSpec()) +
+                scaleOut(targetScale = 0.8f, animationSpec = motionScheme.fastSpatialSpec()),
         ) {
             Surface(
                 shape = StatsChartTokens.PopupShape,

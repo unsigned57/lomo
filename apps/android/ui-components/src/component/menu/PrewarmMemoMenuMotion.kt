@@ -1,10 +1,12 @@
 package com.lomo.ui.component.menu
 
+import androidx.compose.material3.SheetValue
+
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,7 +50,10 @@ fun PrewarmMemoMenuMotion(modifier: Modifier = Modifier) {
     }
 
     if (phase == MemoMenuPrewarmPhase.COMPOSING) {
-        val warmupSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val warmupSheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+    )
         ModalBottomSheet(
             sheetState = warmupSheetState,
             onDismissRequest = {},

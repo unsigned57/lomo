@@ -2,7 +2,6 @@ package com.lomo.ui.component.stats
 
 import android.graphics.Paint
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -44,11 +43,9 @@ import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.calendar_heatmap_memo_count
 import com.lomo.ui.generated.resources.calendar_heatmap_year_format
-import com.lomo.ui.theme.MotionTokens
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlinx.collections.immutable.ImmutableMap
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 private const val YEAR_GRADIENT_SOLID_STOP = 0.7f
@@ -194,6 +191,7 @@ private fun HeatmapSelectionPopup(
     density: androidx.compose.ui.unit.Density,
     onDismiss: () -> Unit,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
     var activePopupData by remember { mutableStateOf<HeatmapPopupData?>(null) }
     var isPopupVisible by remember { mutableStateOf(false) }
 
@@ -229,16 +227,16 @@ private fun HeatmapSelectionPopup(
         transition.AnimatedVisibility(
             visible = { it },
             enter =
-                fadeIn(animationSpec = tween(durationMillis = MotionTokens.DurationShort4)) +
+                fadeIn(animationSpec = motionScheme.fastEffectsSpec()) +
                     scaleIn(
                         initialScale = 0.8f,
-                        animationSpec = tween(durationMillis = MotionTokens.DurationShort4),
+                        animationSpec = motionScheme.fastSpatialSpec(),
                     ),
             exit =
-                fadeOut(animationSpec = tween(durationMillis = MotionTokens.DurationShort4)) +
+                fadeOut(animationSpec = motionScheme.fastEffectsSpec()) +
                     scaleOut(
                         targetScale = 0.8f,
-                        animationSpec = tween(durationMillis = MotionTokens.DurationShort4),
+                        animationSpec = motionScheme.fastSpatialSpec(),
                     ),
         ) {
             HeatmapPopupCard(

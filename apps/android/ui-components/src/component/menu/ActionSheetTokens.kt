@@ -18,9 +18,9 @@ internal object ActionSheetTokens {
     val SwipeTrackHeight = 6.dp
     val SwipeThumbWidth = 28.dp
     val SwipeShape = AppShapes.Full
-    val SwipeEdgeButtonSize = 40.dp
+    val SwipeEdgeButtonSize = 48.dp
     val SwipeEdgeIconSize = 18.dp
-    val ActionChipShape = AppShapes.Medium
+    val ActionChipShape = AppShapes.LargeIncreased
     val ActionChipHeight = 64.dp
     val ActionChipMinWidth = 72.dp
     val ActionChipPadding = AppSpacing.Small
@@ -37,8 +37,6 @@ internal object ActionSheetTokens {
     private const val DividerAlpha = 0.5f
     private const val SwipeTrackAlpha = 0.35f
     private const val SwipeThumbAlpha = 0.9f
-    private const val ActionChipContainerAlpha = 0.7f
-    private const val InfoCardContainerAlpha = 0.5f
 
     fun dividerColor(colorScheme: ColorScheme): Color =
         colorScheme.outlineVariant.copy(alpha = DividerAlpha)
@@ -55,11 +53,11 @@ internal object ActionSheetTokens {
         isHighlighted: Boolean,
     ): Color =
         when {
-            isDestructive -> colorScheme.errorContainer.copy(alpha = ActionChipContainerAlpha)
+            isDestructive -> colorScheme.errorContainer
             isHighlighted -> colorScheme.primaryContainer
-            else -> colorScheme.secondaryContainer.copy(alpha = ActionChipContainerAlpha)
+            else -> colorScheme.surfaceContainerHigh
         }
 
     fun infoCardContainerColor(colorScheme: ColorScheme): Color =
-        colorScheme.surfaceVariant.copy(alpha = InfoCardContainerAlpha)
+        colorScheme.surfaceContainerHigh
 }

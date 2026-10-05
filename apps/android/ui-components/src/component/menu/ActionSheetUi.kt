@@ -1,5 +1,7 @@
 package com.lomo.ui.component.menu
 
+import androidx.compose.runtime.State
+
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.draggable
@@ -49,7 +51,7 @@ import kotlin.math.roundToInt
 @Composable
 internal fun rememberLazyRowViewportWidthPx(
     lazyRowState: androidx.compose.foundation.lazy.LazyListState,
-): androidx.compose.runtime.State<Int> =
+): State<Int> =
     remember(lazyRowState) {
         androidx.compose.runtime.derivedStateOf {
             val layout = lazyRowState.layoutInfo
@@ -173,11 +175,13 @@ private fun SwipeEdgeIcon(
     val contentAlpha by
         animateFloatAsState(
             targetValue = if (enabled) 1f else 0.38f,
+            animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
             label = "menu_swipe_icon_alpha",
         )
     val containerAlpha by
         animateFloatAsState(
             targetValue = if (enabled) 0.8f else 0.45f,
+            animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
             label = "menu_swipe_icon_container",
         )
 

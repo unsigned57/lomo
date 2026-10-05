@@ -1,11 +1,10 @@
 package com.lomo.ui.component.common
 
+import androidx.compose.material3.MotionScheme
+
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
@@ -41,7 +40,6 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
-import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.util.AppHapticFeedback
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.coroutines.delay
@@ -87,6 +85,7 @@ internal fun BoxScope.DraggableScrollbarOverlay(
     onThumbFractionChanged: (Float) -> Unit,
     onDragStateChanged: (Boolean) -> Unit,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
     var trackHeightPx by remember { mutableFloatStateOf(0f) }
     var draggedThumbOffsetPx by remember { mutableFloatStateOf(0f) }
     val visualState =
@@ -109,8 +108,8 @@ internal fun BoxScope.DraggableScrollbarOverlay(
                     bottom = DraggableScrollbarTokens.TrackPadding,
                     end = DraggableScrollbarTokens.EndPadding,
                 ),
-        enter = draggableScrollbarFadeInTransition(),
-        exit = draggableScrollbarFadeOutTransition(),
+        enter = draggableScrollbarFadeInTransition(motionScheme),
+        exit = draggableScrollbarFadeOutTransition(motionScheme),
     ) {
         val thumbMetrics =
             resolveScrollbarThumbMetrics(
@@ -120,7 +119,7 @@ internal fun BoxScope.DraggableScrollbarOverlay(
             )
         val animatedSettledOffsetPx by animateFloatAsState(
             targetValue = thumbMetrics.thumbOffsetPx,
-            animationSpec = spring(stiffness = Spring.StiffnessHigh, dampingRatio = Spring.DampingRatioNoBouncy),
+            animationSpec = motionScheme.fastSpatialSpec(),
             label = "ScrollbarThumbOffset",
         )
         LaunchedEffect(thumbMetrics.thumbOffsetPx, visible, isThumbDragged) {
@@ -271,9 +270,10 @@ private fun Modifier.draggableScrollbarThumbDragModifier(
 
 @Composable
 private fun rememberAnimatedThumbWidthPx(isThumbDragged: Boolean): Float {
+    val motionScheme = MaterialTheme.motionScheme
     val animatedThumbWidth by animateDpAsState(
         targetValue = if (isThumbDragged) DraggableScrollbarTokens.DragWidth else DraggableScrollbarTokens.IdleWidth,
-        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        animationSpec = motionScheme.defaultSpatialSpec(),
         label = "ScrollbarThumbWidth",
     )
     return with(LocalDensity.current) { animatedThumbWidth.toPx() }
@@ -281,30 +281,25 @@ private fun rememberAnimatedThumbWidthPx(isThumbDragged: Boolean): Float {
 
 @Composable
 private fun rememberDraggableScrollbarThumbColor(visualState: ScrollbarThumbVisualState): Color {
+    val motionScheme = MaterialTheme.motionScheme
     val animatedAlpha by animateFloatAsState(
         targetValue = resolveScrollbarThumbAlpha(visualState),
-        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        animationSpec = motionScheme.defaultEffectsSpec(),
         label = "ScrollbarThumbAlpha",
     )
     return MaterialTheme.colorScheme.onSurface.copy(alpha = animatedAlpha)
 }
 
-private fun draggableScrollbarFadeInTransition() =
+private fun draggableScrollbarFadeInTransition(motionScheme: MotionScheme) =
     fadeIn(
         animationSpec =
-            tween(
-                durationMillis = MotionTokens.DurationMedium1,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
+            motionScheme.defaultEffectsSpec(),
     )
 
-private fun draggableScrollbarFadeOutTransition() =
+private fun draggableScrollbarFadeOutTransition(motionScheme: MotionScheme) =
     fadeOut(
         animationSpec =
-            tween(
-                durationMillis = MotionTokens.DurationMedium1,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
+            motionScheme.defaultEffectsSpec(),
     )
 
 private fun resolveDraggedThumbOffsetPx(

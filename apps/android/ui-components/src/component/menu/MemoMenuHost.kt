@@ -1,9 +1,11 @@
 package com.lomo.ui.component.menu
 
+import androidx.compose.material3.SheetValue
+
 import android.content.Context
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SheetState
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,7 +28,10 @@ fun MemoMenuHost(
     benchmarkRootTag: String? = null,
 ) {
     var activeState by remember { mutableStateOf<MemoMenuState?>(null) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+    )
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current

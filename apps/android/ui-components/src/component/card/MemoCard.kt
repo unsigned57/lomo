@@ -1,7 +1,6 @@
 package com.lomo.ui.component.card
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -59,7 +58,6 @@ import com.lomo.ui.text.MemoTextSelectionRegistrar
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
 import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.theme.AppSpacing
-import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.theme.memoSummaryTextStyle
 import com.lomo.domain.model.ReminderMarker
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
@@ -212,7 +210,7 @@ private fun MemoCardPendingBadge() {
     ) {
         Text(
             text = stringResource(Res.string.memo_card_pending),
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelMedium,
             modifier =
                 Modifier.padding(
                     horizontal = MemoCardTokens.PinnedBadgeHorizontalPadding,
@@ -333,7 +331,7 @@ private fun MemoCardHeaderActions(
                     )
                     Text(
                         text = stringResource(Res.string.memo_pinned_badge),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onTertiaryContainer,
                     )
                 }
@@ -373,6 +371,7 @@ private fun MemoCardBody(
     isExpanded: Boolean,
     state: MemoCardBodyState,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
     val bodyTransitionMode = resolveMemoCardBodyTransitionMode(shouldShowExpand = shouldShowExpand)
 
     Box(
@@ -381,9 +380,7 @@ private fun MemoCardBody(
                 .fillMaxWidth()
             .animateContentSize(
                 animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                    ),
+                    motionScheme.defaultSpatialSpec(),
             ),
     ) {
         MemoCardBodyContent(
@@ -471,7 +468,7 @@ private fun MemoCardFooter(
                 ) {
                     Text(
                         stringResource(label),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                     )
                 }
             }

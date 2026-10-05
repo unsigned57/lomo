@@ -17,7 +17,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.theme.AppShapes
@@ -70,7 +69,7 @@ fun SwitchPreferenceItem(
 ) {
     val haptic = LocalAppHapticFeedback.current
     ListItem(
-        headlineContent = { Text(text = title) },
+        content = { Text(text = title) },
         supportingContent = subtitle?.let { { Text(text = it) } },
         leadingContent = {
             Surface(
@@ -80,10 +79,10 @@ fun SwitchPreferenceItem(
                     } else {
                         MaterialTheme.colorScheme.secondaryContainer
                     },
-                shape = AppShapes.Medium,
+                shape = AppShapes.Full,
             ) {
                 Box(
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(40.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -95,7 +94,7 @@ fun SwitchPreferenceItem(
                             } else {
                                 MaterialTheme.colorScheme.onSecondaryContainer
                             },
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(20.dp),
                     )
                 }
             }
@@ -116,6 +115,6 @@ fun SwitchPreferenceItem(
                     haptic.medium()
                     onCheckedChange(!checked)
                 },
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     )
 }

@@ -20,18 +20,19 @@ fun StatCard(
 ) {
     Card(
         modifier = modifier,
-        shape = AppShapes.Medium,
+        shape = AppShapes.LargeIncreased,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
     ) {
         Column(modifier = Modifier.padding(AppSpacing.MediumSmall)) {
-            Text(
-                text = value,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
+            com.lomo.ui.component.common.LomoStateContent(state = value, contentKey = { it }) { displayedValue ->
+                Text(
+                    text = displayedValue,
+                    style = MaterialTheme.typography.headlineSmallEmphasized,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
