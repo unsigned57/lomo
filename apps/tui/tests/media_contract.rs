@@ -1,17 +1,23 @@
 //! Behavior Contract
 //! Capability: terminal graphics degradation, clipboard errors, and external player failures.
-//! Scenarios: dumb TERM yields `[Image: path]`; missing player reports the backend error.
-//! Observable outcomes: placeholder text, `TuiError::Player` / `ClipboardError`, unique hashed names.
+//! Scenarios: a terminal without an image protocol renders `[Image: path]`; a missing
+//! player reports the backend error; spawned players never inherit the TUI stdio and
+//! their exit + bounded stderr reach `player_exit_diagnostic`.
+//! Observable outcomes: placeholder text, `TuiError::Player` / `ClipboardError`,
+//! unique hashed names, and stderr-bounded player diagnostics.
 //! TDD proof: media policy module did not exist.
-//! Excludes: graphics protocol bytes (covered by `graphics_contract`) and a real Wayland clipboard.
+//! Excludes: protocol bytes (covered by `graphics_contract`), the probe handshake
+//! (`media_pipeline_contract`), and a real Wayland clipboard.
 
+#[cfg(test)]
+pub mod support;
 #[cfg(test)]
 #[expect(
     clippy::expect_used,
     reason = "contract tests fail closed on media policy"
 )]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::io::Cursor;
     use std::os::unix::process::ExitStatusExt;
     use std::path::Path;
     use std::process::ExitStatus;
@@ -19,8 +25,8 @@ mod tests {
     use lomo_tui::editor::{CommandRunner, ManagedChild};
     use lomo_tui::error::TuiError;
     use lomo_tui::media::{
-        ClipboardError, GraphicsProtocol, ImageClipboard, MediaKind, detect_graphics,
-        image_placeholder, rgba_to_png, spawn_player, unique_media_relative_path,
+        ClipboardError, ImageClipboard, MediaKind, drain_player_stderr, image_placeholder,
+        player_exit_diagnostic, rgba_to_png, spawn_player,
     };
 
     struct ImmediateChild {
@@ -109,24 +115,23 @@ mod tests {
         }
     }
 
+    /// Text placeholders are the complete presentation for a terminal without
+    /// an image protocol — the verdict that produces them lives behind the
+    /// probe (`graphics::TerminalProber`), never an env-name table.
     #[test]
-    fn dumb_terminal_uses_image_placeholder() {
-        let mut env = BTreeMap::new();
-        env.insert("TERM".to_owned(), "dumb".to_owned());
-        assert_eq!(detect_graphics(&env), GraphicsProtocol::None);
+    fn placeholder_text_and_media_kind_classify_attachments() {
         assert_eq!(image_placeholder("media/a.png"), "[Image: media/a.png]");
-        let mut kitty_env = BTreeMap::new();
-        kitty_env.insert("KITTY_WINDOW_ID".to_owned(), "1".to_owned());
-        assert_eq!(detect_graphics(&kitty_env), GraphicsProtocol::Kitty);
-        let mut iterm = BTreeMap::new();
-        iterm.insert("TERM_PROGRAM".to_owned(), "iTerm.app".to_owned());
-        assert_eq!(detect_graphics(&iterm), GraphicsProtocol::ITerm2);
-        let mut sixel = BTreeMap::new();
-        sixel.insert("TERM".to_owned(), "xterm-sixel".to_owned());
-        assert_eq!(detect_graphics(&sixel), GraphicsProtocol::Sixel);
+        assert_eq!(
+            lomo_tui::media::audio_placeholder("media/a.mp3"),
+            "[Audio: media/a.mp3]"
+        );
         assert_eq!(
             lomo_tui::media::media_kind_for_path("media/a.mp3"),
             MediaKind::Audio
+        );
+        assert_eq!(
+            lomo_tui::media::media_kind_for_path("media/a.png"),
+            MediaKind::Image
         );
     }
 
@@ -151,14 +156,14 @@ mod tests {
             | TuiError::Terminal { .. }
             | TuiError::Clipboard { .. } => panic!("expected player error, got {error:?}"),
         }
-        let mut child = spawn_player(
+        let mut spawned = spawn_player(
             &ZeroPlayer,
             &["xdg-open".to_owned()],
             Path::new("media/a.mp3"),
         )
         .expect("spawn succeeds without waiting on the worker");
         assert!(
-            child.wait().expect("wait").success(),
+            spawned.child.wait().expect("wait").success(),
             "zero exit is a successful completion"
         );
         let empty = spawn_player(&ZeroPlayer, &[], Path::new("media/a.mp3"))
@@ -183,8 +188,32 @@ mod tests {
         )
         .expect("a failing exit status is still a managed spawn");
         assert!(
-            !failed.wait().expect("wait").success(),
+            !failed.child.wait().expect("wait").success(),
             "non-zero exit surfaces through the managed handle, not a blocked worker"
+        );
+    }
+
+    /// A spawned player's stderr is a bounded capture merged into the exit
+    /// diagnostic — a chatty player cannot grow memory and its complaints are
+    /// never painted onto the alternate screen (D-06).
+    #[test]
+    fn player_exit_carries_bounded_stderr_in_the_diagnostic() {
+        let noisy = drain_player_stderr(Some(Box::new(Cursor::new(vec![b'x'; 128 * 1024]))));
+        assert!(
+            noisy.len() <= 16 * 1024,
+            "stderr capture stays bounded: {}",
+            noisy.len()
+        );
+        assert!(drain_player_stderr(None).is_empty());
+        let failure = player_exit_diagnostic(ExitStatus::from_raw(1 << 8), "device busy")
+            .expect("diagnostic");
+        assert!(
+            failure.contains("device busy") && failure.contains("exit status: 1"),
+            "the exit status and stderr merge into one diagnostic: {failure}"
+        );
+        assert!(
+            player_exit_diagnostic(ExitStatus::from_raw(0), "").is_none(),
+            "a clean silent exit produces no diagnostic"
         );
     }
 
@@ -202,13 +231,47 @@ mod tests {
     }
 
     #[test]
-    fn colliding_names_gain_short_digest_suffix() {
-        let digest = "abcdef0123456789";
-        let first = unique_media_relative_path("pasted", "png", digest, &[]);
-        assert_eq!(first, "media/pasted.png");
-        let second =
-            unique_media_relative_path("pasted", "png", digest, &["media/pasted.png".to_owned()]);
-        assert_eq!(second, "media/pasted_abcdef.png");
+    fn colliding_paste_resolves_through_the_workspace_stage_ledger() {
+        let fixture =
+            super::support::RuntimeFixture::new().expect("fixture and operation must succeed");
+        let occupied = rgba_to_png(1, 1, &[0, 0, 255, 255]).expect("png");
+        std::fs::create_dir_all(fixture.runtime.workspace.join("media")).expect("media dir");
+        std::fs::write(
+            fixture.runtime.workspace.join("media/pasted.png"),
+            &occupied,
+        )
+        .expect("seed a same-named different-digest occupant");
+        let png = rgba_to_png(1, 1, &[255, 0, 0, 255]).expect("png");
+        let relative = lomo_tui::mutations::import_clipboard_png(&fixture.runtime, &png)
+            .expect("clipboard import must commit through the shared stage ledger");
+        assert_eq!(
+            relative, "media/pasted_1.png",
+            "the durable ledger resolves a deterministic suffix for a name claimed by other bytes"
+        );
+        assert_eq!(
+            std::fs::read(fixture.runtime.workspace.join(&relative))
+                .expect("committed workspace bytes"),
+            png
+        );
+        // Staging lives under the configured media_dir (E-18) — never directly
+        // under the workspace root.
+        let stage_dir = lomo_media::stage_directory(&fixture.runtime.config().media_dir);
+        let ledger = lomo_media::StageLedger::load(&stage_dir).expect("shared stage ledger");
+        assert!(
+            ledger.records().is_empty(),
+            "a committed import retires its stage record instead of retaining a claim"
+        );
+        let staged_leftovers: Vec<_> = std::fs::read_dir(&stage_dir)
+            .expect("stage dir")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("readable stage entries")
+            .into_iter()
+            .filter(|entry| entry.file_name() != lomo_media::STAGE_LEDGER_FILE)
+            .collect();
+        assert!(
+            staged_leftovers.is_empty(),
+            "committed staged bytes are reclaimed once the pending-operation lease releases"
+        );
     }
 
     #[test]

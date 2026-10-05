@@ -24,12 +24,13 @@ lomo-media = { path = "../../crates/lomo-media" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-base64 = "=0.22.1"
 unicode-segmentation = "=1.13.3"
 unicode-width = "=0.2.0"
 crossterm = { version = "=0.28.1", default-features = false, features = ["events"] }
 ratatui = { version = "=0.29.0", default-features = false, features = ["crossterm"] }
+ratatui-image = { version = "=8.0.1", default-features = false, features = ["crossterm"] }
 toml = { version = "=1.1.4", default-features = false, features = ["parse", "serde"] }
+shlex = "=2.0.1"
 arboard = { version = "=3.6.1", default-features = false, features = ["image-data", "wayland-data-control"] }
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 clap = { version = "=4.6.7", default-features = false, features = ["derive", "std", "help", "usage", "error-context"] }

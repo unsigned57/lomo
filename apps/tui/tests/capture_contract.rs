@@ -86,6 +86,7 @@ mod tests {
         assert_eq!(
             load_capture(&fixture.runtime)
                 .expect("fixture and operation must succeed")
+                .composer
                 .text
                 .text(),
             "private thought"
@@ -105,6 +106,7 @@ mod tests {
         assert_eq!(
             load_capture(&other)
                 .expect("fixture and operation must succeed")
+                .composer
                 .text
                 .text(),
             ""
@@ -113,6 +115,7 @@ mod tests {
         assert_eq!(
             load_capture(&fixture.runtime)
                 .expect("fixture and operation must succeed")
+                .composer
                 .text
                 .text(),
             "private thought"
@@ -143,6 +146,7 @@ mod tests {
         assert_eq!(
             load_capture(&fixture.runtime)
                 .expect("fixture and operation must succeed")
+                .composer
                 .text
                 .text(),
             ""
@@ -157,13 +161,15 @@ mod tests {
             apply_command(&mut model, Command::Type("keep me".to_owned())),
             None
         );
-        let _effect = apply_command(&mut model, Command::Commit);
-        let revision = model.draft.revision;
+        let effect = apply_command(&mut model, Command::Commit);
+        let Some(lomo_tui::effects::Effect::CommitDraft { req, .. }) = effect else {
+            panic!("commit request");
+        };
         assert_eq!(
             apply_message(
                 &mut model,
                 RuntimeMessage::Failed {
-                    target: lomo_tui::effects::FailureTarget::DraftCommit(revision),
+                    req,
                     diagnostic: "disk full".to_owned()
                 }
             ),

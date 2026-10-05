@@ -1,20 +1,10 @@
-use std::collections::BTreeMap;
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use std::path::Path;
 
 use image::{ImageBuffer, ImageFormat, Rgba};
 
 use crate::editor::CommandRunner;
 use crate::error::TuiError;
-
-/// Terminal graphics protocol the TUI is willing to use.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum GraphicsProtocol {
-    None,
-    Kitty,
-    ITerm2,
-    Sixel,
-}
 
 /// Image vs audio attachment for terminal display and external player routing.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,26 +55,6 @@ impl ImageClipboard for SystemClipboard {
     }
 }
 
-/// Detects Kitty / iTerm2 / Sixel from an injected environment map.
-#[must_use]
-pub fn detect_graphics(vars: &BTreeMap<String, String>) -> GraphicsProtocol {
-    if nonempty(vars.get("KITTY_WINDOW_ID")).is_some() {
-        return GraphicsProtocol::Kitty;
-    }
-    if vars.get("TERM_PROGRAM").map(String::as_str) == Some("iTerm.app") {
-        return GraphicsProtocol::ITerm2;
-    }
-    if let Some(term) = vars.get("TERM") {
-        if term.contains("sixel") || term.contains("mlterm") {
-            return GraphicsProtocol::Sixel;
-        }
-        if term.contains("kitty") {
-            return GraphicsProtocol::Kitty;
-        }
-    }
-    GraphicsProtocol::None
-}
-
 /// SSH/plain-text placeholder required by the media contract.
 #[must_use]
 pub fn image_placeholder(path: &str) -> String {
@@ -106,23 +76,25 @@ pub fn media_kind_for_path(path: &str) -> MediaKind {
     }
 }
 
-/// Same-name different-content files gain a short digest suffix.
-#[must_use]
-pub fn unique_media_relative_path(
-    stem: &str,
-    ext: &str,
-    digest_hex: &str,
-    existing: &[String],
-) -> String {
-    let candidate = format!("media/{stem}.{ext}");
-    if !existing.iter().any(|path| path == &candidate) {
-        return candidate;
-    }
-    let short = digest_hex.get(..6).unwrap_or("000000");
-    format!("media/{stem}_{short}.{ext}")
+/// Retained player stderr stays bounded — a chatty player cannot grow an
+/// unbounded buffer on the monitor thread. The pipe itself is drained to
+/// EOF regardless: only the diagnostic prefix is kept.
+const MAX_PLAYER_STDERR_BYTES: usize = 16 * 1024;
+
+/// One managed child plus the stderr captured while it ran, read by the
+/// monitor thread after exit.
+pub struct SpawnedPlayer {
+    pub child: Box<dyn crate::editor::ManagedChild>,
+    /// The piped stderr read end, when the runner captured it.
+    pub stderr: Option<Box<dyn Read + Send>>,
 }
 
-/// Spawns `path`'s handler with `argv` (typically `xdg-open`) as a managed child.
+/// Spawns `path`'s handler with `argv` (typically `xdg-open`) as a managed
+/// child.
+///
+/// Players never inherit the TUI's terminal: stdin and stdout are null,
+/// stderr is piped for capture so diagnostics land in `PlayerFinished`
+/// instead of painting over the alternate screen (D-06).
 ///
 /// The caller waits on the returned handle from a monitor thread so the effect
 /// worker is never blocked by a long-running player.
@@ -133,7 +105,7 @@ pub fn spawn_player<R: CommandRunner>(
     runner: &R,
     argv: &[String],
     path: &Path,
-) -> Result<Box<dyn crate::editor::ManagedChild>, TuiError> {
+) -> Result<SpawnedPlayer, TuiError> {
     let Some(program) = argv.first().filter(|value| !value.is_empty()) else {
         return Err(TuiError::Player {
             diagnostic: "player command is not configured".to_owned(),
@@ -141,7 +113,7 @@ pub fn spawn_player<R: CommandRunner>(
     };
     let mut player_args: Vec<String> = argv.iter().skip(1).cloned().collect();
     player_args.push(path.display().to_string());
-    runner
+    let mut child = runner
         .spawn_managed(program, &player_args)
         .map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
@@ -153,16 +125,53 @@ pub fn spawn_player<R: CommandRunner>(
                     diagnostic: error.to_string(),
                 }
             }
-        })
+        })?;
+    let stderr = child.take_stderr();
+    Ok(SpawnedPlayer { child, stderr })
 }
 
-/// Classifies a completed player wait into a user-visible diagnostic.
+/// Drains a piped player stderr to EOF — the child closing it is the exit
+/// signal, so this returns before `wait` reaps.
+///
+/// Only the first `MAX_PLAYER_STDERR_BYTES` are retained for diagnostics;
+/// the rest is read and discarded so the pipe stays open — closing it early
+/// would hand a chatty player SIGPIPE before it reaches its real exit
+/// status (F-IMG-4). An I/O error on the pipe ends the drain: the exit
+/// status is the completion fact, stderr is best-effort diagnostics.
 #[must_use]
-pub fn player_exit_diagnostic(status: std::process::ExitStatus) -> Option<String> {
-    if status.success() {
+pub fn drain_player_stderr(stderr: Option<Box<dyn Read + Send>>) -> String {
+    let Some(mut reader) = stderr else {
+        return String::new();
+    };
+    let mut raw = Vec::with_capacity(MAX_PLAYER_STDERR_BYTES);
+    let mut chunk = [0_u8; 8 * 1024];
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(read) => {
+                let room = MAX_PLAYER_STDERR_BYTES.saturating_sub(raw.len());
+                raw.extend_from_slice(chunk.get(..read.min(room)).unwrap_or(&[]));
+            }
+        }
+    }
+    String::from_utf8_lossy(&raw).trim().to_owned()
+}
+
+/// Classifies a completed player wait into a user-visible diagnostic, merging
+/// the captured stderr a spawned player could otherwise have painted over the
+/// alternate screen (D-06).
+#[must_use]
+pub fn player_exit_diagnostic(status: std::process::ExitStatus, stderr: &str) -> Option<String> {
+    let stderr = stderr.trim();
+    let base = if status.success() {
         None
     } else {
         Some(format!("player exited {status}"))
+    };
+    match (base, stderr.is_empty()) {
+        (diagnostic, true) => diagnostic,
+        (Some(diagnostic), false) => Some(format!("{diagnostic}: {stderr}")),
+        (None, false) => Some(stderr.to_owned()),
     }
 }
 
@@ -184,8 +193,4 @@ pub fn rgba_to_png(width: u32, height: u32, bytes: &[u8]) -> Result<Vec<u8>, Cli
             diagnostic: error.to_string(),
         })?;
     Ok(out.into_inner())
-}
-
-fn nonempty(value: Option<&String>) -> Option<&str> {
-    value.map(String::as_str).filter(|text| !text.is_empty())
 }
