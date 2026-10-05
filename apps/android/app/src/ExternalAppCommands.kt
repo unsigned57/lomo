@@ -36,6 +36,18 @@ enum class ExternalAppCommandStatus {
     WaitingForVoiceDirectory,
     WaitingForEditor,
     WaitingForRecordAudioPermission,
+
+    /**
+     * Terminal tombstone: the command already reached a terminal result. The row is retained until
+     * TTL expiry only so a re-delivered intent carrying the same command id can be rejected instead
+     * of resurrecting the command; it is invisible to dispatch.
+     */
+    Settled,
+    ;
+
+    /** A settled command is a tombstone — it must never be dispatched or re-armed. */
+    val isTerminal: Boolean
+        get() = this == Settled
 }
 
 enum class ExternalAppCommandTerminalResult {
@@ -91,10 +103,19 @@ object ExternalAppCommandQueuePolicy {
             )
         }
         val normalizedCommand = command.copy(status = ExternalAppCommandStatus.Pending)
+        if (activeCommands.any { queued -> queued.id == normalizedCommand.id }) {
+            // A command id already delivered to this queue — pending or settled — stays terminal
+            // for its TTL: intent re-delivery must never resurrect or duplicate it.
+            return ExternalAppCommandEnqueueResult(
+                commands = activeCommands,
+                enqueuedCommand = null,
+            )
+        }
         return ExternalAppCommandEnqueueResult(
             commands =
-                (activeCommands.filterNot { queued -> queued.dedupeKey == normalizedCommand.dedupeKey } +
-                    normalizedCommand).takeLast(MAX_EXTERNAL_APP_COMMANDS),
+                (activeCommands.filterNot { queued ->
+                    !queued.status.isTerminal && queued.dedupeKey == normalizedCommand.dedupeKey
+                } + normalizedCommand).takeLast(MAX_EXTERNAL_APP_COMMANDS),
             enqueuedCommand = normalizedCommand,
         )
     }
@@ -105,17 +126,29 @@ object ExternalAppCommandQueuePolicy {
         status: ExternalAppCommandStatus,
     ): List<ExternalAppCommand> =
         commands.map { command ->
-            if (command.id == commandId) {
+            if (command.id == commandId && !command.status.isTerminal) {
                 command.copy(status = status)
             } else {
                 command
             }
         }
 
+    /**
+     * Settles a command in place: the row becomes a terminal tombstone that survives until TTL
+     * expiry so a re-delivered intent with the same command id is rejected rather than replayed.
+     * Tombstones are invisible to dispatch and are reclaimed by [expire].
+     */
     fun complete(
         commands: List<ExternalAppCommand>,
         commandId: String,
-    ): List<ExternalAppCommand> = commands.filterNot { command -> command.id == commandId }
+    ): List<ExternalAppCommand> =
+        commands.map { command ->
+            if (command.id == commandId) {
+                command.copy(status = ExternalAppCommandStatus.Settled)
+            } else {
+                command
+            }
+        }
 
     fun expire(
         commands: List<ExternalAppCommand>,

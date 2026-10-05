@@ -1,5 +1,7 @@
 package com.lomo.app.navigation
 
+import androidx.compose.material3.MaterialTheme
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -142,15 +144,19 @@ private fun LomoNavigationGraph(
     lanShareEnabled: Boolean,
     mainForegroundEntryId: Long,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
+    val layoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
+    val transitions = remember(motionScheme, layoutDirection) { NavigationTransitions(motionScheme, layoutDirection) }
     NavHost(
         navController = navController,
         startDestination = NavRoute.Main,
-        enterTransition = NavigationTransitions.standardEnter,
-        exitTransition = NavigationTransitions.standardExit,
-        popEnterTransition = NavigationTransitions.standardPopEnter,
-        popExitTransition = NavigationTransitions.standardPopExit,
+        enterTransition = transitions.standardEnter,
+        exitTransition = transitions.standardExit,
+        popEnterTransition = transitions.standardPopEnter,
+        popExitTransition = transitions.standardPopExit,
     ) {
         addSharedTransitionDestinations(
+            transitions = transitions,
             navController = navController,
             popBackStackSafely = popBackStackSafely,
             navigateToShare = navigateToShare,
@@ -159,12 +165,14 @@ private fun LomoNavigationGraph(
             mainForegroundEntryId = mainForegroundEntryId,
         )
         addNonSharedDestinations(
+            transitions = transitions,
             navController = navController,
             popBackStackSafely = popBackStackSafely,
             navigateToShare = navigateToShare,
             lanShareEnabled = lanShareEnabled,
         )
         addGalleryReelDestination(
+            transitions = transitions,
             navController = navController,
             popBackStackSafely = popBackStackSafely,
             navigateToShare = navigateToShare,
@@ -175,6 +183,7 @@ private fun LomoNavigationGraph(
 
 @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 private fun NavGraphBuilder.addSharedTransitionDestinations(
+    transitions: NavigationTransitions,
     navController: NavHostController,
     popBackStackSafely: () -> Unit,
     navigateToShare: (String, Long) -> Unit,
@@ -265,10 +274,11 @@ private fun NavGraphBuilder.addSharedTransitionDestinations(
             }
         }
     }
-    addImageViewerDestination(popBackStackSafely = popBackStackSafely)
+    addImageViewerDestination(transitions = transitions, popBackStackSafely = popBackStackSafely)
 }
 
 private fun NavGraphBuilder.addNonSharedDestinations(
+    transitions: NavigationTransitions,
     navController: NavHostController,
     popBackStackSafely: () -> Unit,
     navigateToShare: (String, Long) -> Unit,
@@ -294,10 +304,10 @@ private fun NavGraphBuilder.addNonSharedDestinations(
     }
 
     composable<NavRoute.Search>(
-        enterTransition = NavigationTransitions.searchEnter,
-        exitTransition = NavigationTransitions.searchExit,
-        popEnterTransition = NavigationTransitions.searchPopEnter,
-        popExitTransition = NavigationTransitions.searchPopExit,
+        enterTransition = transitions.searchEnter,
+        exitTransition = transitions.searchExit,
+        popEnterTransition = transitions.searchPopEnter,
+        popExitTransition = transitions.searchPopExit,
     ) {
         val mainViewModel: MainViewModel = activityKoinViewModel()
         SearchScreen(
@@ -328,13 +338,14 @@ private fun NavGraphBuilder.addNonSharedDestinations(
 
 @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 private fun NavGraphBuilder.addImageViewerDestination(
+    transitions: NavigationTransitions,
     popBackStackSafely: () -> Unit,
 ) {
     composable<NavRoute.ImageViewer>(
-        enterTransition = NavigationTransitions.imageViewerEnter,
-        exitTransition = NavigationTransitions.imageViewerExit,
-        popEnterTransition = NavigationTransitions.imageViewerPopEnter,
-        popExitTransition = NavigationTransitions.imageViewerPopExit,
+        enterTransition = transitions.imageViewerEnter,
+        exitTransition = transitions.imageViewerExit,
+        popEnterTransition = transitions.imageViewerPopEnter,
+        popExitTransition = transitions.imageViewerPopExit,
     ) { entry ->
         val animatedVisibilityScope = this
         androidx.compose.animation.SharedTransitionLayout {

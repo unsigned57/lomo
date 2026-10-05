@@ -92,7 +92,6 @@ class CapabilityGatePolicyTest : AppFunSpec() {
             val expectations =
                 mapOf(
                     CapabilityGateId.RecordAudio to setOf(CapabilitySensitivity.Microphone),
-                    CapabilityGateId.Location to setOf(CapabilitySensitivity.Location),
                     CapabilityGateId.LocalNetwork to setOf(CapabilitySensitivity.NearbyDevicesOrLocalNetwork),
                 )
 

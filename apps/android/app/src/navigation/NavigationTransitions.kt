@@ -3,15 +3,15 @@ package com.lomo.app.navigation
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.navigation.NavBackStackEntry
-import com.lomo.ui.theme.MotionTokens
+import androidx.compose.material3.MotionScheme
+import androidx.compose.ui.unit.LayoutDirection
+import com.lomo.ui.theme.pageEnterTransition
+import com.lomo.ui.theme.pageExitTransition
 
 typealias NavEnterTransition =
     AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition
@@ -19,233 +19,25 @@ typealias NavEnterTransition =
 typealias NavExitTransition =
     AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition
 
-object NavigationTransitions {
-    val standardEnter: NavEnterTransition = {
-        slideInHorizontally(
-            initialOffsetX = { (it * 0.15f).toInt() },
-            animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationLong2,
-                    easing = MotionTokens.EasingEmphasizedDecelerate,
-                ),
-        ) +
-            fadeIn(
-                animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                    ),
-            ) +
-            scaleIn(
-                initialScale = 0.95f,
-                animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                    ),
-            )
-    }
-
-    val standardExit: NavExitTransition = {
-        slideOutHorizontally(
-            targetOffsetX = { -(it * 0.15f).toInt() },
-            animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationLong2,
-                    easing = MotionTokens.EasingEmphasizedAccelerate,
-                ),
-        ) +
-            fadeOut(
-                animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                    ),
-            ) +
-            scaleOut(
-                targetScale = 1.05f,
-                animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                        easing = MotionTokens.EasingEmphasizedAccelerate,
-                    ),
-            )
-    }
-
-    val standardPopEnter: NavEnterTransition = {
-        slideInHorizontally(
-            initialOffsetX = { -(it * 0.15f).toInt() },
-            animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationLong2,
-                    easing = MotionTokens.EasingEmphasizedDecelerate,
-                ),
-        ) +
-            fadeIn(
-                animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                    ),
-            ) +
-            scaleIn(
-                initialScale = 1.05f,
-                animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                    ),
-            )
-    }
-
-    val standardPopExit: NavExitTransition = {
-        slideOutHorizontally(
-            targetOffsetX = { (it * 0.15f).toInt() },
-            animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationLong2,
-                    easing = MotionTokens.EasingEmphasizedAccelerate,
-                ),
-        ) +
-            fadeOut(
-                animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                    ),
-            ) +
-            scaleOut(
-                targetScale = 0.95f,
-                animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                        easing = MotionTokens.EasingEmphasizedAccelerate,
-                    ),
-            )
-    }
+class NavigationTransitions(scheme: MotionScheme, layoutDirection: LayoutDirection) {
+    private val forward = if (layoutDirection == LayoutDirection.Ltr) 1 else -1
+    val standardEnter: NavEnterTransition = { pageEnterTransition(scheme, forward) }
+    val standardExit: NavExitTransition = { pageExitTransition(scheme, -forward) }
+    val standardPopEnter: NavEnterTransition = { pageEnterTransition(scheme, -forward) }
+    val standardPopExit: NavExitTransition = { pageExitTransition(scheme, forward) }
 
     val imageViewerEnter: NavEnterTransition = {
-        fadeIn(
-            animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationMedium2,
-                    easing = MotionTokens.EasingEmphasizedDecelerate,
-                ),
-        ) +
-            scaleIn(
-                initialScale = 0.92f,
-                animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationMedium2,
-                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                    ),
-            )
+        fadeIn(scheme.defaultEffectsSpec()) +
+            scaleIn(initialScale = 0.92f, animationSpec = scheme.defaultSpatialSpec())
     }
-
-    val imageViewerExit: NavExitTransition = {
-        fadeOut(
-            animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationShort4,
-                    easing = MotionTokens.EasingEmphasizedAccelerate,
-                ),
-        ) +
-            scaleOut(
-                targetScale = 1.05f,
-                animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationShort4,
-                        easing = MotionTokens.EasingEmphasizedAccelerate,
-                    ),
-            )
-    }
-
-    val imageViewerPopEnter: NavEnterTransition = {
-        fadeIn(
-            animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationMedium1,
-                ),
-        )
-    }
-
+    val imageViewerExit: NavExitTransition = { fadeOut(scheme.fastEffectsSpec()) }
+    val imageViewerPopEnter: NavEnterTransition = { fadeIn(scheme.defaultEffectsSpec()) }
     val imageViewerPopExit: NavExitTransition = {
-        fadeOut(
-            animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationMedium2,
-                    easing = MotionTokens.EasingEmphasizedAccelerate,
-                ),
-        ) +
-            scaleOut(
-                targetScale = 0.92f,
-                animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationMedium2,
-                        easing = MotionTokens.EasingEmphasizedAccelerate,
-                    ),
-            )
+        fadeOut(scheme.fastEffectsSpec()) +
+            scaleOut(targetScale = 0.92f, animationSpec = scheme.defaultSpatialSpec())
     }
-
-    val searchEnter: NavEnterTransition = {
-        fadeIn(
-            animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationMedium2,
-                    easing = MotionTokens.EasingEmphasizedDecelerate,
-                ),
-        ) +
-            scaleIn(
-                initialScale = SEARCH_INITIAL_SCALE,
-                animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationMedium2,
-                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                    ),
-            )
-    }
-
-    val searchExit: NavExitTransition = {
-        fadeOut(
-            animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationShort4,
-                    easing = MotionTokens.EasingEmphasizedAccelerate,
-                ),
-        ) +
-            scaleOut(
-                targetScale = SEARCH_INITIAL_SCALE,
-                animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationShort4,
-                        easing = MotionTokens.EasingEmphasizedAccelerate,
-                    ),
-            )
-    }
-
-    val searchPopEnter: NavEnterTransition = {
-        fadeIn(
-            animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationMedium2,
-                    easing = MotionTokens.EasingEmphasizedDecelerate,
-                ),
-        )
-    }
-
-    val searchPopExit: NavExitTransition = {
-        fadeOut(
-            animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationMedium2,
-                    easing = MotionTokens.EasingEmphasizedAccelerate,
-                ),
-        ) +
-            scaleOut(
-                targetScale = SEARCH_INITIAL_SCALE,
-                animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationMedium2,
-                        easing = MotionTokens.EasingEmphasizedAccelerate,
-                    ),
-            )
-    }
-
-    private const val SEARCH_INITIAL_SCALE: Float = 0.94f
+    val searchEnter: NavEnterTransition = { fadeIn(scheme.defaultEffectsSpec()) }
+    val searchExit: NavExitTransition = { fadeOut(scheme.fastEffectsSpec()) }
+    val searchPopEnter: NavEnterTransition = { fadeIn(scheme.defaultEffectsSpec()) }
+    val searchPopExit: NavExitTransition = { fadeOut(scheme.fastEffectsSpec()) }
 }

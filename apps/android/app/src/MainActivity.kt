@@ -1,5 +1,9 @@
 package com.lomo.app
 
+import androidx.compose.runtime.CompositionLocalProvider
+
+import androidx.compose.material3.MaterialTheme
+
 import android.content.Intent
 import android.content.res.Configuration
 import android.os.Bundle
@@ -38,7 +42,6 @@ import com.lomo.ui.benchmark.LocalBenchmarkAnchorConfig
 import com.lomo.ui.media.AudioPlayerController
 import com.lomo.ui.media.LocalAudioPlayerManager
 import com.lomo.ui.theme.LomoTheme
-import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.theme.TypographyScales
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
@@ -130,7 +133,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 ActivityInstanceState.Restored
         }
-        if (shouldProcessInitialLaunchIntent(activityInstanceState = activityInstanceState, intent = intent)) {
+        if (shouldProcessInitialLaunchIntent(activityInstanceState = activityInstanceState)) {
             consumeTrustedLaunchExtraction(
                 trustedLaunchIntents.extractTrustedExternalAppCommand(intent),
                 externalAppCommandStore::enqueue,
@@ -284,10 +287,14 @@ private fun MainActivityRoot(
                 pendingLaunchCommands = pendingLaunchCommands,
                 onPendingLaunchCommandConsumed = onPendingLaunchCommandConsumed,
             )
+            val motionScheme = MaterialTheme.motionScheme
             AnimatedContent(
                 targetState = appLockUiState.isGateVisible,
                 label = "AppLockGateTransition",
-                transitionSpec = { MotionTokens.enterContent togetherWith MotionTokens.exitContent },
+                transitionSpec = {
+                    androidx.compose.animation.fadeIn(motionScheme.defaultEffectsSpec()) togetherWith
+                        androidx.compose.animation.fadeOut(motionScheme.fastEffectsSpec())
+                },
             ) { isLockGateVisible ->
                 if (isLockGateVisible) {
                     AppLockGate(
@@ -321,7 +328,7 @@ private fun UnlockedAppRoot(
     shareServiceManager: LanShareService,
 ) {
     val context = LocalContext.current
-    androidx.compose.runtime.CompositionLocalProvider(
+    CompositionLocalProvider(
         LocalAudioPlayerManager provides audioPlayerController,
         LocalBenchmarkAnchorConfig provides
             BenchmarkAnchorConfig(enabled = AppBuildInfo.isDebuggable(context)),

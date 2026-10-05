@@ -1,5 +1,7 @@
 package com.lomo.app.navigation
 
+import androidx.compose.runtime.CompositionLocalProvider
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -55,16 +57,17 @@ internal fun rememberGalleryReelNavigationAction(
     }
 
 internal fun NavGraphBuilder.addGalleryReelDestination(
+    transitions: NavigationTransitions,
     navController: NavHostController,
     popBackStackSafely: () -> Unit,
     navigateToShare: (String, Long) -> Unit,
     lanShareEnabled: Boolean,
 ) {
     composable<NavRoute.GalleryReel>(
-        enterTransition = NavigationTransitions.imageViewerEnter,
-        exitTransition = NavigationTransitions.imageViewerExit,
-        popEnterTransition = NavigationTransitions.imageViewerPopEnter,
-        popExitTransition = NavigationTransitions.imageViewerPopExit,
+        enterTransition = transitions.imageViewerEnter,
+        exitTransition = transitions.imageViewerExit,
+        popEnterTransition = transitions.imageViewerPopEnter,
+        popExitTransition = transitions.imageViewerPopExit,
     ) { entry ->
         val route = entry.toRoute<NavRoute.GalleryReel>()
         val mainViewModel: MainViewModel = activityKoinViewModel()
@@ -99,7 +102,7 @@ internal fun NavGraphBuilder.addGalleryReelDestination(
             return@composable
         }
 
-        androidx.compose.runtime.CompositionLocalProvider(
+        CompositionLocalProvider(
             com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
         ) {
             val memoMenuCommandHandler =

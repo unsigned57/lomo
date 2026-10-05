@@ -65,10 +65,18 @@ class LomoWidget : GlanceAppWidget() {
                 ) {
                     is WidgetGlanceSnapshot.Absent -> WidgetSnapshot.Unavailable
                     is WidgetGlanceSnapshot.Ready ->
-                        WidgetSnapshot.Ready(
-                            items = read.items.toImmutableList(),
-                            availability = read.availability,
-                        )
+                        // A persisted WidgetSnapshotAvailability.UNAVAILABLE generation means the
+                        // mount did not admit reads; it is the same render state as an absent or
+                        // undecodable snapshot and must never reach the READY branch where an
+                        // empty item list would render "no memos".
+                        if (read.availability == WidgetSnapshotAvailability.UNAVAILABLE) {
+                            WidgetSnapshot.Unavailable
+                        } else {
+                            WidgetSnapshot.Ready(
+                                items = read.items.toImmutableList(),
+                                availability = read.availability,
+                            )
+                        }
                 }
             } catch (ignoredIoFailure: IOException) {
                 WidgetSnapshot.Unavailable

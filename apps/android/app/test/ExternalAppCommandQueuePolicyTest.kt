@@ -15,7 +15,8 @@
  * - Given commands pass their TTL, when expiry is applied, then expired commands are removed and
  *   reported.
  * - Given a command reaches a terminal state, when completion is applied, then the command is
- *   removed from the pending queue.
+ *   settled into a dispatch-invisible tombstone that keeps rejecting same-id re-delivery until
+ *   its TTL expiry.
  *
  * Observable outcomes: queue contents, command IDs, status, and expired command IDs.
  *
@@ -25,6 +26,19 @@
  *
  * Excludes: Android SharedPreferences I/O, Activity lifecycle, launcher rendering, and Compose
  * execution effects.
+ *
+ * Test Change Justification:
+ * - Reason category: product contract changed.
+ * - Old behavior/assertion being replaced: `complete` removed the row outright.
+ * - Why old assertion is no longer correct: removing the row erased the only record of the
+ *   command id, so a re-delivered trusted intent within its TTL re-enqueued and re-executed the
+ *   command (a config-change recreate replays the launching intent). Completion now settles a
+ *   tombstone; `expire` reclaims it.
+ * - Coverage preserved by: the tombstone assertion still pins the terminal transition, the
+ *   resurrection case is covered by PendingLaunchCommandContractTest, and expiry reclaim stays
+ *   covered by the TTL scenario.
+ * - Why this is not fitting the test to the implementation: assertions check the queue-level
+ *   dedup/terminal contract, not the tombstone's storage representation.
  */
 package com.lomo.app
 
@@ -102,13 +116,23 @@ class ExternalAppCommandQueuePolicyTest : AppFunSpec() {
             result.expiredCommandIds.shouldContainExactly("expired")
         }
 
-        test("given terminal command when completed then command is removed") {
+        test("given terminal command when completed then it settles into a tombstone until expiry") {
             val queued = command(id = "cmd-1")
 
-            ExternalAppCommandQueuePolicy.complete(
-                commands = listOf(queued),
-                commandId = "cmd-1",
-            ) shouldBe emptyList()
+            val completed =
+                ExternalAppCommandQueuePolicy.complete(
+                    commands = listOf(queued),
+                    commandId = "cmd-1",
+                )
+
+            completed shouldBe listOf(queued.copy(status = ExternalAppCommandStatus.Settled))
+
+            val afterExpiry =
+                ExternalAppCommandQueuePolicy.expire(
+                    commands = completed,
+                    nowMillis = queued.expiresAtMillis,
+                )
+            afterExpiry.commands shouldBe emptyList()
         }
     }
 }

@@ -360,9 +360,14 @@ internal class PendingLaunchCommandQueue {
             ),
         )
 
+    /**
+     * Merges a persisted tail into the live queue instead of replacing it: anything enqueued before
+     * restore runs (e.g. an intent consumed ahead of the saved-state pass) stays queued ahead of
+     * the restored commands, and the id allocator resumes past every id either side has used.
+     */
     fun restore(savedState: String?) {
         val json = savedState?.takeIf(String::isNotBlank) ?: return
-        val (nextId, restored) =
+        val (restoredNextId, restored) =
             try {
                 pendingLaunchCommandSnapshotJson
                     .decodeFromString(PendingLaunchCommandSnapshot.serializer(), json)
@@ -373,8 +378,20 @@ internal class PendingLaunchCommandQueue {
                 Timber.w(error, "Dropping corrupted pending launch command snapshot")
                 return
             }
-        nextCommandId = nextId
-        commands = restored.toImmutableList()
+        // A snapshot's recorded counter can lag its own command ids; resume past both.
+        nextCommandId = maxOf(nextCommandId, restoredNextId, (restored.maxOfOrNull { it.id } ?: -1L) + 1)
+        val claimedIds = commands.mapTo(mutableSetOf()) { it.id }
+        val merged =
+            restored.map { command ->
+                if (command.id in claimedIds) {
+                    // A restored id already live in memory must not alias it — consume(id) would
+                    // acknowledge both. Re-key the restored command onto a fresh id instead.
+                    command.copy(id = nextCommandId++).also { claimedIds += it.id }
+                } else {
+                    command.also { claimedIds += it.id }
+                }
+            }
+        commands = (commands + merged).toImmutableList()
     }
 
     private companion object {

@@ -5,7 +5,6 @@ internal enum class CapabilityGateId {
     ExactAlarm,
     InstallUnknownApps,
     RecordAudio,
-    Location,
     LocalNetwork,
     SafWorkspaceAccess,
     SafMediaAccess,
@@ -21,7 +20,6 @@ internal enum class CapabilitySensitivity {
     UserSelectedFiles,
     UserSelectedMedia,
     Microphone,
-    Location,
     NearbyDevicesOrLocalNetwork,
 }
 
@@ -52,8 +50,6 @@ internal enum class CapabilityGrantAggregation {
 internal object CapabilityPermissionNames {
     const val PostNotifications = "android.permission.POST_NOTIFICATIONS"
     const val RecordAudio = "android.permission.RECORD_AUDIO"
-    const val AccessFineLocation = "android.permission.ACCESS_FINE_LOCATION"
-    const val AccessCoarseLocation = "android.permission.ACCESS_COARSE_LOCATION"
     const val AccessLocalNetwork = "android.permission.ACCESS_LOCAL_NETWORK"
 }
 
@@ -160,19 +156,6 @@ internal object CapabilityGatePolicies {
                 recoveryPlan = runtimeRecoveryPlan(
                     permissions = listOf(CapabilityRuntimePermission(CapabilityPermissionNames.RecordAudio)),
                     grantAggregation = CapabilityGrantAggregation.All,
-                ),
-                blocksFirstScreen = false,
-            ),
-            CapabilityGate(
-                id = CapabilityGateId.Location,
-                blockLevel = CapabilityBlockLevel.OptionalEnhancement,
-                sensitivityCategories = setOf(CapabilitySensitivity.Location),
-                recoveryPlan = runtimeRecoveryPlan(
-                    permissions = listOf(
-                        CapabilityRuntimePermission(CapabilityPermissionNames.AccessFineLocation),
-                        CapabilityRuntimePermission(CapabilityPermissionNames.AccessCoarseLocation),
-                    ),
-                    grantAggregation = CapabilityGrantAggregation.Any,
                 ),
                 blocksFirstScreen = false,
             ),

@@ -4,25 +4,27 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.content.IntentCompat
 import com.lomo.domain.model.RecordingDeepLink
+import com.lomo.domain.model.ReminderDeepLink
 
 internal fun extractInitialPendingLaunchActions(
     activityInstanceState: ActivityInstanceState,
     intent: Intent?,
 ): List<PendingLaunchAction> =
-    if (shouldProcessInitialLaunchIntent(activityInstanceState = activityInstanceState, intent = intent)) {
+    if (shouldProcessInitialLaunchIntent(activityInstanceState = activityInstanceState)) {
         extractPendingLaunchActions(intent = intent)
     } else {
         emptyList()
     }
 
+/**
+ * Only a fresh Activity start may extract its launching intent. A restored instance replays
+ * exclusively from the saved-state [PendingLaunchCommandSnapshot] queue: the original intent is
+ * still attached on a configuration recreate (no `FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY` on e.g.
+ * fontScale), so re-extracting it would double-fire every already-dispatched command.
+ */
 internal fun shouldProcessInitialLaunchIntent(
     activityInstanceState: ActivityInstanceState,
-    intent: Intent?,
-): Boolean =
-    when (activityInstanceState) {
-        ActivityInstanceState.Fresh -> true
-        ActivityInstanceState.Restored -> !intent.isLaunchFromHistory()
-    }
+): Boolean = activityInstanceState == ActivityInstanceState.Fresh
 
 internal fun extractPendingLaunchActions(intent: Intent?): List<PendingLaunchAction> {
     if (intent == null) {
@@ -45,8 +47,8 @@ internal fun extractPendingLaunchActions(intent: Intent?): List<PendingLaunchAct
                 ?.let { memoId -> listOf(PendingLaunchAction.OpenMemo(memoId)) }
                 .orEmpty()
 
-        "com.lomo.reminder.action.OPEN" ->
-            intent.getStringExtra("memo_id")
+        ReminderDeepLink.ACTION_OPEN ->
+            intent.getStringExtra(ReminderDeepLink.EXTRA_MEMO_ID)
                 ?.takeIf(String::isNotBlank)
                 ?.let { memoId -> listOf(PendingLaunchAction.OpenMemo(memoId)) }
                 .orEmpty()
@@ -54,9 +56,6 @@ internal fun extractPendingLaunchActions(intent: Intent?): List<PendingLaunchAct
         else -> emptyList()
     }
 }
-
-private fun Intent?.isLaunchFromHistory(): Boolean =
-    this != null && flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0
 
 private fun extractShareLaunchActions(intent: Intent): List<PendingLaunchAction> {
     val type = intent.type.orEmpty()
