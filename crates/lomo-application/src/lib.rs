@@ -18,6 +18,7 @@ pub mod media_sweep;
 mod paging;
 mod private_io;
 pub mod rebuild;
+mod rebuild_incremental;
 mod rebuild_records;
 mod record_plan;
 pub mod reminder_cmd;
@@ -35,16 +36,16 @@ pub mod types;
 mod workspace_io;
 
 pub use config::WorkspaceSessionConfig;
+pub use draft::GuardedDraftBody;
 pub use lifecycle::{
     PermanentDeleteManyRequest, PermanentDeleteManyResult, PermanentDeleteManyTarget,
     PermanentDeleteRequest, RestoreMemoRequest, RestoreMemoResult, RestoreRevisionRequest,
 };
 pub use lomo_store::{
-    MemoFilters, MemoPage, MemoQuery, MemoSort, MemoSummary, PageCursor, PlannedAlarm,
-    ReminderPlan, TagSelectionMode,
+    MemoFilters, MemoPage, MemoQuery, MemoQueryStart, MemoSnapshot, MemoSort, MemoSummary,
+    MemoWindowSides, PageCursor, PlannedAlarm, ReminderPlan, TagSelectionMode,
 };
 pub use media_index::AttachmentObservation;
-pub use reminder_cmd::FireReminderRequest;
 pub use review::ReviewCandidate;
 pub use search::{SearchHit, SearchMode, SearchOutcome, SearchPage, SearchRequest};
 pub use session::WorkspaceSession;

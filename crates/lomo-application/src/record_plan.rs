@@ -159,6 +159,20 @@ pub fn state_tip(
     let Some(head_file) = io.read(&head_path)? else {
         return Ok(None);
     };
+    state_tip_at(io, id, head_file).map(Some)
+}
+
+/// Resolves the durable state tip beneath an already-read canonical head file.
+///
+/// The file must still prove it anchors `id`: the envelope record id and the
+/// decoded body face the same fail-closed checks [`state_tip`] applies, so a
+/// caller that admitted the file under body authority gets the identical tip —
+/// and the identical corruption — the canonical-slot resolver produces.
+pub fn state_tip_at(
+    io: &WorkspaceIo<'_>,
+    id: &MemoId,
+    head_file: FileSnapshot,
+) -> Result<RevisionTip<StateRevisionV2>, LomoError> {
     let head: StateHead = decode_typed(
         &head_file,
         LomoRecordKind::State,
@@ -185,10 +199,10 @@ pub fn state_tip(
             "state head points outside its memo identity",
         ));
     }
-    Ok(Some(RevisionTip {
+    Ok(RevisionTip {
         head_file,
         revision,
-    }))
+    })
 }
 
 fn immutable_file(

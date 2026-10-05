@@ -34,6 +34,19 @@ pub struct DraftBody {
     pub draft_content: String,
 }
 
+/// A draft body supplied by an editor whose drafts live outside the Rust `DraftStore`.
+///
+/// The host passes these bodies to the guarding attachment-index / sweep entry points, and
+/// their attachment destinations extend the keep-set exactly like an internal draft for the
+/// duration of that computation. Nothing is persisted.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GuardedDraftBody {
+    /// Opaque owner identity for diagnostics (for example the host's draft id).
+    pub owner_id: String,
+    /// The draft body text; attachment references are projected by the render owner.
+    pub content: String,
+}
+
 #[derive(Deserialize)]
 struct DraftBodyFacts {
     operation_id: OperationId,

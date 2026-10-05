@@ -2,9 +2,9 @@
 
 use lomo_core::{LomoError, OperationId, RelativeWorkspacePath};
 use lomo_store::{
-    DocumentPublication, MemoHistoryPage, MemoSnapshot, SafPermanentDeleteTarget,
+    DocumentPublication, MemoHistoryPage, MemoSnapshot, PurgeRecordV1, SafPermanentDeleteTarget,
     SafProjectionCommitResult, SafProjectionMutation, SafProjectionMutationKind,
-    ScannedMemoProjection,
+    ScannedMemoProjection, encode_purge_record, purge_record_relative_path,
 };
 use lomo_workspace::{
     DocumentPatchCommand, MemoId, MemoIdentityChange, SourceFingerprint, decode_trash_record,
@@ -196,11 +196,12 @@ impl WorkspaceSession {
 
         // Chunks are a pure function of the sorted request: replay of a committed child must be
         // decidable before any file or projection read, because a committed child already deleted
-        // both. Count is the only request-visible bound; the retained-byte budget is verified when
-        // each uncommitted chunk is planned and fails closed instead of silently re-chunking.
+        // both. Every target plans two files (trash-record delete + purge tombstone), so the
+        // chunk halves against the transaction file budget. The retained-byte budget is verified
+        // when each uncommitted chunk is planned and fails closed instead of silently re-chunking.
         let mut batches = Vec::new();
         let mut deleted = Vec::with_capacity(targets.len());
-        for chunk in targets.chunks(MAX_TRANSACTION_FILES) {
+        for chunk in targets.chunks(MAX_TRANSACTION_FILES / 2) {
             let token = batch_token(chunk)?;
             let child_id =
                 OperationId::parse(&format!("{}.{token}", request.operation_id.as_str()))?;
@@ -285,6 +286,10 @@ impl WorkspaceSession {
                     .collect(),
             });
             files.push(PlannedFile::delete(trash_path, &trash_file));
+            // The purge tombstone is the durable fact that survives record resurrection: a
+            // peer-redelivered or filesystem-restored trash record can never re-project this
+            // memo because rebuild suppresses every identity recorded under .lomo/purged/v1/.
+            files.push(self.purge_tombstone_file(&target.memo_id, child_id, epoch_millis()?)?);
         }
         let first = chunk
             .first()
@@ -325,6 +330,30 @@ impl WorkspaceSession {
             files,
             mutations: vec![publication],
         })
+    }
+
+    /// Plans the durable purge tombstone for one permanently deleted memo.
+    ///
+    /// The record sits at the hash-addressed `.lomo/purged/v1/<sha256(memo_id)>.rec` path and
+    /// joins the same transaction as the trash-record delete, so no crash prefix can remove the
+    /// recoverable snapshot without leaving the suppression fact. A pre-existing tombstone is
+    /// carried as the `before` snapshot and overwritten only with newer purge evidence.
+    fn purge_tombstone_file(
+        &self,
+        memo_id: &MemoId,
+        operation_id: &OperationId,
+        purged_at_ms: i64,
+    ) -> Result<PlannedFile, LomoError> {
+        let relative =
+            RelativeWorkspacePath::parse(purge_record_relative_path(memo_id.as_str())?.as_str())?;
+        let record = PurgeRecordV1 {
+            memo_id: memo_id.as_str().to_owned(),
+            operation_id: operation_id.as_str().to_owned(),
+            purged_at_ms,
+        };
+        let bytes = encode_purge_record(&record)?;
+        let before = self.io().read(&relative)?;
+        Ok(PlannedFile::new(relative, before.as_ref(), bytes))
     }
 }
 
@@ -408,12 +437,14 @@ impl WorkspaceSession {
         )?;
         let trash_file = self.io().require(&trash_path)?;
         let projection = remaining_projection(&request.memo_id, &current, loaded.fingerprint())?;
+        let tombstone =
+            self.purge_tombstone_file(&request.memo_id, &request.operation_id, epoch_millis()?)?;
         let receipt = self.commit_transaction(TransactionInput {
             operation_id: request.operation_id.clone(),
             memo_id: request.memo_id.clone(),
             path,
             payload_digest: digest,
-            files: vec![PlannedFile::delete(trash_path, &trash_file)],
+            files: vec![PlannedFile::delete(trash_path, &trash_file), tombstone],
             mutations: vec![DocumentPublication {
                 history: None,
                 mutation: SafProjectionMutation {

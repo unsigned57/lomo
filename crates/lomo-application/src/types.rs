@@ -64,9 +64,14 @@ impl CreateMemoRequest {
     ///
     /// # Errors
     /// Resource-limit when the body exceeds the editable memo budget; validation when the time
-    /// token or expected document fingerprint is malformed.
+    /// token, expected document fingerprint, or document path is malformed — including a path
+    /// whose root segment enters a reserved namespace (`media/`, `.lomo/`, the media stage,
+    /// trash, or delete-intent roots).
     pub fn validate(&self) -> Result<(), LomoError> {
         validate_memo_body(&self.content)?;
+        if let Some(path) = &self.relative_path {
+            validate_document_path(path)?;
+        }
         if let Some(token) = &self.time_token {
             validate_time_token(token)?;
         }
@@ -340,5 +345,37 @@ fn validate_time_token(token: &str) -> Result<(), LomoError> {
 /// Rejects an expected document fingerprint that is not a SHA-256 digest.
 fn validate_document_fingerprint(fingerprint: &str) -> Result<(), LomoError> {
     SourceFingerprint::parse(fingerprint)?;
+    Ok(())
+}
+
+/// Workspace roots a memo document may never occupy: the committed-attachments namespace, the
+/// `.lomo` internal tree (trash records, state, journals), and the media lifecycle roots.
+const RESERVED_DOCUMENT_ROOTS: [&str; 6] = [
+    "media",
+    ".lomo",
+    ".git",
+    ".lomo-media-stage",
+    ".lomo-media-trash",
+    ".lomo-media-delete-intents",
+];
+
+/// Rejects a memo document path inside a reserved non-document namespace.
+///
+/// `RelativeWorkspacePath` is already canonical (no empty, `.`, or `..` segments), so the
+/// root segment alone identifies the namespace. The error code matches the established
+/// document-path contract enforced by `document_plan` downstream — validation here just
+/// rejects the same class before any mutation or I/O.
+fn validate_document_path(path: &RelativeWorkspacePath) -> Result<(), LomoError> {
+    let reserved = path
+        .as_str()
+        .split('/')
+        .next()
+        .is_some_and(|root| RESERVED_DOCUMENT_ROOTS.contains(&root));
+    if reserved {
+        return Err(validation(
+            "invalid_memo_document_path",
+            "memo commands require a Markdown path outside control directories",
+        ));
+    }
     Ok(())
 }

@@ -12,8 +12,9 @@ use std::collections::BTreeSet;
 use lomo_core::LomoError;
 use lomo_media::{ReferenceSource, StageLedger};
 use lomo_store::{DEFAULT_HISTORY_MEDIA_RETENTION_REVISIONS, StoreReader, project_content_facts};
+use lomo_workspace::canonical_attachment_path;
 
-use crate::{session::WorkspaceSession, transaction::PlannedFile};
+use crate::{draft::GuardedDraftBody, session::WorkspaceSession, transaction::PlannedFile};
 
 /// One observed attachment reference with its owning protection source.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -44,7 +45,10 @@ impl AttachmentIndex {
     /// True when any protection source still names this canonical relative path.
     #[must_use]
     pub fn protects_path(&self, relative_path: &str) -> bool {
-        self.paths.contains(relative_path)
+        // The query uses the same canonical key the index stores, so an alternate spelling of a
+        // protected file (`media/./x`, `media//x`) still answers true.
+        canonical_attachment_path(relative_path)
+            .is_some_and(|canonical| self.paths.contains(&canonical))
     }
 
     /// True when a stage-ledger lease or pending artifact write still claims this content digest.
@@ -56,12 +60,18 @@ impl AttachmentIndex {
     /// First observation protecting `relative_path`, for sweep protection reporting.
     #[must_use]
     pub fn protection_for(&self, relative_path: &str) -> Option<&AttachmentObservation> {
+        let canonical = canonical_attachment_path(relative_path)?;
         self.observations
             .iter()
-            .find(|item| item.relative_path == relative_path)
+            .find(|item| item.relative_path == canonical)
     }
 
-    fn observe(&mut self, relative_path: String, source: ReferenceSource, owner_key: String) {
+    fn observe(&mut self, relative_path: &str, source: ReferenceSource, owner_key: String) {
+        // One canonical representation: a destination that cannot name a workspace file
+        // (external URL, empty, escapes the root) protects nothing and records no key.
+        let Some(relative_path) = canonical_attachment_path(relative_path) else {
+            return;
+        };
         self.paths.insert(relative_path.clone());
         self.observations.push(AttachmentObservation {
             relative_path,
@@ -84,11 +94,29 @@ impl WorkspaceSession {
     /// Projection, journal, draft, or stage-ledger read failures. A corrupt or incomplete
     /// projection surfaces as an error rather than a silently empty keep-set.
     pub fn attachment_index(&self) -> Result<AttachmentIndex, LomoError> {
+        self.attachment_index_guarding(&[])
+    }
+
+    /// Collects the protection set, also guarding externally held draft bodies.
+    ///
+    /// A host that keeps its own draft state outside the Rust `DraftStore` (for example an
+    /// editor buffer never persisted as conflict evidence) passes those bodies here so their
+    /// attachment references extend the keep-set exactly like internal drafts. The bodies are
+    /// used for this computation only and are never persisted.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::attachment_index`]; an external body the render owner cannot project
+    /// fails the whole collection rather than silently dropping the draft's protection.
+    pub fn attachment_index_guarding(
+        &self,
+        external_drafts: &[GuardedDraftBody],
+    ) -> Result<AttachmentIndex, LomoError> {
         let mut index = AttachmentIndex::default();
         self.collect_projected_refs(&mut index)?;
         self.collect_history_refs(&mut index)?;
         self.collect_pending_refs(&mut index)?;
-        self.collect_draft_refs(&mut index)?;
+        self.collect_draft_refs(&mut index, external_drafts)?;
         self.collect_stage_lease_refs(&mut index)?;
         Ok(index)
     }
@@ -117,24 +145,24 @@ impl WorkspaceSession {
             } else {
                 ReferenceSource::CurrentMemo
             };
-            index.observe(item.relative_path, source, item.memo_id);
+            index.observe(&item.relative_path, source, item.memo_id);
         }
         Ok(())
     }
 
     fn collect_history_refs(&self, index: &mut AttachmentIndex) -> Result<(), LomoError> {
-        let bodies = self.with_reader(|reader| {
-            reader.list_history_revision_bodies(DEFAULT_HISTORY_MEDIA_RETENTION_REVISIONS)
+        // `history_attachment_ref` rows were parsed from revision bodies at projection time and
+        // carry the same retention-window ranking `list_history_revision_bodies` uses, so media
+        // protection reads projected rows instead of re-parsing every in-window body.
+        let refs = self.with_reader(|reader| {
+            reader.list_history_attachment_refs(DEFAULT_HISTORY_MEDIA_RETENTION_REVISIONS)
         })?;
-        for revision in &bodies {
-            let facts = project_content_facts(&revision.content)?;
-            for relative_path in facts.attachment_paths {
-                index.observe(
-                    relative_path,
-                    ReferenceSource::HistoryVersion,
-                    format!("{}@r{}", revision.memo_id, revision.revision),
-                );
-            }
+        for reference in &refs {
+            index.observe(
+                &reference.relative_path,
+                ReferenceSource::HistoryVersion,
+                format!("{}@r{}", reference.memo_id, reference.revision),
+            );
         }
         Ok(())
     }
@@ -149,7 +177,7 @@ impl WorkspaceSession {
                 if let Some(projection) = &publication.mutation.projection {
                     for relative_path in &projection.attachment_paths {
                         index.observe(
-                            relative_path.clone(),
+                            relative_path,
                             ReferenceSource::PendingOperation,
                             owner.clone(),
                         );
@@ -158,7 +186,7 @@ impl WorkspaceSession {
                 if let Some(history) = &publication.history {
                     for relative_path in project_content_facts(&history.content)?.attachment_paths {
                         index.observe(
-                            relative_path,
+                            &relative_path,
                             ReferenceSource::PendingOperation,
                             owner.clone(),
                         );
@@ -168,7 +196,7 @@ impl WorkspaceSession {
             for file in &record.files {
                 if let PlannedFile::ArtifactWrite { path, source } = file {
                     index.observe(
-                        path.as_str().to_owned(),
+                        path.as_str(),
                         ReferenceSource::PendingOperation,
                         owner.clone(),
                     );
@@ -179,11 +207,21 @@ impl WorkspaceSession {
         Ok(())
     }
 
-    fn collect_draft_refs(&self, index: &mut AttachmentIndex) -> Result<(), LomoError> {
+    fn collect_draft_refs(
+        &self,
+        index: &mut AttachmentIndex,
+        external_drafts: &[GuardedDraftBody],
+    ) -> Result<(), LomoError> {
         for draft in self.draft_store.list_draft_bodies()? {
             let owner = format!("draft:{}", draft.operation_id.as_str());
             for relative_path in project_content_facts(&draft.draft_content)?.attachment_paths {
-                index.observe(relative_path, ReferenceSource::Draft, owner.clone());
+                index.observe(&relative_path, ReferenceSource::Draft, owner.clone());
+            }
+        }
+        for draft in external_drafts {
+            let owner = format!("draft:ext:{}", draft.owner_id);
+            for relative_path in project_content_facts(&draft.content)?.attachment_paths {
+                index.observe(&relative_path, ReferenceSource::Draft, owner.clone());
             }
         }
         Ok(())
@@ -199,7 +237,7 @@ impl WorkspaceSession {
             index.digests.insert(record.digest.as_str().to_owned());
             for lease in &record.leases {
                 index.observe(
-                    record.suggested_final_relative_path.clone(),
+                    &record.suggested_final_relative_path,
                     ReferenceSource::StageLease,
                     format!("lease:{:?}:{}", lease.owner_kind, lease.owner_id),
                 );

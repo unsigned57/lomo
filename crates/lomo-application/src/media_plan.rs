@@ -10,6 +10,7 @@ use lomo_media::{
     stage_directory_of,
 };
 use lomo_store::{project_content_facts, select_pending_promotes};
+use lomo_workspace::canonical_attachment_path;
 
 use crate::{
     error::{storage, validation},
@@ -163,9 +164,13 @@ fn require_referenced_attachments(
 ) -> Result<(), LomoError> {
     let facts = project_content_facts(content)?;
     for relative in facts.attachment_paths {
-        let Ok(path) = RelativeWorkspacePath::parse(&relative) else {
+        // One canonical representation: `media/./x` and `media//x` must resolve to the same
+        // committed file check as `media/x`. A destination that cannot name a workspace file
+        // (external URL, empty, escapes the root) has nothing to require.
+        let Some(canonical) = canonical_attachment_path(&relative) else {
             continue;
         };
+        let path = RelativeWorkspacePath::parse(&canonical)?;
         if planned.iter().any(|file| file.path() == &path) {
             continue;
         }

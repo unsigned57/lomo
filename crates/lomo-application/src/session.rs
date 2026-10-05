@@ -2,14 +2,12 @@
 
 use std::sync::{Arc, Mutex, RwLock, atomic::AtomicU64};
 
-use lomo_core::{
-    DocumentMetadata, LomoError, OperationId, PageSize, PlatformActionExecutor,
-    RelativeWorkspacePath,
-};
+use lomo_core::{LomoError, OperationId, PageSize, PlatformActionExecutor, RelativeWorkspacePath};
 use lomo_store::{
-    DocumentPublication, MemoPage, MemoQuery, MemoQueryBoundary, MemoQueryStart, MemoSnapshot,
-    PageCursor, ProjectionClock, ReaderPoolOptions, RebuildResult, SafProjectionMutation,
-    SafProjectionMutationKind, SidebarProjection, Store, StoreReader, StoreReaderPool,
+    DocumentPublication, MemoFilters, MemoPage, MemoQuery, MemoQueryBoundary, MemoQueryStart,
+    MemoSnapshot, MemoWindowSides, PageCursor, ProjectionClock, ReaderPoolOptions, RebuildResult,
+    SafProjectionMutation, SafProjectionMutationKind, SidebarProjection, Store, StoreReader,
+    StoreReaderPool,
 };
 use lomo_workspace::{
     DocumentPatchCommand, HistorySnapshotV1, MemoId, MemoIdentityChange, TrashRecordCreate,
@@ -45,6 +43,10 @@ pub struct WorkspaceSession {
     mount: Mutex<Option<RebuildResult>>,
     pub(crate) draft_store: DraftStore,
     pub(crate) search_epoch: AtomicU64,
+    /// Ranked fuzzy hits memoized per query fingerprint and projection
+    /// revision — a continuation cursor paginates the snapshot instead of
+    /// rescanning and rescoring every candidate.
+    pub(crate) fuzzy_results: Mutex<std::collections::VecDeque<crate::search::FuzzyResult>>,
 }
 
 impl WorkspaceSession {
@@ -90,6 +92,7 @@ impl WorkspaceSession {
             store: Mutex::new(Some(store)),
             mount: Mutex::new(None),
             search_epoch: AtomicU64::new(0),
+            fuzzy_results: Mutex::new(std::collections::VecDeque::new()),
         };
         let pending = session.recover_files_for_mount()?;
         let floor = session.intent_journal.clock_floor()?;
@@ -567,6 +570,46 @@ impl WorkspaceSession {
         self.with_reader(|store| store.query_count(query))
     }
 
+    /// Which of `memo_ids` still satisfy `query`, split by where they sort
+    /// relative to a refresh reply's window — strictly above its head bound /
+    /// strictly below its tail bound, each side in live query order.
+    ///
+    /// The merge replays this order over the loaded set: a loaded card absent
+    /// from both sides and the reply has left the result set, and the sides
+    /// give every survivor its live rank instead of a stale slot.
+    ///
+    /// # Errors
+    /// Propagates query validation and storage failures.
+    pub fn matching_memo_window(
+        &self,
+        query: &MemoQuery,
+        memo_ids: &[String],
+        head: Option<&PageCursor>,
+        tail: Option<&PageCursor>,
+    ) -> Result<MemoWindowSides, LomoError> {
+        crate::search::validate_filters(&query.filters)?;
+        self.with_reader(|store| store.matching_memo_window(query, memo_ids, head, tail))
+    }
+
+    /// The fuzzy counterpart of [`Self::matching_memo_window`]: the same
+    /// above/below split measured in scored hit positions instead of keyset
+    /// bounds, read from the same snapshot pagination uses.
+    ///
+    /// # Errors
+    /// Propagates filter validation, projection storage and
+    /// `stale_search_result` failures.
+    pub fn fuzzy_window_sides(
+        &self,
+        text: &str,
+        filters: &MemoFilters,
+        memo_ids: &[String],
+        window_start: u64,
+        window_end: u64,
+    ) -> Result<MemoWindowSides, LomoError> {
+        crate::search::validate_filters(filters)?;
+        crate::search::fuzzy_window_sides(self, text, filters, memo_ids, window_start, window_end)
+    }
+
     /// Reads the sidebar aggregate from the session projection.
     ///
     /// # Errors
@@ -581,6 +624,16 @@ impl WorkspaceSession {
     /// Propagates projection storage failures.
     pub fn projected_memo(&self, memo_id: &str) -> Result<Option<MemoSnapshot>, LomoError> {
         self.with_reader(|store| store.get_projected_memo(memo_id))
+    }
+
+    /// Reads projected snapshots for one id set in a single batched query —
+    /// the store chunks the `IN` list internally. Ids without a projected row
+    /// simply produce no entry; callers needing an exact set check each id.
+    ///
+    /// # Errors
+    /// Propagates projection storage failures.
+    pub fn projected_memos(&self, memo_ids: &[String]) -> Result<Vec<MemoSnapshot>, LomoError> {
+        self.with_reader(|store| store.get_projected_memos(memo_ids))
     }
 
     /// Live projection word/character rows for every active memo.
@@ -635,15 +688,64 @@ impl WorkspaceSession {
         self.rebuild_locked(false)
     }
 
+    /// Reconciles the projection using watcher-supplied changed paths.
+    ///
+    /// The observed set scopes the listing diff: only those paths are re-verified against the
+    /// committed snapshot, and any path whose projection scope cannot be proven falls back to
+    /// the full scan. Anything the watcher failed to report stays certified until the next
+    /// digest-diff reconcile.
+    ///
+    /// # Errors
+    /// Propagates scan and projection storage failures.
+    pub fn reconcile_observed_paths(
+        &self,
+        changed_paths: &[RelativeWorkspacePath],
+    ) -> Result<RebuildResult, LomoError> {
+        let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
+        self.recover_pending()?;
+        self.reconcile_locked(false, Some(changed_paths))
+    }
+
     pub(crate) fn rebuild_locked(&self, force_scan: bool) -> Result<RebuildResult, LomoError> {
+        self.reconcile_locked(force_scan, None)
+    }
+
+    /// One reconcile pass: cheap listing, digest short-circuit, path-scoped incremental apply,
+    /// and full materialize as the truth rebuilder when scope cannot be proven.
+    fn reconcile_locked(
+        &self,
+        force_scan: bool,
+        observed: Option<&[RelativeWorkspacePath]>,
+    ) -> Result<RebuildResult, LomoError> {
         let evidence = crate::rebuild::list_workspace_listing(&self.config, &self.executor)?;
         let listing = evidence.admitted_listing()?;
-        if !force_scan && let Some(digest) = evidence.content_listing_digest() {
-            let matched = self.with_store(|store| {
-                Ok(store.workspace_listing_digest()?.as_deref() == Some(digest.as_str()))
-            })?;
-            if matched {
-                let result = self.with_store(Store::reconciled_live_result)?;
+        if !force_scan {
+            if let Some(digest) = evidence.listing_digest() {
+                let matched = self.with_store(|store| {
+                    Ok(store.workspace_listing_digest()?.as_deref() == Some(digest.as_str()))
+                })?;
+                if matched {
+                    let result = self.with_store(Store::reconciled_live_result)?;
+                    return self.record_mount(result);
+                }
+            }
+            let scoped = {
+                let mut guard = self
+                    .store
+                    .lock()
+                    .map_err(|error| storage("store_lock_poisoned", error.to_string()))?;
+                match guard.as_mut() {
+                    Some(store) => crate::rebuild_incremental::reconcile_scoped(
+                        &self.config,
+                        &self.executor,
+                        store,
+                        listing,
+                        observed,
+                    )?,
+                    None => None,
+                }
+            };
+            if let Some(result) = scoped {
                 return self.record_mount(result);
             }
         }
@@ -663,7 +765,9 @@ impl WorkspaceSession {
             }
         };
         if let Some(result) = reconciled {
-            self.persist_scanned_listing_digest(listing)?;
+            self.with_store_mut(|store| {
+                crate::rebuild_incremental::align_listing_snapshot(store, inventory.listing_rows())
+            })?;
             return self.record_mount(result);
         }
         let _read_exclusion = self
@@ -692,23 +796,18 @@ impl WorkspaceSession {
         *guard = Some(reopened);
         drop(guard);
         let result = result?;
-        self.persist_scanned_listing_digest(listing)?;
+        self.persist_scanned_listing_digest(inventory.listing_digest())?;
         self.record_mount(result)
     }
 
-    /// Persists the digest of the exact listing this projection was built and reconciled from.
+    /// Persists the digest of the exact `file_listing` rows the materialize commit wrote.
     ///
     /// Re-listing here would certify the projection against a later directory state it never read,
-    /// so a concurrent external change could be skipped permanently. An unknown content digest is
-    /// not a verified projection and is left unset.
-    fn persist_scanned_listing_digest(
-        &self,
-        listing: &[DocumentMetadata],
-    ) -> Result<(), LomoError> {
-        let Some(digest) = crate::rebuild::content_listing_digest(listing) else {
-            return Ok(());
-        };
-        self.with_store_mut(|store| store.set_workspace_listing_digest(&digest))
+    /// so a concurrent external change could be skipped permanently. The digest therefore comes
+    /// from the inventory — the provoking listing's fingerprints already refreshed with the
+    /// post-write tokens of files the scan itself wrote — and never from a re-list.
+    fn persist_scanned_listing_digest(&self, digest: &str) -> Result<(), LomoError> {
+        self.with_store_mut(|store| store.set_workspace_listing_digest(digest))
     }
 
     fn record_mount(&self, result: RebuildResult) -> Result<RebuildResult, LomoError> {

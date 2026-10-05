@@ -20,6 +20,7 @@ use lomo_media::{
 
 use crate::{
     csprng::generate_hex_token,
+    draft::GuardedDraftBody,
     error::{corruption, storage, validation},
     lock::TransactionLock,
     media_index::AttachmentIndex,
@@ -97,6 +98,25 @@ impl WorkspaceSession {
         now_ms: u64,
         recovery_window_ms: u64,
     ) -> Result<MediaSweepReport, LomoError> {
+        self.media_orphan_sweep_guarding(now_ms, recovery_window_ms, &[])
+    }
+
+    /// Runs the orphan sweep while guarding references held by external editor drafts.
+    ///
+    /// A host-side draft buffer that lives outside the Rust `DraftStore` still owns its
+    /// references for the duration of the sweep: each `GuardedDraftBody` is projected by the
+    /// render owner inside the write lock, exactly like an internal draft, and never persisted.
+    ///
+    /// # Errors
+    ///
+    /// Same failure surface as [`Self::media_orphan_sweep`]; an external draft body that fails
+    /// projection aborts the sweep before any mutation rather than dropping its protection.
+    pub fn media_orphan_sweep_guarding(
+        &self,
+        now_ms: u64,
+        recovery_window_ms: u64,
+        external_drafts: &[GuardedDraftBody],
+    ) -> Result<MediaSweepReport, LomoError> {
         let io = self.io();
         // Phase one: enumerate candidates and trash outside the mutation lock.
         let mut report = MediaSweepReport::default();
@@ -107,7 +127,7 @@ impl WorkspaceSession {
 
         // Phase two: inside the write lock recompute protection and re-verify every candidate.
         let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
-        let index = self.attachment_index()?;
+        let index = self.attachment_index_guarding(external_drafts)?;
         let mut run = SweepRun {
             io: &io,
             index: &index,
@@ -167,16 +187,23 @@ impl WorkspaceSession {
                 continue;
             };
             match lomo_media::parse_trash_entry_name(name) {
-                Ok((digest, trashed_at_ms)) => out.push(TrashCandidate {
-                    entry: MediaTrashEntry {
-                        digest,
-                        trash_path: PathBuf::from(path.as_str()),
-                        trashed_at_ms,
-                        expires_at_ms: trashed_at_ms.saturating_add(recovery_window_ms),
-                    },
-                    path,
-                    metadata: item,
-                }),
+                Ok((digest, trashed_at_ms)) => {
+                    // Listing evidence is a metadata token, not a byte digest; the delete
+                    // postcondition and the unchanged check need verified evidence.
+                    let Some(metadata) = verified_metadata(io, &path, item, report) else {
+                        continue;
+                    };
+                    out.push(TrashCandidate {
+                        entry: MediaTrashEntry {
+                            digest,
+                            trash_path: PathBuf::from(path.as_str()),
+                            trashed_at_ms,
+                            expires_at_ms: trashed_at_ms.saturating_add(recovery_window_ms),
+                        },
+                        path,
+                        metadata,
+                    });
+                }
                 Err(error) => report.failures.push(MediaSweepFailure {
                     relative_path: path.as_str().to_owned(),
                     code: error.code().to_owned(),

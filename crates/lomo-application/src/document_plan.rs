@@ -130,6 +130,21 @@ impl LoadedDocument {
         identity_change: MemoIdentityChange,
         command: &DocumentPatchCommand,
     ) -> Result<DocumentChange, LomoError> {
+        // The durable identity record is the terminal witness for an operation id once the
+        // journal's bounded retired-epoch window has evicted it: `replay` returned `None`, yet
+        // the record still knows the id, so the command was consumed and must expire instead of
+        // falling through to a fresh `record_pending` that would re-execute it.
+        if self
+            .identities
+            .operations()
+            .iter()
+            .any(|previous| previous.operation_id() == &operation)
+        {
+            return Err(crate::error::expired(
+                "operation_expired",
+                "operation was retired by a closed epoch and is not re-executed",
+            ));
+        }
         let planned = plan_document_patch(&self.document, command)?;
         let identities =
             self.identities

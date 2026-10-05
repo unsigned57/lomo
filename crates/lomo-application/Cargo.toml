@@ -82,3 +82,35 @@ path = "tests/media_artifact_contract.rs"
 [[test]]
 name = "media_sweep_contract"
 path = "tests/media_sweep_contract.rs"
+
+[[test]]
+name = "attachment_refs_contract"
+path = "tests/attachment_refs_contract.rs"
+
+[[test]]
+name = "trash_rebuild_contract"
+path = "tests/trash_rebuild_contract.rs"
+
+[[test]]
+name = "rebuild_incremental_contract"
+path = "tests/rebuild_incremental_contract.rs"
+
+[[test]]
+name = "reconcile_parity_contract"
+path = "tests/reconcile_parity_contract.rs"
+
+[[test]]
+name = "reconcile_trash_lane_contract"
+path = "tests/reconcile_trash_lane_contract.rs"
+
+[[test]]
+name = "cross_seam_contract"
+path = "tests/cross_seam_contract.rs"
+
+[[test]]
+name = "reconcile_pin_authority_contract"
+path = "tests/reconcile_pin_authority_contract.rs"
+
+[[test]]
+name = "reconcile_identity_binding_contract"
+path = "tests/reconcile_identity_binding_contract.rs"

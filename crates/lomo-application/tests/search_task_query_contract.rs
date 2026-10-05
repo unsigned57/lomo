@@ -128,6 +128,7 @@ mod tests {
                 mode: SearchMode::Fuzzy,
                 text: "zzzz".to_owned(),
                 cursor: None,
+                anchor: None,
                 page_size: PageSize::new(16).expect("page"),
             })
             .expect("stale search");
@@ -139,6 +140,7 @@ mod tests {
                 mode: SearchMode::Fuzzy,
                 text: "bdlcc".to_owned(),
                 cursor: None,
+                anchor: None,
                 page_size: PageSize::new(16).expect("page"),
             })
             .expect("fuzzy");
@@ -156,6 +158,7 @@ mod tests {
                 mode: SearchMode::Fuzzy,
                 text: "zzzz".to_owned(),
                 cursor: None,
+                anchor: None,
                 page_size: PageSize::new(16).expect("page"),
             })
             .expect("discard");
@@ -172,6 +175,7 @@ mod tests {
                 mode: SearchMode::Fulltext,
                 text: "八达岭".to_owned(),
                 cursor: None,
+                anchor: None,
                 page_size: PageSize::new(16).expect("page"),
             })
             .expect("fulltext");
@@ -209,6 +213,7 @@ mod tests {
                     mode: SearchMode::Fuzzy,
                     text: "needle".to_owned(),
                     cursor,
+                    anchor: None,
                     page_size: PageSize::new(2).expect("page size"),
                 })
                 .expect("search page");
@@ -308,6 +313,7 @@ mod tests {
                     mode,
                     text: "needle".to_owned(),
                     cursor: None,
+                    anchor: None,
                     page_size: PageSize::new(2).expect("size"),
                     filters: lomo_application::MemoFilters {
                         tag: Some("reading".to_owned()),
@@ -344,6 +350,7 @@ mod tests {
             mode: SearchMode::Fuzzy,
             text: "needle".to_owned(),
             cursor: None,
+            anchor: None,
             page_size: PageSize::new(2).expect("size"),
             filters: lomo_application::MemoFilters::default(),
         };
@@ -382,6 +389,7 @@ mod tests {
             mode: SearchMode::Fuzzy,
             text: "x".repeat(4097),
             cursor: None,
+            anchor: None,
             page_size: PageSize::new(2).expect("size"),
             filters: lomo_application::MemoFilters::default(),
         };
@@ -431,6 +439,7 @@ mod tests {
                     mode,
                     text: text.to_owned(),
                     cursor: None,
+                    anchor: None,
                     page_size: PageSize::new(2).expect("size"),
                     filters: lomo_application::MemoFilters::default(),
                 })
@@ -471,6 +480,7 @@ mod tests {
             mode: SearchMode::Fuzzy,
             text: "needle".to_owned(),
             cursor: None,
+            anchor: None,
             page_size: PageSize::new(2).expect("size"),
             filters: lomo_application::MemoFilters::default(),
         };

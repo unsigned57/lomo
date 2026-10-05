@@ -1,27 +1,18 @@
 //! Reminder planning and Markdown token advancement through shared memo updates.
 
-use lomo_core::{LomoError, OperationId};
+use lomo_core::LomoError;
 use lomo_store::{
     REMINDER_ROLLING_WINDOW, ReminderCommand, ReminderPlan, ReminderQuery, ReminderSessionInput,
     SnoozeStore, TimeZoneContext, apply_reminder_command, query_reminder_plan,
 };
-use lomo_workspace::{MemoId, ReminderReference};
-use serde::Serialize;
+use lomo_workspace::ReminderReference;
 
 use crate::{
     error::validation,
     paging::{collect_summaries, default_query},
     session::WorkspaceSession,
-    types::{UpdateMemoRequest, UpdateMemoResult},
     workspace_io::epoch_millis,
 };
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct FireReminderRequest {
-    pub operation_id: OperationId,
-    pub memo_id: MemoId,
-    pub opaque_id: String,
-}
 
 impl WorkspaceSession {
     /// Plans process-period reminder alarms from projected Markdown tokens.
@@ -75,31 +66,6 @@ impl WorkspaceSession {
         Ok(())
     }
 
-    /// Clears a durable app-private snooze binding.
-    ///
-    /// # Errors
-    /// Snooze storage or recovery-pending failures.
-    pub fn clear_reminder_snooze(&self, opaque_id: &str) -> Result<(), LomoError> {
-        let mut snooze = SnoozeStore::open_app_private(&self.config.state_dir)?;
-        apply_reminder_command(
-            &ReminderCommand::ClearSnooze {
-                opaque_id: opaque_id.to_owned(),
-                workspace_generation: self.config.workspace_generation.as_str().to_owned(),
-            },
-            &mut snooze,
-        )?;
-        Ok(())
-    }
-
-    /// True when durable snooze state is quarantined and scheduling is paused pending
-    /// [`Self::recover_reminder_snooze`].
-    ///
-    /// # Errors
-    /// Storage failures opening the snooze directory.
-    pub fn reminder_snooze_recovery_pending(&self) -> Result<bool, LomoError> {
-        Ok(SnoozeStore::open_app_private(&self.config.state_dir)?.recovery_pending())
-    }
-
     /// Explicitly recovers corrupt durable snooze state: quarantines the unreadable payload and
     /// persists a fresh empty store. Never invoked implicitly by planning.
     ///
@@ -108,48 +74,6 @@ impl WorkspaceSession {
     pub fn recover_reminder_snooze(&self) -> Result<(), LomoError> {
         SnoozeStore::recover_app_private(&self.config.state_dir)?;
         Ok(())
-    }
-
-    /// Advances one reminder token (`.1`, `.done`, next due) without rewriting other bytes.
-    ///
-    /// # Errors
-    /// Missing reminders, token planning, and shared write failures.
-    pub fn record_reminder_fired(
-        &self,
-        request: FireReminderRequest,
-    ) -> Result<UpdateMemoResult, LomoError> {
-        let current = self.current_memo(&request.memo_id)?;
-        let reminder = current
-            .summary
-            .reminders
-            .iter()
-            .find(|item| item.opaque_id == request.opaque_id)
-            .cloned()
-            .ok_or_else(|| validation("reminder_missing", "memo has no matching reminder"))?;
-        let mut snooze = SnoozeStore::open_app_private(&self.config.state_dir)?;
-        let planned = apply_reminder_command(
-            &ReminderCommand::RecordFired {
-                session: session_input(&reminder),
-                expected_revision: reminder.revision.clone(),
-            },
-            &mut snooze,
-        )?;
-        let replacement = planned.replacement_token.ok_or_else(|| {
-            validation("reminder_token_missing", "record-fired must rewrite token")
-        })?;
-        if !current.body.contains(&reminder.token) {
-            return Err(validation(
-                "reminder_token_missing",
-                "reminder token is not present in the memo body",
-            ));
-        }
-        self.update_memo(UpdateMemoRequest {
-            operation_id: request.operation_id,
-            memo_id: request.memo_id,
-            content: current.body.replacen(&reminder.token, &replacement, 1),
-            expected_document_fingerprint: current.summary.file_fingerprint,
-            pending_promotes: Vec::new(),
-        })
     }
 }
 

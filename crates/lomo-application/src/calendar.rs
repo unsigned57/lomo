@@ -184,6 +184,20 @@ impl CivilDate {
             })?;
         Self::from_jiff(monday)
     }
+
+    /// Returns the civil date `delta` days from this date in one calendar step.
+    ///
+    /// # Errors
+    /// Propagates calendar bounds and arithmetic failures.
+    pub fn checked_add_days(self, delta: i64) -> Result<Self, CalendarError> {
+        let shifted =
+            self.to_jiff()?
+                .checked_add(delta.days())
+                .map_err(|error| CalendarError::Overflow {
+                    message: error.to_string(),
+                })?;
+        Self::from_jiff(shifted)
+    }
 }
 
 /// Pure civil time (hour, minute, second).
@@ -584,6 +598,26 @@ fn resolve_zone(zone: &str) -> Result<TimeZone, CalendarError> {
         return Err(CalendarError::UnknownTimeZone(zone.to_owned()));
     }
     Ok(timezone)
+}
+
+/// Validates an IANA timezone name at a configuration boundary.
+///
+/// Configuration parsers call this so an unknown zone fails where it is read —
+/// never later, inside session math (I8).
+///
+/// # Errors
+/// [`CalendarError::UnknownTimeZone`] when the name is not a known IANA zone.
+pub fn validate_zone(zone: &str) -> Result<(), CalendarError> {
+    resolve_zone(zone).map(|_| ())
+}
+
+/// The host's IANA zone name when the OS exposes one.
+///
+/// This is a *suggestion* for first-run setup — callers display it but never
+/// apply it silently, so a wrong system zone cannot leak into a minted config.
+#[must_use]
+pub fn system_zone_name() -> Option<String> {
+    TimeZone::system().iana_name().map(str::to_owned)
 }
 
 /// Resolves a memo's date key, time token, and IANA timezone to a positive epoch millisecond.
