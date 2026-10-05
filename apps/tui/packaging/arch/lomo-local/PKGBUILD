@@ -1,7 +1,7 @@
 # Local iteration package: wraps the workspace build, no network fetch.
 # Loop: cargo build -p lomo-tui --release --locked && (cd apps/tui/packaging/arch/lomo-local && makepkg -efi)
 pkgname=lomo-local
-pkgver=0.1.0.r561.gb7b01b38
+pkgver=0.1.0.r604.g4203a11c
 pkgrel=1
 pkgdesc="Terminal-first markdown notes app (TUI) — local worktree build"
 arch=('x86_64')

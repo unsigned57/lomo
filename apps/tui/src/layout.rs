@@ -4,6 +4,18 @@ use ratatui::layout::Rect;
 pub const READING_COLUMNS: u16 = 96;
 pub const CARD_BODY_LINES: usize = 6;
 
+/// The first item index a selection-following list shows.
+///
+/// The selection is clamped into the list, with one page of room above it.
+/// Renderers and hit-testing share this top — a stale selection can never
+/// scroll a non-empty list blank (09-I6-04).
+#[must_use]
+pub fn selection_top(selected: usize, items: usize, height: u16) -> usize {
+    selected
+        .min(items.saturating_sub(1))
+        .saturating_sub(usize::from(height).saturating_sub(1))
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ReadingLayout {
     pub header: Rect,

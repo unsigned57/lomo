@@ -10,12 +10,13 @@ pub mod editor;
 pub mod effects;
 pub mod error;
 pub mod event;
+pub mod executor;
 pub mod feed_layout;
 pub mod filter_controls;
 pub mod graphics;
 pub mod host;
 pub mod i18n;
-pub mod image_surface;
+
 pub mod input;
 pub mod input_update;
 pub mod layout;
@@ -32,7 +33,8 @@ pub mod overlays;
 pub mod queries;
 pub mod reader;
 pub mod search_view;
-pub mod sixel;
+pub mod settings;
+
 pub mod stats_draw;
 pub mod text_layout;
 pub mod ui;

@@ -1,9 +1,11 @@
 //! Terminal presentation of the workspace's canonical Markdown render tree.
-use lomo_workspace::{RenderBlock, RenderDocumentV1, RenderInline, RenderListItem};
+use lomo_workspace::{ImageDest, RenderBlock, RenderDocumentV1, RenderInline, RenderListItem};
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
+use std::ops::Range;
+use unicode_segmentation::UnicodeSegmentation;
 
 /// Whether `#tag` inlines are drawn inside the body text.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -14,11 +16,16 @@ pub enum TagDisplay {
 }
 
 /// Semantic position of one `RenderInline::Image`: the styled line its
-/// placeholder occupies and the link destination it refers to.
+/// placeholder occupies, the placeholder's grapheme range inside that line,
+/// and the classified link destination it refers to.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ImageSite {
     pub line: usize,
-    pub destination: String,
+    /// Grapheme range of the rendered `[Image: ..]` placeholder inside
+    /// `line` — the reader blanks exactly that run once the image is `Ready`,
+    /// leaving inline text around it in place (D-08).
+    pub placeholder: Range<usize>,
+    pub destination: ImageDest,
 }
 
 #[must_use]
@@ -88,13 +95,19 @@ fn push_block(
             let mut quoted_sites = Vec::new();
             push_blocks(blocks, tags, &mut quoted, &mut quoted_sites);
             for (index, line) in quoted.iter().enumerate() {
-                let mut spans = vec![Span::styled("│ ", Style::default().fg(Color::DarkGray))];
+                let prefix = Span::styled("│ ", Style::default().fg(Color::DarkGray));
+                // The prepended marker shifts every inline grapheme range —
+                // the site must keep naming the placeholder, not the prefix.
+                let shift = prefix.content.graphemes(true).count();
+                let mut spans = vec![prefix];
                 spans.extend(line.spans.clone());
                 lines.push(Line::from(spans));
                 for site in &quoted_sites {
                     if site.line == index {
                         sites.push(ImageSite {
                             line: lines.len() - 1,
+                            placeholder: (site.placeholder.start + shift)
+                                ..(site.placeholder.end + shift),
                             destination: site.destination.clone(),
                         });
                     }
@@ -157,11 +170,15 @@ fn push_list_item(
     let mut nested_sites = Vec::new();
     push_blocks(&item.blocks, tags, &mut nested, &mut nested_sites);
     for (index, line) in nested.into_iter().enumerate() {
-        let mut spans = vec![Span::raw(if index == 0 {
+        let marker_span = Span::raw(if index == 0 {
             marker.clone()
         } else {
             "  ".to_owned()
-        })];
+        });
+        // The prepended marker shifts every inline grapheme range — the site
+        // must keep naming the placeholder, not the prefix.
+        let shift = marker_span.content.graphemes(true).count();
+        let mut spans = vec![marker_span];
         spans.extend(line.spans);
         if item.checked == Some(true) {
             for span in &mut spans {
@@ -176,6 +193,7 @@ fn push_list_item(
             if site.line == index {
                 sites.push(ImageSite {
                     line: lines.len() - 1,
+                    placeholder: (site.placeholder.start + shift)..(site.placeholder.end + shift),
                     destination: site.destination.clone(),
                 });
             }
@@ -188,7 +206,7 @@ fn push_list_item(
 enum Seg {
     Span(Span<'static>),
     Image {
-        destination: String,
+        destination: ImageDest,
         placeholder: Span<'static>,
     },
 }
@@ -219,8 +237,13 @@ fn push_inline_lines(
                 destination,
                 placeholder,
             } => {
+                let start = current
+                    .iter()
+                    .map(|span| span.content.graphemes(true).count())
+                    .sum::<usize>();
                 sites.push(ImageSite {
                     line: row,
+                    placeholder: start..start + placeholder.content.graphemes(true).count(),
                     destination,
                 });
                 current.push(placeholder);
@@ -266,7 +289,7 @@ fn push_inlines(inlines: &[RenderInline], style: Style, tags: TagDisplay, out: &
             RenderInline::Image { destination, .. } => out.push(Seg::Image {
                 destination: destination.clone(),
                 placeholder: Span::styled(
-                    crate::media::image_placeholder(destination),
+                    crate::media::image_placeholder(destination.raw()),
                     style.fg(Color::DarkGray),
                 ),
             }),

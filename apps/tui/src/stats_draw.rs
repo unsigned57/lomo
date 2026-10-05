@@ -2,12 +2,12 @@
 
 use std::collections::HashMap;
 
-use lomo_application::calendar::{CalendarError, CivilDate, day_bounds, local_date};
+use lomo_application::calendar::CivilDate;
 use ratatui::Frame;
+use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use unicode_width::UnicodeWidthChar;
 
 use crate::i18n::UiStrings;
 use crate::model::StatsView;
@@ -15,8 +15,15 @@ use crate::model::StatsView;
 const OVERVIEW_ROWS: u16 = 6;
 /// Two header rows (month labels), seven weekday rows and one legend row.
 const HEATMAP_MIN_INNER_ROWS: u16 = 10;
+const BORDER_STYLE: Style = Style::new().fg(Color::DarkGray);
+const TITLE_STYLE: Style = Style::new().add_modifier(Modifier::BOLD);
 
 /// Draws the statistics screen into `area`.
+///
+/// Every write goes through `put_str`/per-cell paints instead of `Block` and
+/// `Paragraph` widgets: this frame is repainted every tick and the widgets
+/// pay per-cell plumbing plus grapheme segmentation the fixed i18n labels do
+/// not need.
 pub fn draw_stats(frame: &mut Frame, area: Rect, stats: &StatsView, i18n: &UiStrings) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -39,78 +46,169 @@ pub fn draw_stats(frame: &mut Frame, area: Rect, stats: &StatsView, i18n: &UiStr
         return;
     };
 
-    let summary = vec![
-        labeled(&i18n.label_total_notes, stats.total_memos.to_string()),
-        labeled(&i18n.label_total_words, stats.total_words.to_string()),
-        labeled(&i18n.label_active_days, stats.active_days.to_string()),
-        labeled(
-            &i18n.label_streak,
-            format!(
-                "{} · {} {}",
-                stats.current_streak, i18n.label_longest, stats.longest_streak
+    let buf = frame.buffer_mut();
+    paint_panel(buf, summary_area, &i18n.header_stats);
+    write_label_rows(
+        buf,
+        panel_inner(summary_area),
+        [
+            (&*i18n.label_total_notes, stats.total_memos.to_string()),
+            (&*i18n.label_total_words, stats.total_words.to_string()),
+            (&*i18n.label_active_days, stats.active_days.to_string()),
+            (
+                &*i18n.label_streak,
+                format!(
+                    "{} · {} {}",
+                    stats.current_streak, i18n.label_longest, stats.longest_streak
+                ),
             ),
-        ),
-    ];
-    frame.render_widget(
-        Paragraph::new(summary).block(panel(&i18n.header_stats)),
-        summary_area,
+        ],
     );
-    frame.render_widget(
-        Paragraph::new(period_lines(stats, i18n)).block(panel(&i18n.header_cycle)),
-        period_area,
+    paint_panel(buf, period_area, &i18n.header_cycle);
+    write_label_rows(
+        buf,
+        panel_inner(period_area),
+        [
+            (
+                i18n.text("This week: ", "本周: "),
+                stats.this_week.to_string(),
+            ),
+            (
+                i18n.text("This month: ", "本月: "),
+                stats.this_month.to_string(),
+            ),
+            (
+                i18n.text("This year: ", "今年: "),
+                stats.this_year.to_string(),
+            ),
+        ],
     );
-    draw_heatmap(frame, heatmap_area, stats, i18n);
+    draw_heatmap(buf, heatmap_area, stats, i18n);
 }
 
-fn period_lines(stats: &StatsView, i18n: &UiStrings) -> Vec<Line<'static>> {
-    vec![
-        labeled(
-            i18n.text("This week: ", "本周: "),
-            stats.this_week.to_string(),
-        ),
-        labeled(
-            i18n.text("This month: ", "本月: "),
-            stats.this_month.to_string(),
-        ),
-        labeled(
-            i18n.text("This year: ", "今年: "),
-            stats.this_year.to_string(),
-        ),
-    ]
+/// Writes `text` at `(x, y)` one scalar at a time, returning the x position
+/// after the last written cell. Equivalent to `Buffer::set_stringn` (zero-
+/// width and control characters skipped, wide glyphs blank their trailing
+/// cell, stops when the next glyph no longer fits) without the grapheme
+/// segmentation pass — valid here because every caller writes fixed i18n
+/// labels, which are plain BMP text with no combining marks. `limit` is the
+/// exclusive end column — usually the right edge of the panel being painted.
+fn put_str(buf: &mut Buffer, x: u16, y: u16, text: &str, limit: u16, style: Style) -> u16 {
+    if y >= buf.area.bottom() {
+        return x;
+    }
+    let right = buf.area.right().min(limit);
+    let mut cx = x;
+    for ch in text.chars() {
+        if ch.is_control() {
+            continue;
+        }
+        // ASCII scalars are all single-cell printable once controls are
+        // filtered — the width table only runs for non-ASCII input.
+        let width = if ch.is_ascii() {
+            1
+        } else {
+            u16::try_from(UnicodeWidthChar::width(ch).unwrap_or(0)).unwrap_or(0)
+        };
+        if width == 0 {
+            continue;
+        }
+        if right.saturating_sub(cx) < width {
+            break;
+        }
+        let mut encoded = [0_u8; 4];
+        if let Some(cell) = buf.cell_mut((cx, y)) {
+            cell.set_symbol(ch.encode_utf8(&mut encoded))
+                .set_style(style);
+        }
+        cx = cx.saturating_add(1);
+        // Blank the cells a wide glyph covers, like `set_stringn` does.
+        for _ in 1..width {
+            if let Some(cell) = buf.cell_mut((cx, y)) {
+                cell.reset();
+            }
+            cx = cx.saturating_add(1);
+        }
+    }
+    cx
 }
 
-fn labeled(label: &str, value: String) -> Line<'static> {
-    Line::from(vec![
-        Span::styled(label.to_owned(), Style::default().fg(Color::DarkGray)),
-        Span::raw(value),
-    ])
+/// Rounded border + bold title — the same visual `Block` produces, painted
+/// directly to skip the widget's per-cell plumbing on every frame.
+fn paint_panel(buf: &mut Buffer, area: Rect, title: &str) {
+    if area.width < 2 || area.height < 2 {
+        return;
+    }
+    let top = area.y;
+    let bottom = area.y + area.height - 1;
+    let left = area.x;
+    let right = area.x + area.width - 1;
+    let mut set = |x: u16, y: u16, symbol: &str| {
+        if let Some(cell) = buf.cell_mut((x, y)) {
+            cell.set_symbol(symbol).set_style(BORDER_STYLE);
+        }
+    };
+    for x in (left + 1)..right {
+        set(x, top, "─");
+        set(x, bottom, "─");
+    }
+    for y in (top + 1)..bottom {
+        set(left, y, "│");
+        set(right, y, "│");
+    }
+    set(left, top, "╭");
+    set(right, top, "╮");
+    set(left, bottom, "╰");
+    set(right, bottom, "╯");
+    let mut tx = put_str(buf, left + 1, top, " ", right, TITLE_STYLE);
+    tx = put_str(buf, tx, top, title, right, TITLE_STYLE);
+    put_str(buf, tx, top, " ", right, TITLE_STYLE);
 }
 
-fn panel(title: &str) -> Block<'static> {
-    Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(Color::DarkGray))
-        .title(Span::styled(
-            format!(" {title} "),
-            Style::default().add_modifier(Modifier::BOLD),
-        ))
+/// The content rect inside a one-cell border, saturating like `Block::inner`.
+const fn panel_inner(area: Rect) -> Rect {
+    Rect {
+        x: area.x.saturating_add(1),
+        y: area.y.saturating_add(1),
+        width: area.width.saturating_sub(2),
+        height: area.height.saturating_sub(2),
+    }
 }
 
-fn draw_heatmap(frame: &mut Frame, area: Rect, stats: &StatsView, i18n: &UiStrings) {
-    let block = panel(&i18n.header_heatmap);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+/// Writes `[gray label][value]` rows into `area` — the stats panels never
+/// wrap, so a reflow widget would be pure overhead.
+fn write_label_rows<'a>(
+    buf: &mut Buffer,
+    area: Rect,
+    rows: impl IntoIterator<Item = (&'a str, String)>,
+) {
+    for (index, (label, value)) in rows.into_iter().enumerate() {
+        let Ok(offset) = u16::try_from(index) else {
+            break;
+        };
+        let y = area.y.saturating_add(offset);
+        if y >= area.bottom() {
+            break;
+        }
+        let x = put_str(buf, area.x, y, label, area.right(), BORDER_STYLE);
+        put_str(buf, x, y, &value, area.right(), Style::default());
+    }
+}
+
+fn draw_heatmap(buf: &mut Buffer, area: Rect, stats: &StatsView, i18n: &UiStrings) {
+    paint_panel(buf, area, &i18n.header_heatmap);
+    let inner = panel_inner(area);
     let Some(plan) = heatmap_plan(inner, stats) else {
         return;
     };
-    paint_weekday_labels(frame, inner, start_y(inner), i18n);
-    paint_heatmap_cells(frame, inner, stats, i18n, &plan);
-    paint_heatmap_legend(frame, inner, i18n);
+    // The ramp is resolved once per frame — per-cell painting shares it.
+    let scale = heat_scale();
+    paint_weekday_labels(buf, inner, start_y(inner), i18n);
+    paint_heatmap_cells(buf, inner, stats, i18n, &plan, scale);
+    paint_heatmap_legend(buf, inner, i18n, scale);
 }
 
 struct HeatmapPlan {
-    zone: String,
     today: CivilDate,
     start: CivilDate,
     max_weeks: usize,
@@ -140,11 +238,10 @@ fn heatmap_plan(inner: Rect, stats: &StatsView) -> Option<HeatmapPlan> {
     let Ok(days_back) = i64::try_from(days_back) else {
         return None;
     };
-    let Ok(start) = shift_days(today, &stats.zone, -days_back) else {
+    let Ok(start) = today.checked_add_days(-days_back) else {
         return None;
     };
     Some(HeatmapPlan {
-        zone: stats.zone.clone(),
         today,
         start,
         max_weeks,
@@ -157,92 +254,115 @@ const fn start_y(inner: Rect) -> u16 {
     inner.y.saturating_add(2)
 }
 
-fn paint_weekday_labels(frame: &mut Frame, inner: Rect, start_y: u16, i18n: &UiStrings) {
+fn paint_weekday_labels(buf: &mut Buffer, inner: Rect, start_y: u16, i18n: &UiStrings) {
     for (index, label) in i18n.heatmap_weekdays.iter().enumerate() {
         let label_y = start_y.saturating_add(u16::try_from(index).unwrap_or(0));
         if label_y < inner.bottom() {
-            frame.buffer_mut().set_string(
+            put_str(
+                buf,
                 inner.x.saturating_add(1),
                 label_y,
                 label,
-                Style::default().fg(Color::DarkGray),
+                inner.right(),
+                BORDER_STYLE,
             );
         }
     }
 }
 
 fn paint_heatmap_cells(
-    frame: &mut Frame,
+    buf: &mut Buffer,
     inner: Rect,
     stats: &StatsView,
     i18n: &UiStrings,
     plan: &HeatmapPlan,
+    scale: &[Color; 5],
 ) {
     let counts = daily_map(stats);
-    let mut cursor = plan.start;
+    let mut cursor = (plan.start.year(), plan.start.month(), plan.start.day());
     let mut current_month = 0_u8;
     for col in 0..plan.max_weeks {
         let col_x = plan
             .start_x
             .saturating_add(u16::try_from(col).unwrap_or(0).saturating_mul(2));
-        if cursor.month() != current_month {
-            paint_month_label(frame, inner, col_x, cursor.month(), i18n);
-            current_month = cursor.month();
+        if cursor.1 != current_month {
+            paint_month_label(buf, inner, col_x, cursor.1, i18n);
+            current_month = cursor.1;
         }
-        paint_week_column(frame, inner, plan, &counts, cursor, col_x);
-        let Ok(week) = shift_days(cursor, &plan.zone, 7) else {
-            break;
-        };
-        cursor = week;
+        paint_week_column(buf, inner, plan, &counts, cursor, col_x, scale);
+        // The next week is seven int steps — no calendar-engine round trip.
+        for _ in 0..7 {
+            cursor = next_day(cursor);
+        }
     }
 }
 
-fn paint_month_label(frame: &mut Frame, inner: Rect, col_x: u16, month: u8, i18n: &UiStrings) {
+fn paint_month_label(buf: &mut Buffer, inner: Rect, col_x: u16, month: u8, i18n: &UiStrings) {
     let month_name = i18n
         .heatmap_months
         .get(usize::from(month.saturating_sub(1)))
         .copied()
         .unwrap_or("");
     if col_x.saturating_add(3) < inner.right() {
-        frame.buffer_mut().set_string(
+        put_str(
+            buf,
             col_x,
             inner.y.saturating_add(1),
             month_name,
-            Style::default().fg(Color::DarkGray),
+            inner.right(),
+            BORDER_STYLE,
         );
     }
 }
 
 fn paint_week_column(
-    frame: &mut Frame,
+    buf: &mut Buffer,
     inner: Rect,
     plan: &HeatmapPlan,
     counts: &HashMap<(i32, u8, u8), u64>,
-    week_start: CivilDate,
+    week_start: (i32, u8, u8),
     col_x: u16,
+    scale: &[Color; 5],
 ) {
+    // The ~400 cells a heatmap walks step plain civil integers — the zone is
+    // only needed to derive the endpoints, which `heatmap_plan` already did.
+    let today = (plan.today.year(), plan.today.month(), plan.today.day());
     let mut day = week_start;
     for row in 0..7_u16 {
-        if day > plan.today {
+        if day > today {
             break;
         }
-        let count = counts
-            .get(&(day.year(), day.month(), day.day()))
-            .copied()
-            .unwrap_or(0);
+        let count = counts.get(&day).copied().unwrap_or(0);
         let row_y = plan.start_y.saturating_add(row);
-        if col_x < inner.right() && row_y < inner.bottom() {
-            frame.buffer_mut().set_string(
-                col_x,
-                row_y,
-                "●",
-                Style::default().fg(heat_color(count)),
-            );
+        if col_x < inner.right()
+            && row_y < inner.bottom()
+            && let Some(cell) = buf.cell_mut((col_x, row_y))
+        {
+            cell.set_symbol("●").set_fg(heat_color(count, scale));
         }
-        let Ok(next) = shift_days(day, &plan.zone, 1) else {
-            break;
-        };
-        day = next;
+        day = next_day(day);
+    }
+}
+
+/// Proleptic Gregorian month length — the inputs are `CivilDate` components,
+/// already validated at the projection boundary.
+const fn days_in_month(year: i32, month: u8) -> u8 {
+    match month {
+        2 if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
+}
+
+/// The next civil day — integer stepping, not a calendar-engine round trip.
+const fn next_day((year, month, day): (i32, u8, u8)) -> (i32, u8, u8) {
+    if day < days_in_month(year, month) {
+        (year, month, day + 1)
+    } else if month < 12 {
+        (year, month + 1, 1)
+    } else {
+        (year.saturating_add(1), 1, 1)
     }
 }
 
@@ -254,40 +374,115 @@ const HEAT_SCALE: [Color; 5] = [
     Color::Rgb(191, 97, 106),
 ];
 
-const fn heat_color(count: u64) -> Color {
-    match count {
-        0 => HEAT_SCALE[0],
-        1 => HEAT_SCALE[1],
-        2..=3 => HEAT_SCALE[2],
-        4..=6 => HEAT_SCALE[3],
-        _ => HEAT_SCALE[4],
+/// xterm-256 approximations of the tuned ramp — the same five steps resolved
+/// into the 6×6×6 color cube and grayscale ramp (`#3a3a3a`, `#afaf87`,
+/// `#d7d787`, `#d7875f`, `#af5f5f`), so a 256-color terminal sees the
+/// intended progression instead of crossterm's uncontrolled downgrade.
+const HEAT_SCALE_INDEXED: [Color; 5] = [
+    Color::Indexed(237),
+    Color::Indexed(144),
+    Color::Indexed(186),
+    Color::Indexed(173),
+    Color::Indexed(131),
+];
+
+/// The floor for terminals without even the indexed palette: named ANSI
+/// colors keeping the same gray → green → yellow → red → bright-red story.
+const HEAT_SCALE_BASIC: [Color; 5] = [
+    Color::DarkGray,
+    Color::Green,
+    Color::Yellow,
+    Color::Red,
+    Color::LightRed,
+];
+
+/// The ramp a terminal can express given its `COLORTERM`/`TERM` signals.
+///
+/// `COLORTERM=truecolor|24bit` or a `*-direct`/`truecolor`/`24bit` TERM keeps
+/// the tuned scale; a `256color` TERM or any non-empty COLORTERM gets the
+/// indexed approximations; anything quieter gets named colors — a cell never
+/// asks for a color the terminal cannot name (C-15).
+#[must_use]
+pub fn heat_scale_for(colorterm: Option<&str>, term: Option<&str>) -> &'static [Color; 5] {
+    let truecolor = colorterm.is_some_and(|value| {
+        value.eq_ignore_ascii_case("truecolor") || value.eq_ignore_ascii_case("24bit")
+    }) || term.is_some_and(|value| {
+        ["direct", "truecolor", "24bit"]
+            .iter()
+            .any(|mark| value.contains(mark))
+    });
+    if truecolor {
+        return &HEAT_SCALE;
+    }
+    let indexed = term.is_some_and(|value| value.contains("256color"))
+        || colorterm.is_some_and(|value| !value.is_empty());
+    if indexed {
+        &HEAT_SCALE_INDEXED
+    } else {
+        &HEAT_SCALE_BASIC
     }
 }
 
-fn paint_heatmap_legend(frame: &mut Frame, inner: Rect, i18n: &UiStrings) {
+/// This session's ramp, probed once from the environment — the terminal's
+/// color capability cannot change under a running frame.
+fn heat_scale() -> &'static [Color; 5] {
+    static SCALE: std::sync::OnceLock<&'static [Color; 5]> = std::sync::OnceLock::new();
+    SCALE.get_or_init(|| {
+        heat_scale_for(
+            crate::xdg::env_nonempty("COLORTERM").as_deref(),
+            crate::xdg::env_nonempty("TERM").as_deref(),
+        )
+    })
+}
+
+const fn heat_color(count: u64, scale: &[Color; 5]) -> Color {
+    // Destructuring names the five steps instead of indexing them.
+    let [empty, low, mid, high, top] = *scale;
+    match count {
+        0 => empty,
+        1 => low,
+        2..=3 => mid,
+        4..=6 => high,
+        _ => top,
+    }
+}
+
+fn paint_heatmap_legend(buf: &mut Buffer, inner: Rect, i18n: &UiStrings, scale: &[Color; 5]) {
     if inner.height < HEATMAP_MIN_INNER_ROWS {
         return;
     }
-    let legend_x = inner.right().saturating_sub(22);
+    // A narrow panel pins the legend to its left edge instead of letting the
+    // right-anchored offset escape the frame onto the screen margin.
+    let legend_x = inner.right().saturating_sub(22).max(inner.x);
     let legend_y = inner.bottom().saturating_sub(1);
-    frame.buffer_mut().set_string(
+    put_str(
+        buf,
         legend_x,
         legend_y,
         &i18n.heatmap_less,
-        Style::default().fg(Color::DarkGray),
+        inner.right(),
+        BORDER_STYLE,
     );
     let mut x = legend_x.saturating_add(5);
-    for color in HEAT_SCALE {
-        frame
-            .buffer_mut()
-            .set_string(x, legend_y, "●", Style::default().fg(color));
+    for color in *scale {
+        // A panel narrower than the legend drops trailing swatches rather
+        // than writing them past the frame — the same bound put_str uses.
+        if x >= inner.right() {
+            break;
+        }
+        if let Some(cell) = buf.cell_mut((x, legend_y)) {
+            cell.set_symbol("●");
+            cell.set_fg(color);
+        }
         x = x.saturating_add(2);
     }
-    frame.buffer_mut().set_string(
+    put_str(
+        buf,
         x,
         legend_y,
         &i18n.heatmap_more,
-        Style::default().fg(Color::DarkGray),
+        inner.right(),
+        BORDER_STYLE,
     );
 }
 
@@ -297,23 +492,4 @@ fn daily_map(stats: &StatsView) -> HashMap<(i32, u8, u8), u64> {
         .iter()
         .map(|point| ((point.year, point.month, point.day), point.count))
         .collect()
-}
-
-fn shift_days(date: CivilDate, zone: &str, delta: i64) -> Result<CivilDate, CalendarError> {
-    if delta == 0 {
-        return Ok(date);
-    }
-    let mut current = date;
-    if delta > 0 {
-        for _ in 0..delta {
-            let (_, end) = day_bounds(current, zone)?;
-            current = local_date(end, zone)?;
-        }
-    } else {
-        for _ in 0..(-delta) {
-            let (start, _) = day_bounds(current, zone)?;
-            current = local_date(start.saturating_sub(1), zone)?;
-        }
-    }
-    Ok(current)
 }

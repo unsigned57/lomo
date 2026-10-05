@@ -6,6 +6,8 @@ use ratatui::{
 };
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::model::TextAnchor;
+
 #[must_use]
 pub fn excerpt_lines(excerpt: &SearchExcerpt) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
@@ -34,4 +36,29 @@ pub fn excerpt_lines(excerpt: &SearchExcerpt) -> Vec<Line<'static>> {
     }
     lines.push(Line::from(spans));
     lines
+}
+
+/// The source-addressed anchor of the excerpt's first highlight.
+///
+/// Coordinates are (logical line, grapheme) — the same frame `text_layout`
+/// anchors wrapped rows in — so scrolling to a hit never inspects styles.
+#[must_use]
+pub fn excerpt_anchor(excerpt: &SearchExcerpt) -> Option<TextAnchor> {
+    let byte = excerpt.highlights.first().map(|range| range.start)?;
+    let mut anchor = TextAnchor {
+        line: 0,
+        grapheme: 0,
+    };
+    for (offset, grapheme) in excerpt.text.grapheme_indices(true) {
+        if offset >= byte {
+            break;
+        }
+        if grapheme == "\n" {
+            anchor.line += 1;
+            anchor.grapheme = 0;
+        } else {
+            anchor.grapheme += 1;
+        }
+    }
+    Some(anchor)
 }

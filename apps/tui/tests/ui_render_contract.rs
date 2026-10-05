@@ -1,8 +1,9 @@
 //! Behavior Contract
 //! Capability: body-first reading at narrow, standard and wide terminal sizes.
 //! Scenarios: short records remain complete; long records have at most six rendered body rows;
-//! reader progress, loading, errors and empty results are distinct; transient status yields to
-//! key hints on the next command; every view carries its own hints; chrome never repeats hints;
+//! reader progress, loading, errors and empty results are distinct; a status toast outlives
+//! unrelated commands and yields only to newer feedback or a top-level Esc acknowledgement;
+//! every view carries its own hints; chrome never repeats hints;
 //! narrow headers keep the most important controls; overlays are titled; cards open with
 //! their own date and time instead of a shared date header; capture and search are bordered
 //! panels; stale search results stay on screen until replaced; hints name the Esc target.
@@ -25,6 +26,7 @@ mod tests {
         model::{AppModel, FeedKind, FeedState, InputMode, LoadStatus, SelectionList, View},
         update::apply_command,
     };
+    use lomo_workspace::MemoId;
     use ratatui::{Terminal, backend::TestBackend};
 
     fn render(model: &AppModel) -> Result<String, Box<dyn std::error::Error>> {
@@ -124,27 +126,57 @@ mod tests {
             .collect()
     }
 
+    /// I9: feedback is classified, not disposable — a toast holds the status
+    /// line through unrelated commands, yields only to newer feedback, and a
+    /// top-level Esc acknowledges what remains.
     #[test]
-    fn a_transient_status_yields_to_key_hints_on_the_next_command() {
+    fn a_status_toast_survives_until_new_feedback_or_esc_acknowledges() {
         let mut model = model_with_memos(3, 80, 24).expect("fixture and operation must succeed");
         model.set_status("Saved");
         let text = render(&model).expect("fixture and operation must succeed");
         assert!(text.contains("Saved") && !text.contains("Enter read"));
+        // An unrelated navigation key must not erase the toast.
         assert_eq!(apply_command(&mut model, Command::Move(1)), None);
         let text = render(&model).expect("fixture and operation must succeed");
-        assert!(!text.contains("Saved") && text.contains("Enter read"));
+        assert!(text.contains("Saved") && !text.contains("Enter read"));
+        // Newer feedback replaces it…
+        model.set_status("Pinned");
+        let text = render(&model).expect("fixture and operation must succeed");
+        assert!(text.contains("Pinned") && !text.contains("Saved"));
+        // …and the top-level Esc acknowledgement hands the line back to hints.
+        assert_eq!(apply_command(&mut model, Command::Back), None);
+        let text = render(&model).expect("fixture and operation must succeed");
+        assert!(!text.contains("Pinned") && text.contains("Enter read"));
     }
 
     #[test]
     fn auxiliary_views_carry_their_own_key_hints() {
         let mut model = AppModel::new(80, 24);
-        model.view = View::Tasks(SelectionList::new(Vec::new()));
+        // A seeded row keeps `Enter` dispatchable — an empty list honestly
+        // refuses Accept, so the hint bar cannot advertise a dead toggle (I2).
+        model.view = View::Tasks(SelectionList::new(vec![lomo_tui::model::TaskRow {
+            memo_id: MemoId::parse("m-task").expect("fixture and operation must succeed"),
+            line: 0,
+            text: "water the plants".to_owned(),
+            date: "2026-09-11".to_owned(),
+            done: false,
+        }]));
         let text = render(&model).expect("fixture and operation must succeed");
-        assert!(text.contains("toggle") && !text.contains("n capture"));
-        model.view = View::Settings(vec!["workspace: /notes".to_owned()]);
+        assert!(text.contains("toggle") && !text.contains("Enter read"));
+        model.view = View::Settings(lomo_tui::settings::SettingsView {
+            file: std::path::PathBuf::from("/cfg/lomo/config.toml"),
+            rows: vec![lomo_tui::settings::SettingRow {
+                field: lomo_tui::config::SettingsField::Workspace,
+                value: "/notes".to_owned(),
+                hot: false,
+            }],
+            selected: 0,
+            info: Vec::new(),
+            home_dir: None,
+        });
         let text = render(&model).expect("fixture and operation must succeed");
-        assert!(text.contains("Esc back") && !text.contains("Enter read"));
-        model.view = View::Feed(FeedState::new(FeedKind::Trash));
+        assert!(text.contains("? help") && !text.contains("Enter read"));
+        model.view = View::Feed(Box::new(FeedState::new(FeedKind::Trash)));
         if let View::Feed(feed) = &mut model.view {
             feed.load = LoadStatus::Ready;
         }
@@ -183,10 +215,10 @@ mod tests {
         model.draft.text = TextBuffer::new("kept thought".to_owned());
         let text = render(&model).expect("fixture and operation must succeed");
         assert!(text.contains("draft"));
-        assert_eq!(
+        assert!(matches!(
             apply_command(&mut model, Command::Compose),
-            None.or(Some(lomo_tui::effects::Effect::Tags))
-        );
+            None | Some(lomo_tui::effects::Effect::Tags { .. })
+        ));
         let rows = screen_rows(&model);
         assert_eq!(
             rows.iter().filter(|row| row.contains("Ctrl+S")).count(),
@@ -199,13 +231,15 @@ mod tests {
             "capture is a bordered panel titled on its frame"
         );
         assert!(rows.iter().any(|row| row.contains("kept thought")));
-        assert_eq!(
+        let revision = model.draft.revision;
+        assert!(matches!(
             apply_command(&mut model, Command::Back),
             Some(lomo_tui::effects::Effect::PersistDraft {
-                revision: model.draft.revision,
-                content: "kept thought".to_owned()
-            })
-        );
+                revision: persisted,
+                content,
+                ..
+            }) if persisted == revision && content == "kept thought"
+        ));
         assert_eq!(apply_command(&mut model, Command::Search), None);
         let rows = screen_rows(&model);
         assert!(
@@ -231,13 +265,17 @@ mod tests {
         let text = render(&model).expect("fixture and operation must succeed");
         assert!(text.contains("Body 0") && !text.contains("Loading…"));
         assert!(!text.contains('▎'), "stale results carry no selection mark");
-        let epoch = model.epoch;
+        let req = feed_mut(&mut model)
+            .expect("fixture and operation must succeed")
+            .pending_page
+            .expect("search request in flight");
         assert_eq!(
             lomo_tui::messages::apply_message(
                 &mut model,
                 lomo_tui::effects::RuntimeMessage::Page {
-                    epoch,
+                    req,
                     append: false,
+                    order: vec![MemoId::parse("hit").expect("fixture and operation must succeed")],
                     cards: vec![
                         memo("hit", "term found").expect("fixture and operation must succeed")
                     ],
@@ -250,6 +288,29 @@ mod tests {
         assert_eq!(model.status, None, "a requery never reports a lost anchor");
         let text = render(&model).expect("fixture and operation must succeed");
         assert!(text.contains("term found") && !text.contains("Body 0"));
+    }
+
+    #[test]
+    fn the_strip_names_the_view_and_only_the_status_bar_announces_esc() {
+        let mut model = model_with_memos(1, 80, 24).expect("fixture and operation must succeed");
+        assert_eq!(apply_command(&mut model, Command::Accept), None);
+        let rows = screen_rows(&model);
+        let strip = rows.get(1).expect("filter strip row");
+        assert!(strip.contains("Reading") && !strip.contains("Esc"));
+        assert!(
+            rows.last()
+                .expect("status row")
+                .contains("Esc back to All memos")
+        );
+        model.push_view(View::Tasks(SelectionList::new(Vec::new())));
+        let rows = screen_rows(&model);
+        let strip = rows.get(1).expect("filter strip row");
+        assert!(strip.contains("Todo") && !strip.contains("Esc"));
+        assert!(
+            rows.last()
+                .expect("status row")
+                .contains("Esc back to reading")
+        );
     }
 
     #[test]
@@ -283,22 +344,24 @@ mod tests {
         assert!(
             header.contains("Lomo") && !header.contains("Search") && !header.contains("Commands")
         );
-        assert_eq!(
+        assert!(matches!(
             apply_command(&mut model, Command::Compose),
-            Some(lomo_tui::effects::Effect::Tags)
-        );
+            Some(lomo_tui::effects::Effect::Tags { .. })
+        ));
         assert!(
             render(&model)
                 .expect("fixture and operation must succeed")
                 .contains('╭')
         );
-        assert_eq!(
+        let revision = model.draft.revision;
+        assert!(matches!(
             apply_command(&mut model, Command::Back),
             Some(lomo_tui::effects::Effect::PersistDraft {
-                revision: model.draft.revision,
-                content: String::new()
-            })
-        );
+                revision: persisted,
+                content,
+                ..
+            }) if persisted == revision && content.is_empty()
+        ));
         assert_eq!(apply_command(&mut model, Command::Search), None);
         assert!(
             render(&model)

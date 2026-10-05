@@ -12,7 +12,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use lomo_tui::cli::{CliAction, parse_cli};
-    use lomo_tui::config::{load_config, parse_config_toml};
+    use lomo_tui::config::{AppConfig, ConfigProbe, mint_config, parse_config_toml, probe_config};
     use lomo_tui::error::TuiError;
     use lomo_tui::xdg::{EnvLookup, RuntimePaths, resolve_paths};
     use tempfile::tempdir;
@@ -276,8 +276,21 @@ mod tests {
         assert!(matches!(missing, TuiError::Config { .. }));
     }
 
+    /// The wizard's confirmed config built straight from a probe proposal —
+    /// the same shape `confirm_setup` mints after user confirmation.
+    fn mintable(proposal: &lomo_tui::config::ConfigProposal) -> AppConfig {
+        AppConfig {
+            media_dir: proposal.workspace.join("media"),
+            workspace: proposal.workspace.clone(),
+            time_zone: proposal.time_zone.clone(),
+            date_format: lomo_application::calendar::DateFormat::default(),
+            editor: None,
+            player: lomo_tui::config::default_player(),
+        }
+    }
+
     #[test]
-    fn load_config_reads_toml_and_applies_workspace_override() {
+    fn probe_reads_toml_and_applies_workspace_override() {
         let dir = tempdir().expect("tmp");
         let paths = paths_in(dir.path(), None);
         std::fs::create_dir_all(&paths.config_dir).expect("cfg");
@@ -286,7 +299,11 @@ mod tests {
             "workspace = \"/notes\"\neditor = [\"kak\", \"-e\"]\nplayer = [\"mpv\"]\n",
         )
         .expect("write");
-        let loaded = load_config(&paths, Some(Path::new("/override"))).expect("load");
+        let ConfigProbe::Ready { config: loaded, .. } =
+            probe_config(&paths, Some(Path::new("/override"))).expect("load")
+        else {
+            panic!("an existing config.toml must probe Ready")
+        };
         assert_eq!(loaded.workspace, Path::new("/override"));
         assert_eq!(
             loaded.editor.as_deref(),
@@ -295,9 +312,10 @@ mod tests {
         let helix = parse_config_toml("workspace = \"/n\"\neditor = \"helix\"\n", None, None)
             .expect("prog");
         assert_eq!(helix.editor, Some(vec!["helix".to_owned()]));
-        let empty_editor = parse_config_toml("workspace = \"/n\"\neditor = \"\"\n", None, None)
-            .expect("empty editor");
-        assert!(empty_editor.editor.is_none());
+        // An explicitly empty command spec fails closed — `editor` is omitted
+        // for the $VISUAL/$EDITOR fallback, never blanked into silence.
+        parse_config_toml("workspace = \"/n\"\neditor = \"\"\n", None, None)
+            .expect_err("empty editor spec must be a config error");
         let invalid = parse_config_toml("not toml", None, None).expect_err("toml");
         assert!(matches!(invalid, TuiError::Config { .. }));
         assert!(
@@ -319,14 +337,22 @@ mod tests {
     }
 
     #[test]
-    fn load_config_mints_missing_file_from_default_workspace() {
+    fn first_run_probe_proposes_then_confirmation_mints() {
         let dir = tempdir().expect("tmp");
         let notes = dir.path().join("Notes");
         let paths = paths_in(dir.path(), Some(notes.clone()));
-        let loaded = load_config(&paths, None).expect("first run");
-        assert_eq!(loaded.workspace, notes);
-        let persisted =
-            std::fs::read_to_string(paths.config_dir.join("config.toml")).expect("minted");
+        let ConfigProbe::FirstRun { file, proposal } =
+            probe_config(&paths, None).expect("first run probe")
+        else {
+            panic!("a missing config.toml must probe FirstRun")
+        };
+        assert_eq!(proposal.workspace, notes);
+        assert!(
+            !file.exists() && !notes.exists(),
+            "probing must not write the config or create the workspace"
+        );
+        mint_config(&file, &mintable(&proposal)).expect("confirmed mint");
+        let persisted = std::fs::read_to_string(&file).expect("minted");
         assert!(
             persisted.contains(&notes.display().to_string()),
             "minted config must bind the default workspace: {persisted}"
@@ -335,25 +361,33 @@ mod tests {
             persisted.contains("time_zone"),
             "minted config must be complete: {persisted}"
         );
-        let again = load_config(&paths, None).expect("second run");
+        let ConfigProbe::Ready { config: again, .. } =
+            probe_config(&paths, None).expect("second probe")
+        else {
+            panic!("a minted config must probe Ready")
+        };
         assert_eq!(again.workspace, notes);
-        let second = std::fs::read_to_string(paths.config_dir.join("config.toml")).expect("stable");
+        let second = std::fs::read_to_string(&file).expect("stable");
         assert_eq!(
             persisted, second,
-            "second load must not rewrite a valid first-run file"
+            "re-probing must not rewrite a valid minted file"
         );
     }
 
     #[test]
-    fn load_config_mints_missing_file_from_cli_workspace() {
+    fn first_run_mint_binds_the_cli_workspace() {
         let dir = tempdir().expect("tmp");
         let vault = dir.path().join("vault");
         let unused_default = dir.path().join("Notes");
         let paths = paths_in(dir.path(), Some(unused_default));
-        let loaded = load_config(&paths, Some(&vault)).expect("cli first run");
-        assert_eq!(loaded.workspace, vault);
-        let persisted =
-            std::fs::read_to_string(paths.config_dir.join("config.toml")).expect("minted");
+        let ConfigProbe::FirstRun { file, proposal } =
+            probe_config(&paths, Some(&vault)).expect("cli first run")
+        else {
+            panic!("a missing config.toml must probe FirstRun")
+        };
+        assert_eq!(proposal.workspace, vault);
+        mint_config(&file, &mintable(&proposal)).expect("confirmed mint");
+        let persisted = std::fs::read_to_string(&file).expect("minted");
         assert!(
             persisted.contains(&vault.display().to_string()),
             "CLI workspace must be persisted: {persisted}"
@@ -365,10 +399,10 @@ mod tests {
     }
 
     #[test]
-    fn load_config_missing_file_without_mint_target_fails_closed() {
+    fn first_run_without_a_proposable_workspace_fails_closed() {
         let dir = tempdir().expect("tmp");
         let paths = paths_in(dir.path(), None);
-        let error = load_config(&paths, None).expect_err("no mint");
+        let error = probe_config(&paths, None).expect_err("no proposal");
         assert!(matches!(error, TuiError::Config { .. }));
         assert!(
             !paths.config_dir.join("config.toml").exists(),
@@ -422,20 +456,17 @@ mod tests {
     fn open_runtime_requires_an_existing_workspace() {
         let dir = tempdir().expect("tmp");
         let paths = paths_in(dir.path(), None);
-        let config = lomo_tui::config::AppConfig {
+        let config = AppConfig {
             workspace: dir.path().join("missing-notes"),
+            media_dir: dir.path().join("missing-notes/media"),
             time_zone: "UTC".to_owned(),
             date_format: lomo_application::calendar::DateFormat::default(),
             editor: None,
             player: vec!["echo".to_owned()],
         };
-        let missing = lomo_tui::ops::open_runtime(
-            paths.clone(),
-            config.clone(),
-            lomo_tui::media::GraphicsProtocol::None,
-        )
-        .map(|_| ())
-        .expect_err("missing workspace must fail, not materialize");
+        let missing = lomo_tui::ops::open_runtime(paths.clone(), config.clone())
+            .map(|_| ())
+            .expect_err("missing workspace must fail, not materialize");
         assert!(
             matches!(missing, TuiError::Config { .. }),
             "a missing workspace is a configuration error: {missing}"
@@ -445,8 +476,7 @@ mod tests {
             "opening must never create the workspace directory"
         );
         std::fs::create_dir_all(&config.workspace).expect("explicit library creation");
-        lomo_tui::ops::open_runtime(paths, config, lomo_tui::media::GraphicsProtocol::None)
-            .expect("an existing workspace opens");
+        lomo_tui::ops::open_runtime(paths, config).expect("an existing workspace opens");
     }
 
     #[test]
@@ -454,11 +484,19 @@ mod tests {
         let dir = tempdir().expect("tmp");
         let notes = dir.path().join("NewLibrary");
         let paths = paths_in(dir.path(), Some(notes.clone()));
-        let loaded = load_config(&paths, None).expect("first run");
-        assert_eq!(loaded.workspace, notes);
+        let ConfigProbe::FirstRun { file, proposal } =
+            probe_config(&paths, None).expect("first run probe")
+        else {
+            panic!("a missing config.toml must probe FirstRun")
+        };
+        assert!(
+            !notes.exists(),
+            "probing is a read: nothing is created before confirmation"
+        );
+        mint_config(&file, &mintable(&proposal)).expect("confirmed mint");
         assert!(
             notes.is_dir(),
-            "creating a new library is a distinct action from opening one"
+            "creating a new library is the confirmed mint's side effect"
         );
     }
 }

@@ -1,12 +1,11 @@
 use lomo_tui::{
     cli::{self, CliAction},
-    config::load_config,
+    config::{ConfigProbe, probe_config},
     crash::install_panic_hook,
     error::TuiError,
     logging::init_logging,
-    media::detect_graphics,
     model::AppModel,
-    ops::{bootstrap_model, open_runtime},
+    ops::{BootstrapSpec, LaunchConfig, RuntimeSlot, SetupSpec},
     xdg::{EnvLookup, env_nonempty, resolve_paths},
 };
 use std::{
@@ -59,27 +58,34 @@ fn main() -> Result<(), TuiError> {
             install_panic_hook(paths.state_dir.clone());
             let _log_guard = init_logging(&paths.state_dir, env_nonempty("LOMO_LOG").as_deref());
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "lomo starting");
-            let config = load_config(&paths, workspace_override.as_deref())?;
-            let env: BTreeMap<String, String> = ["KITTY_WINDOW_ID", "TERM_PROGRAM", "TERM"]
-                .into_iter()
+            // Probing is side-effect free: an existing config validates fully
+            // here, a missing one hands the first-run wizard its proposal —
+            // nothing is minted until the user confirms inside `host::run`.
+            let launch = match probe_config(&paths, workspace_override.as_deref())? {
+                ConfigProbe::Ready { config, .. } => LaunchConfig::Ready(config),
+                ConfigProbe::FirstRun { file, proposal } => {
+                    LaunchConfig::Setup(SetupSpec { file, proposal })
+                }
+            };
+            // Terminal capabilities are queried from the terminal itself by
+            // the graphics probe inside `host::run`; env here only gates the
+            // conservative feature enables (mouse/paste/focus escapes).
+            let env: BTreeMap<String, String> = std::iter::once("TERM")
                 .filter_map(|key| env_nonempty(key).map(|value| (key.to_owned(), value)))
                 .collect();
-            let runtime = Arc::new(open_runtime(paths, config, detect_graphics(&env))?);
             let (columns, rows) = crossterm::terminal::size()?;
-            let mut model = bootstrap_model(&runtime, AppModel::new(columns, rows))?;
-            // Pixel metrics are optional: `window_size` is unsupported on
-            // Windows consoles and some Unix terminals; cell-addressed image
-            // protocols still work with their nominal sampling grid.
-            model.cell_size = crossterm::terminal::window_size().map_or(None, |size| {
-                lomo_tui::graphics::CellSize::reported(
-                    size.width,
-                    size.height,
-                    size.columns,
-                    size.rows,
-                )
-            });
+            let mut model = AppModel::new(columns, rows);
+            // The workspace opens on an effect lane, not here: the UI loop
+            // draws the Loading shell while verification is still running.
+            let spec = BootstrapSpec {
+                paths,
+                launch,
+                width: columns,
+                height: rows,
+            };
             lomo_tui::host::run(
-                &runtime,
+                &Arc::new(RuntimeSlot::opening()),
+                &spec,
                 &mut model,
                 lomo_tui::host::TerminalCapabilities::detect(&env),
             )

@@ -14,28 +14,18 @@ pub enum CliAction {
     Run { workspace_override: Option<PathBuf> },
 }
 
-const KEYS_HELP: &str = "\
-Keys:
-  j/k or arrows   select a memo / scroll full text
-  Enter / Esc     read / return
-  n               quick capture (Enter inserts a newline)
-  Ctrl+s          submit capture
-  Ctrl+e / e      edit capture / existing memo in external editor
-  / t c           search / tags / date
-  Ctrl+f          toggle fulltext / fuzzy and pinyin
-  Ctrl+p / .      searchable functions / memo actions
-  PageUp/PageDown scroll a page
-  ? / q           help / quit (drafts are retained)";
-
+/// The key table embedded in `--help` is rendered straight from
+/// `KEY_BINDINGS` — the same rows `command_from_key` dispatches on — so an
+/// advertised key can never drift from a bound key (E-16).
 #[derive(Parser)]
 #[command(
     name = "lomo",
     version,
     about = "Terminal UI for a Lomo workspace",
-    after_help = KEYS_HELP
+    after_help = crate::event::keys_help()
 )]
 struct Cli {
-    /// Workspace directory to bind for this run.
+    /// Workspace directory to bind for this run; on first run the setup wizard proposes it (only written once you confirm).
     workspace: Option<PathBuf>,
     /// Print shell completions to stdout.
     #[arg(long, value_name = "SHELL")]

@@ -58,7 +58,14 @@ fn read_capture(runtime: &TuiRuntime) -> Result<Option<CaptureRecord>, TuiError>
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     };
-    let record: CaptureRecord = serde_json::from_slice(&bytes).map_err(|error| {
+    parse_capture(&path, &bytes).map(Some)
+}
+
+/// Separates IO from validation so `load_capture` can tell a corrupt record
+/// (recoverable: set aside, start empty) from an unreadable file (an IO error
+/// to surface — renaming it aside would change nothing).
+fn parse_capture(path: &Path, bytes: &[u8]) -> Result<CaptureRecord, TuiError> {
+    let record: CaptureRecord = serde_json::from_slice(bytes).map_err(|error| {
         TuiError::config(format!("invalid capture draft {}: {error}", path.display()))
     })?;
     if record.schema != 1 {
@@ -77,14 +84,69 @@ fn read_capture(runtime: &TuiRuntime) -> Result<Option<CaptureRecord>, TuiError>
         }
         CapturePhase::Editing => {}
     }
-    Ok(Some(record))
+    Ok(record)
+}
+
+/// The set-aside name for a corrupt capture: `<file>.corrupt`, or the first
+/// free `.corrupt-N` when an earlier recovery already occupies the name —
+/// every corruption keeps its own forensic copy; a fixed name would let a
+/// second failure overwrite (POSIX) or refuse (Windows) the first backup.
+fn corrupt_backup_path(path: &Path) -> PathBuf {
+    let base = path.with_extension("json.corrupt");
+    if !base.exists() {
+        return base;
+    }
+    for n in 1..=u32::MAX {
+        let candidate = path.with_extension(format!("json.corrupt-{n}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    // u32::MAX backups cannot exist in practice — a drafts dir would run out
+    // of entries first; fall back to the base name rather than panic.
+    base
+}
+
+/// The composer's start-of-session state plus recovery evidence.
+///
+/// When a corrupt draft was renamed aside, `recovered_corrupt` names the
+/// backup so the caller can show the notice — the draft is never silently
+/// discarded (F-09).
+pub struct LoadedCapture {
+    pub composer: Composer,
+    pub recovered_corrupt: Option<PathBuf>,
 }
 
 /// # Errors
-/// Corrupt drafts are surfaced with their path and left intact. Interrupted saves stay editable.
-pub fn load_capture(runtime: &TuiRuntime) -> Result<Composer, TuiError> {
-    let Some(record) = read_capture(runtime)? else {
-        return Ok(Composer::default());
+/// Unreadable draft IO or a corrupt draft that cannot even be renamed aside.
+/// A parseable-but-invalid record is moved to `<file>.corrupt` and the
+/// composer starts empty; interrupted saves stay editable.
+pub fn load_capture(runtime: &TuiRuntime) -> Result<LoadedCapture, TuiError> {
+    let path = capture_path(runtime)?;
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(LoadedCapture {
+                composer: Composer::default(),
+                recovered_corrupt: None,
+            });
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let record = match parse_capture(&path, &bytes) {
+        Ok(record) => record,
+        Err(error) => {
+            let backup = corrupt_backup_path(&path);
+            fs::rename(&path, &backup).map_err(|rename| {
+                TuiError::config(format!(
+                    "{error}; could not set the corrupt draft aside: {rename}"
+                ))
+            })?;
+            return Ok(LoadedCapture {
+                composer: Composer::default(),
+                recovered_corrupt: Some(backup),
+            });
+        }
     };
     let mut composer = Composer {
         revision: record.revision,
@@ -109,7 +171,10 @@ pub fn load_capture(runtime: &TuiRuntime) -> Result<Composer, TuiError> {
             composer.persisted_revision = composer.revision;
         }
     }
-    Ok(composer)
+    Ok(LoadedCapture {
+        composer,
+        recovered_corrupt: None,
+    })
 }
 
 fn validate_revision(
@@ -244,7 +309,9 @@ pub fn write_draft(path: &Path, content: &str) -> Result<(), TuiError> {
     atomic_write(path, content.as_bytes())
 }
 
-fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), TuiError> {
+/// Atomic durable write shared by drafts and `config.toml` installs: fsync the
+/// temp file, rename over the target, fsync the directory.
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), TuiError> {
     let parent = path
         .parent()
         .ok_or_else(|| TuiError::config("draft path has no parent"))?;

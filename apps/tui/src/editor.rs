@@ -36,11 +36,23 @@ pub trait ManagedChild: Send {
     /// # Errors
     /// Wait failures, including an already-reaped child.
     fn wait(&mut self) -> Result<ExitStatus, std::io::Error>;
+
+    /// The piped stderr read end when the spawn captured it — `None` when the
+    /// runner cannot pipe (fakes, drivers that keep stdio inherited).
+    fn take_stderr(&mut self) -> Option<Box<dyn std::io::Read + Send>> {
+        None
+    }
 }
 
 impl ManagedChild for std::process::Child {
     fn wait(&mut self) -> Result<ExitStatus, std::io::Error> {
         Self::wait(self)
+    }
+
+    fn take_stderr(&mut self) -> Option<Box<dyn std::io::Read + Send>> {
+        self.stderr
+            .take()
+            .map(|stderr| -> Box<dyn std::io::Read + Send> { Box::new(stderr) })
     }
 }
 
@@ -58,7 +70,18 @@ impl CommandRunner for StdCommandRunner {
         program: &str,
         args: &[String],
     ) -> Result<Box<dyn ManagedChild>, std::io::Error> {
-        let child: Box<dyn ManagedChild> = Box::new(Command::new(program).args(args).spawn()?);
+        // Managed children (the external player) never inherit the TUI's
+        // terminal: stdin/stdout are null so no output paints the alternate
+        // screen, and stderr is piped so diagnostics reach `PlayerFinished`
+        // instead of the frame (D-06).
+        let child: Box<dyn ManagedChild> = Box::new(
+            Command::new(program)
+                .args(args)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .spawn()?,
+        );
         Ok(child)
     }
 }
@@ -85,10 +108,10 @@ pub fn resolve_editor(
         });
     }
     if let Some(spec) = nonempty(visual) {
-        return Ok(split_spec(spec));
+        return split_spec("VISUAL", spec);
     }
     if let Some(spec) = nonempty(editor_env) {
-        return Ok(split_spec(spec));
+        return split_spec("EDITOR", spec);
     }
     Err(TuiError::EditorNotConfigured)
 }
@@ -131,16 +154,21 @@ fn nonempty(value: Option<&str>) -> Option<&str> {
     value.filter(|text| !text.trim().is_empty())
 }
 
-fn split_spec(spec: &str) -> EditorArgv {
-    let mut parts = spec.split_whitespace().map(str::to_string);
-    parts.next().map_or_else(
-        || EditorArgv {
-            program: String::new(),
-            args: Vec::new(),
-        },
-        |program| EditorArgv {
+/// `$VISUAL`/`$EDITOR` are shell-style command lines — `shlex` parses quoting
+/// and escapes so `EDITOR="code --wait"` means argv, not a binary named with
+/// spaces. Unbalanced quoting is a configuration error, never a silent misparsed
+/// program name.
+fn split_spec(name: &str, spec: &str) -> Result<EditorArgv, TuiError> {
+    let argv = shlex::split(spec)
+        .ok_or_else(|| TuiError::config(format!("${name} has unbalanced quoting: {spec}")))?;
+    let mut parts = argv.into_iter();
+    match parts.next() {
+        Some(program) if !program.is_empty() => Ok(EditorArgv {
             program,
             args: parts.collect(),
-        },
-    )
+        }),
+        Some(_) | None => Err(TuiError::config(format!(
+            "${name} does not name a program: {spec}"
+        ))),
+    }
 }

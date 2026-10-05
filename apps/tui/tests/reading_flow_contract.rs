@@ -78,19 +78,18 @@ mod tests {
     #[test]
     fn stale_body_reply_cannot_replace_the_current_memo_version() {
         let mut model = model_with_memos(1, 80, 24).expect("fixture and operation must succeed");
-        model.epoch = 3;
-        feed_mut(&mut model)
-            .expect("fixture and operation must succeed")
-            .epoch = 3;
         let before = model.selected_memo().cloned();
         let mut incoming =
             memo("memo-0", "obsolete request body").expect("fixture and operation must succeed");
         incoming.revision = 2;
+        // A reply whose request was never issued is a dead generation: it
+        // degrades instead of landing on whatever bodies happen to be current.
+        let stale = model.next_req();
         assert_eq!(
             apply_message(
                 &mut model,
                 RuntimeMessage::Bodies {
-                    epoch: 2,
+                    req: stale,
                     bodies: vec![
                         super::support::body_reply(incoming)
                             .expect("fixture and operation must succeed")
@@ -105,6 +104,7 @@ mod tests {
     #[test]
     fn hydration_preserves_the_search_hit_and_its_query_order() {
         let mut model = model_with_memos(2, 80, 24).expect("fixture and operation must succeed");
+        let req = model.request(lomo_tui::model::PendingKind::Bodies);
         let state = feed_mut(&mut model).expect("fixture and operation must succeed");
         state.query.text = "needle".to_owned();
         let first = state
@@ -118,12 +118,12 @@ mod tests {
             source: lomo_application::search_excerpt::MatchSource::Body,
             body_start: Some(0),
         });
-        first.body = BodyState::Loading { epoch: 0 };
+        first.body = BodyState::Loading { req };
         assert_eq!(
             apply_message(
                 &mut model,
                 RuntimeMessage::Bodies {
-                    epoch: 0,
+                    req,
                     bodies: vec![
                         super::support::body_reply(
                             memo("memo-0", "complete body")
@@ -169,15 +169,22 @@ mod tests {
         let before = feed(&model)
             .expect("fixture and operation must succeed")
             .clone();
-        let effect = apply_command(&mut model, Command::SelectTag(Some("reading".to_owned())));
-        assert!(matches!(effect, Some(lomo_tui::effects::Effect::Query(_))));
-        let epoch = model.epoch;
+        let effect = apply_command(
+            &mut model,
+            Command::SelectTag(Some(std::sync::Arc::from("reading"))),
+        );
+        let Some(lomo_tui::effects::Effect::Query(request)) = effect else {
+            panic!("selecting a tag re-queries the feed");
+        };
         assert_eq!(
             apply_message(
                 &mut model,
                 RuntimeMessage::Page {
-                    epoch,
+                    req: request.req,
                     append: false,
+                    order: vec![
+                        MemoId::parse("other").expect("fixture and operation must succeed")
+                    ],
                     cards: vec![
                         memo("other", "filtered memo").expect("fixture and operation must succeed")
                     ],
@@ -206,19 +213,21 @@ mod tests {
     fn deleting_an_anchor_selects_a_surviving_neighbor_and_reports_it() {
         let mut model = model_with_memos(8, 80, 24).expect("fixture and operation must succeed");
         assert_eq!(apply_command(&mut model, Command::Move(5)), None);
-        let cards = feed(&model)
+        let cards: Vec<MemoCard> = feed(&model)
             .expect("fixture and operation must succeed")
             .memos
             .iter()
             .filter(|card| card.id.as_str() != "memo-5")
             .cloned()
             .collect();
+        let req = super::support::pending_page(&mut model).expect("page request in flight");
         assert_eq!(
             apply_message(
                 &mut model,
                 RuntimeMessage::Page {
-                    epoch: 0,
+                    req,
                     append: false,
+                    order: cards.iter().map(|card| card.id.clone()).collect(),
                     cards,
                     next: None,
                     total: Some(7),
@@ -325,19 +334,21 @@ mod tests {
     fn a_deleted_scroll_anchor_follows_its_neighbor_and_reports_the_change() {
         let mut model = model_with_memos(8, 80, 24).expect("feed");
         assert_eq!(apply_command(&mut model, Command::Move(3)), None);
-        let cards = feed(&model)
+        let cards: Vec<MemoCard> = feed(&model)
             .expect("feed")
             .memos
             .iter()
             .filter(|memo| memo.id.as_str() != "memo-0")
             .cloned()
             .collect();
+        let req = super::support::pending_page(&mut model).expect("page request in flight");
         assert_eq!(
             apply_message(
                 &mut model,
                 RuntimeMessage::Page {
-                    epoch: 0,
+                    req,
                     append: false,
+                    order: cards.iter().map(|card| card.id.clone()).collect(),
                     cards,
                     next: None,
                     total: Some(7)
