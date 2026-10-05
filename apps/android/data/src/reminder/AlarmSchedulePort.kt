@@ -1,5 +1,7 @@
 package com.lomo.data.reminder
 
+import android.os.Build
+
 /**
  * Pure AlarmManager schedule/cancel port (P3-08).
  *
@@ -8,11 +10,15 @@ package com.lomo.data.reminder
  * requests.
  */
 enum class AlarmTriggerMode {
-    /** `AlarmManager.setAlarmClock` (preferred exact path). */
+    /** `AlarmManager.setAlarmClock` (the only exact path). */
     AlarmClock,
 
-    /** `setAndAllowWhileIdle` fallback when exact-alarm permission is missing. */
-    ExactAllowWhileIdle,
+    /**
+     * `setAndAllowWhileIdle` fallback when exact-alarm permission is missing or denied.
+     * Despite waking during Doze this API is *inexact* — delivery may be deferred — so it is
+     * never reported as an exact mode.
+     */
+    AllowWhileIdle,
 
     /** Last-resort non-exact `set` when other paths throw. */
     InexactFallback,
@@ -43,6 +49,22 @@ data class AlarmScheduleResult(
  */
 interface AlarmSchedulePort {
     fun exactAlarmCapability(): ExactAlarmCapability
+
+    /**
+     * The mode [schedule] will attempt first under current capability, absent a runtime
+     * `SecurityException` fallback. Derived solely from [exactAlarmCapability] so the durable
+     * ledger can compare a recorded mode against the mode a fresh schedule would use and
+     * re-schedule occurrences whose platform delivery mode has drifted (permission revoked
+     * after scheduling, or a previous InexactFallback/AllowWhileIdle rescue).
+     */
+    fun plannedMode(): AlarmTriggerMode =
+        exactAlarmCapability().let { capability ->
+            if (capability.sdkInt >= Build.VERSION_CODES.S && !capability.canScheduleExactAlarms) {
+                AlarmTriggerMode.AllowWhileIdle
+            } else {
+                AlarmTriggerMode.AlarmClock
+            }
+        }
 
     fun schedule(request: AlarmScheduleRequest): AlarmScheduleResult
 

@@ -196,12 +196,12 @@ class AlarmSchedulePortTest : FunSpec({
         val dir = createTempDirectory().toFile()
         val port =
             FakeAlarmSchedulePort(
-                scheduleMode = AlarmTriggerMode.ExactAllowWhileIdle,
+                scheduleMode = AlarmTriggerMode.AllowWhileIdle,
                 platformError = "exact alarm denied",
             )
         val scheduler = ReminderRollingWindowScheduler(port, ledgerAt(dir))
         val result = scheduler.applyPlan(listOf(alarm("occ-e", "m", "r", 9L)))
-        result.scheduled.single().mode shouldBe AlarmTriggerMode.ExactAllowWhileIdle
+        result.scheduled.single().mode shouldBe AlarmTriggerMode.AllowWhileIdle
         result.scheduled.single().platformError shouldBe "exact alarm denied"
         result.scheduled.single().platformError shouldNotBe null
     }

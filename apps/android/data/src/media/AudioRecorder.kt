@@ -14,7 +14,6 @@ import kotlinx.coroutines.withContext
 import timber.log.Timber
 
 import kotlin.coroutines.cancellation.CancellationException
-import kotlin.math.log10
 
 class AudioRecorder(
     private val context: Context,
@@ -102,16 +101,6 @@ class AudioRecorder(
 
         override fun captureFailure(): Throwable? = pendingCaptureFailure.get()
 
-        // Convert amplitude to decibels for visualization if needed
-        fun getDecibels(): Float {
-            val amplitude = sampleAmplitude() ?: return MIN_DECIBELS
-            return if (amplitude > 0) {
-                DECIBELS_MULTIPLIER * log10(amplitude.toDouble()).toFloat()
-            } else {
-                MIN_DECIBELS
-            }
-        }
-
         private fun createRecorder(): MediaRecorder =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 MediaRecorder(context)
@@ -166,6 +155,4 @@ class AudioRecorder(
         }
     }
 
-private const val DECIBELS_MULTIPLIER = 20
-private const val MIN_DECIBELS = -80f
 private const val TAG = "AudioRecorder"

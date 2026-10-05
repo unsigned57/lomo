@@ -5,14 +5,14 @@ package com.lomo.data.reminder
  * - Unit under test: AndroidAlarmSchedulePort (production AlarmSchedulePort).
  * - Owning layer: data
  * - Priority tier: P0
- * - Capability: choose AlarmClock vs ExactAllowWhileIdle vs InexactFallback from capability + SDK
+ * - Capability: choose AlarmClock vs AllowWhileIdle vs InexactFallback from capability + SDK
  *   and SecurityException fallbacks; cancel uses same pending-intent identity.
  *
  * Scenarios:
  * - Given SDK ≥ S and canScheduleExact=true, when schedule runs, then AlarmClock mode is used.
- * - Given SDK ≥ S and canScheduleExact=false, when schedule runs, then ExactAllowWhileIdle is used.
+ * - Given SDK ≥ S and canScheduleExact=false, when schedule runs, then AllowWhileIdle is used.
  * - Given setAlarmClock throws SecurityException then allow-while-idle succeeds, when schedule runs,
- *   then ExactAllowWhileIdle is reported with platformError.
+ *   then AllowWhileIdle is reported with platformError.
  * - Given both exact paths throw SecurityException, when schedule runs, then InexactFallback is used.
  * - Given cancel, when invoked, then gateway cancel receives the pending intent for that identity.
  *
@@ -110,11 +110,11 @@ class AndroidAlarmSchedulePortTest : FunSpec({
         port.exactAlarmCapability().sdkInt shouldBe 34
     }
 
-    test("sdk S+ without exact permission uses ExactAllowWhileIdle") {
+    test("sdk S+ without exact permission uses AllowWhileIdle") {
         val gateway = RecordingAlarmGateway(canExact = false)
         val port = AndroidAlarmSchedulePort(gateway = gateway, sdkInt = 34)
         val result = port.schedule(request)
-        result.mode shouldBe AlarmTriggerMode.ExactAllowWhileIdle
+        result.mode shouldBe AlarmTriggerMode.AllowWhileIdle
         gateway.allowWhileIdleCalls shouldBe listOf(request.triggerAtUtcMillis)
         gateway.alarmClockCalls shouldBe emptyList()
     }
@@ -127,7 +127,7 @@ class AndroidAlarmSchedulePortTest : FunSpec({
             )
         val port = AndroidAlarmSchedulePort(gateway = gateway, sdkInt = 34)
         val result = port.schedule(request)
-        result.mode shouldBe AlarmTriggerMode.ExactAllowWhileIdle
+        result.mode shouldBe AlarmTriggerMode.AllowWhileIdle
         result.platformError shouldBe "exact denied"
         gateway.allowWhileIdleCalls shouldBe listOf(request.triggerAtUtcMillis)
     }

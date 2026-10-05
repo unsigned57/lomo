@@ -39,6 +39,14 @@ internal class ReminderExecutionLedger(
         val memoId: String,
         val reminderId: String,
         val triggerAtUtcMillis: Long,
+        /**
+         * The [AlarmTriggerMode] the platform actually used when this occurrence was
+         * scheduled. Comparing it against [AlarmSchedulePort.plannedMode] lets a re-applied
+         * plan detect mode drift (exact permission revoked, earlier rescue fallback) and
+         * re-schedule instead of trusting a stale PendingIntent. Payloads from before this
+         * field existed fail decode and are quarantined/rebuilt like any corrupt ledger.
+         */
+        val mode: AlarmTriggerMode,
     )
 
     private val json =

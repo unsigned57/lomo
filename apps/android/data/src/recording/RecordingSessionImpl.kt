@@ -56,8 +56,10 @@ constructor(
                 val startedAtMillis = System.currentTimeMillis()
                 // One durable holder identity per capture; its lease transfers on the created memo.
                 val draftId = DraftId("recording-$startedAtMillis")
+                var allocatedTarget: String? = null
                 try {
                     val target = mediaRepository.allocateVoiceCaptureTarget(entryId).raw
+                    allocatedTarget = target
                     voiceRecordingRepository.start(StorageLocation(target))
                     phase =
                         RecordingPhase.Recording(
@@ -78,14 +80,14 @@ constructor(
                     startTimer()
                 } catch (cancellation: CancellationException) {
                     resetSessionState()
-                    stopAfterStartFailure(entryId, null, draftId)
+                    stopAfterStartFailure(entryId, allocatedTarget, draftId)
                     throw cancellation
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
                     Timber.e(error, "Failed to start recording")
                     _errorMessage.value = "Failed to start recording: ${error.message}"
                     resetSessionState()
-                    stopAfterStartFailure(entryId, null, draftId)
+                    stopAfterStartFailure(entryId, allocatedTarget, draftId)
                 }
             }
         }

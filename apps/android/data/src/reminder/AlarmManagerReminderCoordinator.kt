@@ -20,6 +20,7 @@ import com.lomo.domain.repository.EngineReadinessRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import timber.log.Timber
 
 
 private const val PREFS_NAME = "lomo_reminder_prefs"
@@ -103,7 +104,7 @@ class AlarmManagerReminderScheduler(
 
     override suspend fun syncForMemo(memoId: String) {
         val alarms = withSnoozeRecovery { queryRustPlan(System.currentTimeMillis()) }
-        rollingWindow.applyPlanForMemos(setOf(memoId), alarms)
+        rollingWindow.applyPlanForMemos(setOf(memoId), alarms).reportOutcome("syncForMemo($memoId)")
     }
 
     override suspend fun cancelForMemo(
@@ -115,7 +116,7 @@ class AlarmManagerReminderScheduler(
 
     suspend fun rebuildAll() {
         val alarms = withSnoozeRecovery { queryRustPlan(System.currentTimeMillis()) }
-        rollingWindow.applyPlan(alarms)
+        rollingWindow.applyPlan(alarms).reportOutcome("rebuildAll")
     }
 
     /**
@@ -131,17 +132,37 @@ class AlarmManagerReminderScheduler(
         syncForMemo(memoId)
     }
 
-    suspend fun cancelAlarm(
-        memoId: String,
-        reminderId: String,
-    ) {
-        rollingWindow.cancelForMemo(memoId, setOf(reminderId))
+    /**
+     * Execution receipts are never dropped: mode mix and platform fallbacks are the only
+     * observable signal that AlarmManager degraded delivery, and the unchanged/cancelled
+     * counts prove whether a re-plan was a real transition or a no-op.
+     */
+    private fun RollingWindowApplyResult.reportOutcome(operation: String) {
+        scheduled.forEach { result ->
+            if (result.platformError != null) {
+                Timber.tag(TAG).w(
+                    "Reminder occurrence scheduled as %s after platform error: %s",
+                    result.mode,
+                    result.platformError,
+                )
+            }
+        }
+        Timber.tag(TAG).d(
+            "%s applied: scheduled=%d unchanged=%d cancelled=%d",
+            operation,
+            scheduled.size,
+            unchangedCount,
+            cancelledCount,
+        )
     }
 
     /**
      * Durable snooze corruption pauses planning with `reminder_recovery_needed`. Recovery is an
      * explicit FFI transition: the corrupt payload is quarantined as evidence and a fresh store is
-     * persisted before the operation retries once.
+     * persisted, then the observing tick still fails closed. Replanning inside the same call would
+     * schedule overdue catch-ups against a store whose bindings were just quarantined, which is
+     * exactly the premature ringing the pause exists to prevent; the next scheduled tick plans
+     * normally from the recovered store.
      */
     private fun <T> withSnoozeRecovery(block: () -> T): T =
         try {
@@ -149,7 +170,11 @@ class AlarmManagerReminderScheduler(
         } catch (failure: EngineCommandFailureException) {
             if (failure.failure.code != REMINDER_RECOVERY_NEEDED) throw failure
             storePort.recoverReminderSnooze()
-            block()
+            Timber.tag(TAG).w(
+                failure,
+                "Reminder snooze store quarantined; this tick is paused until the next plan",
+            )
+            throw failure
         }
 
     private fun queryRustPlan(nowMillis: Long): List<PlannedReminderAlarm> {
@@ -158,6 +183,18 @@ class AlarmManagerReminderScheduler(
         // Time-zone facts, session set, rolling window, and generation are owned by the Rust
         // session plan; Kotlin only supplies the wall clock instant and applies the result.
         val plan = storePort.queryReminderPlan(nowMillis)
+        if (plan.droppedCount > 0) {
+            // Occurrences beyond the rolling window are reported, never silently dropped: the
+            // window refills on the next plan query once an in-window occurrence fires or is
+            // cancelled (syncForMemo/rebuildAll re-run this same query).
+            Timber.tag(TAG).w(
+                "Reminder rolling window full: %d occurrence(s) deferred for refill " +
+                    "(workspaceGeneration=%s, earliestInWindow=%s)",
+                plan.droppedCount,
+                plan.workspaceGeneration,
+                plan.alarms.minOfOrNull { it.triggerAtUtcMs },
+            )
+        }
         return plan.alarms.map { alarm ->
             PlannedReminderAlarm(
                 occurrenceId = alarm.occurrenceId,
@@ -170,6 +207,7 @@ class AlarmManagerReminderScheduler(
     }
 
     private companion object {
+        const val TAG = "ReminderScheduler"
         const val REMINDER_RECOVERY_NEEDED = "reminder_recovery_needed"
     }
 }
@@ -213,10 +251,13 @@ class AlarmManagerReminderCoordinator(
             memoId: String,
             reminderId: String,
         ) {
+            // Cancellation is owned by the re-plan inside mutateMemoMarker → syncForMemo:
+            // once the durable token carries `done`, the Rust plan no longer emits the
+            // occurrence and the ledger diff cancels its PendingIntent. A second explicit
+            // cancel would be a dead duplicate of the same authority.
             mutateMemoMarker(memoId, reminderId) { token ->
                 reminderTokenFactory.planMarkDone(token)
             }
-            scheduler.cancelAlarm(memoId, reminderId)
         }
 
         override suspend fun recordFired(

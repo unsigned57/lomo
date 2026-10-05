@@ -105,12 +105,12 @@ internal class RustSyncCycleInputFactory(
         ) {
             return null
         }
-        val authorName = dataStore.gitAuthorName.first().trim().ifBlank { "Lomo" }
+        val authorName = dataStore.gitAuthorName.first().trim().ifBlank { GIT_AUTHOR_NAME_DEFAULT }
         val authorEmail =
             dataStore.gitAuthorEmail
                 .first()
                 .trim()
-                .ifBlank { "git@lomo.local" }
+                .ifBlank { GIT_AUTHOR_EMAIL_DEFAULT }
         val provider = CredentialProvider.GIT
         val identityFieldKey =
             provider.identityField()?.run {
@@ -130,6 +130,10 @@ internal class RustSyncCycleInputFactory(
         )
     }
 }
+
+/** Git author fallbacks applied when the stored value is blank — part of canonical identity. */
+internal const val GIT_AUTHOR_NAME_DEFAULT: String = "Lomo"
+internal const val GIT_AUTHOR_EMAIL_DEFAULT: String = "git@lomo.local"
 
 internal const val DATASET_ID_MAX_LEN: Int = 128
 

@@ -8,7 +8,36 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.lomo.data.resources.DataAndroidResources
 import com.lomo.domain.model.ReminderMarker
+import timber.log.Timber
 
+/**
+ * Typed outcome of posting a reminder notification.
+ *
+ * `NotificationManager.notify` cannot report whether the notification actually reached the
+ * shade — when POST_NOTIFICATIONS is revoked or the channel is blocked it silently no-ops.
+ * The fire path must distinguish real delivery from a silent drop so it does not consume the
+ * occurrence (recordFired) for a notification the user never saw.
+ */
+sealed interface ReminderDelivery {
+    /** The notification was posted with permission granted and channel unblocked. */
+    data object Delivered : ReminderDelivery
+
+    /** The notification could not reach the shade; the occurrence remains unfired. */
+    data class NotDelivered(
+        val cause: Cause,
+    ) : ReminderDelivery {
+        enum class Cause {
+            /** App-level notification permission/setting is off. */
+            NotificationsDisabled,
+
+            /** The reminder channel exists but the user blocked it. */
+            ChannelBlocked,
+
+            /** `notify()` itself threw (platform rejection). */
+            NotifyRejected,
+        }
+    }
+}
 
 class ReminderNotifier(
     private val context: Context,
@@ -37,8 +66,18 @@ class ReminderNotifier(
             occurrenceId: String,
             memoTitle: String,
             mainActivityIntent: Intent,
-        ) {
+        ): ReminderDelivery {
             ensureChannel()
+            if (!notificationManager.areNotificationsEnabled()) {
+                return ReminderDelivery.NotDelivered(ReminderDelivery.NotDelivered.Cause.NotificationsDisabled)
+            }
+            if (
+                notificationManager
+                    .getNotificationChannel(ReminderIntents.NOTIFICATION_CHANNEL_ID)
+                    ?.importance == NotificationManager.IMPORTANCE_NONE
+            ) {
+                return ReminderDelivery.NotDelivered(ReminderDelivery.NotDelivered.Cause.ChannelBlocked)
+            }
             val reminderId = marker.reference.opaqueId
             val notificationId = ReminderRequestCodePolicy.notificationId(memoId, reminderId)
             val tag = ReminderRequestCodePolicy.occurrenceTag(occurrenceId)
@@ -78,7 +117,13 @@ class ReminderNotifier(
                     .addAction(0, resources.getString(resources.reminderActionSnooze), snoozePending)
                     .addAction(0, resources.getString(resources.reminderActionDone), donePending)
 
-            notificationManager.notify(tag, notificationId, builder.build())
+            return try {
+                notificationManager.notify(tag, notificationId, builder.build())
+                ReminderDelivery.Delivered
+            } catch (security: SecurityException) {
+                Timber.tag("ReminderNotifier").w(security, "reminder notification rejected by platform")
+                ReminderDelivery.NotDelivered(ReminderDelivery.NotDelivered.Cause.NotifyRejected)
+            }
         }
 
         fun cancel(

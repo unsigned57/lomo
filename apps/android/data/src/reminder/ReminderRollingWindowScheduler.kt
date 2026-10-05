@@ -20,6 +20,12 @@ data class PlannedReminderAlarm(
 data class RollingWindowApplyResult(
     val scheduled: List<AlarmScheduleResult>,
     val cancelledCount: Int,
+    /**
+     * Occurrences whose durable identity (occurrenceId + memoId + reminderId + triggerAt) and
+     * delivery mode already match the ledger — their PendingIntents still hold, so no binder
+     * call was made.
+     */
+    val unchangedCount: Int,
 )
 
 class ReminderRollingWindowScheduler
@@ -81,9 +87,19 @@ internal constructor(
         stale.forEach { (occurrenceId, occurrence) ->
             port.cancel(occurrenceId, occurrence.memoId, occurrence.reminderId)
         }
+        // The ledger-recorded mode is compared against the mode a fresh schedule would use so
+        // a capability flip (exact-alarm grant revoked) or an earlier rescue fallback
+        // re-schedules instead of trusting a stale PendingIntent.
+        val plannedMode = port.plannedMode()
+        var unchangedCount = 0
         val scheduled = mutableListOf<AlarmScheduleResult>()
         for (alarm in alarms) {
             require(alarm.occurrenceId.isNotBlank()) { "Reminder occurrence identity must not be blank" }
+            val recorded = known[alarm.occurrenceId]
+            if (recorded != null && recorded.matchesPlan(alarm, plannedMode)) {
+                unchangedCount += 1
+                continue
+            }
             // behavior-contract: loop-io-ok: no bulk alarm schedule API; each iteration is one occurrence
             val result =
                 port.schedule(
@@ -101,10 +117,15 @@ internal constructor(
                     memoId = alarm.memoId,
                     reminderId = alarm.reminderId,
                     triggerAtUtcMillis = alarm.triggerAtUtcMillis,
+                    mode = result.mode,
                 ),
             )
         }
-        return RollingWindowApplyResult(scheduled = scheduled, cancelledCount = stale.size)
+        return RollingWindowApplyResult(
+            scheduled = scheduled,
+            cancelledCount = stale.size,
+            unchangedCount = unchangedCount,
+        )
     }
 
     suspend fun cancelAll() {
@@ -118,3 +139,12 @@ internal constructor(
 
     fun capability(): ExactAlarmCapability = port.exactAlarmCapability()
 }
+
+private fun ReminderExecutionLedger.ScheduledOccurrence.matchesPlan(
+    alarm: PlannedReminderAlarm,
+    plannedMode: AlarmTriggerMode,
+): Boolean =
+    memoId == alarm.memoId &&
+        reminderId == alarm.reminderId &&
+        triggerAtUtcMillis == alarm.triggerAtUtcMillis &&
+        mode == plannedMode

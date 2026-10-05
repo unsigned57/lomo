@@ -134,27 +134,31 @@ class AndroidAlarmSchedulePort(
     override fun schedule(request: AlarmScheduleRequest): AlarmScheduleResult {
         val pendingIntent =
             gateway.pendingIntent(request.occurrenceId, request.memoId, request.reminderId)
-        val capability = exactAlarmCapability()
         return try {
-            if (sdkInt >= Build.VERSION_CODES.S && !capability.canScheduleExactAlarms) {
-                gateway.setAndAllowWhileIdle(request.triggerAtUtcMillis, pendingIntent)
-                AlarmScheduleResult(
-                    mode = AlarmTriggerMode.ExactAllowWhileIdle,
-                    triggerAtUtcMillis = request.triggerAtUtcMillis,
-                )
-            } else {
-                gateway.setAlarmClock(request.triggerAtUtcMillis, pendingIntent)
-                AlarmScheduleResult(
-                    mode = AlarmTriggerMode.AlarmClock,
-                    triggerAtUtcMillis = request.triggerAtUtcMillis,
-                )
+            // plannedMode() is the single mode-selection law; the fallback chain below only
+            // rescues a runtime SecurityException, never re-decides the mode.
+            when (plannedMode()) {
+                AlarmTriggerMode.AllowWhileIdle -> {
+                    gateway.setAndAllowWhileIdle(request.triggerAtUtcMillis, pendingIntent)
+                    AlarmScheduleResult(
+                        mode = AlarmTriggerMode.AllowWhileIdle,
+                        triggerAtUtcMillis = request.triggerAtUtcMillis,
+                    )
+                }
+                else -> {
+                    gateway.setAlarmClock(request.triggerAtUtcMillis, pendingIntent)
+                    AlarmScheduleResult(
+                        mode = AlarmTriggerMode.AlarmClock,
+                        triggerAtUtcMillis = request.triggerAtUtcMillis,
+                    )
+                }
             }
         } catch (security: SecurityException) {
             Timber.tag("AlarmSchedulePort").w(security, "exact alarm denied, fallback used")
             try {
                 gateway.setAndAllowWhileIdle(request.triggerAtUtcMillis, pendingIntent)
                 AlarmScheduleResult(
-                    mode = AlarmTriggerMode.ExactAllowWhileIdle,
+                    mode = AlarmTriggerMode.AllowWhileIdle,
                     triggerAtUtcMillis = request.triggerAtUtcMillis,
                     platformError = security.message,
                 )
