@@ -106,6 +106,9 @@ replay_pid*
 .DS_Store
 Thumbs.db
 
+# Local manual cargo-mutants sweep results (run_mutants.sh)
+/mutation/
+
 # Local AI tooling artifacts
 .codex-skill-build/
 .codex
@@ -125,7 +128,6 @@ task.md
 .xdg-config
 /.antigravitycli
 /GEMINI.md
-/docs/release_notes_format_guide.md
 
 # Local migration planning notes (not repository product truth; use ARCHITECTURE/fixtures)
 /ROADMAP.MD
