@@ -9,8 +9,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
-class StartupMaintenanceUseCase
-(
+class StartupMaintenanceUseCase(
         private val mediaRepository: MediaRepository,
         private val initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
         private val syncAndRebuildUseCase: SyncAndRebuildUseCase,

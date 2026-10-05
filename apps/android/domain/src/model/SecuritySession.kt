@@ -81,9 +81,13 @@ data class SecuritySessionSnapshot(
                     preference = AppLockPreference.Enabled,
                     authenticated =
                         when (preference) {
-                            AppLockPreference.Disabled -> true
+                            // Only an already-enabled session keeps its authentication. Any
+                            // other transition into Enabled — including one produced by an
+                            // imported settings snapshot — is an unauthenticated lock enable
+                            // and must gate on authentication.
                             AppLockPreference.Enabled -> authenticated
                             null,
+                            AppLockPreference.Disabled,
                             AppLockPreference.Unreadable,
                             -> false
                         },

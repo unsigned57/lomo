@@ -91,4 +91,17 @@ class FakeMediaRepository : MediaRepository {
     }
 
     override suspend fun runOrphanSweepAtOperationBoundary() = Unit
+
+    var reconcileResult: com.lomo.domain.model.DraftMediaReconciliation? = null
+    val releasedDraftIds = mutableListOf<com.lomo.domain.model.DraftId>()
+
+    override suspend fun reconcileDraftMedia(
+        draftId: com.lomo.domain.model.DraftId,
+    ): com.lomo.domain.model.DraftMediaReconciliation =
+        reconcileResult
+            ?: com.lomo.domain.model.DraftMediaReconciliation(draftId = draftId, records = emptyList())
+
+    override suspend fun releaseDraftLeases(draftId: com.lomo.domain.model.DraftId) {
+        releasedDraftIds += draftId
+    }
 }

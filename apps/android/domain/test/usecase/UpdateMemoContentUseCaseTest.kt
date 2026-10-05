@@ -44,6 +44,7 @@ class UpdateMemoContentUseCaseTest : DomainFunSpec() {
             dateKey = "2026_03_24",
             contentRevision = 1L,
             fileFingerprint = "source-fingerprint",
+            projectedCharCount = "- 10:00 old-content".length.toLong(),
         )
 
     private lateinit var repository: FakeMemoStore

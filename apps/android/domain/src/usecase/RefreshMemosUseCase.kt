@@ -1,7 +1,6 @@
 package com.lomo.domain.usecase
 
-class RefreshMemosUseCase
-(
+class RefreshMemosUseCase(
         private val syncAndRebuildUseCase: SyncAndRebuildUseCase,
     ) {
         suspend operator fun invoke() {

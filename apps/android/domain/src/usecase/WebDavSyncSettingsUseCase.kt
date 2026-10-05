@@ -66,8 +66,7 @@ interface WebDavSyncSettingsActions {
     suspend fun testConnection(): WebDavSyncResult
 }
 
-class WebDavSyncSettingsUseCase
-(
+class WebDavSyncSettingsUseCase(
         webDavSyncRepository: WebDavSyncRepository,
         syncPolicyRepository: SyncPolicyRepository,
         syncAndRebuildUseCase: SyncAndRebuildUseCase,

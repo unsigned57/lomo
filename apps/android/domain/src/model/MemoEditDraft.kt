@@ -11,6 +11,7 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class MemoEditDraft(
+    val draftId: DraftId,
     val memoId: String,
     val baselineRevision: Long,
     val baselineFingerprint: String,

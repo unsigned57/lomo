@@ -11,5 +11,5 @@ import kotlinx.coroutines.flow.StateFlow
 interface PreferencesHealthRepository {
     val corruptionNotice: StateFlow<PreferencesCorruptionNotice?>
 
-    fun acknowledgeCorruptionNotice()
+    suspend fun acknowledgeCorruptionNotice()
 }

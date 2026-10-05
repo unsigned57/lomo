@@ -25,16 +25,27 @@ import io.kotest.matchers.shouldBe
  *
  * Excludes:
  * - DataStore serialization and Compose lifecycle wiring.
+ *
+ * Test Change Justification:
+ * - Reason category: draft identity added to the durable edit-draft record.
+ * - Old behavior/assertion being replaced: MemoEditDraft constructed without a DraftId; staged
+ *   media leases had no draft owner to bind against.
+ * - Why old assertion is no longer correct: a durable draft without identity cannot own staged
+ *   media leases, so commit-time lease transfer and restart reconciliation have no anchor.
+ * - Coverage preserved by: baseline admission and validation scenarios unchanged; constructor
+ *   sites now pass the minted DraftId alongside revision and fingerprint.
+ * - Why this is not fitting the test to the implementation: assertions still check admission and
+ *   rejection outcomes, not the identifier's storage representation.
  */
 class MemoEditDraftTest : DomainFunSpec() {
     init {
         test("given an unchanged memo baseline when draft admission is checked then it is accepted") {
-            val draft = MemoEditDraft("memo-1", 4L, "fp-4", "edited body")
+            val draft = MemoEditDraft(DraftId("draft-1"), "memo-1", 4L, "fp-4", "edited body")
             draft.matchesBaseline("memo-1", 4L, "fp-4") shouldBe true
         }
 
         test("given a changed revision or fingerprint when draft admission is checked then it is rejected") {
-            val draft = MemoEditDraft("memo-1", 4L, "fp-4", "edited body")
+            val draft = MemoEditDraft(DraftId("draft-1"), "memo-1", 4L, "fp-4", "edited body")
             draft.matchesBaseline("memo-1", 5L, "fp-4") shouldBe false
             draft.matchesBaseline("memo-1", 4L, "fp-5") shouldBe false
             draft.matchesBaseline("other", 4L, "fp-4") shouldBe false
@@ -42,16 +53,16 @@ class MemoEditDraftTest : DomainFunSpec() {
 
         test("given incomplete or oversized facts when a draft is constructed then validation fails") {
             shouldThrow<IllegalArgumentException> {
-                MemoEditDraft("", 1L, "fp", "body")
+                MemoEditDraft(DraftId("draft-1"), "", 1L, "fp", "body")
             }
             shouldThrow<IllegalArgumentException> {
-                MemoEditDraft("memo", 0L, "fp", "body")
+                MemoEditDraft(DraftId("draft-1"), "memo", 0L, "fp", "body")
             }
             shouldThrow<IllegalArgumentException> {
-                MemoEditDraft("memo", 1L, "", "body")
+                MemoEditDraft(DraftId("draft-1"), "memo", 1L, "", "body")
             }
             shouldThrow<IllegalArgumentException> {
-                MemoEditDraft("memo", 1L, "fp", "x".repeat(MemoConstraints.MAX_MEMO_LENGTH + 1))
+                MemoEditDraft(DraftId("draft-1"), "memo", 1L, "fp", "x".repeat(MemoConstraints.MAX_MEMO_LENGTH + 1))
             }
         }
     }

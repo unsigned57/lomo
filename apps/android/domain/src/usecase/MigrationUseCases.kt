@@ -22,6 +22,16 @@ class MigrationPasswordException(
     cause: Throwable? = null,
 ) : Exception(message, cause)
 
+/**
+ * The encrypted settings envelope is malformed, oversized, or written by an envelope
+ * version/KDF/cipher this build does not produce — a file-format failure that is deliberately
+ * distinct from [MigrationPasswordException] so callers can tell "bad file" from "bad password".
+ */
+class MigrationEnvelopeException(
+    message: String,
+    cause: Throwable? = null,
+) : Exception(message, cause)
+
 class ExportAllNotesArchiveUseCase(
     private val repository: MigrationArchiveRepository,
 ) {

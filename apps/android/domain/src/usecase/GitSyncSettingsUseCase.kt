@@ -69,8 +69,7 @@ interface GitSyncSettingsActions {
     suspend fun resetRepository(): GitSyncResult
 }
 
-class GitSyncSettingsUseCase
-(
+class GitSyncSettingsUseCase(
         gitSyncRepository: GitSyncRepository,
         syncPolicyRepository: SyncPolicyRepository,
         syncAndRebuildUseCase: SyncAndRebuildUseCase,

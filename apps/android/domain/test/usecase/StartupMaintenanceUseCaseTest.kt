@@ -284,6 +284,12 @@ class StartupMaintenanceUseCaseTest : DomainFunSpec() {
                     override suspend fun runOrphanSweepAtOperationBoundary() =
                         delegateMedia.runOrphanSweepAtOperationBoundary()
 
+                    override suspend fun reconcileDraftMedia(draftId: com.lomo.domain.model.DraftId) =
+                        delegateMedia.reconcileDraftMedia(draftId)
+
+                    override suspend fun releaseDraftLeases(draftId: com.lomo.domain.model.DraftId) =
+                        delegateMedia.releaseDraftLeases(draftId)
+
                     override suspend fun refreshImageLocations() {
                         delegateMedia.refreshImageLocations()
                         imageWarmStarted.complete(Unit)

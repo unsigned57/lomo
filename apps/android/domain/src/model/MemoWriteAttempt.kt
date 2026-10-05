@@ -33,7 +33,16 @@ class EditBaseline internal constructor(
     }
 }
 
-/** A list preview cannot become an edit command without obtaining a complete source snapshot. */
+/**
+ * A list preview cannot become an edit command without obtaining a complete source snapshot.
+ *
+ * The gate does not trust [Memo.contentKind] alone: that flag is a plain constructor property, so
+ * `preview.copy(contentKind = Full)` can claim completeness while still carrying a bounded body.
+ * A genuine full snapshot always carries the projection's own character count for the document it
+ * holds, and that count must cover the carried body exactly (UTF-16 code units, the same semantics
+ * `String.length` reports). A promoted preview keeps either a null count or the count of the
+ * *untruncated* document, which is larger than the preview body it carries, so it is rejected.
+ */
 class EditableMemoSnapshot private constructor(
     val memo: Memo,
     val baseline: EditBaseline,
@@ -45,6 +54,9 @@ class EditableMemoSnapshot private constructor(
         fun fromFullSnapshot(memo: Memo): EditableMemoSnapshot {
             require(memo.contentKind == MemoContentKind.Full && !memo.isPending) {
                 "Editing requires a complete, committed memo snapshot"
+            }
+            require(memo.projectedCharCount == memo.rawContent.length.toLong()) {
+                "A Full edit snapshot must carry the projection's own complete-body character count"
             }
             val revision = requireNotNull(memo.contentRevision) { "Edit snapshot lacks a content revision" }
             val fingerprint = requireNotNull(memo.fileFingerprint) { "Edit snapshot lacks a source fingerprint" }

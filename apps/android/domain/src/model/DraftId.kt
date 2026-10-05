@@ -1,5 +1,8 @@
 package com.lomo.domain.model
 
+import kotlinx.serialization.Serializable
+import java.util.UUID
+
 private const val MAX_DRAFT_ID_LENGTH = 128
 
 /**
@@ -9,7 +12,11 @@ private const val MAX_DRAFT_ID_LENGTH = 128
  * draft's lifetime, so every media import it makes is leased to the same holder and releasing one
  * draft can never destroy bytes another draft still references. The alphabet matches the Rust
  * operation token alphabet; Kotlin must not accept a wider set.
+ *
+ * It is serialized into the durable draft record, so process death cannot orphan the draft's
+ * staged-media leases: the recovered draft still owns every lease minted under this id.
  */
+@Serializable
 @JvmInline
 value class DraftId(val value: String) {
     init {
@@ -20,5 +27,10 @@ value class DraftId(val value: String) {
         ) {
             "Draft id must be a bounded nonblank ASCII protocol token"
         }
+    }
+
+    companion object {
+        /** Mints a fresh draft identity. Callers persist it into the durable draft record. */
+        fun mint(): DraftId = DraftId(UUID.randomUUID().toString())
     }
 }

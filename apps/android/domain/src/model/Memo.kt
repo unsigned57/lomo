@@ -28,7 +28,6 @@ data class Memo(
     val isDeleted: Boolean = false,
     /** Engine accepted the create; the durable commit has not landed yet. */
     val isPending: Boolean = false,
-    val geoLocation: String? = null, // "lat,lng" coordinate pair
     val reminders: List<ReminderMarker> = emptyList(),
     /** Content revision observed when this memo entered the edit session. */
     val contentRevision: Long? = null,

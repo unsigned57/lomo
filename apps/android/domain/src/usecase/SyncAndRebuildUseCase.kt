@@ -8,8 +8,7 @@ import com.lomo.domain.repository.SyncPolicyRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
-class SyncAndRebuildUseCase
-(
+class SyncAndRebuildUseCase(
         private val memoRepository: MemoMutationRepository,
         private val syncProviderRegistry: SyncProviderRegistry,
         private val syncPolicyRepository: SyncPolicyRepository,

@@ -1,6 +1,7 @@
 package com.lomo.domain.repository
 
 import com.lomo.domain.model.DraftId
+import com.lomo.domain.model.DraftMediaReconciliation
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.MediaImageDescriptor
@@ -52,4 +53,18 @@ interface MediaRepository {
      * Implementations must either complete the sweep or surface its failure.
      */
     suspend fun runOrphanSweepAtOperationBoundary()
+
+    /**
+     * Restart reconciliation for one durable draft identity: returns every staged-media lease the
+     * ledger still records for [draftId], including rows whose bytes have vanished. Callers must
+     * inspect `stagedBytesPresent` — missing bytes mean the reference can never be promoted.
+     */
+    suspend fun reconcileDraftMedia(draftId: DraftId): DraftMediaReconciliation
+
+    /**
+     * Releases every draft lease owned by [draftId]; staged bytes die only when no other holder
+     * still leases them. This is the cleanup path for a discarded or baseline-stale draft whose
+     * leases would otherwise be orphaned forever.
+     */
+    suspend fun releaseDraftLeases(draftId: DraftId)
 }

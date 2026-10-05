@@ -3,8 +3,7 @@ package com.lomo.domain.usecase
 import com.lomo.domain.model.MemoUpdateAttempt
 import com.lomo.domain.repository.MemoMutationRepository
 
-open class UpdateMemoContentUseCase
-(
+open class UpdateMemoContentUseCase(
         private val repository: MemoMutationRepository,
         private val validator: ValidateMemoContentUseCase,
     ) {

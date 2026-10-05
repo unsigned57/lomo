@@ -22,7 +22,15 @@ interface CredentialRepository {
     suspend fun writeSecret(
         field: CredentialField,
         value: String?,
-    )
+    ) = writeSecrets(mapOf(field to value))
+
+    /**
+     * Applies [values] (`null` clears) as one atomic unit: the batch must commit without a
+     * suspension point between entries, so a pending cancellation lands before the first write
+     * or after the last — never between two fields of one call. Bulk restore relies on this:
+     * a cancelled import must not leave a mixed old/new credential set.
+     */
+    suspend fun writeSecrets(values: Map<CredentialField, String?>)
 }
 
 interface SecuritySessionPolicy {

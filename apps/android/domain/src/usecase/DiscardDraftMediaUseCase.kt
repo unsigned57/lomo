@@ -27,5 +27,8 @@ open class DiscardDraftMediaUseCase(
                 // behavior-contract: silent-result-ok: draft discard is best-effort; missing basename is ignored
             }
         }
+        // Release the draft's lease claims last: every staged byte still owned by this draft dies
+        // exactly once, and bytes re-leased to a pending operation survive the discard.
+        mediaRepository.releaseDraftLeases(draftId)
     }
 }

@@ -11,12 +11,23 @@ package com.lomo.domain.model
  *   never LockOff.
  * - Given Disabled, when applied, then LockOff and Authorized.
  * - Given Enabled from Unknown, when applied, then Locked (cold start requires auth).
- * - Given Enabled from Disabled, when applied, then Unlocked (in-session enable stays open).
+ * - Given Enabled from Disabled, when applied, then Locked (enabling the lock requires auth).
  * - Given Locked, when Authenticated, then Unlocked; when Backgrounded from Unlocked, then Locked.
  * - Given LockOff, when Backgrounded, then LockOff.
  * Observable outcomes: SecuritySessionState and CredentialReadAuthorization.
  * TDD proof: domain reducer tests; DataStore IOException path is locked in data-layer specs.
  * Excludes: Compose remember, WorkManager, BiometricPrompt, Keystore user-auth binding, foreground timer.
+ *
+ * Test Change Justification:
+ * - Reason category: security session transition correction.
+ * - Old behavior/assertion being replaced: Enabled applied to a lock-off session stayed Unlocked,
+ *   so enabling the app lock silently left the session open until the next background event.
+ * - Why old assertion is no longer correct: enabling the lock while LockOff must require
+ *   authentication before credential reads, otherwise the preference flip weakens a live session.
+ * - Coverage preserved by: Enabled-from-Disabled now asserts Locked plus Denied(SecuritySessionLocked),
+ *   and a repeated Enabled preference while Unlocked must not revoke an authenticated session.
+ * - Why this is not fitting the test to the implementation: assertions check the user-visible
+ *   session state and credential authorization contract, not private reducer internals.
  */
 
 import com.lomo.domain.testing.DomainFunSpec
@@ -71,10 +82,22 @@ class SecuritySessionTest : DomainFunSpec() {
                 CredentialReadAuthorization.Denied(CredentialReadDenialReason.SecuritySessionLocked)
         }
 
-        test("given lock enabled from an unlocked lock-off session when applied then session stays unlocked") {
+        test("given lock enabled from a lock-off session when applied then session locks until authenticated") {
             val snapshot =
                 SecuritySessionSnapshot()
                     .apply(SecuritySessionEvent.PreferenceRead(AppLockPreference.Disabled))
+                    .apply(SecuritySessionEvent.PreferenceRead(AppLockPreference.Enabled))
+
+            snapshot.state shouldBe SecuritySessionState.Locked
+            snapshot.state.credentialAuthorization() shouldBe
+                CredentialReadAuthorization.Denied(CredentialReadDenialReason.SecuritySessionLocked)
+        }
+
+        test("given enabled preference arriving while already unlocked when applied then authentication is kept") {
+            val snapshot =
+                SecuritySessionSnapshot()
+                    .apply(SecuritySessionEvent.PreferenceRead(AppLockPreference.Enabled))
+                    .apply(SecuritySessionEvent.Authenticated)
                     .apply(SecuritySessionEvent.PreferenceRead(AppLockPreference.Enabled))
 
             snapshot.state shouldBe SecuritySessionState.Unlocked
