@@ -170,7 +170,7 @@ impl AttachmentMappingLookup {
     }
 
     fn remap<'a>(&'a self, target: &str) -> Option<&'a str> {
-        if is_external_target(target) {
+        if crate::attachments::is_external_attachment_destination(target) {
             return None;
         }
         let normalized = normalize_attachment_reference(target)?;
@@ -207,26 +207,6 @@ fn normalize_attachment_reference(reference: &str) -> Option<String> {
     } else {
         Some(slice.to_owned())
     }
-}
-
-fn is_external_target(target: &str) -> bool {
-    let trimmed = target.trim();
-    if trimmed.starts_with('#') || trimmed.starts_with("//") {
-        return true;
-    }
-    // scheme:
-    let bytes = trimmed.as_bytes();
-    if bytes.is_empty() || !bytes.first().is_some_and(u8::is_ascii_alphabetic) {
-        return false;
-    }
-    let mut index = 1usize;
-    while index < bytes.len()
-        && (bytes.get(index).is_some_and(u8::is_ascii_alphanumeric)
-            || matches!(bytes.get(index).copied(), Some(b'+' | b'-' | b'.')))
-    {
-        index += 1;
-    }
-    bytes.get(index) == Some(&b':')
 }
 
 fn collect_required_occurrences(
@@ -277,9 +257,10 @@ fn collect_required_inlines(
                 ..
             } => {
                 // Always visit image nodes: space-bearing destinations may map by basename even
-                // when the IR destination token is CommonMark-truncated.
+                // when the IR destination token is CommonMark-truncated. The remap lookup keys
+                // on authored spellings, so the raw token — not the canonical path — is kept.
                 out.push(RequiredOccurrence {
-                    destination: destination.clone(),
+                    destination: destination.raw().to_owned(),
                     source_span: *source_span,
                     kind: OccurrenceKind::ImageOrLink,
                 });

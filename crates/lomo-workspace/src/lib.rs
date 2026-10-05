@@ -9,6 +9,7 @@
 #![deny(unsafe_code)]
 
 mod attachment_remap;
+mod attachments;
 mod conflict_merge;
 mod document;
 pub mod header;
@@ -30,6 +31,11 @@ mod trash;
 mod types;
 
 pub use attachment_remap::remap_attachment_destinations;
+pub use attachments::{
+    ImageDest, Url, canonical_attachment_keys, canonical_attachment_path,
+    is_audio_attachment_destination, is_external_attachment_destination,
+    projected_attachment_destination,
+};
 pub use conflict_merge::merge_memo_shard_by_identity;
 pub use document::{DocumentFormat, WorkspaceDocument, WorkspaceMemo};
 pub use history_v2::{

@@ -321,7 +321,13 @@ fn project_document_facts(
             }
             match fact.kind() {
                 SemanticFactKind::Tag => push_unique(&mut tags, fact.value()),
-                SemanticFactKind::Attachment => push_unique(&mut attachments, fact.value()),
+                // The fact value is the raw source token; the memo's attachment projection
+                // carries the same canonical-or-raw destination the render owner emits, so
+                // equivalent spellings share one attachment key.
+                SemanticFactKind::Attachment => push_unique(
+                    &mut attachments,
+                    &crate::attachments::projected_attachment_destination(fact.value()),
+                ),
                 SemanticFactKind::Reminder => {
                     let token_fingerprint =
                         crate::source::SourceFingerprint::of_bytes(fact.value().as_bytes());

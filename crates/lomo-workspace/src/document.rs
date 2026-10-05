@@ -58,6 +58,8 @@ impl WorkspaceMemo {
         &self.tags
     }
 
+    /// Projected attachment destinations under the same canonical rule as
+    /// [`crate::RenderDocumentV1::attachment_destinations`].
     #[must_use]
     pub fn attachments(&self) -> &[String] {
         &self.attachments

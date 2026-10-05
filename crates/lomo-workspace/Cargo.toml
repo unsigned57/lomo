@@ -72,6 +72,10 @@ name = "attachment_remap_contract"
 path = "tests/attachment_remap_contract.rs"
 
 [[test]]
+name = "image_dest_contract"
+path = "tests/image_dest_contract.rs"
+
+[[test]]
 name = "reminder_token_construct_contract"
 path = "tests/reminder_token_construct_contract.rs"
 

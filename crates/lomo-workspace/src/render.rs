@@ -26,7 +26,7 @@ pub struct RenderDocumentV1 {
     plain_text: String,
     node_count: u32,
     tag_names: Vec<String>,
-    attachment_destinations: Vec<String>,
+    attachment_destinations: Vec<crate::attachments::ImageDest>,
     semantic_facts: Vec<SemanticFact>,
 }
 
@@ -71,8 +71,12 @@ impl RenderDocumentV1 {
         &self.tag_names
     }
 
+    /// Typed attachment destinations, deduplicated on the canonical attachment key:
+    /// `Local` destinations carry the canonical workspace path (`media/./x` and `media//x`
+    /// collapse to one `media/x`); `External` and `Malformed` destinations keep their raw
+    /// spelling — project them through [`crate::attachments::ImageDest::projected`].
     #[must_use]
-    pub fn attachment_destinations(&self) -> &[String] {
+    pub fn attachment_destinations(&self) -> &[crate::attachments::ImageDest] {
         &self.attachment_destinations
     }
 
@@ -224,7 +228,10 @@ pub enum RenderInline {
     },
     Image {
         source_span: ByteSpan,
-        destination: String,
+        /// The destination token, classified at parse time — `local()` is the
+        /// only variant that may reach workspace IO; `raw()` keeps the authored
+        /// spelling for span rewrites and display.
+        destination: crate::attachments::ImageDest,
         title: Option<String>,
         alt: String,
     },
@@ -866,7 +873,7 @@ impl RenderBuilder {
                 check_ir_string(&alt)?;
                 self.push_inline(RenderInline::Image {
                     source_span: merge_spans(source_span, end_span, self.source_len)?,
-                    destination,
+                    destination: crate::attachments::ImageDest::classify(&destination),
                     title,
                     alt,
                 })
@@ -1475,7 +1482,7 @@ fn classify_wiki_text(
                             base + open + 3 + close + 2,
                             source_len,
                         )?,
-                        destination: target.to_owned(),
+                        destination: crate::attachments::ImageDest::classify(target),
                         title: None,
                         alt,
                     });
@@ -2563,7 +2570,7 @@ fn collect_from_blocks(
     blocks: &[RenderBlock],
     tags: &mut Vec<String>,
     seen_tags: &mut BTreeSet<String>,
-    attachments: &mut Vec<String>,
+    attachments: &mut Vec<crate::attachments::ImageDest>,
     seen_attachments: &mut BTreeSet<String>,
     facts: &mut Vec<SemanticFact>,
 ) {
@@ -2625,7 +2632,7 @@ fn collect_from_inlines(
     inlines: &[RenderInline],
     tags: &mut Vec<String>,
     seen_tags: &mut BTreeSet<String>,
-    attachments: &mut Vec<String>,
+    attachments: &mut Vec<crate::attachments::ImageDest>,
     seen_attachments: &mut BTreeSet<String>,
     facts: &mut Vec<SemanticFact>,
 ) {
@@ -2646,14 +2653,13 @@ fn collect_from_inlines(
                 destination,
                 ..
             } => {
-                facts.push(SemanticFact {
-                    kind: SemanticFactKind::Attachment,
-                    value: destination.clone(),
-                    source_span: *source_span,
-                });
-                if seen_attachments.insert(destination.clone()) {
-                    attachments.push(destination.clone());
-                }
+                emit_attachment_fact(
+                    destination.raw(),
+                    *source_span,
+                    attachments,
+                    seen_attachments,
+                    facts,
+                );
             }
             RenderInline::Link {
                 source_span,
@@ -2666,15 +2672,14 @@ fn collect_from_inlines(
                     value: destination.clone(),
                     source_span: *source_span,
                 });
-                if is_audio_target(destination) {
-                    facts.push(SemanticFact {
-                        kind: SemanticFactKind::Attachment,
-                        value: destination.clone(),
-                        source_span: *source_span,
-                    });
-                    if seen_attachments.insert(destination.clone()) {
-                        attachments.push(destination.clone());
-                    }
+                if crate::attachments::is_audio_attachment_destination(destination) {
+                    emit_attachment_fact(
+                        destination,
+                        *source_span,
+                        attachments,
+                        seen_attachments,
+                        facts,
+                    );
                 }
                 collect_from_inlines(
                     children,
@@ -2731,16 +2736,27 @@ fn collect_from_inlines(
     }
 }
 
-fn is_audio_target(target: &str) -> bool {
-    std::path::Path::new(target)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| {
-            matches!(
-                ext.to_ascii_lowercase().as_str(),
-                "m4a" | "mp3" | "ogg" | "wav" | "aac"
-            )
-        })
+/// Emits one `Attachment` fact plus the projected destination entry.
+///
+/// The fact keeps the raw destination token for source-span fidelity; the projected list
+/// carries the canonical attachment key (or the raw non-local destination, which stays
+/// distinguishable from workspace files).
+fn emit_attachment_fact(
+    destination: &str,
+    source_span: ByteSpan,
+    attachments: &mut Vec<crate::attachments::ImageDest>,
+    seen_attachments: &mut BTreeSet<String>,
+    facts: &mut Vec<SemanticFact>,
+) {
+    facts.push(SemanticFact {
+        kind: SemanticFactKind::Attachment,
+        value: destination.to_owned(),
+        source_span,
+    });
+    let destination = crate::attachments::ImageDest::classify(destination);
+    if seen_attachments.insert(destination.projected()) {
+        attachments.push(destination);
+    }
 }
 
 fn validate_final_ir(blocks: &[RenderBlock], source_len: usize) -> Result<u32, LomoError> {
@@ -2837,7 +2853,7 @@ fn validate_inlines(
                 alt,
                 ..
             } => {
-                check_ir_string(destination)?;
+                check_ir_string(destination.raw())?;
                 if let Some(title) = title {
                     check_ir_string(title)?;
                 }

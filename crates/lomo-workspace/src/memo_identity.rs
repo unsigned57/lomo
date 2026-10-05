@@ -176,6 +176,25 @@ impl MemoIdentityMap {
             })
     }
 
+    /// The document path this identity authority covers.
+    ///
+    /// Path-scoped reconcile uses it to prove which document a changed `.lomo/identity`
+    /// record governs; the durable file name is a content hash of `(root_id, path)` and
+    /// cannot be inverted without the record body.
+    #[must_use]
+    pub const fn path(&self) -> &WorkspaceRelativePath {
+        &self.path
+    }
+
+    /// The logical root this identity authority was written for.
+    ///
+    /// A record minted under a different root can never satisfy this session's identity
+    /// lookup, which hashes its own `root_id` into the canonical file name.
+    #[must_use]
+    pub const fn root_id(&self) -> WorkspaceRootId {
+        self.root_id
+    }
+
     #[must_use]
     pub fn bindings(&self) -> &[MemoBinding] {
         &self.bindings

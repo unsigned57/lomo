@@ -201,17 +201,14 @@ impl StateRevisionV2 {
                 .ok_or_else(|| validation("state_generation_overflow", "state generation overflow"))
         })?;
         // Content digest for state is the stable field tuple.
-        let content_digest = {
-            let mut hasher = Sha256::new();
-            hasher.update([u8::from(input.pinned)]);
-            hasher.update([u8::from(input.trashed)]);
-            hasher.update(input.pinned_at_ms.unwrap_or(0).to_le_bytes());
-            hasher.update(input.trashed_at_ms.unwrap_or(0).to_le_bytes());
-            hasher.update(input.pin_operation_id.as_deref().unwrap_or("").as_bytes());
-            hasher.update([0]);
-            hasher.update(input.trash_operation_id.as_deref().unwrap_or("").as_bytes());
-            hex_encode(&hasher.finalize()[..])
-        };
+        let content_digest = state_content_digest(
+            input.pinned,
+            input.trashed,
+            input.pinned_at_ms,
+            input.trashed_at_ms,
+            input.pin_operation_id.as_deref(),
+            input.trash_operation_id.as_deref(),
+        );
         let revision_id = RevisionId::compute(
             input.memo_id,
             &parent_ids,
@@ -233,6 +230,58 @@ impl StateRevisionV2 {
             created_at_ms: input.created_at_ms,
         })
     }
+
+    /// Recomputes the content-addressed revision id this body's own fields
+    /// claim — the same digest tuple and [`RevisionId::compute`] formula
+    /// [`create`](Self::create) mints.
+    ///
+    /// `revision_id` is the object's identity proof, not a self-declared
+    /// string: `RevisionId::compute` binds `memo_id`, the parent chain, and
+    /// every pin/trash fact into the id, so a body whose stored id does not
+    /// recompute from its fields can never be the revision the path stem
+    /// names — no head's claim can make it one. Read sides that attribute a
+    /// durable object by its body must reproduce the stored id through this
+    /// before trusting the claim.
+    #[must_use]
+    pub fn recomputed_id(&self) -> RevisionId {
+        RevisionId::compute(
+            &self.memo_id,
+            &self.parent_ids,
+            state_content_digest(
+                self.pinned,
+                self.trashed,
+                self.pinned_at_ms,
+                self.trashed_at_ms,
+                self.pin_operation_id.as_deref(),
+                self.trash_operation_id.as_deref(),
+            )
+            .as_str(),
+            &self.canonical_metadata,
+        )
+    }
+}
+
+/// The stable field-tuple digest a state revision's id commits to: the pin
+/// and trash flags, their timestamps, and the operation ids that last
+/// mutated each fact — the exact byte order [`StateRevisionV2::create`]
+/// hashes, so a read-side recompute reproduces the minted id.
+fn state_content_digest(
+    pinned: bool,
+    trashed: bool,
+    pinned_at_ms: Option<i64>,
+    trashed_at_ms: Option<i64>,
+    pin_operation_id: Option<&str>,
+    trash_operation_id: Option<&str>,
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update([u8::from(pinned)]);
+    hasher.update([u8::from(trashed)]);
+    hasher.update(pinned_at_ms.unwrap_or(0).to_le_bytes());
+    hasher.update(trashed_at_ms.unwrap_or(0).to_le_bytes());
+    hasher.update(pin_operation_id.unwrap_or("").as_bytes());
+    hasher.update([0]);
+    hasher.update(trash_operation_id.unwrap_or("").as_bytes());
+    hex_encode(&hasher.finalize()[..])
 }
 
 /// Permanent prune tombstone for a history revision.

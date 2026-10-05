@@ -25,9 +25,9 @@ mod tests {
     use lomo_core::ErrorCategory;
     use lomo_workspace::{
         HISTORY_RETENTION_REVISIONS, HistoryHead, HistoryRevisionV2, LomoLayoutVersion, LomoPaths,
-        RevisionId, history_revision_path, history_tombstone_path, prune_history_with_tombstones,
-        read_history_revision, retention_keep_set, revisions_to_prune, write_history_head,
-        write_history_revision,
+        RevisionId, StateRevisionCreate, StateRevisionV2, history_revision_path,
+        history_tombstone_path, prune_history_with_tombstones, read_history_revision,
+        retention_keep_set, revisions_to_prune, write_history_head, write_history_revision,
     };
     use std::collections::{HashMap, HashSet};
     use std::fs;
@@ -212,6 +212,61 @@ mod tests {
         let err = read_history_revision(&paths, &rev.revision_id).test_err("read corrupt");
         assert_eq!(err.category(), ErrorCategory::Corruption);
         assert!(path.is_file(), "corrupt object must not be auto-deleted");
+    }
+
+    #[test]
+    fn state_revision_id_reproduces_only_from_the_fields_that_minted_it() {
+        // Given a minted root and child, when `recomputed_id` re-runs the
+        // `create` formula over the stored fields, then the stored id
+        // reproduces — the read-side identity proof. Any field bound into the
+        // id (owner, parents, pin/trash facts, metadata) breaks it; the
+        // display-only `created_at_ms` never enters the tuple.
+        let root = StateRevisionV2::create(StateRevisionCreate {
+            memo_id: "memo-state",
+            parent: None,
+            pinned: true,
+            trashed: false,
+            pinned_at_ms: Some(11),
+            trashed_at_ms: None,
+            pin_operation_id: Some("op-pin".to_owned()),
+            trash_operation_id: None,
+            canonical_metadata: "",
+            created_at_ms: 1,
+        })
+        .test_ok("root");
+        assert_eq!(root.recomputed_id(), root.revision_id);
+
+        let child = StateRevisionV2::create(StateRevisionCreate {
+            memo_id: "memo-state",
+            parent: Some(&root),
+            pinned: false,
+            trashed: true,
+            pinned_at_ms: Some(11),
+            trashed_at_ms: Some(22),
+            pin_operation_id: Some("op-pin".to_owned()),
+            trash_operation_id: Some("op-trash".to_owned()),
+            canonical_metadata: "meta",
+            created_at_ms: 2,
+        })
+        .test_ok("child");
+        assert_eq!(child.recomputed_id(), child.revision_id);
+        assert_eq!(child.generation, 2);
+
+        let mut forged_owner = child.clone();
+        forged_owner.memo_id = "memo-other".to_owned();
+        assert_ne!(forged_owner.recomputed_id(), forged_owner.revision_id);
+
+        let mut drifted_fact = child.clone();
+        drifted_fact.pinned_at_ms = Some(7);
+        assert_ne!(drifted_fact.recomputed_id(), drifted_fact.revision_id);
+
+        let mut drifted_chain = child.clone();
+        drifted_chain.parent_ids = Vec::new();
+        assert_ne!(drifted_chain.recomputed_id(), drifted_chain.revision_id);
+
+        let mut display_only = child;
+        display_only.created_at_ms = 99;
+        assert_eq!(display_only.recomputed_id(), display_only.revision_id);
     }
 
     #[test]

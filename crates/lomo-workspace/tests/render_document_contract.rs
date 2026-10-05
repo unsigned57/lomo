@@ -108,6 +108,16 @@ mod tests {
         }
     }
 
+    /// String view of the typed destination list — the same `projected()` strings
+    /// storage projections carry, so the render-vs-storage comparison stays one authority.
+    fn attachment_keys(document: &RenderDocumentV1) -> Vec<String> {
+        document
+            .attachment_destinations()
+            .iter()
+            .map(lomo_workspace::ImageDest::projected)
+            .collect()
+    }
+
     fn count_inlines(inlines: &[RenderInline], links: &mut usize, images: &mut usize) {
         for inline in inlines {
             match inline {
@@ -307,10 +317,7 @@ mod tests {
             }
         }
 
-        assert_eq!(
-            render.attachment_destinations(),
-            storage_attachments.as_slice()
-        );
+        assert_eq!(attachment_keys(render), storage_attachments.as_slice());
         assert_eq!(render.tag_names(), storage_tags.as_slice());
         // Owned IR must be the same object projection, not a rebuilt peer.
         assert!(ptr::eq(render, workspace.render_document()));
@@ -407,7 +414,7 @@ mod tests {
                 "{name}: render tags must equal storage (one authority)"
             );
             assert_eq!(
-                render.attachment_destinations(),
+                attachment_keys(render),
                 storage_attachments.as_slice(),
                 "{name}: render attachments must equal storage (one authority)"
             );
