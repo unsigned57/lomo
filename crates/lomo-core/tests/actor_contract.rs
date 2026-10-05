@@ -231,6 +231,34 @@ mod tests {
         assert_eq!(error.category(), ErrorCategory::Cancelled);
     }
 
+    /// Cancelling a job that already reached a terminal state is idempotent: it reports
+    /// `AlreadyCompleted` instead of erroring or re-failing the durable record.
+    #[test]
+    fn cancelling_a_completed_job_reports_already_completed() {
+        let fixture = Fixture::new(Duration::from_secs(30));
+        let engine = LomoEngine::open(fixture.config).must_succeed("engine");
+        let job_id = opening_job(&engine);
+        let waiting = engine.poll_job(&job_id).must_succeed("waiting job");
+        let step = engine
+            .submit_platform_result(&job_id, successful_result(&waiting))
+            .must_succeed("complete bootstrap");
+        assert!(matches!(step, JobStep::Completed));
+
+        assert_eq!(
+            engine
+                .cancel_job(&job_id)
+                .must_succeed("cancel completed job"),
+            CancelOutcome::AlreadyCompleted
+        );
+        assert_eq!(
+            engine
+                .cancel_job(&job_id)
+                .must_succeed("repeat cancel of completed job"),
+            CancelOutcome::AlreadyCompleted,
+            "a terminal job must never be re-failed by a late cancel",
+        );
+    }
+
     struct SlowListener {
         event: Mutex<Option<CoreEvent>>,
         event_ready: Condvar,

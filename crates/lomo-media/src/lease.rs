@@ -436,10 +436,24 @@ impl StageLedger {
     /// Artifacts whose staged bytes disappeared (recoverable draft failure evidence).
     #[must_use]
     pub fn missing_artifacts(&self) -> Vec<ArtifactId> {
+        self.missing_records()
+            .into_iter()
+            .map(|record| record.artifact_id)
+            .collect()
+    }
+
+    /// Durable records whose staged bytes vanished — restart reconciliation input.
+    ///
+    /// A cold-started host calls this through the engine to find every draft/operation/transfer
+    /// whose staged bytes are gone, so each can surface a recoverable failure instead of
+    /// silently referencing nothing. Only leased records count: an unleased record whose bytes
+    /// were discarded is a retired claim, not a loss.
+    #[must_use]
+    pub fn missing_records(&self) -> Vec<StageRecord> {
         self.records
             .values()
-            .filter(|record| !record.is_present())
-            .map(|record| record.artifact_id.clone())
+            .filter(|record| !record.is_present() && !record.leases.is_empty())
+            .cloned()
             .collect()
     }
 

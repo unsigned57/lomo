@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{storage, validation};
 use crate::identity::{ContentDigest, DIGEST_STREAM_CHUNK_BYTES, MediaMime, read_magic_header};
+use crate::lease::{ArtifactId, StageLedger, stage_directory_of};
 use crate::path::suggest_human_relative_path;
 
 /// Directory name for pending staged media under a media root.
@@ -48,8 +49,9 @@ pub fn stage_media(
     source: MediaSource,
     human_name_hint: &str,
 ) -> Result<MediaStaged, LomoError> {
-    let source_path = match &source {
-        MediaSource::DirectPath { path } | MediaSource::StagedTemp { path } => path.clone(),
+    let (source_path, is_staged_temp) = match source {
+        MediaSource::DirectPath { path } => (path, false),
+        MediaSource::StagedTemp { path } => (path, true),
     };
     if !source_path.is_file() {
         return Err(validation(
@@ -81,51 +83,85 @@ pub fn stage_media(
     let staging_name = format!("{}.{}", digest.as_str(), mime.preferred_extension());
     let staging_path = stage_dir.join(staging_name);
 
-    // If same digest already staged, reuse path (dedup pending).
+    // The digest-derived name is only a claim about content: a torn file left by a crashed
+    // or partial stage must prove its bytes before dedup may adopt it under this digest.
     if staging_path.exists() {
-        if matches!(source, MediaSource::StagedTemp { .. }) && source_path.exists() {
-            // StagedTemp ownership: consume the temp path so hosts cannot double-stage it.
-            fs::remove_file(&source_path).map_err(|error| {
-                storage(
-                    "media_stage_temp_consume_failed",
-                    &format!("failed to consume StagedTemp after digest-dedup stage: {error}"),
-                )
-            })?;
+        let (existing_digest, existing_size) = ContentDigest::stream_from_path(&staging_path)?;
+        if existing_digest == digest && existing_size == size {
+            if is_staged_temp && source_path.exists() {
+                // StagedTemp ownership: consume the temp path so hosts cannot double-stage it.
+                fs::remove_file(&source_path).map_err(|error| {
+                    storage(
+                        "media_stage_temp_consume_failed",
+                        &format!("failed to consume StagedTemp after digest-dedup stage: {error}"),
+                    )
+                })?;
+            }
+            return build_staged(digest, size, mime, staging_path, human_name_hint);
         }
-        return build_staged(digest, size, mime, staging_path, human_name_hint);
+        // Replace the mismatched occupant: bytes under a digest-derived name must match the
+        // declared digest, so torn content is removed before the valid bytes are staged.
+        fs::remove_file(&staging_path).map_err(|error| {
+            storage(
+                "media_stage_torn_replace_failed",
+                &format!("failed to replace mismatched staged bytes: {error}"),
+            )
+        })?;
     }
 
-    match source {
-        MediaSource::DirectPath { path } => {
-            stream_copy(&path, &staging_path)?;
+    // Stage through a unique temp name so the digest-derived path never exposes partially
+    // copied bytes; committing the verified temp file is an atomic rename inside stage_dir.
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |span| span.as_nanos());
+    let temp_path = stage_dir.join(format!(
+        "{}.{}.stage-{}-{nanos}",
+        digest.as_str(),
+        mime.preferred_extension(),
+        std::process::id()
+    ));
+
+    let staged_result = (|| -> Result<(), LomoError> {
+        if !is_staged_temp {
+            return stream_copy(&source_path, &temp_path);
         }
-        MediaSource::StagedTemp { path } => {
-            // Move when possible; fall back to copy+remove.
-            if fs::rename(&path, &staging_path).is_err() {
-                stream_copy(&path, &staging_path)?;
-                if path.exists() {
-                    fs::remove_file(&path).map_err(|error| {
-                        storage(
-                            "media_stage_temp_consume_failed",
-                            &format!("failed to consume StagedTemp after stage copy: {error}"),
-                        )
-                    })?;
-                }
+        // Move when possible; fall back to copy+remove.
+        if fs::rename(&source_path, &temp_path).is_err() {
+            stream_copy(&source_path, &temp_path)?;
+            if source_path.exists() {
+                fs::remove_file(&source_path).map_err(|error| {
+                    storage(
+                        "media_stage_temp_consume_failed",
+                        &format!("failed to consume StagedTemp after stage copy: {error}"),
+                    )
+                })?;
             }
         }
+        Ok(())
+    })();
+    if let Err(error) = staged_result {
+        drop(fs::remove_file(&temp_path));
+        return Err(error);
     }
 
-    // Re-verify digest of staged file.
-    let (staged_digest, staged_size) = ContentDigest::stream_from_path(&staging_path)?;
-    if staged_digest != digest || staged_size != size {
-        if staging_path.exists() {
-            // behavior-contract: silent-result-ok: best-effort cleanup of corrupt stage before
-            // returning the authoritative digest-mismatch error; a leftover corrupt stage is
-            // still unpromoted and discarded by recovery, so cleanup failure must not mask the
-            // mismatch.
-            drop(fs::remove_file(&staging_path));
+    // Re-verify the staged bytes before they adopt the digest-derived name.
+    let (staged_digest, staged_size) = match ContentDigest::stream_from_path(&temp_path) {
+        Ok(facts) => facts,
+        Err(error) => {
+            drop(fs::remove_file(&temp_path));
+            return Err(error);
         }
+    };
+    if staged_digest != digest || staged_size != size {
+        drop(fs::remove_file(&temp_path));
         return Err(corruption_mismatch());
+    }
+    if let Err(error) = fs::rename(&temp_path, &staging_path) {
+        drop(fs::remove_file(&temp_path));
+        return Err(storage(
+            "media_stage_commit_failed",
+            &format!("failed to commit staged bytes to the digest name: {error}"),
+        ));
     }
 
     build_staged(digest, size, mime, staging_path, human_name_hint)
@@ -285,19 +321,30 @@ fn stream_copy(from: &Path, to: &Path) -> Result<(), LomoError> {
 
 /// Drops a staged file (draft discard / failed promote).
 ///
+/// The durable [`StageLedger`] is the sole authority for deleting staged bytes: when any
+/// holder still leases the artifact the bytes are kept, because a caller dropping its
+/// [`MediaStaged`] facts must never destroy staged media another owner depends on. Deleting
+/// without consulting the ledger would silently break that ownership.
+///
 /// # Errors
 ///
-/// Returns storage when delete fails for an existing path.
+/// Returns storage when delete fails for an existing path, and corruption/storage when the
+/// durable ledger cannot be consulted — deletion is refused while ownership is unknown.
 pub fn discard_staged(staged: &MediaStaged) -> Result<(), LomoError> {
-    if staged.staging_path.exists() {
-        fs::remove_file(&staged.staging_path).map_err(|error| {
-            storage(
-                "media_stage_discard_failed",
-                &format!("failed to discard staged media: {error}"),
-            )
-        })?;
+    if !staged.staging_path.exists() {
+        return Ok(());
     }
-    Ok(())
+    let stage_dir = stage_directory_of(&staged.staging_path)?;
+    let ledger = StageLedger::load(&stage_dir)?;
+    if ledger.holds_leases(&ArtifactId::of_digest(&staged.digest)) {
+        return Ok(());
+    }
+    fs::remove_file(&staged.staging_path).map_err(|error| {
+        storage(
+            "media_stage_discard_failed",
+            &format!("failed to discard staged media: {error}"),
+        )
+    })
 }
 
 /// Allocates a recording target path under the stage directory (Kotlin recorder writes here).
