@@ -93,6 +93,15 @@ if [ -z "$wrapper_jar" ]; then
   echo "kotlin-detekt-format: ktlint wrapper is not cached under Gradle roots; run a Toolchain build once" >&2
   exit 1
 fi
+# The wrapper jar runs inside the gate JVM at the same trust level as the
+# pinned engine — prove zip validity, the Gradle hash-dir digest when the
+# layout supplies one, and the wrapper's canonical provider identity before it
+# reaches --plugins. The cached artifact is resolved from a non-Central channel
+# (its bytes legitimately differ from the Central publication), so no
+# authoritative digest pin exists — empty pin argument.
+lomo_detekt_verify_plugin_jar "$wrapper_jar" "" \
+  '^META-INF/services/dev\.detekt\.api\.RuleSetProvider$' \
+  '^dev/detekt/rules/ktlintwrapper/KtlintWrapperProvider\.class$' || exit 1
 
 wrapper_bundles_ktlint() {
   jar tf "$1" 2>/dev/null |
@@ -110,12 +119,31 @@ if ! wrapper_bundles_ktlint "$wrapper_jar"; then
     echo "kotlin-detekt-format: ktlint wrapper has no bundled engine and no matching ktlint-repackage is cached" >&2
     exit 1
   fi
+  lomo_detekt_verify_plugin_jar "$ktlint_jar" "" \
+    '^META-INF/services/com\.pinterest\.ktlint\.cli\.ruleset\.core\.api\.RuleSetProviderV3$' \
+    '^com/pinterest/ktlint/' || exit 1
   format_plugins+=("$ktlint_jar")
 fi
 
 export LOMO_DETEKT_INCLUDE_CUSTOM_RULES=0
-LOMO_DETEKT_EXTRA_PLUGINS="$(IFS=:; printf '%s' "${format_plugins[*]}")"
-export LOMO_DETEKT_EXTRA_PLUGINS
+# The ktlint wrapper/repackage jars are this script's own resolved plugins — passed
+# as explicit detekt CLI arguments, not through an ambient environment channel.
+#
+# Resolve and verify the pinned engine AND every plugin jar once up front: the
+# per-batch `|| true` below exists for detekt's residual-finding exit codes only
+# — engine/plugin integrity is not a finding. Without this, a jar that fails
+# verification inside `lomo_detekt_run` would make every tolerated batch a
+# silent no-op instead of aborting the format run.
+# (`lomo_detekt_extra_plugin_jars` is verified too because `lomo_detekt_run`
+# still loads that channel per batch even with custom rules disabled; the
+# rules jar is NOT on this script's load path and stays unverified here.)
+lomo_detekt_cli_jar >/dev/null
+lomo_detekt_extra_plugin_jars >/dev/null
+
+format_plugin_args=()
+for plugin in "${format_plugins[@]}"; do
+  format_plugin_args+=(--plugins "$plugin")
+done
 
 # Detekt CLI separates multiple --input paths with ':' on Unix. Batch to avoid ARG_MAX.
 batch_size=80
@@ -133,6 +161,7 @@ while [ "$start" -lt "$total" ]; do
   lomo_detekt_run \
     --input "$input_joined" \
     --config "$config" \
+    "${format_plugin_args[@]}" \
     --auto-correct \
     --disable-default-rulesets \
     || true

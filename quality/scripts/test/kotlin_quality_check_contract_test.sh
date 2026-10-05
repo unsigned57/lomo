@@ -16,6 +16,12 @@ set -euo pipefail
 # TDD proof: failed before xtask because the old Kotlin/Rust shell gates and NDK 28 remained; RED on
 # 2026-08-09 because formatting required ktlint-repackage 2.0.0-alpha.6, which was never published.
 # Excludes: compiling product code and device runtime behavior.
+# Test Change Justification:
+# Reason category: requested retirement of interactive command surfaces.
+# Old behavior/assertion being replaced: install-tui is required and discovery uses just --list.
+# Why old assertion is no longer correct: agents use JSON discovery; installation is not a gate.
+# Coverage preserved by: all quality commands remain required and install-tui is now rejected.
+# Why this is not fitting the test to the implementation: this enforces the requested command contract.
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
@@ -49,11 +55,11 @@ for file in \
 done
 
 require_text Justfile 'cargo run --manifest-path Cargo.toml --locked -p lomo-xtask --'
-for command in bootstrap fmt dev check bindings native android ci deps perf cache rust-toolchain-bump install-tui; do
+for command in commands bootstrap fmt dev check bindings native android ci deps perf cache rust-toolchain-bump; do
   grep -Eq -- "^${command}([[:space:]].*)?:$" Justfile || fail "Justfile recipe missing: $command"
 done
 require_text Justfile '_preflight'
-for retired in test tui package-linux mutants check-linux usecase-reachability \
+for retired in install-tui test tui package-linux mutants check-linux usecase-reachability \
   device-smoke sync-provider-smoke; do
   if grep -Eq -- "^${retired}([[:space:]].*)?:$" Justfile; then
     fail "retired recipe remains in Justfile: ${retired}"
@@ -152,40 +158,85 @@ for script in \
 done
 
 if command -v just >/dev/null 2>&1; then
-  just --list >/dev/null
+  just --dump --dump-format json >/dev/null
 fi
+
+# Seeds one kotlin_detekt_format.sh environment under $1: the Gradle-cache
+# wrapper layout, the built-rules jar presence stub, a pinned-CLI cache
+# symlink and a stub `java`. The wrapper jar is packaged from the classes
+# tree at $2 — honest fixtures must satisfy the same plugin verification a
+# real cached jar passes (zip validity, identity markers).
+seed_format_fixture() {
+  local dir="$1" wrapper_classes="$2"
+  local wrapper_dir="$dir/gradle/caches/modules-2/files-2.1/dev.detekt/detekt-rules-ktlint-wrapper/2.0.0-alpha.6/fat"
+  mkdir -p \
+    "$wrapper_dir" \
+    "$dir/build/tasks/_detekt-rules_jarJvm" \
+    "$dir/cache/lomo/detekt" \
+    "$dir/bin" \
+    "$dir/home"
+  jar cf \
+    "$wrapper_dir/detekt-rules-ktlint-wrapper-2.0.0-alpha.6.jar" \
+    -C "$wrapper_classes" .
+  : > "$dir/build/tasks/_detekt-rules_jarJvm/detekt-rules-jvm.jar"
+  # The engine jar must carry the pinned digest — format resolves and verifies it
+  # before any tolerated batch, so an empty stub no longer passes. Seed the real
+  # verified jar (resolved under the normal environment) as a symlink: sha1sum
+  # follows the link, and the stubbed `java` below still never executes it.
+  local real_cli_jar
+  real_cli_jar="$(REPO_ROOT="$repo_root" bash -c \
+    'source "$REPO_ROOT/quality/scripts/kotlin_detekt_env.sh" && lomo_detekt_cli_jar')" \
+    || fail "cannot resolve the pinned detekt CLI jar"
+  ln -s "$real_cli_jar" \
+    "$dir/cache/lomo/detekt/detekt-cli-2.0.0-alpha.6-all.jar"
+  printf 'package contract\n' > "$dir/Sample.kt"
+  ln -s "$(type -P true)" "$dir/bin/java"
+}
+
+run_format_against_fixture() {
+  local dir="$1"
+  PATH="$dir/bin:$PATH" \
+    HOME="$dir/home" \
+    USER=lomo-format-contract-no-host \
+    GRADLE_USER_HOME="$dir/gradle" \
+    XDG_CACHE_HOME="$dir/cache" \
+    LOMO_KOTLIN_BUILD_DIR="$dir/build" \
+    LOMO_KOTLIN_WRAPPER=/bin/false \
+    quality/scripts/kotlin_detekt_format.sh files "$dir/Sample.kt"
+}
 
 (
   format_contract_dir="$(mktemp -d /tmp/lomo-format-contract.XXXXXX)"
   trap 'rm -rf -- "$format_contract_dir"' EXIT
-  wrapper_dir="$format_contract_dir/gradle/caches/modules-2/files-2.1/dev.detekt/detekt-rules-ktlint-wrapper/2.0.0-alpha.6/fat"
   wrapper_classes="$format_contract_dir/wrapper-classes"
-  build_dir="$format_contract_dir/build"
-  cache_dir="$format_contract_dir/cache"
   mkdir -p \
-    "$wrapper_dir" \
     "$wrapper_classes/com/pinterest/ktlint/rule/engine/core/api" \
-    "$build_dir/tasks/_detekt-rules_jarJvm" \
-    "$cache_dir/lomo/detekt" \
-    "$format_contract_dir/bin" \
-    "$format_contract_dir/home"
+    "$wrapper_classes/dev/detekt/rules/ktlintwrapper" \
+    "$wrapper_classes/META-INF/services"
   : > "$wrapper_classes/com/pinterest/ktlint/rule/engine/core/api/Rule.class"
-  jar cf \
-    "$wrapper_dir/detekt-rules-ktlint-wrapper-2.0.0-alpha.6.jar" \
-    -C "$wrapper_classes" .
-  : > "$build_dir/tasks/_detekt-rules_jarJvm/detekt-rules-jvm.jar"
-  : > "$cache_dir/lomo/detekt/detekt-cli-2.0.0-alpha.6-all.jar"
-  printf 'package contract\n' > "$format_contract_dir/Sample.kt"
-  ln -s "$(type -P true)" "$format_contract_dir/bin/java"
-
-  PATH="$format_contract_dir/bin:$PATH" \
-    HOME="$format_contract_dir/home" \
-    USER=lomo-format-contract-no-host \
-    GRADLE_USER_HOME="$format_contract_dir/gradle" \
-    XDG_CACHE_HOME="$cache_dir" \
-    LOMO_KOTLIN_BUILD_DIR="$build_dir" \
-    LOMO_KOTLIN_WRAPPER=/bin/false \
-    quality/scripts/kotlin_detekt_format.sh files "$format_contract_dir/Sample.kt" >/dev/null
+  : > "$wrapper_classes/dev/detekt/rules/ktlintwrapper/KtlintWrapperProvider.class"
+  printf 'dev.detekt.rules.ktlintwrapper.KtlintWrapperProvider\n' \
+    > "$wrapper_classes/META-INF/services/dev.detekt.api.RuleSetProvider"
+  seed_format_fixture "$format_contract_dir" "$wrapper_classes"
+  run_format_against_fixture "$format_contract_dir" >/dev/null
 ) || fail "detekt formatting must accept a fat ktlint wrapper without ktlint-repackage"
+
+(
+  tamper_dir="$(mktemp -d /tmp/lomo-format-tamper.XXXXXX)"
+  trap 'rm -rf -- "$tamper_dir"' EXIT
+  mkdir -p "$tamper_dir/empty-classes"
+  seed_format_fixture "$tamper_dir" "$tamper_dir/empty-classes"
+  printf 'gate-state garbage, not a zip archive\n' > \
+    "$tamper_dir/gradle/caches/modules-2/files-2.1/dev.detekt/detekt-rules-ktlint-wrapper/2.0.0-alpha.6/fat/detekt-rules-ktlint-wrapper-2.0.0-alpha.6.jar"
+  if run_format_against_fixture "$tamper_dir" >"$tamper_dir/out.log" 2>&1; then
+    echo "xtask-contract: formatting accepted an unverifiable ktlint wrapper jar" >&2
+    exit 1
+  fi
+  grep -q "not a readable zip" "$tamper_dir/out.log" || {
+    echo "xtask-contract: tampered wrapper rejected for the wrong reason:" >&2
+    cat "$tamper_dir/out.log" >&2
+    exit 1
+  }
+) || fail "detekt formatting must reject a plugin jar that fails verification"
 
 echo "xtask-contract: ok"

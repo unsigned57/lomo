@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Behavior Contract:
+# Capability: check evidence for the tested production scope; owning layer: quality; priority: P1.
+# Scenarios: Given adjacent evidence or unrelated edits, when the real checker runs, then legal
+#   maintenance passes; given affected production, missing evidence or malformed scope, then it fails.
+# Observable outcomes: actual checker exit status and diagnostic, in committed and worktree modes.
+# TDD proof: the new adjacent-evidence case fails on the original checker; rerun this suite for GREEN.
+# Excludes: compiling fixture Kotlin and proving the semantic completeness of a declared scope.
+
 repo_root="$(git rev-parse --show-toplevel)"
 script_path="$repo_root/quality/scripts/check_meaningful_tests.sh"
 fixtures_root="$repo_root/quality/scripts/test/check_meaningful_tests_fixtures"
+fixture_temp_root="$(mktemp -d)"
+trap 'rm -rf -- "$fixture_temp_root"' EXIT
 
 copy_fixture_tree() {
   local source_dir="$1"
@@ -93,11 +103,14 @@ run_case() {
   local expected_message="$3"
   local fixture_dir="$fixtures_root/$case_name"
   local temp_dir
-  temp_dir="$(mktemp -d)"
+  temp_dir="$(mktemp -d "$fixture_temp_root/case.XXXXXX")"
   local repo_dir="$temp_dir/repo"
   local base_sha
   base_sha="$(create_fixture_repo "$fixture_dir" "$repo_dir")"
   prepare_fixture_head "$fixture_dir" "$repo_dir"
+  if [ "$#" -eq 4 ]; then
+    rm -- "$repo_dir/$4"
+  fi
   git -C "$repo_dir" add -A
   git -C "$repo_dir" commit -qm "head"
 
@@ -127,7 +140,7 @@ run_working_tree_case() {
   local expected_message="$3"
   local fixture_dir="$fixtures_root/$case_name"
   local temp_dir
-  temp_dir="$(mktemp -d)"
+  temp_dir="$(mktemp -d "$fixture_temp_root/case.XXXXXX")"
   local repo_dir="$temp_dir/repo"
   create_fixture_repo "$fixture_dir" "$repo_dir" >/dev/null
   prepare_fixture_head "$fixture_dir" "$repo_dir"
@@ -161,5 +174,19 @@ run_case "testing_support_helper" 0 "no changed test files to validate"
 run_case "test_only_not_applicable" 0 "validated 1 changed test file(s)"
 run_case "half_migrated" 1 "Half-migrated test file. Convert all assertions in this file in one PR; do not mix styles."
 run_working_tree_case "missing_scenario_matrix" 1 "Behavior Contract scenarios must use Given/When/Then."
+
+run_case "adjacent_justification" 0 "validated 1 changed test file(s)"
+run_case "adjacent_contract_and_justification" 0 "validated 1 changed test file(s)"
+run_case "duplicate_contract" 1 "Behavior Contract must have one owner"
+run_case "behavior_preserving_refactor" 0 "validated 1 changed test file(s)"
+run_case "unrelated_production_not_applicable" 0 "validated 1 changed test file(s)"
+run_working_tree_case "unrelated_production_not_applicable" 0 "validated 1 changed test file(s)"
+run_case "related_scope_not_applicable" 1 "TDD proof cannot be 'Not applicable'"
+run_case "related_scope_not_applicable" 1 "TDD proof cannot be 'Not applicable'" "apps/android/app/src/Policy.kt"
+run_case "missing_scope_target" 1 "Production scope path does not exist"
+run_case "invalid_scope_target" 1 "Invalid production scope"
+run_case "missing_justification" 1 "Test Change Justification is required"
+run_case "adjacent_contract_changed" 1 "missing Behavior Contract or TDD proof metadata"
+run_working_tree_case "adjacent_contract_changed" 1 "missing Behavior Contract or TDD proof metadata"
 
 echo "check_meaningful_tests smoke tests passed"

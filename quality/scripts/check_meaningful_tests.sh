@@ -33,11 +33,6 @@ contract_markdown_path() {
     return 0
   fi
 
-  if [ -f "$dir/$base.md" ]; then
-    printf '%s\n' "$dir/$base.md"
-    return 0
-  fi
-
   return 1
 }
 
@@ -119,6 +114,16 @@ tdd_proof_is_not_applicable() {
       exit !(proof_seen && not_applicable)
     }
   ' "$file"
+}
+
+production_scope_paths() {
+  awk '
+    NR <= 250 && /^[[:space:]]*(\/\/|\*|#|-)?[[:space:]]*Production scope:/ {
+      sub(/^[[:space:]]*(\/\/|\*|#|-)?[[:space:]]*Production scope:[[:space:]]*/, "")
+      sub(/[[:space:]]*$/, "")
+      print
+    }
+  ' "$1"
 }
 
 is_architecture_allowlisted_path() {
@@ -220,14 +225,14 @@ collect_diff() {
 }
 
 collect_changed_files() {
-  collect_diff --name-only --diff-filter=ACMR --find-renames=100%
+  collect_diff --name-only --diff-filter=ACDMR --find-renames=100%
   if [ "$mode" = "working-tree" ]; then
     git ls-files --others --exclude-standard
   fi
 }
 
 collect_changed_statuses() {
-  collect_diff --name-status --diff-filter=ACMR --find-renames=100%
+  collect_diff --name-status --diff-filter=ACDMR --find-renames=100%
   if [ "$mode" = "working-tree" ]; then
     git ls-files --others --exclude-standard | sed $'s/^/A\t/'
   fi
@@ -241,8 +246,8 @@ for arg in "$@"; do
 done
 
 declare -A changed_file_statuses=()
+declare -A changed_production_paths=()
 test_files=()
-production_source_changed=false
 
 if [ "$all_mode" = true ] || [ "${MEANINGFUL_TEST_CHECK_ALL:-}" = "true" ]; then
   # Scan all test files
@@ -273,16 +278,11 @@ else
     fi
 
     changed_file_statuses["$path"]="$raw_status"
-  done
-
-  for file in "${changed_files[@]}"; do
-    if is_fixture_support_path "$file" || is_test_support_path "$file"; then
-      continue
-    fi
-    if [[ "$file" =~ ^apps/android/(app|domain|data|ui-components)/src/.*\.(kt|java)$ ]]; then
-      production_source_changed=true
-      break
-    fi
+    for production_path in "$old_path" "$new_path"; do
+      if [[ "$production_path" =~ ^apps/android/(app|domain|data|ui-components)/src/.*\.(kt|java)$ ]]; then
+        changed_production_paths["$production_path"]=true
+      fi
+    done
   done
 
   for file in "${changed_files[@]}"; do
@@ -290,6 +290,17 @@ else
       continue
     fi
     case "$file" in
+      *Test.contract.md)
+        # Contract-only edits must be checked through the test that consumes them.
+        for extension in kt kts; do
+          candidate="${file%.contract.md}.$extension"
+          case "$candidate" in
+            */test/*|*/test@android/*)
+              [ -f "$candidate" ] && test_files+=("$candidate")
+              ;;
+          esac
+        done
+        ;;
       *Test.kt|*Test.kts)
         case "$file" in
           */test/*|*/test@android/*)
@@ -310,20 +321,30 @@ if [ "${#test_files[@]}" -eq 0 ]; then
   echo "meaningful-test-check: no changed test files to validate"
   exit 0
 fi
+mapfile -t test_files < <(printf '%s\n' "${test_files[@]}" | sort -u)
 
 failures=()
 for file in "${test_files[@]}"; do
-  file_status="${changed_file_statuses["$file"]:-M}"
+  # An absent Git status means selection through a changed adjacent contract only.
+  file_status="${changed_file_statuses["$file"]:-}"
   # Pure renames (including similarity-detected renames) are layout moves, not behavior edits.
   case "$file_status" in
     R*) continue ;;
   esac
 
+  contract_doc=""
+  if adjacent_doc="$(contract_markdown_path "$file")"; then
+    contract_doc="$adjacent_doc"
+  fi
   if has_contract_comment "$file"; then
+    if [ -n "$contract_doc" ] && markdown_has_contract "$contract_doc"; then
+      failures+=("$file: Behavior Contract must have one owner: the test or its adjacent .contract.md, not both.")
+      continue
+    fi
     contract_source="$file"
   else
     contract_source=""
-    if contract_doc="$(contract_markdown_path "$file")" && markdown_has_contract "$contract_doc"; then
+    if [ -n "$contract_doc" ] && markdown_has_contract "$contract_doc"; then
       contract_source="$contract_doc"
     fi
   fi
@@ -347,12 +368,35 @@ for file in "${test_files[@]}"; do
     failures+=("$file: Half-migrated test file. Convert all assertions in this file in one PR; do not mix styles.")
   fi
 
-  if [ "$production_source_changed" = true ] && tdd_proof_is_not_applicable "$contract_source"; then
-    failures+=("$file: TDD proof cannot be 'Not applicable' when production code changed. State how the new test fails before the fix, or split the change.")
+  mapfile -t production_scope < <(production_scope_paths "$contract_source")
+  scope_state=unchanged
+  if [ "${#production_scope[@]}" -eq 0 ]; then
+    if [ "${#changed_production_paths[@]}" -gt 0 ]; then
+      scope_state=unspecified
+    fi
+  else
+    for production_path in "${production_scope[@]}"; do
+      if ! [[ "$production_path" =~ ^apps/android/(app|domain|data|ui-components)/src/[a-zA-Z0-9_./-]+\.(kt|java)$ ]] ||
+        [[ "$production_path" == *'/../'* || "$production_path" == *'/./'* || "$production_path" == *'//'* ]]; then
+        failures+=("$file: Invalid production scope: $production_path. Use an exact repository-relative production source path.")
+        continue
+      fi
+      if [[ -n "${changed_production_paths["$production_path"]:-}" ]]; then
+        scope_state=changed
+      elif [ ! -f "$production_path" ]; then
+        failures+=("$file: Production scope path does not exist: $production_path.")
+      fi
+    done
   fi
 
-  if [ "$production_source_changed" = true ] && [ "$file_status" = "M" ] && ! has_test_change_justification "$file"; then
-    failures+=("$file: Test Change Justification is required when modifying existing tests alongside production code changes. Include Reason category, Old behavior/assertion being replaced, Why old assertion is no longer correct, Coverage preserved by, and Why this is not fitting the test to the implementation.")
+  if [ "$scope_state" != unchanged ] && tdd_proof_is_not_applicable "$contract_source"; then
+    failures+=("$file: TDD proof cannot be 'Not applicable' when production code changed. For unrelated changes, declare every tested production file with Production scope: in the Behavior Contract; behavior changes need RED/GREEN, preserving refactors need before/after regression evidence.")
+  fi
+
+  if [ "$scope_state" != unchanged ] && [ "$file_status" = "M" ] && ! has_test_change_justification "$file"; then
+    if [ -z "$contract_doc" ] || ! has_test_change_justification "$contract_doc"; then
+      failures+=("$file: Test Change Justification is required when modifying existing tests alongside production code changes. Put the required fields in the test or its adjacent .contract.md; handoff text alone is not machine-readable evidence.")
+    fi
   fi
 done
 

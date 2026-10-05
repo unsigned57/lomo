@@ -19,13 +19,38 @@ esac
 report_root="$report_root/reports/detekt"
 mkdir -p "$report_root"
 
+# The architecture/style gate must always load its own rule set. An ambient
+# LOMO_DETEKT_INCLUDE_CUSTOM_RULES=0 must not silently strip every com.lomo.* rule
+# from a gate run (formatting scripts may still opt out through the same variable).
+export LOMO_DETEKT_INCLUDE_CUSTOM_RULES=1
+
+# An *unset* LOMO_DETEKT_MODULES means the default product set; an explicitly set but
+# empty/blank value is a caller error — an empty module list must never pass vacuously.
+# Validate before the canary contracts so a bad invocation fails fast and loud.
+if [ -z "${LOMO_DETEKT_MODULES+set}" ]; then
+  modules_csv="app,domain,data,ui-components"
+else
+  modules_csv="$LOMO_DETEKT_MODULES"
+fi
+IFS=',' read -r -a modules <<< "$modules_csv"
+if [ "${#modules[@]}" -eq 0 ]; then
+  echo "kotlin-detekt-check: LOMO_DETEKT_MODULES resolved to zero modules — refusing a vacuous pass" >&2
+  exit 1
+fi
+
 mode="${LOMO_DETEKT_MODE:-light}"
 case "$mode" in
   light) bash "$script_dir/test/detekt_activation_contract_test.sh" ;;
-  full) bash "$script_dir/test/kotlin_analysis_input_contract_test.sh" ;;
+  full)
+    bash "$script_dir/test/kotlin_analysis_input_contract_test.sh"
+    # Semantic canary: full mode must prove type-resolved rules actually fire
+    # (NoInferredMutableFlowExposure / ForbiddenMethodCall appear in full but not
+    # light). Without this, a "full" run whose type resolution silently degraded
+    # would still report success.
+    bash "$script_dir/test/detekt_full_analysis_contract_test.sh"
+    ;;
   *) echo "kotlin-detekt-check: unknown analysis mode $mode" >&2; exit 1 ;;
 esac
-IFS=',' read -r -a modules <<< "${LOMO_DETEKT_MODULES:-app,domain,data,ui-components}"
 
 declare -A module_config=(
   [app]="quality/detekt/config/app.yml"
@@ -36,6 +61,10 @@ declare -A module_config=(
 
 failed=0
 for module in "${modules[@]}"; do
+  if [ -z "$module" ]; then
+    echo "kotlin-detekt-check: empty module name in LOMO_DETEKT_MODULES" >&2
+    exit 1
+  fi
   if [ -z "${module_config[$module]+configured}" ]; then
     echo "kotlin-detekt-check: unknown module $module" >&2
     exit 1
