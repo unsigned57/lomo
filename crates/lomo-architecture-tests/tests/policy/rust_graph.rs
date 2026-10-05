@@ -2,103 +2,97 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use super::Violation;
+use super::{Capability, DependencyCapabilities, Violation};
 
 struct Owner {
     name: &'static str,
     directory: &'static str,
-    dependencies: &'static [&'static str],
+    internal_dependencies: &'static [&'static str],
+    capabilities: &'static [Capability],
 }
 
-// Capability admission is closed: a new crate/driver needs an explicit ownership decision.
-// These are dependency boundaries, not a source-file inventory or minimum dependency list.
+// Internal authority edges and permitted capabilities are architectural facts.
+// External library identity/version choices come from manifests and the shared capability policy.
 const OWNERS: &[Owner] = &[
     Owner {
         name: "lomo-core",
         directory: "crates/lomo-core",
-        dependencies: &["serde", "serde_json", "sha2"],
+        internal_dependencies: &[],
+        capabilities: &[Capability::Portable],
     },
     Owner {
         name: "lomo-workspace",
         directory: "crates/lomo-workspace",
-        dependencies: &["lomo-core", "pulldown-cmark", "serde", "serde_json", "sha2"],
+        internal_dependencies: &["lomo-core"],
+        capabilities: &[Capability::Portable],
     },
     Owner {
         name: "lomo-media",
         directory: "crates/lomo-media",
-        dependencies: &["lomo-core", "lomo-workspace", "serde", "serde_json", "sha2"],
+        internal_dependencies: &["lomo-core", "lomo-workspace"],
+        capabilities: &[Capability::Portable],
     },
     Owner {
         name: "lomo-store",
         directory: "crates/lomo-store",
-        dependencies: &[
-            "lomo-core",
-            "lomo-workspace",
-            "lomo-media",
-            "rustix",
-            "rusqlite",
-            "serde",
-            "serde_json",
-            "sha2",
-            "zip",
-            "tempfile",
-            "getrandom",
+        internal_dependencies: &["lomo-core", "lomo-workspace", "lomo-media"],
+        capabilities: &[
+            Capability::Portable,
+            Capability::Filesystem,
+            Capability::Database,
+            Capability::Platform,
         ],
     },
     Owner {
         name: "lomo-application",
         directory: "crates/lomo-application",
-        dependencies: &[
-            "lomo-core",
-            "lomo-workspace",
-            "lomo-store",
-            "lomo-media",
-            "rustix",
-            "jiff",
-            "serde",
-            "serde_json",
-            "sha2",
-            "pinyin",
-            "getrandom",
+        internal_dependencies: &["lomo-core", "lomo-workspace", "lomo-store", "lomo-media"],
+        capabilities: &[
+            Capability::Portable,
+            Capability::Filesystem,
+            Capability::Platform,
         ],
     },
     Owner {
         name: "lomo-platform-fs",
         directory: "crates/lomo-platform-fs",
-        dependencies: &["lomo-core", "rustix", "sha2", "getrandom"],
+        internal_dependencies: &["lomo-core"],
+        capabilities: &[
+            Capability::Portable,
+            Capability::Filesystem,
+            Capability::Platform,
+        ],
     },
     Owner {
         name: "lomo-sync",
         directory: "crates/lomo-sync",
-        dependencies: &[
-            "lomo-core",
-            "lomo-workspace",
-            "lomo-store",
-            "aes",
-            "serde",
-            "serde_json",
-            "sha2",
-            "scrypt",
-            "reqwest",
-            "rustls",
-            "url",
-            "crypto_secretbox",
-        ],
+        internal_dependencies: &["lomo-core", "lomo-workspace", "lomo-store"],
+        capabilities: &[Capability::Portable, Capability::Network],
     },
     Owner {
         name: "lomo-git",
         directory: "crates/lomo-git",
-        dependencies: &["lomo-core", "lomo-sync", "git2", "sha2"],
+        internal_dependencies: &["lomo-core", "lomo-sync"],
+        capabilities: &[
+            Capability::Portable,
+            Capability::Network,
+            Capability::Filesystem,
+        ],
     },
     Owner {
         name: "lomo-lan",
         directory: "crates/lomo-lan",
-        dependencies: &["lomo-core", "aws-lc-rs", "sha2"],
+        internal_dependencies: &["lomo-core"],
+        capabilities: &[
+            Capability::Portable,
+            Capability::Network,
+            Capability::Platform,
+        ],
     },
     Owner {
         name: "lomo-native",
         directory: "crates/lomo-native",
-        dependencies: &[
+        internal_dependencies: &[
             "boltffi",
             "lomo-core",
             "lomo-workspace",
@@ -109,78 +103,68 @@ const OWNERS: &[Owner] = &[
             "lomo-git",
             "lomo-lan",
             "lomo-platform-fs",
-            "serde_json",
         ],
+        capabilities: &[Capability::Portable, Capability::Ffi],
     },
     Owner {
         name: "boltffi",
         directory: "crates/boltffi-facade",
-        dependencies: &["boltffi_core"],
+        internal_dependencies: &[],
+        capabilities: &[Capability::Portable, Capability::Ffi],
     },
     Owner {
         name: "lomo-feasibility",
         directory: "crates/lomo-feasibility",
-        dependencies: &[
-            "serde",
-            "serde_json",
-            "sha2",
-            "thiserror",
-            "rusqlite",
-            "pulldown-cmark",
-            "reqwest",
-            "rustls",
-            "rcgen",
-            "git2",
+        internal_dependencies: &[],
+        capabilities: &[
+            Capability::Portable,
+            Capability::Filesystem,
+            Capability::Database,
+            Capability::Network,
+            Capability::Platform,
         ],
     },
     Owner {
         name: "lomo-xtask",
         directory: "crates/lomo-xtask",
-        dependencies: &[
-            "anyhow",
-            "lomo-feasibility",
-            "serde",
-            "serde_json",
-            "sha2",
-            "yaml-rust2",
+        internal_dependencies: &["lomo-feasibility"],
+        capabilities: &[
+            Capability::Portable,
+            Capability::Filesystem,
+            Capability::Network,
+            Capability::Platform,
         ],
     },
     Owner {
         name: "lomo-architecture-tests",
         directory: "crates/lomo-architecture-tests",
-        dependencies: &[],
+        internal_dependencies: &[],
+        capabilities: &[],
     },
     Owner {
         name: "lomo-tui",
         directory: "apps/tui",
-        dependencies: &[
+        internal_dependencies: &[
             "lomo-application",
             "lomo-platform-fs",
             "lomo-core",
             "lomo-workspace",
             "lomo-media",
-            "serde",
-            "serde_json",
-            "sha2",
-            "base64",
-            "unicode-segmentation",
-            "unicode-width",
-            "crossterm",
-            "ratatui",
-            "toml",
-            "arboard",
-            "image",
-            "clap",
-            "clap_complete",
-            "thiserror",
-            "tracing",
-            "tracing-appender",
-            "tracing-subscriber",
+        ],
+        capabilities: &[
+            Capability::Portable,
+            Capability::Filesystem,
+            Capability::Ui,
+            Capability::Platform,
         ],
     },
 ];
 
-pub fn rust_dependency_violations(root: &Path, metadata: &Value) -> Result<Vec<Violation>, String> {
+pub fn rust_dependency_violations(
+    root: &Path,
+    metadata: &Value,
+    capabilities: &DependencyCapabilities,
+) -> Result<Vec<Violation>, String> {
     let packages = metadata
         .get("packages")
         .and_then(Value::as_array)
@@ -198,7 +182,7 @@ pub fn rust_dependency_violations(root: &Path, metadata: &Value) -> Result<Vec<V
             .iter()
             .find(|package| package.get("id").and_then(Value::as_str) == Some(id))
             .ok_or_else(|| format!("workspace member {id} has no package metadata"))?;
-        check_package(root, package, &mut violations)?;
+        check_package(root, package, capabilities, &mut violations)?;
     }
     if members.is_empty() {
         return Err("workspace member inventory is empty".to_owned());
@@ -209,6 +193,7 @@ pub fn rust_dependency_violations(root: &Path, metadata: &Value) -> Result<Vec<V
 fn check_package(
     root: &Path,
     package: &Value,
+    capabilities: &DependencyCapabilities,
     violations: &mut Vec<Violation>,
 ) -> Result<(), String> {
     let name = string_field(package, "name")?;
@@ -229,7 +214,7 @@ fn check_package(
         .and_then(Value::as_array)
         .ok_or("package dependencies missing")?;
     for dependency in dependencies {
-        check_dependency(root, owner, manifest, dependency, violations)?;
+        check_dependency(root, owner, manifest, dependency, capabilities, violations)?;
     }
     Ok(())
 }
@@ -239,6 +224,7 @@ fn check_dependency(
     owner: &Owner,
     manifest: &str,
     dependency: &Value,
+    capabilities: &DependencyCapabilities,
     violations: &mut Vec<Violation>,
 ) -> Result<(), String> {
     // Cargo's name is the actual package, even if Cargo.toml renamed it to an innocent alias.
@@ -254,9 +240,35 @@ fn check_dependency(
         | Value::Array(_)
         | Value::Object(_) => return Err(format!("unknown dependency kind: {kind}")),
     };
-    if !is_development && !owner.dependencies.contains(&name) {
-        violations.push(Violation::new("rust-owner-dependency", manifest,
-            format!("{} -> {name} (kind={kind}, target={:?}, optional={:?}) is not an admitted capability", owner.name, dependency.get("target"), dependency.get("optional"))));
+    if !is_development {
+        if OWNERS.iter().any(|candidate| candidate.name == name) {
+            if !owner.internal_dependencies.contains(&name) {
+                violations.push(Violation::new(
+                    "rust-owner-dependency",
+                    manifest,
+                    format!(
+                        "{} -> {name} crosses internal authority (kind={kind})",
+                        owner.name
+                    ),
+                ));
+            }
+        } else {
+            match capabilities.cargo(name) {
+                None => violations.push(Violation::new(
+                    "rust-unclassified-dependency",
+                    manifest,
+                    format!("classify {name} in quality/dependency-capabilities.toml before selecting it"),
+                )),
+                Some(required) if !required.iter().all(|capability| owner.capabilities.contains(capability)) => {
+                    violations.push(Violation::new(
+                        "rust-owner-dependency",
+                        manifest,
+                        format!("{} -> {name} requires {required:?}, outside its capability boundary (kind={kind})", owner.name),
+                    ));
+                }
+                Some(_) => {}
+            }
+        }
     }
     if let Some(target) = OWNERS.iter().find(|candidate| candidate.name == name) {
         let path = dependency.get("path").and_then(Value::as_str);

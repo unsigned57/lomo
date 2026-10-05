@@ -8,6 +8,7 @@ publish = false
 autotests = false
 
 [dev-dependencies]
+lomo-xtask = { path = "../lomo-xtask" }
 serde_json.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
@@ -20,6 +21,38 @@ yaml-rust2 = { version = "=0.10.4", default-features = false }
 [[test]]
 name = "architecture"
 path = "tests/architecture.rs"
+
+[[test]]
+name = "ffi_reachability_contract"
+path = "tests/ffi_reachability_contract.rs"
+
+[[test]]
+name = "ffi_export_smuggling_contract"
+path = "tests/ffi_export_smuggling_contract.rs"
+
+[[test]]
+name = "ffi_marker_positions_contract"
+path = "tests/ffi_marker_positions_contract.rs"
+
+[[test]]
+name = "ffi_nested_marker_contract"
+path = "tests/ffi_nested_marker_contract.rs"
+
+[[test]]
+name = "ffi_hidden_marker_contract"
+path = "tests/ffi_hidden_marker_contract.rs"
+
+[[test]]
+name = "ffi_module_path_contract"
+path = "tests/ffi_module_path_contract.rs"
+
+[[test]]
+name = "ffi_block_decoy_contract"
+path = "tests/ffi_block_decoy_contract.rs"
+
+[[test]]
+name = "ffi_nested_block_decoy_contract"
+path = "tests/ffi_nested_block_decoy_contract.rs"
 
 [lints]
 workspace = true

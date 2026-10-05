@@ -143,7 +143,9 @@ mod tests {
     #[test]
     fn ownership_and_dependency_direction_are_unique() {
         let metadata = declared_cargo_metadata();
-        let violations = policy::rust_dependency_violations(&root(), &metadata)
+        let capabilities =
+            policy::DependencyCapabilities::load(&root()).expect("dependency capability policy");
+        let violations = policy::rust_dependency_violations(&root(), &metadata, &capabilities)
             .expect("Cargo metadata must describe every workspace owner");
         assert!(violations.is_empty(), "{violations:#?}");
         for source in files_under("apps/android/data/src") {
@@ -209,9 +211,11 @@ mod tests {
         // Truth from ARCHITECTURE.md "Kotlin modules": domain is platform-neutral, data is the
         // sole native-bindings consumer, app composes domain contracts, ui-components owns
         // presentation only. Internal references use the `//module` coordinate form.
+        let capabilities =
+            policy::DependencyCapabilities::load(&root()).expect("dependency capability policy");
         for path in policy::KOTLIN_MODULES {
             let text = read(&format!("{path}/module.yaml"));
-            let violations = policy::kotlin_dependency_violations(path, &text)
+            let violations = policy::kotlin_dependency_violations(path, &text, &capabilities)
                 .unwrap_or_else(|error| panic!("{path}: {error}"));
             assert!(violations.is_empty(), "{violations:#?}");
         }

@@ -2,6 +2,7 @@
 
 mod authority;
 mod config;
+mod dependency_capabilities;
 pub mod ffi;
 mod inventory;
 mod kotlin;
@@ -11,6 +12,7 @@ mod rust_source;
 
 pub use authority::kotlin_authority_violations;
 pub use config::detekt_config_violations;
+pub use dependency_capabilities::{Capability, DependencyCapabilities};
 pub use inventory::{owned_kotlin_module, source_files};
 pub use kotlin::{internal_module_dependencies, kotlin_dependency_violations};
 pub use rust_graph::{rust_dependency_violations, rust_manifest_violations};

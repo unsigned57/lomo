@@ -70,7 +70,10 @@ mod tests {
             ),
         ]);
         assert_eq!(contract_violations(&surface, &generated, &graph).len(), 1);
+        graph.classes.insert("host".to_owned());
         graph.roots.insert("host".to_owned());
+        // The platform can only instantiate a holder it knows: manifest registration.
+        graph.manifest.insert("host".to_owned());
         graph
             .edges
             .insert(("host".to_owned(), "adapter".to_owned()));
@@ -86,7 +89,15 @@ mod tests {
         let surface = parsed("#[export] pub trait Host { fn execute(&self); }");
         let generated = BTreeSet::from(["com.lomo.nativebridge.Host.execute".to_owned()]);
         let mut graph = ResolvedGraph::default();
-        graph.roots.insert("platformHost.execute".to_owned());
+        // The implementation holder is a manifest-registered entry point, but without
+        // the `base → impl` override edge the callback is still not wired to the
+        // generated API.
+        graph.classes.insert("platformHost".to_owned());
+        graph.roots.insert("platformHost".to_owned());
+        graph.manifest.insert("platformHost".to_owned());
+        graph
+            .edges
+            .insert(("platformHost".to_owned(), "platformHost.execute".to_owned()));
         assert_eq!(contract_violations(&surface, &generated, &graph).len(), 1);
         graph.edges.insert((
             "com.lomo.nativebridge.Host.execute".to_owned(),
@@ -100,9 +111,21 @@ mod tests {
         let surface = parsed("#[export] pub fn session_get_memo() {}");
         let generated = BTreeSet::from(["com.lomo.nativebridge.sessionGetMemo".to_owned()]);
         let mut graph = ResolvedGraph::default();
+        // The manifest-declared Application holder is the entry point; its
+        // `onCreate` member is reached through the holder containment edge.
+        graph
+            .classes
+            .insert("com.lomo.app.LomoApplication".to_owned());
         graph
             .roots
-            .insert(APP_RUNTIME_DATA_KOIN_INSTALLER.to_owned());
+            .insert("com.lomo.app.LomoApplication".to_owned());
+        graph
+            .manifest
+            .insert("com.lomo.app.LomoApplication".to_owned());
+        graph.edges.insert((
+            "com.lomo.app.LomoApplication".to_owned(),
+            APP_RUNTIME_DATA_KOIN_INSTALLER.to_owned(),
+        ));
         graph.edges.insert((
             APP_RUNTIME_DATA_KOIN_INSTALLED.to_owned(),
             "com.lomo.data.engine.BoltFfiNativeEnginePort.sessionGetMemo".to_owned(),
@@ -112,7 +135,9 @@ mod tests {
             "com.lomo.nativebridge.sessionGetMemo".to_owned(),
         ));
         assert_eq!(contract_violations(&surface, &generated, &graph).len(), 1);
-        install_app_data_koin_runtime_edge(&mut graph);
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        install_app_data_koin_runtime_edge(&root, &mut graph)
+            .unwrap_or_else(|error| panic!("live installer source must back the edge: {error}"));
         assert!(contract_violations(&surface, &generated, &graph).is_empty());
     }
 }

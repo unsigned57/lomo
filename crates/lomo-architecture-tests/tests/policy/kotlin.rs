@@ -1,6 +1,9 @@
 use yaml_rust2::Yaml;
 
-use super::{KOTLIN_MODULES, Violation, yaml_document};
+use super::Capability::{
+    Database, DependencyInjection, Ffi, Filesystem, Network, Platform, Portable, Ui,
+};
+use super::{Capability, DependencyCapabilities, KOTLIN_MODULES, Violation, yaml_document};
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct ModuleDependency {
@@ -69,7 +72,11 @@ fn dependency_entry(entry: &Yaml) -> Result<(&str, &str), String> {
     Ok((name, scope))
 }
 
-pub fn kotlin_dependency_violations(module: &str, source: &str) -> Result<Vec<Violation>, String> {
+pub fn kotlin_dependency_violations(
+    module: &str,
+    source: &str,
+    capabilities: &DependencyCapabilities,
+) -> Result<Vec<Violation>, String> {
     if !KOTLIN_MODULES.contains(&module) {
         return Err(format!("unowned Kotlin module: {module}"));
     }
@@ -78,7 +85,7 @@ pub fn kotlin_dependency_violations(module: &str, source: &str) -> Result<Vec<Vi
         let permitted = if let Some(name) = dependency.name.strip_prefix("//") {
             allowed_internal(module, name, &dependency.scope)
         } else {
-            allowed_external(module, &dependency)
+            allowed_external(module, &dependency, capabilities)?
         };
         if !permitted {
             violations.push(Violation::new(
@@ -109,25 +116,39 @@ fn allowed_internal(module: &str, dependency: &str, scope: &str) -> bool {
     }
 }
 
-fn allowed_external(module: &str, dependency: &ModuleDependency) -> bool {
+fn allowed_external(
+    module: &str,
+    dependency: &ModuleDependency,
+    capabilities: &DependencyCapabilities,
+) -> Result<bool, String> {
     if dependency.section.starts_with("test-dependencies") {
-        return true;
+        return Ok(true);
     }
     let mut parts = dependency.name.split(':');
     let (Some(group), Some(artifact)) = (parts.next(), parts.next()) else {
-        return false;
+        return Err(format!("invalid Maven dependency: {}", dependency.name));
     };
-    match module {
-        "apps/android/domain" => matches!(
-            (group, artifact),
-            (
-                "org.jetbrains.kotlinx",
-                "kotlinx-coroutines-core" | "kotlinx-serialization-json"
-            ) | ("androidx.paging", "paging-common")
-        ),
-        "apps/android/data" => {
-            !group.starts_with("androidx.compose") && group != "androidx.lifecycle"
-        }
-        _ => true,
-    }
+    let identity = format!("{group}:{artifact}");
+    let required = capabilities.maven(&identity).ok_or_else(|| {
+        format!("classify {identity} in quality/dependency-capabilities.toml before selecting it")
+    })?;
+    let permitted: &[Capability] = match module {
+        "apps/android/domain" => &[Portable],
+        "apps/android/data" => &[Portable, Filesystem, Platform, Network, DependencyInjection],
+        "apps/android/app" => &[
+            Portable,
+            Filesystem,
+            Platform,
+            Network,
+            Ui,
+            DependencyInjection,
+        ],
+        "apps/android/ui-components" => &[Portable, Platform, Network, Ui],
+        "apps/android/native-bindings" => &[Portable, Ffi],
+        "apps/android/quality/detekt-rules" => &[Portable, Filesystem, Platform, Database, Network],
+        _ => return Err(format!("unowned Kotlin capability boundary: {module}")),
+    };
+    Ok(required
+        .iter()
+        .all(|capability| permitted.contains(capability)))
 }

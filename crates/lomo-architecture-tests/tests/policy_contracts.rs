@@ -9,6 +9,17 @@
 //! replacement with `left=[]` and `right=["data"]`. Historical rule RED/GREEN evidence:
 //! audit/03-客户端与工程门禁修复计划.md#history-evidence.
 //! Excludes: product transactions, platform drivers, compiler type inference and performance timing.
+//!
+//! Dependency policy TDD proof: `cargo test -p lomo-architecture-tests --test architecture
+//! new_dependency_ --locked` failed both new-library cases against the identity allowlists;
+//! the same command passes with declared capabilities. Full policy tests retain boundary controls.
+//! Test Change Justification:
+//! Reason category: authorized dependency-selection contract change.
+//! Old behavior/assertion being replaced: every external library needed admission in test code.
+//! Why old assertion is no longer correct: library choice is an implementation fact; authority is not.
+//! Coverage preserved by: typed capability, alias, build/optional/target, internal-edge and path tests.
+//! Why this is not fitting the test to the implementation: new portable libraries must work while
+//! database/network/UI/FFI capabilities remain rejected at the wrong owner, independent of names.
 
 #[cfg(test)]
 mod tests {
@@ -31,8 +42,34 @@ mod tests {
         }
     }
 
+    fn fixture_capabilities() -> policy::DependencyCapabilities {
+        checked(policy::DependencyCapabilities::parse(
+            r#"schema_version = 1
+[cargo]
+next-codec = ["portable"]
+rusqlite = ["database"]
+[maven]
+"org.jetbrains.kotlinx:kotlinx-coroutines-core" = ["portable"]
+"io.insert-koin:koin-core" = ["dependency-injection"]
+"org.example:immutable-model" = ["portable"]
+"org.example:sql-driver" = ["database"]
+"org.example:network-codec" = ["portable", "network"]
+"org.example:screen" = ["ui"]
+"org.example:bridge" = ["ffi"]
+"#,
+        ))
+    }
+
+    fn rust_rules(root: &Path, input: &Value) -> Result<Vec<Violation>, String> {
+        policy::rust_dependency_violations(root, input, &fixture_capabilities())
+    }
+
     fn module_rules(module: &str, yaml: &str) -> Vec<Violation> {
-        checked(policy::kotlin_dependency_violations(module, yaml))
+        checked(policy::kotlin_dependency_violations(
+            module,
+            yaml,
+            &fixture_capabilities(),
+        ))
     }
 
     #[test]
@@ -156,7 +193,8 @@ mod tests {
         assert!(
             rejected(policy::kotlin_dependency_violations(
                 "apps/android/extra",
-                "dependencies: []"
+                "dependencies: []",
+                &fixture_capabilities()
             ))
             .contains("unowned Kotlin module")
         );
@@ -170,6 +208,156 @@ mod tests {
     }
 
     #[test]
+    fn new_dependency_portable_cargo_utility_does_not_need_an_owner_library_allowlist() {
+        let input = metadata(
+            "lomo-core",
+            "crates/lomo-core",
+            &[json!({"name": "next-codec", "kind": null})],
+        );
+        let violations = checked(rust_rules(Path::new("/repo"), &input));
+        assert!(violations.is_empty(), "{violations:#?}");
+    }
+
+    #[test]
+    fn new_dependency_portable_kotlin_utility_is_independent_of_library_and_version() {
+        for version in ["1.0.0", "2.0.0-alpha01"] {
+            let yaml = format!("dependencies: [org.example:immutable-model:{version}]");
+            let violations = module_rules("apps/android/domain", &yaml);
+            assert!(violations.is_empty(), "{violations:#?}");
+        }
+    }
+
+    #[test]
+    fn dependency_capability_changes_are_evaluated_without_an_owner_library_inventory() {
+        let input = metadata(
+            "lomo-core",
+            "crates/lomo-core",
+            &[json!({"name": "future-library", "kind": null, "req": "^3.0"})],
+        );
+        for (capabilities, allowed) in [
+            ("\"portable\"", true),
+            ("\"portable\", \"network\"", false),
+            ("\"database\"", false),
+            ("\"ui\"", false),
+            ("\"ffi\"", false),
+        ] {
+            let catalogue = checked(policy::DependencyCapabilities::parse(&format!(
+                "schema_version = 1\n[cargo]\nfuture-library = [{capabilities}]\n[maven]\n"
+            )));
+            let violations = checked(policy::rust_dependency_violations(
+                Path::new("/repo"),
+                &input,
+                &catalogue,
+            ));
+            assert_eq!(
+                violations.is_empty(),
+                allowed,
+                "{capabilities}: {violations:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn kotlin_capabilities_preserve_domain_and_shell_boundaries() {
+        for artifact in ["sql-driver", "network-codec", "screen", "bridge"] {
+            let yaml = format!("dependencies@jvm: [org.example:{artifact}:1.0.0]");
+            assert_eq!(
+                module_rules("apps/android/domain", &yaml).len(),
+                1,
+                "{artifact}"
+            );
+        }
+        let network = "dependencies: [org.example:network-codec:1.0.0]";
+        assert!(module_rules("apps/android/data", network).is_empty());
+        let ui = "dependencies: [org.example:screen:1.0.0]";
+        assert!(module_rules("apps/android/app", ui).is_empty());
+        assert_eq!(module_rules("apps/android/data", ui).len(), 1);
+        let ffi = "dependencies: [org.example:bridge:1.0.0]";
+        assert!(module_rules("apps/android/native-bindings", ffi).is_empty());
+        assert_eq!(module_rules("apps/android/app", ffi).len(), 1);
+    }
+
+    #[test]
+    fn unclassified_external_dependencies_are_not_assumed_portable() {
+        let input = metadata(
+            "lomo-core",
+            "crates/lomo-core",
+            &[json!({"name": "unclassified-driver", "kind": null})],
+        );
+        let violations = checked(rust_rules(Path::new("/repo"), &input));
+        assert_eq!(violations.len(), 1);
+        assert_eq!(
+            violations.first().map(|v| v.rule),
+            Some("rust-unclassified-dependency")
+        );
+        let error = rejected(policy::kotlin_dependency_violations(
+            "apps/android/domain",
+            "dependencies: [org.example:unclassified:1.0.0]",
+            &fixture_capabilities(),
+        ));
+        assert!(
+            error.contains("classify org.example:unclassified"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn dependency_catalogue_rejects_ambiguous_or_untyped_capabilities() {
+        for source in [
+            "",
+            "schema_version = 2\n[cargo]\n[maven]",
+            "schema_version = 1\n[cargo]",
+            "schema_version = 1\n[cargo]\ncodec=[]\n[maven]",
+            "schema_version = 1\n[cargo]\ncodec=[42]\n[maven]",
+            "schema_version = 1\n[cargo]\ncodec=[\"anything\"]\n[maven]",
+            "schema_version = 1\n[cargo]\ncodec=[\"portable\",\"portable\"]\n[maven]",
+            "schema_version = 1\n[cargo]\ncodec=[\"portable\"]\ncodec=[\"network\"]\n[maven]",
+            "schema_version = 1\n[cargo]\n\"codec@2\"=[\"portable\"]\n[maven]",
+            "schema_version = 1\n[cargo]\n[maven]\n\"org.example:codec:2.0\"=[\"portable\"]",
+            "schema_version = 1\n[cargo]\n[maven]\n[override]",
+        ] {
+            assert!(
+                policy::DependencyCapabilities::parse(source).is_err(),
+                "{source}"
+            );
+        }
+        let empty = checked(policy::DependencyCapabilities::parse(
+            "schema_version = 1\n[cargo]\n[maven]",
+        ));
+        let no_dependencies = metadata("lomo-core", "crates/lomo-core", &[]);
+        assert!(
+            checked(policy::rust_dependency_violations(
+                Path::new("/repo"),
+                &no_dependencies,
+                &empty
+            ))
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn external_classification_cannot_authorize_an_internal_authority_edge() {
+        let catalogue = checked(policy::DependencyCapabilities::parse(
+            "schema_version = 1\n[cargo]\nlomo-store=[\"portable\"]\n[maven]",
+        ));
+        let input = metadata(
+            "lomo-core",
+            "crates/lomo-core",
+            &[json!({"name": "lomo-store", "kind": null, "path": "/repo/crates/lomo-store"})],
+        );
+        let violations = checked(policy::rust_dependency_violations(
+            Path::new("/repo"),
+            &input,
+            &catalogue,
+        ));
+        assert_eq!(violations.len(), 1);
+        assert_eq!(
+            violations.first().map(|v| v.rule),
+            Some("rust-owner-dependency")
+        );
+    }
+
+    #[test]
     fn cargo_aliases_optional_edges_and_non_host_targets_cannot_admit_storage_to_core() {
         for kind in [Value::Null, json!("build")] {
             let input = metadata(
@@ -180,10 +368,7 @@ mod tests {
                     "optional": true, "target": "cfg(target_os = \"android\")",
                 })],
             );
-            let violations = checked(policy::rust_dependency_violations(
-                Path::new("/repo"),
-                &input,
-            ));
+            let violations = checked(rust_rules(Path::new("/repo"), &input));
             assert_eq!(violations.len(), 1);
             assert_eq!(
                 violations.first().map(|violation| violation.rule),
@@ -204,36 +389,20 @@ mod tests {
             ("lomo-core", "crates/lomo-core", json!("dev")),
         ] {
             let input = metadata(owner, path, &[json!({"name": "rusqlite", "kind": kind})]);
-            assert!(
-                checked(policy::rust_dependency_violations(
-                    Path::new("/repo"),
-                    &input
-                ))
-                .is_empty()
-            );
+            assert!(checked(rust_rules(Path::new("/repo"), &input)).is_empty());
         }
     }
 
     #[test]
     fn a_new_owner_or_a_spoofed_local_package_path_is_rejected() {
         let new_owner = metadata("lomo-rogue", "crates/lomo-rogue", &[]);
-        let unknown = checked(policy::rust_dependency_violations(
-            Path::new("/repo"),
-            &new_owner,
-        ));
+        let unknown = checked(rust_rules(Path::new("/repo"), &new_owner));
         assert_eq!(
             unknown.first().map(|violation| violation.rule),
             Some("rust-unowned-package")
         );
         let renamed = metadata("lomo-core", "crates/pretend-core", &[]);
-        assert_eq!(
-            checked(policy::rust_dependency_violations(
-                Path::new("/repo"),
-                &renamed
-            ))
-            .len(),
-            1
-        );
+        assert_eq!(checked(rust_rules(Path::new("/repo"), &renamed)).len(), 1);
         let spoofed = metadata(
             "lomo-workspace",
             "crates/lomo-workspace",
@@ -241,10 +410,7 @@ mod tests {
                 "name": "lomo-core", "kind": null, "path": "/repo/crates/unreviewed-core"
             })],
         );
-        let violations = checked(policy::rust_dependency_violations(
-            Path::new("/repo"),
-            &spoofed,
-        ));
+        let violations = checked(rust_rules(Path::new("/repo"), &spoofed));
         assert_eq!(
             violations.first().map(|violation| violation.rule),
             Some("rust-owner-path")
@@ -258,13 +424,7 @@ mod tests {
             json!({"packages": [], "workspace_members": []}),
             json!({"packages": [], "workspace_members": ["absent"]}),
         ] {
-            assert!(
-                !rejected(policy::rust_dependency_violations(
-                    Path::new("/repo"),
-                    &input
-                ))
-                .is_empty()
-            );
+            assert!(!rejected(rust_rules(Path::new("/repo"), &input)).is_empty());
         }
     }
 
