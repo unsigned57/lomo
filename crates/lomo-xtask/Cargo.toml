@@ -20,6 +20,8 @@ lomo-feasibility = { path = "../lomo-feasibility" }
 serde_json.workspace = true
 serde.workspace = true
 sha2.workspace = true
+tree-sitter = "=0.27.0"
+tree-sitter-kotlin-ng = "=1.1.0"
 yaml-rust2 = { version = "=0.10.4", default-features = false }
 
 [dev-dependencies]

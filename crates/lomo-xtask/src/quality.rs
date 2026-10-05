@@ -45,7 +45,7 @@ pub fn format(workspace: &Workspace, mode: FormatMode) -> Result<()> {
 
 pub use crate::verification::ChangeSource;
 
-pub fn preflight(workspace: &Workspace, source: &ChangeSource) -> Result<()> {
+pub fn preflight(workspace: &Workspace, source: &ChangeSource) -> Result<serde_json::Value> {
     crate::cache::run_cache(workspace, crate::cache::CacheMode::Prune)?;
     crate::verification::run(
         workspace,
@@ -56,7 +56,7 @@ pub fn preflight(workspace: &Workspace, source: &ChangeSource) -> Result<()> {
     )
 }
 
-pub fn check(workspace: &Workspace) -> Result<()> {
+pub fn check(workspace: &Workspace) -> Result<serde_json::Value> {
     crate::verification::run(
         workspace,
         &ChangeSource::All,
@@ -66,9 +66,9 @@ pub fn check(workspace: &Workspace) -> Result<()> {
     )
 }
 
-pub fn ci(workspace: &Workspace) -> Result<()> {
+pub fn ci(workspace: &Workspace) -> Result<serde_json::Value> {
     tools::ensure_quality(workspace)?;
-    check(workspace)?;
+    let verification = check(workspace)?;
     rust_full_gate(workspace, CoverageMode::On)?;
     native::generate_all(workspace, NativeProfile::Release)?;
     kotlin_gate(
@@ -84,9 +84,9 @@ pub fn ci(workspace: &Workspace) -> Result<()> {
         false,
         &native::Abi::ALL,
     )?;
-    crate::android::publish_apk(workspace, &apk, "debug", "all")?;
+    let published = crate::android::publish_apk(workspace, &apk, "debug", "all")?;
     crate::util::emit_stderr(format_args!("xtask: ci complete"));
-    Ok(())
+    Ok(serde_json::json!({"verification": verification, "apk": published}))
 }
 
 pub fn rust_ci(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {

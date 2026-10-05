@@ -19,6 +19,12 @@
  *
  * Excludes:
  * - Cache deletion, compilation performance, and external tool internals.
+ * Test Change Justification:
+ * Reason category: requested CLI protocol change.
+ * Old behavior/assertion being replaced: key=value lines on stderr.
+ * Why old assertion is no longer correct: cache discovery now returns named JSON path values.
+ * Coverage preserved by: all existing environment/path expectations remain identical.
+ * Why this is not fitting the test to the implementation: agent-readable output is the new contract.
  */
 
 #[cfg(test)]
@@ -50,7 +56,8 @@ mod tests {
                 String::from_utf8_lossy(&output.stderr)
             );
         }
-        let stderr = String::from_utf8(output.stderr).context("cache paths output is UTF-8")?;
+        let document: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+        ensure!(document.pointer("/status").context("/status")? == "succeeded");
 
         for expected in [
             "home=/tmp/lomo-cache-reuse-contract/home",
@@ -64,8 +71,14 @@ mod tests {
             "lomo_output=/tmp/lomo-cache-reuse-contract/cargo-target/lomo",
             "kotlin_build=/tmp/lomo-cache-reuse-contract/kotlin-build",
         ] {
+            let (name, path) = expected.split_once('=').context("path expectation")?;
             ensure!(
-                stderr.lines().any(|line| line == expected),
+                document
+                    .pointer("/data/paths")
+                    .context("paths")?
+                    .get(name)
+                    .context("named path")?
+                    == path,
                 "missing {expected}"
             );
         }

@@ -4,8 +4,10 @@ mod android;
 mod cache;
 mod cli;
 mod deps;
+mod kotlin_text;
 mod native;
 mod perf;
+mod protocol;
 mod quality;
 mod rust_pin;
 mod tools;
@@ -16,6 +18,7 @@ mod workspace;
 
 use std::path::PathBuf;
 
+pub use kotlin_text::{KotlinText, kotlin_code_view};
 pub use native::canonicalize_binding;
 pub use rust_pin::{RustPin, parse_channel, replace_toml_assignment};
 pub use tools::pinned_tool_version;
@@ -45,8 +48,9 @@ pub fn check_generated_artifact_layout() -> anyhow::Result<()> {
 ///
 /// Returns an error if workspace discovery fails or if the command execution fails.
 pub fn run_cli(arguments: &[String]) -> anyhow::Result<()> {
-    let workspace = workspace::Workspace::discover()?;
-    cli::run(&workspace, arguments)
+    let result =
+        workspace::Workspace::discover().and_then(|workspace| cli::run(&workspace, arguments));
+    protocol::finish(arguments, result)
 }
 
 /// Validates that an Android NDK directory contains a valid `source.properties`

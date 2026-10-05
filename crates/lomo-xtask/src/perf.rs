@@ -42,7 +42,7 @@ const REQUIRED_BASELINE_METRICS: &[&str] = &[
     "markdown_scale_100k_memo_parse",
 ];
 
-pub fn run_diagnostics(workspace: &Workspace) -> Result<()> {
+pub fn run_diagnostics(workspace: &Workspace) -> Result<serde_json::Value> {
     tools::ensure_diagnostics(workspace)?;
 
     // cargo-bloat rejects dual crate-type = [cdylib, rlib]. Measure the packaged
@@ -56,8 +56,7 @@ pub fn run_diagnostics(workspace: &Workspace) -> Result<()> {
 
     emit_quick_corpus(workspace)?;
     // Prove candidate dep graph compiles for four ABIs without shipping into production SO.
-    emit_baseline_report(workspace)?;
-    Ok(())
+    emit_baseline_report(workspace)
 }
 
 fn emit_quick_corpus(workspace: &Workspace) -> Result<()> {
@@ -94,7 +93,7 @@ fn report_native_so_sizes(workspace: &Workspace) -> Result<()> {
     Ok(())
 }
 
-fn emit_baseline_report(workspace: &Workspace) -> Result<()> {
+fn emit_baseline_report(workspace: &Workspace) -> Result<serde_json::Value> {
     let report_dir = workspace.reports_dir().join("feasibility");
     fs::create_dir_all(&report_dir)
         .with_context(|| format!("failed to create {}", report_dir.display()))?;
@@ -106,38 +105,30 @@ fn emit_baseline_report(workspace: &Workspace) -> Result<()> {
             FeasibilityExitCode::ReportIncomplete.as_i32()
         )
     })?;
-    let summary = report.to_human_summary().map_err(|error| {
-        anyhow::anyhow!(
-            "baseline summary incomplete (exit {}): {error}",
-            FeasibilityExitCode::ReportIncomplete.as_i32()
-        )
-    })?;
-
     let json_path = report_dir.join("baseline-report.v1.json");
-    let summary_path = report_dir.join("baseline-report.v1.txt");
     fs::write(&json_path, json)
         .with_context(|| format!("failed to write {}", json_path.display()))?;
-    fs::write(&summary_path, format!("{summary}\n"))
-        .with_context(|| format!("failed to write {}", summary_path.display()))?;
 
     write_performance_report(&report, &report_dir)?;
 
-    crate::util::emit_stderr(format_args!("xtask: wrote {}", json_path.display()));
-    crate::util::emit_stderr(format_args!("xtask: wrote {}", summary_path.display()));
-    crate::util::emit_stderr(format_args!("{summary}"));
-
-    // Product-pass contract: recipe exit 0 means required host metrics are established.
-    // Inconclusive/Fail must not look like a successful quality result.
+    let evidence = serde_json::json!({
+        "baseline_report": json_path,
+        "performance_report": report_dir.join("performance.v1.json"),
+        "conclusion": report.conclusion,
+    });
+    // A report is evidence, not success: incomplete or failing metrics keep the operation open.
     match report.conclusion {
-        BaselineConclusion::Pass => Ok(()),
-        BaselineConclusion::Inconclusive => bail!(
-            "feasibility baseline conclusion is Inconclusive (required metrics not product-pass); see {}",
-            summary_path.display()
-        ),
-        BaselineConclusion::Fail => bail!(
-            "feasibility baseline conclusion is Fail; see {}",
-            summary_path.display()
-        ),
+        BaselineConclusion::Pass => Ok(evidence),
+        BaselineConclusion::Inconclusive | BaselineConclusion::Fail => {
+            Err(crate::protocol::EvidenceError {
+                message: format!(
+                    "feasibility baseline conclusion is {:?}; required metrics are not established",
+                    report.conclusion
+                ),
+                evidence,
+            }
+            .into())
+        }
     }
 }
 

@@ -9,7 +9,7 @@ use std::{
     process::Command,
 };
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
 pub use graph::{ImpactGraph, Owner, OwnerKind};
@@ -728,16 +728,12 @@ pub(crate) fn run(
     scope: Option<&str>,
     mode: PlanMode,
     print_only: bool,
-) -> Result<()> {
+) -> Result<serde_json::Value> {
     let graph = ImpactGraph::load(&workspace.root)?;
     let inventory = ChangeInventory::read(&workspace.root, source)?;
     let plan = VerificationPlan::build(&graph, &inventory, scope, mode)?;
     if print_only {
-        use std::io::Write as _;
-        let mut stdout = std::io::stdout().lock();
-        serde_json::to_writer_pretty(&mut stdout, &plan)?;
-        writeln!(stdout)?;
-        return Ok(());
+        return Ok(serde_json::to_value(&plan)?);
     }
     util::emit_stderr(format_args!(
         "xtask: {} tasks; complete_worktree={}; excluded={:?}",
@@ -759,21 +755,23 @@ pub(crate) fn run(
     };
     let runner = runner::RepositoryRunner::new(workspace, mutation_diff.as_deref())?;
     let results = execute(&plan, &runner)?;
-    runner.write_report(&plan, &results)?;
+    let evidence = runner.write_report(&plan, &results)?;
     if let Some(failed) = results
         .iter()
         .find(|result| !matches!(result.status, TaskStatus::Passed))
     {
-        bail!(
-            "verification remains open: {} {:?}: {}",
-            failed.id,
-            failed.status,
-            failed.detail
-        );
+        return Err(crate::protocol::EvidenceError {
+            message: format!(
+                "verification remains open: {} {:?}: {}",
+                failed.id, failed.status, failed.detail
+            ),
+            evidence,
+        }
+        .into());
     }
     util::emit_stderr(format_args!(
         "xtask: verification passed; complete_worktree={}",
         plan.complete_worktree
     ));
-    Ok(())
+    Ok(evidence)
 }

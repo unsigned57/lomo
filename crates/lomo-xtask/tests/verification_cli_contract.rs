@@ -7,11 +7,18 @@
 //! - Given retired commands (ffi-parity, test, tui, mutants, package-linux, check-linux,
 //!   usecase-reachability, smokes), when the CLI runs, then none are advertised or accepted.
 //!
+//!
 //! Observable outcomes: CLI status and the serialized task graph, including scope completeness.
 //! TDD proof: `cargo test -p lomo-xtask --test verification_cli_contract --locked`;
 //! RED: the existing CLI rejects dev as an unknown command; GREEN: same command after wiring.
 //! RED: the CLI advertised and accepted `ffi-parity` before the legacy dispatch was deleted.
 //! Excludes: execution of Rust/Kotlin compilers and native packaging.
+//! Test Change Justification:
+//! Reason category: requested CLI protocol change.
+//! Old behavior/assertion being replaced: bare plan JSON and help tokens on stderr.
+//! Why old assertion is no longer correct: all commands now return a versioned JSON result.
+//! Coverage preserved by: the same plan/scope assertions and explicit retired-command rejection.
+//! Why this is not fitting the test to the implementation: the agent protocol is the requested API.
 
 #[cfg(test)]
 mod tests {
@@ -30,7 +37,9 @@ mod tests {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        let plan: Value = serde_json::from_slice(&output.stdout).context("plan JSON")?;
+        let result: Value = serde_json::from_slice(&output.stdout).context("plan JSON")?;
+        ensure!(result.pointer("/status").context("/status")? == "succeeded");
+        let plan = result.pointer("/data").context("/data")?;
         let tasks = plan
             .get("tasks")
             .and_then(Value::as_array)
@@ -78,11 +87,15 @@ mod tests {
             .arg("help")
             .output()?;
         ensure!(help.status.success());
-        let help = String::from_utf8_lossy(&help.stderr);
-        let tokens: Vec<&str> = help.split_whitespace().collect();
+        let help: Value = serde_json::from_slice(&help.stdout)?;
+        let commands = help
+            .pointer("/data/commands")
+            .context("/data/commands")?
+            .as_array()
+            .context("command catalog")?;
         for command in retired {
             ensure!(
-                !tokens.contains(&command),
+                !commands.iter().any(|entry| entry["name"] == command),
                 "the retired command must not be advertised: {command}"
             );
             let output = Command::new(env!("CARGO_BIN_EXE_lomo-xtask"))

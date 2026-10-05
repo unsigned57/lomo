@@ -14,9 +14,12 @@ rust_channel := `awk '
 # The command and all child tool invocations use the repository's pinned Rust toolchain.
 xtask := "RUSTUP_TOOLCHAIN=\"" + rust_channel + "\" cargo run --manifest-path Cargo.toml --locked -p lomo-xtask --"
 
-# Show the canonical Lomo command surface.
+# Discover the canonical command protocol as JSON.
 default:
-    @just --list
+    @{{xtask}} commands
+
+commands:
+    @{{xtask}} commands
 
 # Install the pinned Rust tools, targets, and Android NDK.
 bootstrap:
@@ -71,11 +74,6 @@ perf:
 # `prune` runs automatically inside `_preflight` before every push.
 cache mode="audit":
     {{xtask}} cache {{mode}}
-
-# Build the TUI and install it as the lomo-local pacman package (prompts for sudo).
-install-tui:
-    RUSTUP_TOOLCHAIN="{{rust_channel}}" cargo build --manifest-path Cargo.toml -p lomo-tui --release --locked
-    cd apps/tui/packaging/arch/lomo-local && makepkg -efi
 
 # Note: the `_preflight` push gate (run by .githooks/pre-push) already runs diff-scoped
 # cargo-mutants on touched Rust crates. A full-workspace sweep is `cargo mutants` directly.

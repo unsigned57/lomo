@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
+use serde_json::{Value, json};
 
 use crate::{util::remove_if_exists, workspace::Workspace};
 
@@ -20,13 +21,10 @@ pub enum CacheMode {
     Clean,
 }
 
-pub fn run_cache(workspace: &Workspace, mode: CacheMode) -> Result<()> {
+pub fn run_cache(workspace: &Workspace, mode: CacheMode) -> Result<Value> {
     match mode {
         CacheMode::Audit => audit(workspace),
-        CacheMode::Paths => {
-            paths(workspace);
-            Ok(())
-        }
+        CacheMode::Paths => Ok(paths(workspace)),
         CacheMode::Prune => prune(workspace),
         CacheMode::Clean => clean(workspace),
     }
@@ -42,9 +40,9 @@ pub fn parse_mode(value: &str) -> Result<CacheMode> {
     }
 }
 
-fn paths(workspace: &Workspace) {
+fn paths(workspace: &Workspace) -> Value {
     let lomo_output = workspace.lomo_output_dir();
-    for (name, path) in [
+    let paths: std::collections::BTreeMap<_, _> = [
         ("home", &workspace.kotlin_home),
         ("xdg_cache", &workspace.kotlin_cache),
         ("xdg_data", &workspace.kotlin_data),
@@ -57,13 +55,14 @@ fn paths(workspace: &Workspace) {
         ("lomo_output", &lomo_output),
         ("cargo_tools", &workspace.tool_root),
         ("kotlin_build", &workspace.kotlin_build),
-    ] {
-        crate::util::emit_stderr(format_args!("{name}={}", path.display()));
-    }
+    ]
+    .into_iter()
+    .collect();
+    json!({"paths": paths})
 }
 
-fn audit(workspace: &Workspace) -> Result<()> {
-    crate::util::emit_stderr(format_args!("Lomo generated-state audit"));
+fn audit(workspace: &Workspace) -> Result<Value> {
+    let mut entries = Vec::new();
     for relative in [
         ".cache",
         ".gradle",
@@ -75,20 +74,22 @@ fn audit(workspace: &Workspace) -> Result<()> {
         "apps/android/native-bindings/src",
     ] {
         let path = workspace.root.join(relative);
-        if path.exists() {
-            crate::util::emit_stderr(format_args!("{relative}: {} bytes", directory_size(&path)?));
+        if path.try_exists()? {
+            entries
+                .push(json!({"path": path, "state": "present", "bytes": directory_size(&path)?}));
         } else {
-            crate::util::emit_stderr(format_args!("{relative}: absent"));
+            entries.push(json!({"path": path, "state": "absent"}));
         }
     }
-    Ok(())
+    Ok(json!({"entries": entries}))
 }
 
-fn prune(workspace: &Workspace) -> Result<()> {
+fn prune(workspace: &Workspace) -> Result<Value> {
     let target = &workspace.rust_target;
     let lomo_output = workspace.lomo_output_dir();
     let instrumented = target.join("llvm-cov-target");
-    if instrumented.exists() {
+    let removed_instrumented = instrumented.try_exists()?;
+    if removed_instrumented {
         crate::util::emit_stderr(format_args!("xtask: removing {}", instrumented.display()));
         remove_if_exists(&instrumented)?;
     }
@@ -128,14 +129,14 @@ fn prune(workspace: &Workspace) -> Result<()> {
             }
         }
     }
-    crate::util::emit_stderr(format_args!(
-        "xtask: pruned {removed} stale artifacts ({freed} bytes) under {}",
-        target.display()
-    ));
-    Ok(())
+    Ok(json!({
+        "target": target, "removed_files": removed, "freed_file_bytes": freed,
+        "removed_instrumented_directory": removed_instrumented,
+    }))
 }
 
-fn clean(workspace: &Workspace) -> Result<()> {
+fn clean(workspace: &Workspace) -> Result<Value> {
+    let mut removed = Vec::new();
     for relative in [
         ".kotlin/toolchain-build",
         "build/apk",
@@ -155,10 +156,12 @@ fn clean(workspace: &Workspace) -> Result<()> {
         ".cache/native",
     ] {
         let path = workspace.root.join(relative);
-        crate::util::emit_stderr(format_args!("xtask: removing {}", path.display()));
-        remove_if_exists(&path)?;
+        if path.try_exists()? {
+            remove_if_exists(&path)?;
+            removed.push(path);
+        }
     }
-    Ok(())
+    Ok(json!({"removed": removed}))
 }
 
 fn directory_size(path: &Path) -> Result<u64> {

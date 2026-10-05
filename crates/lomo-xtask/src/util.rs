@@ -20,7 +20,11 @@ pub fn emit_stderr(args: std::fmt::Arguments<'_>) {
 
 pub fn run(command: &mut Command) -> Result<()> {
     announce(command);
-    let status = command.status().context("failed to start command")?;
+    let status = command
+        .stdout(io::stderr())
+        .stdin(std::process::Stdio::null())
+        .status()
+        .context("failed to start command")?;
     if !status.success() {
         bail!("command failed with {status}: {}", describe(command));
     }

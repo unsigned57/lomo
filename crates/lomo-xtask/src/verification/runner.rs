@@ -212,22 +212,22 @@ impl<'a> RepositoryRunner<'a> {
         &self,
         plan: &VerificationPlan,
         reports: &[TaskReport],
-    ) -> Result<()> {
-        fs::write(
-            self.report_dir.join("results.json"),
-            serde_json::to_vec_pretty(&serde_json::json!({ "plan": plan, "results": reports }))?,
-        )?;
+    ) -> Result<serde_json::Value> {
+        let path = self.report_dir.join("results.json");
+        let mut logs = BTreeMap::new();
         for report in reports {
-            util::emit_stderr(format_args!(
-                "xtask: {} {:?} {} ms: {}",
-                report.id, report.status, report.elapsed_ms, report.detail
-            ));
+            let log = self
+                .report_dir
+                .join(format!("{}.log", report.id.replace(':', "_")));
+            if log.try_exists()? {
+                logs.insert(&report.id, log);
+            }
         }
-        util::emit_stderr(format_args!(
-            "xtask: evidence {}",
-            self.report_dir.display()
-        ));
-        Ok(())
+        let evidence = serde_json::json!({
+            "plan": plan, "results": reports, "report_path": path, "logs": logs,
+        });
+        fs::write(&path, serde_json::to_vec_pretty(&evidence)?)?;
+        Ok(evidence)
     }
 
     fn command(&self, task: &Task) -> Result<Command> {
@@ -372,16 +372,15 @@ impl<'a> RepositoryRunner<'a> {
         Ok(cargo)
     }
 
-    /// Diff-scoped incremental mutation testing. `--in-place` reuses the shared target dir
-    /// already warmed by this DAG's clippy/test tasks; a leftover mutation flips the
-    /// post-task input digest and fails closed. The baseline is skipped because this task
+    /// Diff-scoped incremental mutation testing. Copy mode (no `--in-place`) with `-j`
+    /// parallelism: each mutant gets its own source copy, so jobs run concurrently instead
+    /// of serializing on a single live tree. The baseline is skipped because this task
     /// runs strictly after `rust-tests:<package>` proved the suite green.
     fn mutants_command(&self, package: &str) -> Result<Command> {
         let mut cargo = util::cargo(self.workspace);
         cargo
             .args([
                 "mutants",
-                "--in-place",
                 "--baseline",
                 "skip",
                 "--test-tool",
@@ -391,6 +390,8 @@ impl<'a> RepositoryRunner<'a> {
                 "never",
                 "--minimum-test-timeout",
                 "120",
+                "-j",
+                "8",
                 "--package",
                 package,
                 "--in-diff",
@@ -625,10 +626,32 @@ impl CommandRunner for RepositoryRunner<'_> {
                 output.display()
             );
             if matches!(artifact, Artifact::BaselineProfile) {
+                // Existence is not freshness: the committed profile is only valid while it is
+                // byte-identical to what the generator just produced from the compiled
+                // classes. A mismatch means the committed file is stale or hand-edited.
+                let regenerated = self.report_dir.join("baseline-profile/generated.txt");
+                let regenerated_bytes = fs::read(&regenerated).with_context(|| {
+                    format!(
+                        "baseline task declared its output but produced no regenerated \
+                         evidence at {}",
+                        regenerated.display()
+                    )
+                })?;
                 ensure!(
-                    fs::metadata(&output)?.len() > 0,
-                    "empty declared output {}",
-                    output.display()
+                    !regenerated_bytes.is_empty(),
+                    "generator produced an empty baseline profile: {}",
+                    regenerated.display()
+                );
+                let committed_bytes = fs::read(&output)
+                    .with_context(|| format!("read committed {}", output.display()))?;
+                ensure!(
+                    regenerated_bytes == committed_bytes,
+                    "committed baseline profile is stale or hand-edited: {} does not match \
+                     the profile regenerated from the current classes at {}; refresh it via \
+                     `quality/scripts/generate_static_baseline_profile.py --build-dir \
+                     <shared kotlin build dir>`",
+                    output.display(),
+                    regenerated.display()
                 );
             }
         }
