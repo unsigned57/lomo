@@ -801,17 +801,19 @@ impl<S: GitObjectSource> RemoteSyncPort for GitAdapter<S> {
         let live_tip = self.with_repo(|repo| self.live_remote_tip(repo))?;
         let expected = batch.expected_snapshot_token.as_deref();
         match (expected, live_tip) {
-            (Some(token), Some(tip)) if !token.is_empty() && tip.to_string() != token => {
+            // A present-but-empty (or whitespace-only) CAS anchor is malformed input, never
+            // "no expectation": the precondition is unverifiable, so the publish must not proceed.
+            (Some(token), _) if token.trim().is_empty() => {
                 return Ok(PublishReceipt {
                     path_results: path_statuses(batch, &PathPublishStatus::PreconditionFailed),
                 });
             }
-            (None, Some(_)) => {
+            (Some(token), Some(tip)) if tip.to_string() != token => {
                 return Ok(PublishReceipt {
                     path_results: path_statuses(batch, &PathPublishStatus::PreconditionFailed),
                 });
             }
-            (Some(token), None) if !token.is_empty() => {
+            (None, Some(_)) | (Some(_), None) => {
                 return Ok(PublishReceipt {
                     path_results: path_statuses(batch, &PathPublishStatus::PreconditionFailed),
                 });

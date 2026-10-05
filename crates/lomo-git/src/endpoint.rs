@@ -122,7 +122,11 @@ pub fn validate_git_remote_url(remote_url: &str) -> Result<(), LomoError> {
     validate_remote_url_shape(remote_url)
 }
 
-/// `user@host:path` SCP-like syntax is SSH transport — rejected with the SSH error code.
+/// SCP-like syntax is SSH transport — rejected with the SSH error code.
+///
+/// Any `authority:path` shape whose pre-colon segment carries no `/` is SCP-like:
+/// `user@host:path`, `host:path`, and `host:port/path` (`ssh -p` equivalent) alike.
+/// Requiring `@` would let host-only and host:port forms through as local paths.
 fn is_scp_like_ssh(remote_url: &str) -> bool {
     if remote_url.contains("://") {
         return false;
@@ -130,7 +134,7 @@ fn is_scp_like_ssh(remote_url: &str) -> bool {
     let Some((before_colon, _)) = remote_url.split_once(':') else {
         return false;
     };
-    before_colon.contains('@') && !before_colon.contains('/')
+    !before_colon.is_empty() && !before_colon.contains('/')
 }
 
 /// Supported remote schemes: `https` (production) and `file` (hermetic local remotes).

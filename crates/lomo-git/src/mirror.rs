@@ -53,34 +53,93 @@ fn init_bare_mirror(mirror_dir: &Path) -> Result<Repository, LomoError> {
 ///
 /// The mirror is a rebuildable cache: permission/filesystem failures propagate unchanged, while a
 /// corrupt or half-initialized tree is moved aside intact (evidence preserved at
-/// `{mirror}.corrupt-{epoch_ms}`) and re-initialized exactly once.
+/// `{mirror}.corrupt-{epoch_ms}[-{n}]`) and re-initialized exactly once. Quarantine evidence is
+/// bounded to [`MAX_MIRROR_QUARANTINE_DIRS`] sibling directories — the newest are kept, older
+/// corrupt trees are pruned so repeated corruption cannot grow unbounded.
 fn open_or_recover_bare_mirror(mirror_dir: &Path) -> Result<Repository, LomoError> {
     match Repository::open_bare(mirror_dir) {
         Ok(repo) => Ok(repo),
         Err(error) if is_recoverable_mirror_corruption(&error) => {
-            let epoch_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|error| storage("git_clock_failed", &error.to_string()))?
-                .as_millis();
-            let quarantine = mirror_dir.with_file_name(format!(
-                "{}.corrupt-{epoch_ms}",
-                mirror_dir
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("mirror")
-            ));
-            fs::rename(mirror_dir, &quarantine).map_err(|error| {
-                storage(
-                    "git_mirror_quarantine_failed",
-                    &format!(
-                        "failed to quarantine corrupt mirror to {}: {error}",
-                        quarantine.display()
-                    ),
-                )
-            })?;
+            quarantine_corrupt_mirror(mirror_dir)?;
             init_bare_mirror(mirror_dir)
         }
         Err(error) => Err(from_git2("git_open_bare_failed", &error)),
+    }
+}
+
+/// Cap on retained `{mirror}.corrupt-*` evidence trees (newest survive; older are pruned).
+const MAX_MIRROR_QUARANTINE_DIRS: usize = 4;
+
+/// Moves the corrupt mirror aside into a unique `{mirror}.corrupt-{epoch_ms}[-{n}]` sibling,
+/// then prunes the oldest corrupt trees beyond [`MAX_MIRROR_QUARANTINE_DIRS`].
+fn quarantine_corrupt_mirror(mirror_dir: &Path) -> Result<(), LomoError> {
+    let epoch_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| storage("git_clock_failed", &error.to_string()))?
+        .as_millis();
+    let base_name = mirror_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("mirror");
+    // Same-millisecond corruptions would collide on `corrupt-{epoch_ms}`; the `-{n}` suffix
+    // keeps every quarantined tree distinct so evidence is never silently overwritten.
+    let mut suffix = 0u32;
+    loop {
+        let quarantine = mirror_dir.with_file_name(if suffix == 0 {
+            format!("{base_name}.corrupt-{epoch_ms}")
+        } else {
+            format!("{base_name}.corrupt-{epoch_ms}-{suffix}")
+        });
+        if quarantine.exists() {
+            suffix += 1;
+            continue;
+        }
+        fs::rename(mirror_dir, &quarantine).map_err(|error| {
+            storage(
+                "git_mirror_quarantine_failed",
+                &format!(
+                    "failed to quarantine corrupt mirror to {}: {error}",
+                    quarantine.display()
+                ),
+            )
+        })?;
+        break;
+    }
+    prune_quarantine_evidence(mirror_dir, base_name);
+    Ok(())
+}
+
+/// Keeps only the newest [`MAX_MIRROR_QUARANTINE_DIRS`] `{name}.corrupt-*` siblings.
+fn prune_quarantine_evidence(mirror_dir: &Path, base_name: &str) {
+    let Some(parent) = mirror_dir.parent() else {
+        return;
+    };
+    let prefix = format!("{base_name}.corrupt-");
+    let mut quarantines: Vec<std::path::PathBuf> = match fs::read_dir(parent) {
+        Ok(entries) => entries
+            .filter_map(|entry| {
+                // behavior-contract: silent-result-ok: an unreadable directory entry is
+                // evidence we cannot bound — skipping it never fails the already-quarantined
+                // rebuild, and a prune failure must never fail open.
+                entry.map_or(None, |entry| Some(entry.path()))
+            })
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(&prefix))
+            })
+            .collect(),
+        // behavior-contract: silent-result-ok: evidence prune is best-effort; the corrupt tree
+        // is already quarantined and the mirror rebuilt — a listing failure must not fail open.
+        Err(_) => return,
+    };
+    // Timestamp-prefixed names sort chronologically; prune the oldest beyond the bound.
+    quarantines.sort();
+    let excess = quarantines.len().saturating_sub(MAX_MIRROR_QUARANTINE_DIRS);
+    for stale in quarantines.into_iter().take(excess) {
+        // behavior-contract: silent-result-ok: stale evidence removal is best-effort; a prune
+        // failure leaves extra evidence but never corrupts the rebuilt mirror.
+        drop(fs::remove_dir_all(&stale));
     }
 }
 

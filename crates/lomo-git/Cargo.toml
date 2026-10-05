@@ -17,6 +17,18 @@ path = "tests/git_adapter_contract.rs"
 name = "provider_smoke"
 path = "tests/provider_smoke.rs"
 
+[[test]]
+name = "remote_endpoint_contract"
+path = "tests/remote_endpoint_contract.rs"
+
+[[test]]
+name = "git_remote_contract"
+path = "tests/git_remote_contract.rs"
+
+[[test]]
+name = "git_remote_surface_contract"
+path = "tests/git_remote_surface_contract.rs"
+
 [dependencies]
 lomo-core = { path = "../lomo-core" }
 lomo-sync = { path = "../lomo-sync" }
