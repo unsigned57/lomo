@@ -3,6 +3,7 @@ package com.lomo.data.repository
 import com.lomo.data.engine.sync.RustSyncCycleStatusStore
 import com.lomo.data.engine.sync.toWebDavSyncState
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.sync.SyncIdentityResetPolicy
 import com.lomo.data.webdav.WebDavCredentialStore
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.CredentialFieldState
@@ -59,24 +60,52 @@ class WebDavSyncConfigurationRepositoryImpl(
         cycleStatus.observe().map { status -> status?.lastSuccessfulAtMs }
 }
 
+/**
+ * WebDAV config writes. The resolved endpoint (`endpointUrl`, falling back to `baseUrl`) and
+ * the username are canonical remote identity (`SyncBackendConfig::canonical_identity`):
+ * changing either invalidates the durable `.lomo/sync/v1` tree minted under the old identity,
+ * so [SyncIdentityResetPolicy] disposes it before the write lands. Re-writing the stored
+ * value, a shadowed `baseUrl`, and non-identity settings (provider label, password, autosync)
+ * leave durable state untouched.
+ */
 class WebDavSyncConfigurationMutationRepositoryImpl(
     private val dataStore: LomoDataStore,
     private val credentialStore: WebDavCredentialStore,
     private val credentialRepository: CredentialRepository,
+    private val identityReset: SyncIdentityResetPolicy,
 ) : WebDavSyncConfigurationMutationRepository {
     override suspend fun setProvider(provider: WebDavProvider) {
         dataStore.updateWebDavProvider(provider.preferenceValue)
     }
 
     override suspend fun setBaseUrl(url: String) {
-        dataStore.updateWebDavBaseUrl(url.trim())
+        val normalized = url.trim()
+        val before = resolvedEndpoint()
+        // baseUrl participates in identity only while no explicit endpointUrl overrides it.
+        val after = dataStore.webDavEndpointUrl.first()?.trim().orEmpty().ifBlank { normalized }
+        if (before != after) {
+            identityReset.resetIdentityScopedSyncState()
+        }
+        dataStore.updateWebDavBaseUrl(normalized)
     }
 
     override suspend fun setEndpointUrl(url: String) {
-        dataStore.updateWebDavEndpointUrl(url.trim())
+        val normalized = url.trim()
+        val before = resolvedEndpoint()
+        // A blank endpointUrl falls back to baseUrl — clearing can still move the identity.
+        val after = normalized.ifBlank { dataStore.webDavBaseUrl.first()?.trim().orEmpty() }
+        if (before != after) {
+            identityReset.resetIdentityScopedSyncState()
+        }
+        dataStore.updateWebDavEndpointUrl(normalized)
     }
 
     override suspend fun setUsername(username: String) {
+        // The username is non-secret canonical identity; compare through the credential store
+        // so re-writing the same name does not wipe the durable sync tree.
+        if (credentialStore.getUsername().orEmpty() != username) {
+            identityReset.resetIdentityScopedSyncState()
+        }
         credentialRepository.writeSecret(CredentialField.WEBDAV_USERNAME, username)
     }
 
@@ -109,6 +138,12 @@ class WebDavSyncConfigurationMutationRepositoryImpl(
     override suspend fun setSyncOnRefreshEnabled(enabled: Boolean) {
         dataStore.updateWebDavSyncOnRefresh(enabled)
     }
+
+    /** Mirrors `RustSyncCycleInputFactory`: explicit endpointUrl wins, baseUrl is the fallback. */
+    private suspend fun resolvedEndpoint(): String =
+        dataStore.webDavEndpointUrl.first()?.trim().orEmpty().ifBlank {
+            dataStore.webDavBaseUrl.first()?.trim().orEmpty()
+        }
 
     private suspend fun effectiveUsernameStatus(): StoredCredentialStatus {
         dataStore.webDavUsername.first()?.takeIf(String::isNotBlank)?.let { legacyUsername ->

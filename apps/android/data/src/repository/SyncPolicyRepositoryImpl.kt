@@ -2,11 +2,11 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.sync.GitEndpointSecurityMigration
+import com.lomo.data.sync.SyncIdentityResetPolicy
 import com.lomo.data.worker.CoreSyncScheduler
 import com.lomo.data.worker.RustSyncScheduler
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.repository.SyncPolicyRepository
-import com.lomo.domain.repository.SyncStateResetRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -16,7 +16,7 @@ internal class SyncPolicyRepositoryImpl(
     private val dataStore: LomoDataStore,
     private val coreSyncScheduler: CoreSyncScheduler,
     private val rustSyncScheduler: RustSyncScheduler,
-    private val syncStateReset: SyncStateResetRepository,
+    private val identityReset: SyncIdentityResetPolicy,
     private val gitEndpointSecurityMigration: GitEndpointSecurityMigration,
 ) : SyncPolicyRepository {
     override fun ensureCoreSyncActive() {
@@ -32,8 +32,9 @@ internal class SyncPolicyRepositoryImpl(
         }
         val previous = SyncBackendType.fromStorageValue(dataStore.syncBackendType.first())
         if (previous != type) {
-            rustSyncScheduler.cancel()
-            syncStateReset.resetWorkspaceScopedSyncState()
+            // A backend switch changes canonical remote identity wholesale: dispose queued
+            // work, deferred inputs and the durable control tree under the old fence.
+            identityReset.resetIdentityScopedSyncState()
         }
         dataStore.setRemoteSyncBackendType(type.storageValue())
     }

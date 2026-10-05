@@ -118,17 +118,16 @@ internal class TestCredentialRepository(
             reads[field] ?: CredentialSecretReadResult.Missing
         }
 
-    override suspend fun writeSecret(
-        field: CredentialField,
-        value: String?,
-    ) {
-        writes += field to value
-        reads[field] =
-            if (value == null) {
-                CredentialSecretReadResult.Missing
-            } else {
-                CredentialSecretReadResult.Present(value)
-            }
+    override suspend fun writeSecrets(values: Map<CredentialField, String?>) {
+        values.forEach { (field, value) ->
+            writes += field to value
+            reads[field] =
+                if (value == null) {
+                    CredentialSecretReadResult.Missing
+                } else {
+                    CredentialSecretReadResult.Present(value)
+                }
+        }
     }
 
     private fun credentialStateFor(provider: CredentialProvider): CredentialState =

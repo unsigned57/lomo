@@ -3,8 +3,12 @@ package com.lomo.data.repository
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
+import androidx.work.Data
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.sync.SyncIdentityResetPolicy
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.worker.DeferredLockWorkStore
+import com.lomo.data.worker.RustSyncScheduler
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.CredentialFieldState
 import com.lomo.domain.model.CredentialProvider
@@ -21,7 +25,10 @@ import com.lomo.domain.model.StoredCredentialStatus
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.CredentialRepository
 import com.lomo.domain.repository.SecuritySessionPolicy
+import com.lomo.domain.repository.SyncStateResetRepository
 import io.kotest.assertions.throwables.shouldThrow
+import io.mockk.every
+import io.mockk.mockk
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
@@ -102,6 +109,9 @@ import java.nio.file.Files
  *   credential import can fail and then relies on rollback.
  * - RED: commit ordering test fails while the ordinary transaction is recorded before credential
  *   writes.
+ * - reaudit-2 F-2: the commit-ordering expectation now covers the single atomic credential
+ *   batch — imports and omission clears land in one writeSecrets call (canonical field order)
+ *   before the ordinary transaction, so cancellation can never split them.
  *
  * Excludes:
  * - encrypted settings file format, Android keystore encryption, UI import flow, and repository archive parsing.
@@ -743,10 +753,19 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                     ),
                 )
 
-                fixture.operationLog.take(3) shouldBe
+                // The whole sensitive phase is one writeSecrets batch: imports and omission
+                // clears land together (in canonical field order) before the ordinary write.
+                fixture.operationLog.take(10) shouldBe
                     listOf(
+                        "credential:GIT_TOKEN=<cleared>",
+                        "credential:GIT_USERNAME=<cleared>",
+                        "credential:WEBDAV_USERNAME=<cleared>",
+                        "credential:WEBDAV_PASSWORD=<cleared>",
                         "credential:S3_ACCESS_KEY_ID=s3-access-key",
                         "credential:S3_SECRET_ACCESS_KEY=s3-secret-key",
+                        "credential:S3_SESSION_TOKEN=<cleared>",
+                        "credential:S3_ENCRYPTION_PASSWORD=<cleared>",
+                        "credential:S3_ENCRYPTION_PASSWORD2=<cleared>",
                         "ordinary",
                     )
                 fixture.dataStore.syncBackendType.first() shouldBe "s3"
@@ -821,6 +840,9 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                 fixture.credentials.webDavPassword = "original-dav-password"
                 fixture.preferenceUpdates.failures += restoreFailure
                 fixture.preferenceUpdates.failures += rollbackPreferenceFailure
+                // The restore batch clears WEBDAV_PASSWORD first — let that write succeed so
+                // the injected failure lands on the rollback's sensitive batch.
+                fixture.credentials.webDavPasswordFailures += null
                 fixture.credentials.webDavPasswordFailures += rollbackSensitiveFailure
 
                 val failure =
@@ -839,6 +861,125 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
                     rollbackPreferenceFailure,
                     rollbackSensitiveFailure,
                 )
+            }
+        }
+
+        test("given restore moves the selected backend identity when restore runs then sync state is disposed before writes") {
+            runTest {
+                val fixture = setUpStore()
+                fixture.dataStore.setRemoteSyncBackendType("git")
+                fixture.dataStore.updateGitRemoteUrl("https://old.example/repo.git")
+                fixture.dataStore.updateGitAuthorName("Alice")
+                fixture.dataStore.updateGitAuthorEmail("alice@example.invalid")
+                fixture.credentials.gitUsername = "gituser"
+
+                fixture.store.restore(
+                    MigrationSettingsSnapshot(
+                        preferences =
+                            fullValidPreferencePayload(
+                                mapOf(
+                                    SettingsKey.SYNC_BACKEND_TYPE to "git",
+                                    SettingsKey.GIT_REMOTE_URL to "https://new.example/repo.git",
+                                ),
+                            ),
+                        sensitive =
+                            mapOf(
+                                SettingsKey.GIT_TOKEN to "tok",
+                                SettingsKey.GIT_USERNAME to "gituser",
+                            ),
+                    ),
+                )
+
+                fixture.identityResetEvents shouldBe listOf("cancel", "deferred-clear", "reset")
+                // Disposal observed the pre-write remote: reset runs before the mutation lands.
+                fixture.remoteAtReset() shouldBe "https://old.example/repo.git"
+                fixture.dataStore.gitRemoteUrl.first() shouldBe "https://new.example/repo.git"
+            }
+        }
+
+        test("given restore keeps the selected backend identity when restore runs then durable state is untouched") {
+            runTest {
+                val fixture = setUpStore()
+                fixture.dataStore.setRemoteSyncBackendType("git")
+                fixture.dataStore.updateGitRemoteUrl("https://same.example/repo.git")
+                fixture.dataStore.updateGitAuthorName("Alice")
+                fixture.dataStore.updateGitAuthorEmail("alice@example.invalid")
+                fixture.credentials.gitUsername = "gituser"
+
+                fixture.store.restore(
+                    MigrationSettingsSnapshot(
+                        preferences =
+                            fullValidPreferencePayload(
+                                mapOf(
+                                    SettingsKey.SYNC_BACKEND_TYPE to "git",
+                                    SettingsKey.GIT_REMOTE_URL to "https://same.example/repo.git",
+                                ),
+                            ),
+                        sensitive =
+                            mapOf(
+                                SettingsKey.GIT_TOKEN to "tok",
+                                SettingsKey.GIT_USERNAME to "gituser",
+                            ),
+                    ),
+                )
+
+                fixture.identityResetEvents shouldBe emptyList()
+                fixture.dataStore.gitRemoteUrl.first() shouldBe "https://same.example/repo.git"
+            }
+        }
+
+        test("given restore switches the selected backend when restore runs then sync state is disposed once") {
+            runTest {
+                val fixture = setUpStore()
+                fixture.dataStore.setRemoteSyncBackendType("none")
+
+                fixture.store.restore(
+                    MigrationSettingsSnapshot(
+                        preferences =
+                            fullValidPreferencePayload(
+                                mapOf(SettingsKey.SYNC_BACKEND_TYPE to "s3"),
+                            ),
+                        sensitive =
+                            mapOf(
+                                SettingsKey.S3_ACCESS_KEY_ID to "s3-access-key",
+                                SettingsKey.S3_SECRET_ACCESS_KEY to "s3-secret-key",
+                            ),
+                    ),
+                )
+
+                fixture.identityResetEvents shouldBe listOf("cancel", "deferred-clear", "reset")
+                fixture.dataStore.syncBackendType.first() shouldBe "s3"
+            }
+        }
+
+        test("given restore only moves a non-selected backend field when restore runs then durable state is untouched") {
+            runTest {
+                val fixture = setUpStore()
+                fixture.dataStore.setRemoteSyncBackendType("git")
+                fixture.dataStore.updateGitRemoteUrl("https://same.example/repo.git")
+                fixture.dataStore.updateGitAuthorName("Alice")
+                fixture.dataStore.updateGitAuthorEmail("alice@example.invalid")
+                fixture.credentials.gitUsername = "gituser"
+
+                fixture.store.restore(
+                    MigrationSettingsSnapshot(
+                        preferences =
+                            fullValidPreferencePayload(
+                                mapOf(
+                                    SettingsKey.SYNC_BACKEND_TYPE to "git",
+                                    SettingsKey.GIT_REMOTE_URL to "https://same.example/repo.git",
+                                    SettingsKey.S3_BUCKET to "moved-bucket",
+                                ),
+                            ),
+                        sensitive =
+                            mapOf(
+                                SettingsKey.GIT_TOKEN to "tok",
+                                SettingsKey.GIT_USERNAME to "gituser",
+                            ),
+                    ),
+                )
+
+                fixture.identityResetEvents shouldBe emptyList()
             }
         }
     }
@@ -926,17 +1067,47 @@ class DataStoreMigrationSettingsStoreTest : DataFunSpec() {
             operationLog = operationLog,
         )
         val credentials = CredentialFixtureState()
+        val identityResetEvents = mutableListOf<String>()
+        var remoteAtReset: String? = null
         val store =
             DataStoreMigrationSettingsStore(
                 dataStore = dataStore,
                 credentialRepository = FakeCredentialRepository(credentials, operationLog),
                 securitySessionPolicy = AuthorizedSecuritySessionPolicy,
+                identityReset =
+                    SyncIdentityResetPolicy(
+                        scheduler =
+                            mockk<RustSyncScheduler>().also {
+                                every { it.cancel() } answers { identityResetEvents += "cancel" }
+                            },
+                        deferredLockStore =
+                            object : DeferredLockWorkStore {
+                                override fun save(input: Data) = error("not used")
+
+                                override fun take(): Data? = null
+
+                                override fun clear() {
+                                    identityResetEvents += "deferred-clear"
+                                }
+                            },
+                        syncStateReset =
+                            object : SyncStateResetRepository {
+                                override suspend fun resetWorkspaceScopedSyncState() {
+                                    // Observed mid-disposal: the pre-write identity value must
+                                    // still be stored — reset runs before the mutation lands.
+                                    remoteAtReset = dataStore.gitRemoteUrl.first()
+                                    identityResetEvents += "reset"
+                                }
+                            },
+                    ),
             )
         return SettingsStoreFixture(
             dataStore = dataStore,
             credentials = credentials,
             preferenceUpdates = preferenceUpdates,
             operationLog = operationLog,
+            identityResetEvents = identityResetEvents,
+            remoteAtReset = { remoteAtReset },
             store = store,
         )
     }
@@ -970,6 +1141,8 @@ private data class SettingsStoreFixture(
     val credentials: CredentialFixtureState,
     val preferenceUpdates: PreferenceUpdateControl,
     val operationLog: List<String>,
+    val identityResetEvents: List<String>,
+    val remoteAtReset: () -> String?,
     val store: DataStoreMigrationSettingsStore,
 )
 
@@ -1009,7 +1182,9 @@ private data class CredentialFixtureState(
     var s3SessionToken: String? = null,
     var s3EncryptionPassword: String? = null,
     var s3EncryptionPassword2: String? = null,
-    val webDavPasswordFailures: MutableList<Throwable> = mutableListOf(),
+    // Queue consumed one entry per WEBDAV_PASSWORD write; a `null` entry is a successful write —
+    // it lets a test aim an injected failure at the rollback batch (the second mutating call).
+    val webDavPasswordFailures: MutableList<Throwable?> = mutableListOf(),
 )
 
 private object AuthorizedSecuritySessionPolicy : SecuritySessionPolicy {
@@ -1051,14 +1226,26 @@ private class FakeCredentialRepository(
         return readValue(field)?.let(CredentialSecretReadResult::Present) ?: CredentialSecretReadResult.Missing
     }
 
-    override suspend fun writeSecret(
+    override suspend fun writeSecrets(values: Map<CredentialField, String?>) {
+        // The batch applies synchronously without a suspension point — mirroring the contract —
+        // while still logging one entry per field so ordering assertions keep working.
+        values.forEach { (field, value) ->
+            if (field == CredentialField.WEBDAV_PASSWORD &&
+                credentials.webDavPasswordFailures.isNotEmpty()
+            ) {
+                // Queue entries are nullable: `null` means this write succeeds — used to target
+                // a failure at the rollback batch rather than the restore batch.
+                credentials.webDavPasswordFailures.removeFirst()?.let { throw it }
+            }
+            operationLog += "credential:${field.name}=${value ?: "<cleared>"}"
+            applyWrite(field, value)
+        }
+    }
+
+    private fun applyWrite(
         field: CredentialField,
         value: String?,
     ) {
-        if (field == CredentialField.WEBDAV_PASSWORD) {
-            credentials.webDavPasswordFailures.removeFirstOrNull()?.let { throw it }
-        }
-        operationLog += "credential:${field.name}=${value ?: "<cleared>"}"
         when (field) {
             CredentialField.GIT_TOKEN -> credentials.gitToken = value
             CredentialField.GIT_USERNAME -> credentials.gitUsername = value

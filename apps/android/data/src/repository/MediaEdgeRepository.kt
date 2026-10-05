@@ -7,6 +7,7 @@ import com.lomo.data.engine.media.MediaPort
 import com.lomo.data.engine.media.MediaPromotePlan
 import com.lomo.data.engine.media.MediaSourceKind
 import com.lomo.data.engine.media.MediaStageRootProvider
+import com.lomo.data.engine.media.MediaSweepDraftGuard
 import com.lomo.data.engine.media.PendingMediaStageRegistry
 import com.lomo.data.engine.media.WorkspaceFilesystemRoot
 import com.lomo.data.engine.store.StoreMemoQuery
@@ -16,11 +17,15 @@ import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.DraftId
+import com.lomo.domain.model.DraftMediaReconciliation
+import com.lomo.domain.model.DraftStagedMediaRef
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.MediaImageDescriptor
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MediaRepository
+import com.lomo.domain.repository.MemoCreateDraftRepository
+import com.lomo.domain.repository.MemoEditDraftRepository
 import com.lomo.domain.repository.WorkspaceMutationLease
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
@@ -63,6 +68,8 @@ data class MediaEdgeRepositoryDependencies(
     val stageRoot: MediaStageRootProvider,
     val writeLease: WorkspaceMutationLease,
     val storePort: StorePort,
+    val createDraftRepository: MemoCreateDraftRepository,
+    val editDraftRepository: MemoEditDraftRepository,
 )
 
 data class MediaEdgeRepositoryLimits(
@@ -86,6 +93,8 @@ constructor(
     private val stageRoot: MediaStageRootProvider = dependencies.stageRoot
     private val writeLease: WorkspaceMutationLease = dependencies.writeLease
     private val storePort: StorePort = dependencies.storePort
+    private val createDraftRepository: MemoCreateDraftRepository = dependencies.createDraftRepository
+    private val editDraftRepository: MemoEditDraftRepository = dependencies.editDraftRepository
     private val clockMs: () -> Long = limits.clockMs
     private val recoveryWindowMs: Long = limits.recoveryWindowMs
     private val maxStageBytes: Long = limits.maxStageBytes
@@ -309,16 +318,74 @@ constructor(
      * The Rust session enumerates `media/` candidates, then inside its transaction lock recomputes
      * the complete protection set — live and trashed bodies, in-window history revisions, conflict
      * drafts, frozen transactions, and stage-ledger leases — before moving unreferenced objects to
-     * media-trash and purging expired entries. Kotlin supplies no reference facts; wrapping the
-     * call in `mediaWrite` keeps the sweep inside the workspace mutation lease so a workspace
-     * transition drains it like every other writer.
+     * media-trash and purging expired entries. Kotlin supplies exactly one fact kind the Rust
+     * draft store cannot see: the DataStore editor-draft bodies, passed as sweep-scoped guards so
+     * media referenced only by an unsaved draft is never reclaimed under it. Wrapping the call in
+     * `mediaWrite` keeps the sweep inside the workspace mutation lease so a workspace transition
+     * drains it like every other writer.
      */
     override suspend fun runOrphanSweepAtOperationBoundary() {
         mediaWrite {
             mediaPort.sessionMediaOrphanSweep(
                 nowMs = clockMs(),
                 recoveryWindowMs = recoveryWindowMs,
+                externalDrafts = externalDraftGuards(),
             )
+        }
+    }
+
+    /**
+     * Snapshot of the durable Kotlin editor drafts as sweep guards. Each draft's durable id is
+     * the diagnostic owner; the Rust side projects the body inside the sweep lock and persists
+     * nothing. A corrupt draft read surfaces through the repository contract rather than
+     * silently dropping protection.
+     */
+    private suspend fun externalDraftGuards(): List<MediaSweepDraftGuard> =
+        listOfNotNull(
+            createDraftRepository.read()?.let { draft ->
+                MediaSweepDraftGuard(ownerId = draft.draftId.value, content = draft.content)
+            },
+            editDraftRepository.read()?.let { draft ->
+                MediaSweepDraftGuard(ownerId = draft.draftId.value, content = draft.content)
+            },
+        )
+
+    /**
+     * Restart reconciliation: reads this draft's lease rows straight from the Rust stage ledger,
+     * including rows whose staged bytes vanished. The ledger remains the only authority — this is
+     * a read view, never a second bookkeeping source.
+     */
+    override suspend fun reconcileDraftMedia(draftId: DraftId): DraftMediaReconciliation =
+        withContext(dispatcherProvider.io) {
+            DraftMediaReconciliation(
+                draftId = draftId,
+                records =
+                    pendingStages.draftRecords(draftId).map { record ->
+                        DraftStagedMediaRef(
+                            artifactId = record.artifactId,
+                            relativePath = record.suggestedFinalRelativePath,
+                            stagedBytesPresent = record.stagedBytesPresent,
+                        )
+                    },
+            )
+        }
+
+    /**
+     * Drops every lease the draft still owns. Bytes only die when no other holder leases them, so
+     * media re-leased to a frozen pending operation survives this cleanup. Also evicts the staged
+     * preview entries so a discarded draft's media cannot resolve through the location map.
+     */
+    override suspend fun releaseDraftLeases(draftId: DraftId) {
+        mediaWrite {
+            val released = pendingStages.releaseDraft(draftId)
+            if (released.isNotEmpty()) {
+                imageLocationMap.update { current ->
+                    released.fold(current) { acc, record ->
+                        val key = record.suggestedFinalRelativePath
+                        acc - MediaEntryId(key) - MediaEntryId(key.substringAfterLast('/'))
+                    }
+                }
+            }
         }
     }
 

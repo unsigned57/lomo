@@ -1133,6 +1133,10 @@ class StoreInvalidationBus(
      * A replaced projection is a new incarnation: its high-water may be *lower* than the retired
      * one, so comparing revisions would wrongly reject every later commit as stale. Re-anchoring
      * makes the next publication a full re-read instead of a size comparison.
+     *
+     * The generation clock is minted exclusively by the session's activation counter; a
+     * projection replacement must not consume a generation the next activation will still
+     * issue, so this re-anchor only resets the revision/sequence watermarks.
      */
     fun reanchorProjection(highWaterRevision: Long) {
         require(highWaterRevision >= 0L) {
@@ -1140,7 +1144,6 @@ class StoreInvalidationBus(
         }
         val sources =
             synchronized(publicationLock) {
-                lastGeneration += 1L
                 lastCoreRevision = highWaterRevision
                 lastEventSequence = null
                 _publications.value =

@@ -148,7 +148,9 @@ private fun PendingSyncReviewRecord.toReviewDescriptor(
 ): PendingSyncReviewDescriptor {
     val payload = json.decodeFromString<PendingSyncReviewPayload>(payloadJson)
     return PendingSyncReviewDescriptor(
-        source = SyncBackendType.valueOf(backend),
+        // A persisted backend name from a build this one does not know reads as UNKNOWN
+        // (unavailable), never a throw from valueOf and never a collapse into NONE.
+        source = SyncBackendType.fromStorageValue(backend),
         items =
             payload.items.map { item ->
                 PendingSyncReviewItemDescriptor(

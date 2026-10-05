@@ -4,8 +4,9 @@ import android.content.Context
 import com.lomo.data.engine.archive.ArchivePort
 import com.lomo.data.engine.media.WorkspaceFilesystemRoot
 import com.lomo.domain.repository.MigrationArchiveRepository
+import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.usecase.MigrationArchiveSummary
-import com.lomo.domain.usecase.MigrationPasswordException
+import com.lomo.domain.usecase.MigrationEnvelopeException
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
 import com.lomo.domain.usecase.MigrationSettingsSummary
@@ -29,6 +30,7 @@ constructor(
     private val workspaceRoot: WorkspaceFilesystemRoot,
     private val settingsStore: MigrationSettingsStore,
     private val invalidation: StoreInvalidationBus,
+    private val syncPolicyRepository: SyncPolicyRepository,
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) : MigrationArchiveRepository {
     override suspend fun exportAllNotesArchive(output: OutputStream): MigrationArchiveSummary =
@@ -87,38 +89,43 @@ constructor(
     override suspend fun exportEncryptedSettings(
         output: OutputStream,
         password: String,
-    ): MigrationSettingsSummary {
-        require(password.isNotBlank()) { "Migration password must not be blank" }
-        val snapshot = settingsStore.snapshot()
-        val plainText = migrationJson.encodeToString(snapshot).toByteArray(Charsets.UTF_8)
-        output.write(encryptSettings(plainText = plainText, password = password).toByteArray(Charsets.UTF_8))
-        return snapshot.toSummary()
-    }
+    ): MigrationSettingsSummary =
+        withContext(dispatcherProvider.io) {
+            require(password.isNotBlank()) { "Migration password must not be blank" }
+            val snapshot = settingsStore.snapshot()
+            val plainText = migrationJson.encodeToString(snapshot).toByteArray(Charsets.UTF_8)
+            output.write(
+                encryptSettings(plainText = plainText, password = password).toByteArray(Charsets.UTF_8),
+            )
+            snapshot.toSummary()
+        }
 
     override suspend fun importEncryptedSettings(
         input: InputStream,
         password: String,
-    ): MigrationSettingsSummary {
-        require(password.isNotBlank()) { "Migration password must not be blank" }
-        val plainText =
-            decryptSettings(
-                envelopeText =
-                    // behavior-contract: full-load-ok: complete payload required for parse/hash
-                    input.readBytes().toString(Charsets.UTF_8),
-                password = password,
-            )
-        val snapshot =
-            try {
-                migrationJson.decodeFromString<MigrationSettingsSnapshot>(
-                    plainText.toString(Charsets.UTF_8),
-                )
-            } catch (exception: SerializationException) {
-                throw MigrationPasswordException("Migration settings file is not valid", exception)
-            }
-        (settingsStore as? MigrationSettingsRestoreValidator)?.validateRestore(snapshot)
-        settingsStore.restore(snapshot)
-        return snapshot.toSummary()
-    }
+    ): MigrationSettingsSummary =
+        withContext(dispatcherProvider.io) {
+            require(password.isNotBlank()) { "Migration password must not be blank" }
+            // Untrusted input is byte-budgeted before it is materialized.
+            val envelopeText = input.readSettingsEnvelopeText()
+            val plainText = decryptSettings(envelopeText = envelopeText, password = password)
+            val snapshot =
+                try {
+                    migrationJson.decodeFromString<MigrationSettingsSnapshot>(
+                        plainText.toString(Charsets.UTF_8),
+                    )
+                } catch (exception: SerializationException) {
+                    throw MigrationEnvelopeException("Migration settings file is not valid", exception)
+                } catch (exception: IllegalArgumentException) {
+                    throw MigrationEnvelopeException("Migration settings file is not valid", exception)
+                }
+            (settingsStore as? MigrationSettingsRestoreValidator)?.validateRestore(snapshot)
+            settingsStore.restore(snapshot)
+            // A restored backend selection bypasses setRemoteSyncBackend, so reconcile the
+            // persisted choice with the work schedule before reporting success.
+            syncPolicyRepository.applyRemoteSyncPolicy()
+            snapshot.toSummary()
+        }
 
     private fun requireDirectWorkspaceRoot(): String =
         workspaceRoot.absolutePathOrNull()

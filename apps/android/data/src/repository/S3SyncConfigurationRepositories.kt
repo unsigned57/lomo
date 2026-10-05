@@ -3,6 +3,8 @@ package com.lomo.data.repository
 import com.lomo.data.engine.sync.RustSyncCycleStatusStore
 import com.lomo.data.engine.sync.toS3SyncState
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.s3.S3CredentialStore
+import com.lomo.data.sync.SyncIdentityResetPolicy
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.CredentialState
@@ -18,6 +20,7 @@ import com.lomo.domain.repository.S3SyncConfigurationMutationRepository
 import com.lomo.domain.repository.S3SyncConfigurationRepository
 import com.lomo.domain.repository.S3SyncStateRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 class S3SyncConfigurationRepositoryImpl(
@@ -69,24 +72,42 @@ class S3SyncConfigurationRepositoryImpl(
         cycleStatus.observe().map { status -> status?.lastSuccessfulAtMs }
 }
 
+/**
+ * S3 config writes. Endpoint, region, bucket, prefix and access-key id are canonical remote
+ * identity (`SyncBackendConfig::canonical_identity`): changing any of them invalidates the
+ * durable `.lomo/sync/v1` tree minted under the old identity, so [SyncIdentityResetPolicy]
+ * disposes it before the write lands. Re-writing the stored value and non-identity settings
+ * (secret keys, session token, local directory, path style, encryption, autosync) leave
+ * durable state untouched.
+ */
 class S3SyncConfigurationMutationRepositoryImpl(
     private val dataStore: LomoDataStore,
     private val credentialRepository: CredentialRepository,
+    private val credentialStore: S3CredentialStore,
+    private val identityReset: SyncIdentityResetPolicy,
 ) : S3SyncConfigurationMutationRepository {
     override suspend fun setEndpointUrl(url: String) {
-        dataStore.updateS3EndpointUrl(url.trim())
+        val normalized = url.trim()
+        resetIfIdentityChanged(dataStore.s3EndpointUrl.first().orEmpty(), normalized)
+        dataStore.updateS3EndpointUrl(normalized)
     }
 
     override suspend fun setRegion(region: String) {
-        dataStore.updateS3Region(region.trim())
+        val normalized = region.trim()
+        resetIfIdentityChanged(dataStore.s3Region.first().orEmpty(), normalized)
+        dataStore.updateS3Region(normalized)
     }
 
     override suspend fun setBucket(bucket: String) {
-        dataStore.updateS3Bucket(bucket.trim())
+        val normalized = bucket.trim()
+        resetIfIdentityChanged(dataStore.s3Bucket.first().orEmpty(), normalized)
+        dataStore.updateS3Bucket(normalized)
     }
 
     override suspend fun setPrefix(prefix: String) {
-        dataStore.updateS3Prefix(prefix.trim().trim('/'))
+        val normalized = prefix.trim().trim('/')
+        resetIfIdentityChanged(dataStore.s3Prefix.first().orEmpty(), normalized)
+        dataStore.updateS3Prefix(normalized)
     }
 
     override suspend fun setLocalSyncDirectory(pathOrUri: String) {
@@ -98,6 +119,12 @@ class S3SyncConfigurationMutationRepositoryImpl(
     }
 
     override suspend fun setAccessKeyId(accessKeyId: String) {
+        // The access-key id is non-secret canonical identity; compare through the credential
+        // store so re-writing the same key does not wipe the durable sync tree.
+        resetIfIdentityChanged(
+            credentialStore.getSecret(CredentialField.S3_ACCESS_KEY_ID).orEmpty(),
+            accessKeyId,
+        )
         credentialRepository.writeSecret(CredentialField.S3_ACCESS_KEY_ID, accessKeyId)
     }
 
@@ -184,6 +211,16 @@ class S3SyncConfigurationMutationRepositoryImpl(
 
     override suspend fun setSyncOnRefreshEnabled(enabled: Boolean) {
         dataStore.updateS3SyncOnRefresh(enabled)
+    }
+
+    /** Canonical-identity write guard: disposal runs before the mutation lands, never on a no-op re-write. */
+    private suspend fun resetIfIdentityChanged(
+        previous: String,
+        next: String,
+    ) {
+        if (previous != next) {
+            identityReset.resetIdentityScopedSyncState()
+        }
     }
 
     private suspend fun credentialState(): CredentialState =

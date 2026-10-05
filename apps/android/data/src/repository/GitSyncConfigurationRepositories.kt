@@ -3,6 +3,9 @@ package com.lomo.data.repository
 import com.lomo.data.engine.sync.RustSyncCycleStatusStore
 import com.lomo.data.engine.sync.toUnifiedSyncState
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.sync.SyncIdentityResetPolicy
+import com.lomo.data.worker.GIT_AUTHOR_EMAIL_DEFAULT
+import com.lomo.data.worker.GIT_AUTHOR_NAME_DEFAULT
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.model.CredentialProvider
 import com.lomo.domain.model.StoredCredentialStatus
@@ -14,6 +17,7 @@ import com.lomo.domain.repository.GitSyncConfigurationMutationRepository
 import com.lomo.domain.repository.GitSyncConfigurationRepository
 import com.lomo.domain.repository.GitSyncStateRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 class GitSyncConfigurationRepositoryImpl(
@@ -42,16 +46,34 @@ class GitSyncConfigurationRepositoryImpl(
     override fun getSyncOnRefreshEnabled(): Flow<Boolean> = dataStore.gitSyncOnRefresh
 }
 
+/**
+ * Git config writes. Remote URL, branch and commit-author fields are canonical remote
+ * identity (`SyncBackendConfig::canonical_identity`): changing any of them invalidates the
+ * durable `.lomo/sync/v1` tree minted under the old identity, so [SyncIdentityResetPolicy]
+ * disposes it before the write lands. Re-writing the stored value and non-identity settings
+ * (token, autosync) leave durable state untouched.
+ */
 class GitSyncConfigurationMutationRepositoryImpl(
     private val dataStore: LomoDataStore,
     private val credentialRepository: CredentialRepository,
+    private val identityReset: SyncIdentityResetPolicy,
 ) : GitSyncConfigurationMutationRepository {
     override suspend fun setRemoteUrl(url: String) {
-        dataStore.updateGitRemoteUrl(url)
+        // Compare through the same trim the cycle input factory applies — a cosmetic
+        // whitespace edit is not an identity change.
+        val normalized = url.trim()
+        if (dataStore.gitRemoteUrl.first()?.trim().orEmpty() != normalized) {
+            identityReset.resetIdentityScopedSyncState()
+        }
+        dataStore.updateGitRemoteUrl(normalized)
     }
 
     override suspend fun setBranch(branch: String) {
-        dataStore.updateGitBranch(branch)
+        val normalized = branch.trim()
+        if (dataStore.gitBranch.first().trim() != normalized) {
+            identityReset.resetIdentityScopedSyncState()
+        }
+        dataStore.updateGitBranch(normalized)
     }
 
     override suspend fun setToken(token: String) {
@@ -69,8 +91,17 @@ class GitSyncConfigurationMutationRepositoryImpl(
         name: String,
         email: String,
     ) {
-        dataStore.updateGitAuthorName(name)
-        dataStore.updateGitAuthorEmail(email)
+        // Canonical identity carries the *effective* author: the input factory substitutes
+        // defaults for blanks, so compare effective values on both sides.
+        if (dataStore.gitAuthorName.first().trim().ifBlank { GIT_AUTHOR_NAME_DEFAULT } !=
+            name.trim().ifBlank { GIT_AUTHOR_NAME_DEFAULT } ||
+            dataStore.gitAuthorEmail.first().trim().ifBlank { GIT_AUTHOR_EMAIL_DEFAULT } !=
+            email.trim().ifBlank { GIT_AUTHOR_EMAIL_DEFAULT }
+        ) {
+            identityReset.resetIdentityScopedSyncState()
+        }
+        dataStore.updateGitAuthorName(name.trim())
+        dataStore.updateGitAuthorEmail(email.trim())
     }
 
     override fun getAuthorName(): Flow<String> = dataStore.gitAuthorName

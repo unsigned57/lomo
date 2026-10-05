@@ -2,11 +2,8 @@ package com.lomo.data.sync
 
 import com.lomo.data.engine.media.WorkspaceFilesystemRoot
 import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.worker.DeferredLockWorkStore
-import com.lomo.data.worker.RustSyncScheduler
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.repository.CredentialRepository
-import com.lomo.domain.repository.SyncStateResetRepository
 import com.lomo.domain.usecase.DefaultDispatcherProvider
 import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.flow.first
@@ -30,9 +27,7 @@ import java.io.File
 internal class GitEndpointSecurityMigration(
     private val dataStore: LomoDataStore,
     private val credentialRepository: CredentialRepository,
-    private val scheduler: RustSyncScheduler,
-    private val deferredLockStore: DeferredLockWorkStore,
-    private val syncStateReset: SyncStateResetRepository,
+    private val identityReset: SyncIdentityResetPolicy,
     private val workspaceRoot: WorkspaceFilesystemRoot,
     private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) {
@@ -74,9 +69,7 @@ internal class GitEndpointSecurityMigration(
     }
 
     private suspend fun purgePoisonedSurfaces() {
-        scheduler.cancel()
-        deferredLockStore.clear()
-        syncStateReset.resetWorkspaceScopedSyncState()
+        identityReset.resetIdentityScopedSyncState()
         val root = workspaceRoot.absolutePathOrNull()
         if (!root.isNullOrBlank()) {
             withContext(dispatcherProvider.io) {
@@ -129,8 +122,8 @@ internal sealed interface LegacyGitUserinfoEndpoint {
         fun parse(remote: String): LegacyGitUserinfoEndpoint? {
             val schemeEnd = remote.indexOf("://")
             if (schemeEnd < 0) {
-                // SCP-like `user@host:path` is SSH transport with an embedded identity —
-                // nothing here is a reusable HTTPS credential.
+                // Every SCP-like shape (`user@host:path`, `host:path`, `host:port/path`) is
+                // SSH transport — nothing here is a reusable HTTPS credential.
                 return if (isScpLike(remote)) Untrusted else null
             }
             val authorityStart = schemeEnd + 3
@@ -164,9 +157,18 @@ internal sealed interface LegacyGitUserinfoEndpoint {
             )
         }
 
+        /**
+         * SCP-like SSH shape per the Rust endpoint policy (`lomo-git` `is_scp_like_ssh`):
+         * any `prefix:rest` without a `://` scheme marker whose prefix is non-empty and has no
+         * `/`. This covers `user@host:path`, bare `host:path`, and `host:port/path` alike —
+         * every form git would interpret as SSH transport.
+         */
         private fun isScpLike(remote: String): Boolean {
+            if (remote.contains("://")) {
+                return false
+            }
             val beforeColon = remote.substringBefore(':', "")
-            return beforeColon.contains('@') && !beforeColon.contains('/')
+            return beforeColon.isNotEmpty() && !beforeColon.contains('/')
         }
 
         /** RFC 3986 percent-decoding; `+` stays literal (userinfo is not form data). */

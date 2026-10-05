@@ -36,6 +36,17 @@ package com.lomo.data.repository
  *
  * Excludes:
  * - Rust executor internals, SAF inbox roots, and projection publication.
+ *
+ * Test Change Justification:
+ * - Reason category: MediaPort sweep contract widened for external draft guards.
+ * - Old behavior/assertion being replaced: the recording fake implemented sessionMediaOrphanSweep
+ *   without the external-draft guard list.
+ * - Why old assertion is no longer correct: the port signature now takes the draft-guard list so
+ *   a sweep cannot reclaim leases owned by durable drafts; the stub still errors because the
+ *   inbox scenarios never reach the sweep.
+ * - Coverage preserved by: all stage→verify→commit scenarios unchanged.
+ * - Why this is not fitting the test to the implementation: only the unused fake's signature
+ *   moved; no assertion changed.
  */
 
 import android.content.Context
@@ -48,6 +59,7 @@ import com.lomo.data.engine.media.MediaStageOwnerKind
 import com.lomo.data.engine.media.MediaStageRecord
 import com.lomo.data.engine.media.MediaStageRelease
 import com.lomo.data.engine.media.MediaStagedFacts
+import com.lomo.data.engine.media.MediaSweepDraftGuard
 import com.lomo.data.engine.media.MediaSweepReport
 import com.lomo.data.engine.media.PendingMediaStageRegistry
 import com.lomo.data.engine.store.StoreInvalidationScope
@@ -469,6 +481,7 @@ private class RecordingStageLedgerMediaPort : MediaPort {
     override fun sessionMediaOrphanSweep(
         nowMs: Long?,
         recoveryWindowMs: Long,
+        externalDrafts: List<MediaSweepDraftGuard>,
     ): MediaSweepReport = error("orphan sweep is not exercised by the inbox test")
 
     private fun sha256(bytes: ByteArray): String =

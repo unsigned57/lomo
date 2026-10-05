@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.sync.SyncIdentityResetPolicy
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.repository.CredentialRepository
 import com.lomo.domain.model.CredentialSecretReadResult
@@ -17,6 +18,7 @@ constructor(
         private val dataStore: LomoDataStore,
         private val credentialRepository: CredentialRepository,
         private val securitySessionPolicy: SecuritySessionPolicy,
+        private val identityReset: SyncIdentityResetPolicy,
     ) : MigrationSettingsStore,
         MigrationSettingsRestoreValidator {
         override suspend fun snapshot(): MigrationSettingsSnapshot =
@@ -39,12 +41,25 @@ constructor(
             val ordinaryPlan = snapshot.preferences.toOrdinaryRestorePlan(report.ordinary)
             val rollbackSnapshot = snapshot()
             val sensitiveSettings = snapshot.sensitive.withLegacyWebDavUsername(snapshot.preferences)
+            val syncIdentityMoved =
+                RestoreSyncIdentityPreflight(
+                    dataStore = dataStore,
+                    credentialRepository = credentialRepository,
+                    securitySessionPolicy = securitySessionPolicy,
+                ).movesSyncIdentity(snapshot, sensitiveSettings, ordinaryPlan)
             var ordinaryRestoreAttempted = false
             try {
-                importSensitive(sensitiveSettings)
+                // Bulk restore bypasses the per-field mutation repositories: dispose the
+                // stale-identity surfaces before the first write lands, same as a settings edit.
+                if (syncIdentityMoved) {
+                    identityReset.resetIdentityScopedSyncState()
+                }
+                // Imports and omission clears are one atomic credential commit: a cancellation
+                // observed inside the batch can only land before or after the whole unit, never
+                // between two fields — the store therefore never leaves a mixed credential set.
+                restoreSensitive(sensitive = sensitiveSettings, clearMissing = true)
                 ordinaryRestoreAttempted = true
                 restorePreferences(ordinaryPlan)
-                clearMissingSensitive(sensitiveSettings)
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: Exception) {
@@ -175,29 +190,17 @@ constructor(
         }
         private suspend fun restoreSensitive(
             sensitive: Map<String, String>,
-            clearMissing: Boolean = false,
+            clearMissing: Boolean,
         ) {
-            importSensitive(sensitive)
-            if (clearMissing) {
-                clearMissingSensitive(sensitive)
-            }
-        }
-        private suspend fun importSensitive(sensitive: Map<String, String>) {
+            val writes = LinkedHashMap<CredentialField, String?>()
             sensitiveCredentialFields.forEach { field ->
                 val key = field.migrationSensitiveKey()
-                if (key in sensitive) {
-                    // behavior-contract: loop-io-ok: no bulk credential API; each iteration is one field
-                    credentialRepository.writeSecret(field, sensitive.getValue(key))
+                when {
+                    key in sensitive -> writes[field] = sensitive.getValue(key)
+                    clearMissing -> writes[field] = null
                 }
             }
-        }
-        private suspend fun clearMissingSensitive(sensitive: Map<String, String>) {
-            sensitiveCredentialFields.forEach { field ->
-                if (field.migrationSensitiveKey() !in sensitive) {
-                    // behavior-contract: loop-io-ok: no bulk credential API; each iteration is one field
-                    credentialRepository.writeSecret(field, null)
-                }
-            }
+            credentialRepository.writeSecrets(writes)
         }
         private suspend fun MutableMap<String, String>.putCredentialIfPresent(
             key: String,

@@ -5,9 +5,22 @@ import java.util.Locale
 
 @Serializable
 data class MigrationSettingsSnapshot(
+    /**
+     * Wire-level payload schema version. Written on every export and enforced at decode: a
+     * payload claiming a schema this build does not produce is refused before any setting is
+     * applied — a missing field means "produced by the pre-versioning format" and defaults to
+     * the current (and only) schema.
+     */
+    val settingsSchemaVersion: Int = DataStoreMigrationSettingsStore.migrationSettingsSchemaVersion,
     val preferences: Map<String, String> = emptyMap(),
     val sensitive: Map<String, String> = emptyMap(),
-)
+) {
+    init {
+        require(settingsSchemaVersion == DataStoreMigrationSettingsStore.migrationSettingsSchemaVersion) {
+            "Unsupported migration settings schema version: $settingsSchemaVersion"
+        }
+    }
+}
 
 data class MigrationSettingsManifest(
     val schemaVersion: Int,

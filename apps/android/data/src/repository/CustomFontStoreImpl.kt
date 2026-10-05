@@ -13,6 +13,8 @@ import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
@@ -69,6 +71,14 @@ class CustomFontStoreImpl
 
         private val state: MutableStateFlow<List<CustomFontInfo>> = MutableStateFlow(scanFonts())
 
+        /**
+         * Serializes the publish phase of [importFont]. Staging and validation run concurrently,
+         * but target selection, the rename and the state refresh form one critical section —
+         * without it two same-name imports both observe a free name and the second `renameTo`
+         * atomically replaces the first file's bytes while both report Imported.
+         */
+        private val publishMutex = Mutex()
+
         override fun observeFonts(): Flow<List<CustomFontInfo>> = state.asStateFlow()
 
         override suspend fun importFont(
@@ -103,20 +113,22 @@ class CustomFontStoreImpl
                         return@withContext CustomFontImportResult.Rejected(outcome)
                     }
                     val displayName = sanitizeBaseName(decodedName.substringBeforeLast('.'))
-                    val target = uniqueTarget(displayName, extension)
-                    if (!staged.renameTo(target)) {
-                        staged.delete()
-                        return@withContext CustomFontImportResult.Rejected(CustomFontRejection.UNREADABLE)
+                    publishMutex.withLock {
+                        val target = uniqueTarget(displayName, extension)
+                        if (!staged.renameTo(target)) {
+                            staged.delete()
+                            return@withContext CustomFontImportResult.Rejected(CustomFontRejection.UNREADABLE)
+                        }
+                        val info =
+                            CustomFontInfo(
+                                id = target.name,
+                                displayName = displayName,
+                                sizeBytes = target.length(),
+                                nameState = CustomFontNameState.ORIGINAL,
+                            )
+                        refreshState()
+                        CustomFontImportResult.Imported(info)
                     }
-                    val info =
-                        CustomFontInfo(
-                            id = target.name,
-                            displayName = displayName,
-                            sizeBytes = target.length(),
-                            nameState = CustomFontNameState.ORIGINAL,
-                        )
-                    refreshState()
-                    CustomFontImportResult.Imported(info)
                 } finally {
                     if (staged.exists()) staged.delete()
                 }

@@ -25,6 +25,30 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import timber.log.Timber
+
+/**
+ * Named-default parse for theme settings: a blank value is the first-launch "no preference"
+ * fact and resolves to the domain default silently; a non-blank value this build cannot parse
+ * resolves to the same named default but is recorded as a diagnostic, because the stored
+ * choice was real — just unreadable — and silent collapse would erase that fact.
+ */
+private fun String.colorSourceOrDefault(): ColorSource =
+    ColorSource.fromStorageValueOrNull(this)
+        ?: ColorSource.default().also {
+            if (isNotBlank()) {
+                Timber.w("Unrecognized stored colorSource value; applying named default")
+            }
+        }
+
+private fun String.fontPreferenceOrDefault(): FontPreference =
+    FontPreference.fromStorageValueOrNull(this)
+        ?: FontPreference.default().also {
+            if (isNotBlank()) {
+                Timber.w("Unrecognized stored fontPreference value; applying named default")
+            }
+        }
+
 data class PreferencesRepositoryDelegates(
     val dateTimePreferencesRepository: DateTimePreferencesRepositoryImpl,
     val storagePreferencesRepository: StoragePreferencesRepositoryImpl,
@@ -291,7 +315,9 @@ constructor(
         private val dataStore: LomoDataStore,
     ) : ColorSchemePreferencesRepository {
         override fun getColorSource(): Flow<ColorSource> =
-            dataStore.colorSource.map(ColorSource::fromStorageValue)
+            dataStore.colorSource.map { stored ->
+                stored.colorSourceOrDefault()
+            }
         override suspend fun setColorSource(source: ColorSource) {
             dataStore.updateColorSource(source.storageValue)
             if (source is ColorSource.CustomSeed) {
@@ -311,7 +337,9 @@ constructor(
         private val dataStore: LomoDataStore,
     ) : FontPreferencesRepository {
         override fun getFontPreference(): Flow<FontPreference> =
-            dataStore.fontPreference.map(FontPreference::fromStorageValue)
+            dataStore.fontPreference.map { stored ->
+                stored.fontPreferenceOrDefault()
+            }
         override suspend fun setFontPreference(preference: FontPreference) {
             dataStore.updateFontPreference(preference.storageValue)
         }

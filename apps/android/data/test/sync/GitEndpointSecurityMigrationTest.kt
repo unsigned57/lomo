@@ -28,6 +28,18 @@ package com.lomo.data.sync
  * - RED: no migration existed — poisoned remotes reached the scheduler unchanged.
  *
  * Excludes: real Keystore/WorkManager devices; Rust endpoint parsing (covered in lomo-git).
+ *
+ * Test Change Justification:
+ * - Reason category: SCP-like endpoint detection widened beyond userinfo forms.
+ * - Old behavior/assertion being replaced: only `git@host:path` spelled SCP-like; host:path and
+ *   host:port/path forms without `@` slipped through as candidate remotes.
+ * - Why old assertion is no longer correct: any authority:path shape whose pre-colon segment
+ *   carries no `/` is SSH transport; a host-only or host:port form would persist an unparsable
+ *   remote instead of failing closed.
+ * - Coverage preserved by: the original SCP-like drop scenario plus new host:path, host:port and
+ *   path-prefix non-SCP arms.
+ * - Why this is not fitting the test to the implementation: new arms assert the same observable
+ *   drop-and-purge outcome, extended to the widened input shapes.
  */
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
@@ -113,6 +125,46 @@ class GitEndpointSecurityMigrationTest : FunSpec({
         }
     }
 
+    test("host:path scp-like endpoint without userinfo is dropped") {
+        runTest {
+            val fixture = MigrationFixture(backgroundScope)
+            fixture.dataStore.updateGitRemoteUrl("example.com:alice/repo.git")
+
+            fixture.migration.migrateIfNeeded()
+
+            fixture.dataStore.gitRemoteUrl.first() shouldBe null
+            fixture.credentials.writes.shouldBeEmpty()
+            fixture.events shouldBe listOf("cancel", "deferred-clear", "reset")
+        }
+    }
+
+    test("host:port scp-like endpoint is dropped") {
+        runTest {
+            val fixture = MigrationFixture(backgroundScope)
+            fixture.dataStore.updateGitRemoteUrl("example.com:2222/alice/repo.git")
+
+            fixture.migration.migrateIfNeeded()
+
+            fixture.dataStore.gitRemoteUrl.first() shouldBe null
+            fixture.credentials.writes.shouldBeEmpty()
+            fixture.events shouldBe listOf("cancel", "deferred-clear", "reset")
+        }
+    }
+
+    test("path prefix before a colon is not scp-like and stays untouched") {
+        runTest {
+            val fixture = MigrationFixture(backgroundScope)
+            // A `dir/name:rest` shape has no scheme and a `/` before the colon — not SSH.
+            fixture.dataStore.updateGitRemoteUrl("relative/dir:repo.git")
+
+            fixture.migration.migrateIfNeeded()
+
+            fixture.dataStore.gitRemoteUrl.first() shouldBe "relative/dir:repo.git"
+            fixture.credentials.writes.shouldBeEmpty()
+            fixture.events.shouldBeEmpty()
+        }
+    }
+
     test("clean https remote is a no-op") {
         runTest {
             val fixture = MigrationFixture(backgroundScope)
@@ -186,9 +238,7 @@ private class MigrationFixture(
         GitEndpointSecurityMigration(
             dataStore = dataStore,
             credentialRepository = credentials,
-            scheduler = scheduler,
-            deferredLockStore = deferredStore,
-            syncStateReset = reset,
+            identityReset = SyncIdentityResetPolicy(scheduler, deferredStore, reset),
             workspaceRoot = WorkspaceFilesystemRoot { workspaceDir.absolutePath },
         )
 
