@@ -1,7 +1,6 @@
 package com.lomo.app.feature.share
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,8 +29,6 @@ import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
-
-private const val TRANSFER_BANNER_RESIZE_DURATION_MILLIS = 180
 private val TRANSFER_BANNER_ICON_SIZE = 20.dp
 private val TRANSFER_BANNER_LOADING_SIZE = 18.dp
 private val TRANSFER_BANNER_PROGRESS_HEIGHT = 24.dp
@@ -51,6 +48,7 @@ fun TransferStateBanner(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
     val bannerState = transferBannerState(state, isTechnicalMessage) ?: return
 
     Surface(
@@ -67,7 +65,7 @@ fun TransferStateBanner(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .animateContentSize(animationSpec = tween(TRANSFER_BANNER_RESIZE_DURATION_MILLIS))
+                    .animateContentSize(animationSpec = motionScheme.defaultSpatialSpec())
                     .padding(AppSpacing.Medium),
         ) {
             TransferStateBannerHeader(bannerState = bannerState)

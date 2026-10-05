@@ -5,7 +5,6 @@ import androidx.compose.animation.animateColor
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Transition
 import androidx.compose.animation.core.animateDp
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -40,13 +39,10 @@ import com.lomo.app.presentation.markdown.MemoMarkdownMediaAdapter
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
-import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.util.formatAsDateTime
 
 private const val GALLERY_REEL_PANEL_CONTENT_ALPHA = 0.78f
 private const val GALLERY_REEL_PANEL_COMPACT_ALPHA = 0.72f
-private const val GALLERY_REEL_PANEL_HEIGHT_ANIMATION_MILLIS = 260
-private const val GALLERY_REEL_PANEL_CONTENT_SWITCH_MILLIS = 120
 private val GALLERY_REEL_PANEL_TONAL_ELEVATION = 6.dp
 private val GALLERY_REEL_PANEL_MAX_HEIGHT = 360.dp
 private val GALLERY_REEL_PANEL_CONTENT_TOP_PADDING = 24.dp
@@ -121,6 +117,7 @@ private fun GalleryReelPanelSurface(
     modifier: Modifier = Modifier,
     imageIndicator: GalleryReelImageIndicatorState? = null,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
     val targetMode = panelTransition.targetState
     val containerColor =
         panelTransition.animateColor(label = "GalleryReelPanelContainerColor") { mode ->
@@ -173,10 +170,7 @@ private fun GalleryReelPanelSurface(
                 )
                 .animateContentSize(
                     animationSpec =
-                        tween(
-                            durationMillis = GALLERY_REEL_PANEL_HEIGHT_ANIMATION_MILLIS,
-                            easing = MotionTokens.EasingStandard,
-                        ),
+                        motionScheme.defaultSpatialSpec(),
                     alignment = Alignment.BottomCenter,
                 ),
     ) {
@@ -185,17 +179,11 @@ private fun GalleryReelPanelSurface(
             transitionSpec = {
                 fadeIn(
                     animationSpec =
-                        tween(
-                            durationMillis = GALLERY_REEL_PANEL_CONTENT_SWITCH_MILLIS,
-                            easing = MotionTokens.EasingStandard,
-                        ),
+                        motionScheme.defaultEffectsSpec(),
                 ) togetherWith
                     fadeOut(
                         animationSpec =
-                            tween(
-                                durationMillis = GALLERY_REEL_PANEL_CONTENT_SWITCH_MILLIS,
-                                easing = MotionTokens.EasingStandard,
-                            ),
+                            motionScheme.defaultEffectsSpec(),
                     )
             },
             label = "GalleryReelPanelContent",

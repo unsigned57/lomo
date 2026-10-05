@@ -283,6 +283,7 @@ class TagFilterViewModelTest : AppFunSpec() {
 
                 viewModel.saveImage(
                     uri = inputUri,
+                    draftId = viewModel.ownerDraftId,
                     onResult = { path -> savedPath = path },
                     onError = { onErrorCalled = true },
                 )
@@ -339,6 +340,10 @@ class TagFilterViewModelTest : AppFunSpec() {
                 updateMemoContentUseCase = updateMemoContentUseCase,
                 toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,
                 saveImageUseCase = saveImageUseCase,
+                loadEditableMemoUseCase =
+                    com.lomo.domain.usecase.LoadEditableMemoUseCase(
+                        com.lomo.app.testing.fakes.FakeMemoQueryRepository(memoRepository),
+                    ),
                 workspaceCoordinator = mockk<MainWorkspaceCoordinator> {
                     every { mount } returns engineReadinessRepository.mount
                 },
@@ -363,5 +368,8 @@ class TagFilterViewModelTest : AppFunSpec() {
             content = content,
             rawContent = "- 10:00 $content",
             dateKey = "2026_03_24",
+            contentRevision = 1L,
+            fileFingerprint = "fp-$id",
+            projectedCharCount = "- 10:00 $content".length.toLong(),
         )
 }

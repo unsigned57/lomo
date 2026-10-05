@@ -9,6 +9,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
 import com.lomo.domain.model.LanBatchDecision
@@ -72,8 +73,16 @@ internal fun LanBatchApprovalDialog(
                 Text(
                     stringResource(
                         R.string.lan_batch_approval_summary,
-                        batch.itemCount,
-                        batch.attachmentCount,
+                        pluralStringResource(
+                            R.plurals.lan_batch_memo_count,
+                            batch.itemCount,
+                            batch.itemCount,
+                        ),
+                        pluralStringResource(
+                            R.plurals.lan_batch_attachment_count,
+                            batch.attachmentCount,
+                            batch.attachmentCount,
+                        ),
                         formatLanBytes(batch.totalBytes),
                     ),
                     style = MaterialTheme.typography.bodyMedium,
@@ -98,7 +107,11 @@ internal fun LanBatchApprovalDialog(
                 }
                 if (batch.items.isNotEmpty()) {
                     Text(
-                        stringResource(R.string.lan_batch_item_results, batch.items.size),
+                        pluralStringResource(
+                            R.plurals.lan_batch_item_results,
+                            batch.items.size,
+                            batch.items.size,
+                        ),
                         style = MaterialTheme.typography.labelLarge,
                     )
                 }

@@ -2,7 +2,6 @@ package com.lomo.app.feature.settings
 
 import android.text.format.DateUtils
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -45,7 +44,6 @@ import kotlinx.coroutines.delay
 import kotlin.random.Random
 
 private const val TIP_AUTO_CYCLE_DELAY_MILLIS = 6000L
-private const val TIP_FADE_DURATION_MILLIS = 300
 
 private val SettingsHomeHeroTipResources: ImmutableList<Int> =
     persistentListOf(
@@ -141,6 +139,7 @@ private fun SettingsHomeHeroActiveContent(
 
 @Composable
 private fun SettingsHomeHeroTipContent() {
+    val motionScheme = MaterialTheme.motionScheme
     val haptic = LocalAppHapticFeedback.current
     val totalTips = SettingsHomeHeroTipResources.size
     val initialIndex = remember { Random.nextInt(totalTips) }
@@ -168,7 +167,7 @@ private fun SettingsHomeHeroTipContent() {
             Spacer(modifier = Modifier.height(2.dp))
             Crossfade(
                 targetState = tipText,
-                animationSpec = tween(durationMillis = TIP_FADE_DURATION_MILLIS),
+                animationSpec = motionScheme.defaultEffectsSpec(),
                 label = "TipTextCrossfade",
             ) { text ->
                 Text(

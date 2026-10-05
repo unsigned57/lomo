@@ -239,20 +239,17 @@ private fun TypographyScaleAdjustmentRow(
     val sliderState =
         rememberSliderState(
             value = value,
-            valueRange = SLIDER_RANGE_MIN..SLIDER_RANGE_MAX,
+            trackRange = SLIDER_RANGE_MIN..SLIDER_RANGE_MAX,
         )
     LaunchedEffect(value) {
         if (sliderState.value != value) sliderState.value = value
-    }
-    SideEffect {
-        sliderState.onValueChange = onValueChange
     }
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         FilledTonalIconButton(
             onClick = { onValueChange(clampTypographyScale(value - STEP_INCREMENT)) },
             enabled = value > SLIDER_RANGE_MIN,
-            modifier = Modifier.size(40.dp),
+            modifier = Modifier.size(48.dp),
         ) {
             Icon(
                 imageVector = Icons.Default.Remove,
@@ -261,6 +258,7 @@ private fun TypographyScaleAdjustmentRow(
         }
         Slider(
             state = sliderState,
+            onValueChange = onValueChange,
             modifier =
                 Modifier
                     .weight(1f)
@@ -275,7 +273,7 @@ private fun TypographyScaleAdjustmentRow(
         FilledTonalIconButton(
             onClick = { onValueChange(clampTypographyScale(value + STEP_INCREMENT)) },
             enabled = value < SLIDER_RANGE_MAX,
-            modifier = Modifier.size(40.dp),
+            modifier = Modifier.size(48.dp),
         ) {
             Icon(
                 imageVector = Icons.Default.Add,

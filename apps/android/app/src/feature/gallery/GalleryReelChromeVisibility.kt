@@ -5,10 +5,6 @@ enum class GalleryReelChromeVisibility {
     Visible,
 }
 
-enum class GalleryReelBackAction {
-    PopRoute,
-}
-
 fun toggleGalleryReelChromeVisibility(current: GalleryReelChromeVisibility): GalleryReelChromeVisibility =
     when (current) {
         GalleryReelChromeVisibility.Visible -> GalleryReelChromeVisibility.Hidden
@@ -21,8 +17,3 @@ fun nextChromeVisibilityOnPageChange(current: GalleryReelChromeVisibility): Gall
         GalleryReelChromeVisibility.Hidden -> GalleryReelChromeVisibility.Hidden
     }
 
-fun resolveGalleryReelBackAction(chromeVisibility: GalleryReelChromeVisibility): GalleryReelBackAction =
-    when (chromeVisibility) {
-        GalleryReelChromeVisibility.Visible -> GalleryReelBackAction.PopRoute
-        GalleryReelChromeVisibility.Hidden -> GalleryReelBackAction.PopRoute
-    }

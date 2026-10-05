@@ -7,6 +7,7 @@ import com.lomo.domain.usecase.ImportEncryptedSettingsUseCase
 import com.lomo.domain.usecase.MigrationArchiveSummary
 import com.lomo.app.util.runSuspendCatching
 import com.lomo.domain.usecase.MigrationSettingsSummary
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -129,6 +130,13 @@ class SettingsMigrationFeatureViewModel(
                                 ?: "Migration operation failed",
                         )
                     }
+        }.invokeOnCompletion { cause ->
+            // A cancelled operation is neither success nor error: release the Running state
+            // so cancellation never leaves the UI pinned mid-flight. Cancellation still
+            // propagates — the launch completes cancelled as before.
+            if (cause is CancellationException) {
+                _operationState.value = SettingsMigrationOperationState.Idle
+            }
         }
     }
 }

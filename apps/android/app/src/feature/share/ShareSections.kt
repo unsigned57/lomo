@@ -1,7 +1,6 @@
 package com.lomo.app.feature.share
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -31,9 +30,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.lomo.app.R
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
-
-private const val DEVICE_NAME_ACTIONS_ENTER_MILLIS = 220
-private const val DEVICE_NAME_ACTIONS_EXIT_MILLIS = 180
 
 @Composable
 fun LanShareSettingsCard(
@@ -112,13 +108,14 @@ internal fun DeviceNameActionsVisibility(
     visible: Boolean,
     content: @Composable () -> Unit,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
     AnimatedVisibility(
         visible = visible,
         enter =
-            fadeIn(tween(DEVICE_NAME_ACTIONS_ENTER_MILLIS)) +
+            fadeIn(motionScheme.defaultEffectsSpec()) +
                 slideInVertically(initialOffsetY = { -it / 2 }),
         exit =
-            fadeOut(tween(DEVICE_NAME_ACTIONS_EXIT_MILLIS)) +
+            fadeOut(motionScheme.defaultEffectsSpec()) +
                 slideOutVertically(targetOffsetY = { -it / 3 }),
         content = { content() },
     )

@@ -9,6 +9,7 @@ import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.ColorSource
 import androidx.compose.ui.text.font.FontFamily
 import com.lomo.app.feature.preferences.CustomFontHost
+import com.lomo.app.feature.preferences.CustomFontStatus
 import com.lomo.domain.model.CustomFontImportResult
 import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.model.CustomFontSource
@@ -264,6 +265,24 @@ class SettingsDisplayFeatureViewModel(
 
     /** Preview family for one stored font — resolved off-composition through the shared host. */
     val previewFontFamily: suspend (String) -> FontFamily = customFontHost::familyFor
+
+    /**
+     * Selected custom font health, re-evaluated whenever the selection or the stored font set
+     * changes (import, delete, external file loss). A selected font whose file went missing or no
+     * longer parses reports [CustomFontStatus.MISSING] — the explicit problem state the settings
+     * surface renders instead of silently falling back to the system font.
+     */
+    val customFontStatus: StateFlow<CustomFontStatus> =
+        combine(
+            appConfigCoordinator.fontPreference,
+            appConfigCoordinator.availableCustomFonts,
+        ) { preference, _ ->
+            when {
+                preference !is FontPreference.UserImported -> CustomFontStatus.NONE_SELECTED
+                customFontHost.familyOrNull(preference.id) == null -> CustomFontStatus.MISSING
+                else -> CustomFontStatus.READY
+            }
+        }.stateIn(scope, settingsWhileSubscribed(), CustomFontStatus.NONE_SELECTED)
 
     fun deleteCustomFont(
         id: String,

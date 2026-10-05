@@ -115,7 +115,8 @@ fun TagFilterScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val editorController = rememberMemoEditorController()
-    val openFullMemoEditor = rememberFullMemoEditorOpener(editorController)
+    val openFullMemoEditor =
+        rememberFullMemoEditorOpener(editorController, viewModel::reportError)
 
     TagFilterScreenEffects(
         errorMessage = errorMessage,
@@ -158,6 +159,7 @@ fun TagFilterScreen(
             session =
                 MemoEditorSessionState(
                     imageDirectory = imageDirectory,
+                    ownerDraftId = viewModel.ownerDraftId,
                     rootPath = rootDirectory,
                     imageMap = stableImageMap,
                     dateFormat = appPreferences.dateFormat,
@@ -174,6 +176,7 @@ fun TagFilterScreen(
         menuCommandHandler = memoMenuCommandHandler,
         controller = editorController,
         editorSurface = editorSurface,
+        onEditorOpenFailure = viewModel::reportError,
     ) { showMenu, openEditor ->
         TagFilterScreenScaffold(
             tagName = tagName,

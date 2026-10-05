@@ -1,9 +1,10 @@
 package com.lomo.app.feature.settings
 
+import androidx.compose.material3.MotionScheme
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -55,7 +56,6 @@ import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SettingsGroup
 import com.lomo.ui.theme.AppSpacing
-import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.util.LocalAppHapticFeedback
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,10 +72,11 @@ internal fun SettingsScreenScaffold(
     manualUpdateState: SettingsManualUpdateState,
     onOpenAvailableUpdateDialog: (AppUpdateDialogState) -> Unit,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     AnimatedContent(
         targetState = resources.currentLanguageTag,
-        transitionSpec = settingsLanguageTransitionSpec(),
+        transitionSpec = settingsLanguageTransitionSpec(motionScheme),
         label = "SettingsLanguageTransition",
     ) { languageTag ->
         key(languageTag) {
@@ -108,31 +109,22 @@ internal fun SettingsScreenScaffold(
     }
 }
 
-private fun settingsLanguageTransitionSpec():
+private fun settingsLanguageTransitionSpec(motionScheme: MotionScheme):
     AnimatedContentTransitionScope<String>.() -> ContentTransform = {
     (
         fadeIn(
             animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationLong2,
-                    easing = MotionTokens.EasingEmphasized,
-                ),
+                motionScheme.defaultEffectsSpec(),
         ) +
             scaleIn(
                 initialScale = 0.92f,
                 animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationLong2,
-                        easing = MotionTokens.EasingEmphasized,
-                    ),
+                    motionScheme.defaultSpatialSpec(),
             )
     ).togetherWith(
         fadeOut(
             animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationLong2,
-                    easing = MotionTokens.EasingEmphasized,
-                ),
+                motionScheme.defaultEffectsSpec(),
         ),
     )
 }

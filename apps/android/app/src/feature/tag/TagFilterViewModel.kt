@@ -17,12 +17,15 @@ import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.main.MainWorkspaceCoordinator
 import com.lomo.app.feature.memo.MemoActionId
+import com.lomo.app.feature.memo.MemoEditSession
 import com.lomo.app.feature.memo.MemoEditorSubmissionId
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
+import com.lomo.domain.model.DraftId
 import com.lomo.domain.model.Memo
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.GetMemosByTagPageUseCase
+import com.lomo.domain.usecase.LoadEditableMemoUseCase
 import com.lomo.domain.usecase.ObserveActiveDayCountUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
@@ -57,6 +60,7 @@ data class TagFilterViewModelDependencies(
     val updateMemoContentUseCase: UpdateMemoContentUseCase,
     val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
     val saveImageUseCase: SaveImageUseCase,
+    val loadEditableMemoUseCase: LoadEditableMemoUseCase,
     val workspaceCoordinator: MainWorkspaceCoordinator,
 )
 
@@ -75,6 +79,7 @@ class TagFilterViewModel(
     private val updateMemoContentUseCase = dependencies.updateMemoContentUseCase
     private val toggleMemoCheckboxUseCase = dependencies.toggleMemoCheckboxUseCase
     private val saveImageUseCase = dependencies.saveImageUseCase
+    private val loadEditableMemoUseCase = dependencies.loadEditableMemoUseCase
     private val workspaceCoordinator = dependencies.workspaceCoordinator
         private val routeArgs = TagFilterRouteArgs.from(savedStateHandle)
         val tagName: String = routeArgs.tagName
@@ -137,6 +142,7 @@ class TagFilterViewModel(
                         saveImage = { source, draftId ->
                             saveImageUseCase.saveWithCacheSyncStatus(source, draftId)
                         },
+                        loadEditableMemo = loadEditableMemoUseCase::invoke,
                     ),
                 scope = viewModelScope,
                 mapToUiModel = { memo ->
@@ -179,9 +185,9 @@ class TagFilterViewModel(
 
         suspend fun submitMemoUpdate(
             submissionId: MemoEditorSubmissionId,
-            memo: Memo,
+            session: MemoEditSession,
             newContent: String,
-        ): Boolean = actionStateHolder.actions.submitMemoUpdate(submissionId, memo, newContent)
+        ): Boolean = actionStateHolder.actions.submitMemoUpdate(submissionId, session, newContent)
 
         fun toggleTodo(
             memo: Memo,
@@ -192,10 +198,20 @@ class TagFilterViewModel(
 
         fun saveImage(
             uri: android.net.Uri,
+            draftId: DraftId,
             onResult: (String) -> Unit,
             onError: (() -> Unit)? = null,
         ) {
-            actionStateHolder.actions.saveImage(uri, onResult, onError)
+            actionStateHolder.actions.saveImage(uri, draftId, onResult, onError)
+        }
+
+        /** The draft identity this surface's media leases belong to. */
+        internal val ownerDraftId: DraftId
+            get() = actionStateHolder.actions.draftId
+
+        /** Surfaces a non-mutation failure (e.g. editor open) on the shared error channel. */
+        fun reportError(throwable: Throwable) {
+            actionStateHolder.errors.report(throwable, "Failed to open memo")
         }
 
         fun clearError() {

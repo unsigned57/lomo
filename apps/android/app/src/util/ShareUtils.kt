@@ -1,5 +1,7 @@
 package com.lomo.app.util
 
+import com.lomo.ui.theme.TypographyScales
+
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -45,8 +47,8 @@ class ShareUtils(
             val tags: List<String>,
             val colorSource: ColorSource,
             val themeMode: ThemeMode,
+            val typographyScales: TypographyScales,
             val resolvedImagePaths: List<String>,
-            val geoLocation: String?,
             val bodyTypeface: android.graphics.Typeface?,
         )
 
@@ -60,7 +62,6 @@ class ShareUtils(
             timestamp: Long? = null,
             tags: List<String> = emptyList(),
             resolvedImagePaths: List<String> = emptyList(),
-            geoLocation: String? = null,
             bodyTypeface: android.graphics.Typeface? = null,
         ) {
             try {
@@ -79,8 +80,13 @@ class ShareUtils(
                                 tags = tags,
                                 colorSource = displayPreferences.colorSource,
                                 themeMode = displayPreferences.themeMode,
+                                typographyScales = TypographyScales(
+                                    fontSizeScale = displayPreferences.typographyFontSizeScale,
+                                    lineHeightScale = displayPreferences.typographyLineHeightScale,
+                                    letterSpacingScale = displayPreferences.typographyLetterSpacingScale,
+                                    paragraphSpacingScale = displayPreferences.typographyParagraphSpacingScale,
+                                ),
                                 resolvedImagePaths = resolvedImagePaths,
-                                geoLocation = geoLocation,
                                 bodyTypeface = bodyTypeface,
                             ),
                     )
@@ -170,8 +176,8 @@ class ShareUtils(
                                 tags = config.tags,
                                 colorSource = config.colorSource,
                                 themeMode = config.themeMode,
+                                typographyScales = config.typographyScales,
                                 resolvedImagePaths = config.resolvedImagePaths,
-                                geoLocation = config.geoLocation,
                                 bodyTypeface = config.bodyTypeface,
                             ),
                     )

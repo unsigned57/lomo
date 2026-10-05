@@ -90,10 +90,10 @@ class DailyReviewViewModel(
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
     private val loadFailure = MutableStateFlow<DailyReviewScreenState.Failed?>(null)
     private val memoUpdater = DailyReviewMemoUpdater(updateMemoContentUseCase, rawMemos)
-    private val draftId = com.lomo.app.feature.common.newDraftId()
+    private val draftId = com.lomo.domain.model.DraftId.mint()
     internal val editorSubmission =
         MemoEditorUpdateSubmission(
-            draftId = draftId,
+            draftId = { draftId },
             scope = viewModelScope,
             updateMemo = memoUpdater::update,
             onFailure = { throwable ->
@@ -319,6 +319,7 @@ class DailyReviewViewModel(
 
     fun saveImage(
         uri: android.net.Uri,
+        draftId: com.lomo.domain.model.DraftId,
         onResult: (String) -> Unit,
         onError: (() -> Unit)? = null,
     ) {
@@ -335,6 +336,15 @@ class DailyReviewViewModel(
                 onError?.invoke()
             }
         }
+    }
+
+    /** The draft identity this surface's media leases belong to. */
+    internal val ownerDraftId: com.lomo.domain.model.DraftId
+        get() = draftId
+
+    /** Surfaces a non-mutation failure (e.g. editor open) on the shared error channel. */
+    fun reportError(throwable: Throwable) {
+        _errorMessage.value = throwable.toUserMessage("Failed to open memo")
     }
 
     fun clearError() {

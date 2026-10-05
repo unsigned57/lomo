@@ -1,7 +1,8 @@
 package com.lomo.app.feature.settings
 
+import androidx.compose.material3.MaterialTheme
+
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -16,7 +17,6 @@ import com.lomo.app.R
 import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SettingsGroup
 import com.lomo.ui.component.settings.SwitchPreferenceItem
-import com.lomo.ui.theme.MotionTokens
 
 @Composable
 fun LanShareSettingsSection(
@@ -59,37 +59,26 @@ internal fun SettingsExpandableContent(
     label: String,
     content: @Composable () -> Unit,
 ) {
+    val motionScheme = MaterialTheme.motionScheme
     AnimatedVisibility(
         visible = visible,
         enter =
             expandVertically(
                 animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationMedium2,
-                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                    ),
+                    motionScheme.defaultSpatialSpec(),
             ) +
                 fadeIn(
                     animationSpec =
-                        tween(
-                            durationMillis = MotionTokens.DurationMedium2,
-                            easing = MotionTokens.EasingEmphasizedDecelerate,
-                        ),
+                        motionScheme.defaultEffectsSpec(),
                 ),
         exit =
             shrinkVertically(
                 animationSpec =
-                    tween(
-                        durationMillis = MotionTokens.DurationShort4,
-                        easing = MotionTokens.EasingEmphasizedAccelerate,
-                    ),
+                    motionScheme.fastSpatialSpec(),
             ) +
                 fadeOut(
                     animationSpec =
-                        tween(
-                            durationMillis = MotionTokens.DurationShort4,
-                            easing = MotionTokens.EasingEmphasizedAccelerate,
-                        ),
+                        motionScheme.fastEffectsSpec(),
                 ),
         label = label,
         content = { content() },

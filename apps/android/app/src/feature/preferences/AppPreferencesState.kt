@@ -102,9 +102,12 @@ private suspend fun AppPreferenceSnapshot.resolveFontPreference(
     if (resolved == null) {
         // The persisted selection stays the fact; the missing file is an explicit status, not a
         // silently rewritten preference. The theme still falls back to the system family.
-        return FontResolution(preference, null, FontFamily.SansSerif)
+        return FontResolution(preference, null, null)
     }
-    return FontResolution(preference, resolved, customFontHost.familyFor(preference.id))
+    // The host is the only place that knows whether the bytes actually parse: a file that exists
+    // but fails font construction is "unusable", which CustomFontStatus.MISSING covers — never
+    // report READY while the rendered family silently degraded to SansSerif.
+    return FontResolution(preference, resolved, customFontHost.familyOrNull(preference.id))
 }
 
 private fun AppPreferenceSnapshot.toAppPreferencesState(fontResolution: FontResolution): AppPreferencesState =
@@ -120,7 +123,7 @@ private fun AppPreferenceSnapshot.toAppPreferencesState(fontResolution: FontReso
         customFontStatus =
             when {
                 fontResolution.preference !is FontPreference.UserImported -> CustomFontStatus.NONE_SELECTED
-                fontResolution.resolvedPath == null -> CustomFontStatus.MISSING
+                fontResolution.family == null -> CustomFontStatus.MISSING
                 else -> CustomFontStatus.READY
             },
         hapticFeedbackEnabled = hapticFeedbackEnabled,

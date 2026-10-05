@@ -1,5 +1,8 @@
 package com.lomo.app.util
 
+import com.lomo.ui.theme.TypographyScales
+
+import com.lomo.ui.theme.memoBodyTextStyle
 import android.graphics.Bitmap
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -37,15 +40,15 @@ internal const val FOOTER_TEXT_SIZE_SP = 12f
 internal const val BODY_TEXT_SIZE_SHORT_SP = 22f
 internal const val BODY_TEXT_SIZE_MEDIUM_SP = 20f
 internal const val BODY_TEXT_SIZE_LONG_SP = 17f
-internal const val BODY_TEXT_SIZE_DEFAULT_SP = 15.5f
+internal val BODY_TEXT_SIZE_DEFAULT_SP =
+    com.lomo.ui.theme.buildAppTypography(androidx.compose.ui.text.font.FontFamily.SansSerif)
+        .memoBodyTextStyle(TypographyScales()).fontSize.value
 internal const val BODY_TEXT_SIZE_SHORT_THRESHOLD = 32
 internal const val BODY_TEXT_SIZE_MEDIUM_THRESHOLD = 88
 internal const val BODY_TEXT_SIZE_LONG_THRESHOLD = 180
 
 internal const val TAG_LETTER_SPACING = 0.03f
 internal const val TITLE_LETTER_SPACING = 0.01f
-internal const val CENTERED_BODY_LETTER_SPACING = 0.01f
-internal const val DEFAULT_BODY_LETTER_SPACING = 0.015f
 internal const val EMPHASIZED_LETTER_SPACING = 0.01f
 internal const val FOOTER_LETTER_SPACING = 0.02f
 internal const val BULLET_TEXT_SCALE = 0.94f
@@ -53,7 +56,9 @@ internal const val HEADING_TEXT_SCALE = 1.08f
 internal const val QUOTE_TEXT_SCALE = 0.92f
 internal const val CODE_TEXT_SCALE = 0.84f
 internal const val TABLE_TEXT_SCALE = 0.82f
-internal const val LAYOUT_LINE_SPACING_MULTIPLIER = 1.3f
+internal val LAYOUT_LINE_SPACING_MULTIPLIER =
+    com.lomo.ui.theme.buildAppTypography(androidx.compose.ui.text.font.FontFamily.SansSerif)
+        .memoBodyTextStyle(TypographyScales()).let { it.lineHeight.value / it.fontSize.value }
 
 internal const val CODE_BACKGROUND_ALPHA = 66
 internal const val IMAGE_SCALE_SKIP_MIN = 0.95f
@@ -108,6 +113,7 @@ internal data class ShareCardFooterRow(
 }
 
 internal data class ShareCardLayoutSpec(
+    val bodyLineSpacingMultiplier: Float = LAYOUT_LINE_SPACING_MULTIPLIER,
     val canvasWidth: Int,
     val outerPadding: Float,
     val cardPadding: Float,

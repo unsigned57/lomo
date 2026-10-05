@@ -43,8 +43,8 @@ internal fun createShareCardPaintSet(
     resources: Resources,
     palette: ShareCardPalette,
     bodyTextSizeSp: Float,
-    shouldUseCenteredBody: Boolean,
     bodyTypeface: Typeface?,
+    bodyLetterSpacing: Float,
 ): ShareCardPaintSet {
     val bodyBase = bodyTypeface ?: Typeface.DEFAULT
     return ShareCardPaintSet(
@@ -72,12 +72,7 @@ internal fun createShareCardPaintSet(
                 textSizePx = sp(resources, bodyTextSizeSp),
                 typeface = Typeface.create(bodyBase, Typeface.NORMAL),
             ).apply {
-                letterSpacing =
-                    if (shouldUseCenteredBody) {
-                        CENTERED_BODY_LETTER_SPACING
-                    } else {
-                        DEFAULT_BODY_LETTER_SPACING
-                    }
+                letterSpacing = bodyLetterSpacing
             },
         bulletPaint =
             createTextPaint(
@@ -136,6 +131,7 @@ internal fun buildStaticLayout(
     maxLines: Int = Int.MAX_VALUE,
     alignment: Layout.Alignment = Layout.Alignment.ALIGN_NORMAL,
     paragraphLayoutPolicy: ShareCardParagraphLayoutPolicy? = null,
+    lineSpacingMultiplier: Float = LAYOUT_LINE_SPACING_MULTIPLIER,
 ): StaticLayout {
     val layoutText: CharSequence = if (text.isEmpty()) BLANK_LAYOUT_TEXT else text
     val resolvedAlignment = paragraphLayoutPolicy?.alignment ?: alignment
@@ -156,7 +152,7 @@ internal fun buildStaticLayout(
         ).setJustificationMode(
             paragraphLayoutPolicy?.justificationMode ?: defaultJustificationMode(),
         )
-        .setLineSpacing(0f, LAYOUT_LINE_SPACING_MULTIPLIER)
+        .setLineSpacing(0f, lineSpacingMultiplier)
         .setMaxLines(maxLines)
         .setEllipsize(TextUtils.TruncateAt.END)
         .build()

@@ -1,16 +1,18 @@
 package com.lomo.app.util
 
+import com.lomo.ui.theme.TypographyScales
+
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Typeface
 import com.lomo.app.R
-import com.lomo.app.feature.main.appendLegacyMemoGeoLocation
 import com.lomo.app.presentation.sharecard.ShareCardDisplayFormatter
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import com.lomo.domain.usecase.PrepareShareCardContentUseCase
+import com.lomo.ui.theme.memoBodyTextStyle
 import com.lomo.ui.theme.resolveLomoColorScheme
 import java.time.format.DateTimeFormatter
 
@@ -23,8 +25,8 @@ data class ShareCardRenderOptions(
     val tags: List<String>,
     val colorSource: ColorSource,
     val themeMode: ThemeMode,
+    val typographyScales: TypographyScales = TypographyScales(),
     val resolvedImagePaths: List<String> = emptyList(),
-    val geoLocation: String? = null,
     val bodyTypeface: Typeface? = null,
 )
 
@@ -49,12 +51,10 @@ class ShareCardBitmapRenderer(
         val colorSource = options.colorSource
         val themeMode = options.themeMode
         val resolvedImagePaths = options.resolvedImagePaths
-        val geoLocation = options.geoLocation
         val bodyTypeface = options.bodyTypeface
-        // Same body bytes as the list/card path (+ optional non-semantic geo append). Do not invent
-        // Markdown link structure via pre-owner regex before renderMarkdown.
-        val ownerInput = appendLegacyMemoGeoLocation(content, geoLocation)
-        val document = markdownWorkspaceRepository.renderMarkdown(ownerInput)
+        // Same body bytes as the list/card path. Do not invent Markdown link structure via
+        // pre-owner regex before renderMarkdown.
+        val document = markdownWorkspaceRepository.renderMarkdown(content)
         val totalImageSlots = countShareCardImageSlots(document)
         val hasImages = totalImageSlots > 0 || resolvedImagePaths.isNotEmpty()
         val renderInput =
@@ -75,7 +75,14 @@ class ShareCardBitmapRenderer(
                 createdAtText = renderInput.createdAtText,
             )
         val palette = resolvePalette(context, colorSource, themeMode)
-        val layoutSpec = createShareCardLayoutSpec(context.resources)
+        val readingStyle = com.lomo.ui.theme.buildAppTypography(androidx.compose.ui.text.font.FontFamily.SansSerif)
+            .memoBodyTextStyle(options.typographyScales)
+        val layoutSpec = createShareCardLayoutSpec(context.resources).let { spec ->
+            spec.copy(
+                lineSpacing = spec.lineSpacing * options.typographyScales.paragraphSpacingScale,
+                bodyLineSpacingMultiplier = readingStyle.lineHeight.value / readingStyle.fontSize.value,
+            )
+        }
         val bodyLines =
             buildMarkdownShareBodyLines(
                 document = document,
@@ -91,9 +98,11 @@ class ShareCardBitmapRenderer(
             createShareCardPaintSet(
                 resources = context.resources,
                 palette = palette,
-                bodyTextSizeSp = bodyTextSizeSp(measuredRenderInput.textLengthWithoutMarkers),
-                shouldUseCenteredBody = shouldUseCenteredBody,
+                bodyTextSizeSp =
+                    bodyTextSizeSp(measuredRenderInput.textLengthWithoutMarkers) *
+                        options.typographyScales.fontSizeScale,
                 bodyTypeface = bodyTypeface,
+                bodyLetterSpacing = readingStyle.letterSpacing.value / readingStyle.fontSize.value,
             )
         val loadedImages =
             loadShareImages(

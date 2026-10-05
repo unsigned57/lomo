@@ -88,7 +88,12 @@ fun TasksScreen(
                     .padding(padding),
             contentAlignment = Alignment.Center,
         ) {
-            when (val state = uiState) {
+            com.lomo.ui.component.common.LomoStateContent(
+            state = uiState,
+            contentKey = { it::class to (it is TasksScreenState.Ready && it.tasks.isEmpty()) },
+            modifier = Modifier.fillMaxSize(),
+        ) { state ->
+            when (state) {
                 is TasksScreenState.Loading -> ExpressiveContainedLoadingIndicator()
                 is TasksScreenState.Error -> {
                     Text(
@@ -113,6 +118,7 @@ fun TasksScreen(
                 }
             }
         }
+        }
     }
 }
 
@@ -133,6 +139,11 @@ private fun TasksList(
         ) { task ->
             TaskRow(
                 task = task,
+                modifier = Modifier.animateItem(
+                    fadeInSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+                    placementSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                    fadeOutSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+                ),
                 onToggle = {
                     haptic.light()
                     onToggle(task)
@@ -145,11 +156,18 @@ private fun TasksList(
 @Composable
 private fun TaskRow(
     task: MemoTask,
+    modifier: Modifier,
     onToggle: () -> Unit,
 ) {
+    val textColor by androidx.compose.animation.animateColorAsState(
+        targetValue =
+            if (task.done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+        label = "TaskCompletionText",
+    )
     Row(
         modifier =
-            Modifier
+            modifier
                 .fillMaxWidth()
                 .padding(vertical = AppSpacing.ExtraSmall),
         verticalAlignment = Alignment.CenterVertically,
@@ -167,6 +185,7 @@ private fun TaskRow(
         ) {
             Text(
                 text = task.text,
+                color = textColor,
                 style = MaterialTheme.typography.bodyLarge,
                 textDecoration = if (task.done) TextDecoration.LineThrough else null,
                 maxLines = 3,

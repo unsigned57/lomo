@@ -226,7 +226,10 @@ class SettingsS3Coordinator(
     val updateS3AccessKeyId: suspend (String) -> SettingsOperationError? =
         { accessKeyId ->
             runWithError("Failed to update S3 access key") {
-                credentialRepository.writeSecret(CredentialField.S3_ACCESS_KEY_ID, accessKeyId)
+                // Access-key id is canonical remote identity — route through the mutation
+                // repository so durable sync state is reset on change. Secret-only fields
+                // (secret key, session token, encryption passwords) keep the direct write.
+                s3SyncSettingsUseCase.updateAccessKeyId(accessKeyId)
             }
         }
 

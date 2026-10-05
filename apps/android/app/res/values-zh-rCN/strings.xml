@@ -111,6 +111,7 @@
     <string name="settings_font_import_failed">导入字体失败</string>
     <string name="settings_font_import_invalid_font">该文件不是有效的字体。</string>
     <string name="settings_font_selected_deleted">已删除所选字体，已切换回系统字体。</string>
+    <string name="settings_font_selected_missing">所选字体文件缺失或无法读取，当前正在使用系统字体。</string>
     <string name="settings_font_legacy_name_state">早于字体名保留功能导入</string>
     <string name="settings_typography_font_size">字体大小</string>
     <string name="settings_typography_line_height">行间距</string>
@@ -270,8 +271,16 @@
     <string name="lan_pairing_waiting">请核对 %1$s 上显示的代码</string>
     <string name="lan_pairing_required">发送前请先验证此设备</string>
     <string name="lan_batch_approval_title">收到局域网传输</string>
-    <string name="lan_batch_approval_summary">%1$d 条备忘录，%2$d 个附件，共 %3$s</string>
-    <string name="lan_batch_item_results">%1$d 条项目结果</string>
+    <plurals name="lan_batch_memo_count">
+        <item quantity="other">%1$d 条备忘录</item>
+    </plurals>
+    <plurals name="lan_batch_attachment_count">
+        <item quantity="other">%1$d 个附件</item>
+    </plurals>
+    <string name="lan_batch_approval_summary">%1$s，%2$s，共 %3$s</string>
+    <plurals name="lan_batch_item_results">
+        <item quantity="other">%1$d 条项目结果</item>
+    </plurals>
     <string name="lan_batch_receive_progress">已接收 %1$s / %2$s</string>
     <string name="share_device_name_label">设备名称</string>
     <string name="share_device_name_placeholder">附近设备可见的名称</string>
@@ -367,7 +376,6 @@
     <string name="cd_memo_editor_add_image">添加图片</string>
     <string name="cd_memo_editor_add_voice_memo">录制语音</string>
     <string name="cd_memo_editor_add_tag">添加标签</string>
-    <string name="cd_memo_editor_attach_location">附加位置</string>
     <string name="cd_memo_editor_backfill_memo">补录笔记</string>
     <string name="cd_memo_editor_add_checkbox">添加复选框</string>
     <string name="cd_memo_editor_add_reminder">添加提醒</string>

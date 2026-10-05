@@ -63,6 +63,7 @@ internal fun createQuoteRenderLine(
             text = bodyLine.withoutQuoteTextPrefix().toStyledText(paintSet.linkColor),
             paint = paintSet.quotePaint,
             width = quoteStyle.textWidth,
+            lineSpacingMultiplier = spec.bodyLineSpacingMultiplier,
         )
     return ShareCardRenderLine(bodyLine.type, layout, layout.height.toFloat())
 }
@@ -85,6 +86,7 @@ internal fun createTextRenderLine(
             paint = paint,
             width = spec.contentWidth,
             paragraphLayoutPolicy = paragraphLayoutPolicy,
+            lineSpacingMultiplier = spec.bodyLineSpacingMultiplier,
         )
     return ShareCardRenderLine(bodyLine.type, layout, layout.height.toFloat())
 }

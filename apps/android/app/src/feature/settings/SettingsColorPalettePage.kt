@@ -665,6 +665,10 @@ private fun ColorSlider(
     valueRange: ClosedFloatingPointRange<Float>,
     onValueChangeFinished: (() -> Unit)? = null,
 ) {
+    val sliderState = androidx.compose.material3.rememberSliderState(value = value, trackRange = valueRange)
+    androidx.compose.runtime.LaunchedEffect(value) {
+        if (sliderState.value != value) sliderState.value = value
+    }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Text(
             text = label,
@@ -673,10 +677,9 @@ private fun ColorSlider(
             modifier = Modifier.width(64.dp),
         )
         Slider(
-            value = value,
+            state = sliderState,
             onValueChange = onValueChange,
             onValueChangeFinished = onValueChangeFinished,
-            valueRange = valueRange,
             modifier = Modifier.weight(1f)
         )
     }

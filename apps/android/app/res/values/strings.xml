@@ -111,6 +111,7 @@
     <string name="settings_font_import_failed">Failed to import font.</string>
     <string name="settings_font_import_invalid_font">The file is not a valid font.</string>
     <string name="settings_font_selected_deleted">Selected font removed; switched to the system font.</string>
+    <string name="settings_font_selected_missing">The selected font file is missing or unreadable. The system font is being used.</string>
     <string name="settings_font_legacy_name_state">Imported before font names were kept</string>
     <string name="settings_typography_font_size">Font Size</string>
     <string name="settings_typography_line_height">Line Height</string>
@@ -275,8 +276,19 @@
     <string name="lan_pairing_waiting">Verify the code shown on %1$s</string>
     <string name="lan_pairing_required">Verify this device before sending</string>
     <string name="lan_batch_approval_title">Incoming LAN transfer</string>
-    <string name="lan_batch_approval_summary">%1$d memos, %2$d attachments, %3$s</string>
-    <string name="lan_batch_item_results">%1$d item results</string>
+    <plurals name="lan_batch_memo_count">
+        <item quantity="one">%1$d memo</item>
+        <item quantity="other">%1$d memos</item>
+    </plurals>
+    <plurals name="lan_batch_attachment_count">
+        <item quantity="one">%1$d attachment</item>
+        <item quantity="other">%1$d attachments</item>
+    </plurals>
+    <string name="lan_batch_approval_summary">%1$s, %2$s, %3$s</string>
+    <plurals name="lan_batch_item_results">
+        <item quantity="one">%1$d item result</item>
+        <item quantity="other">%1$d item results</item>
+    </plurals>
     <string name="lan_batch_receive_progress">Received %1$s of %2$s</string>
     <string name="share_device_name_label">Device name</string>
     <string name="share_device_name_placeholder">Name shown to nearby devices</string>
@@ -373,7 +385,6 @@
     <string name="cd_memo_editor_add_image">Add Image</string>
     <string name="cd_memo_editor_add_voice_memo">Voice Memo</string>
     <string name="cd_memo_editor_add_tag">Add Tag</string>
-    <string name="cd_memo_editor_attach_location">Attach Location</string>
     <string name="cd_memo_editor_backfill_memo">Backfill Memo</string>
     <string name="cd_memo_editor_add_checkbox">Add Checkbox</string>
     <string name="cd_memo_editor_add_reminder">Add reminder</string>

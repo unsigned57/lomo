@@ -1,6 +1,7 @@
 package com.lomo.app.feature.gallery
 
-import androidx.activity.compose.BackHandler
+import androidx.compose.material3.MaterialTheme
+
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -169,10 +170,6 @@ private fun BoxScope.GalleryReelLoadedRoute(
         onActiveMemoIdChanged = { activeMemoId = it },
         onChromeVisibilityChanged = { chromeVisibility = it },
         onActiveZoomFractionChanged = { activeZoomFraction = it },
-        onBackClick = onBackClick,
-    )
-    GalleryReelBackHandler(
-        chromeVisibility = chromeVisibility,
         onBackClick = onBackClick,
     )
 
@@ -355,8 +352,8 @@ private fun BoxScope.GalleryReelChrome(
 
     androidx.compose.animation.AnimatedVisibility(
         visible = chromeVisibility == GalleryReelChromeVisibility.Visible,
-        enter = androidx.compose.animation.fadeIn(),
-        exit = androidx.compose.animation.fadeOut(),
+        enter = androidx.compose.animation.fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+        exit = androidx.compose.animation.fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
         modifier = Modifier.fillMaxSize(),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -420,18 +417,6 @@ private fun GalleryReelScreenEffects(
             is GalleryReelActiveMemoResolution.UpdateActiveMemo -> {
                 onActiveMemoIdChanged(resolution.memoId)
             }
-        }
-    }
-}
-
-@Composable
-private fun GalleryReelBackHandler(
-    chromeVisibility: GalleryReelChromeVisibility,
-    onBackClick: () -> Unit,
-) {
-    BackHandler {
-        when (resolveGalleryReelBackAction(chromeVisibility)) {
-            GalleryReelBackAction.PopRoute -> onBackClick()
         }
     }
 }

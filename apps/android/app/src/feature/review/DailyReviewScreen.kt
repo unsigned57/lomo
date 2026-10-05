@@ -92,7 +92,8 @@ fun DailyReviewScreen(
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val snackbarHostState = remember { SnackbarHostState() }
     val editorController = rememberMemoEditorController()
-    val openFullMemoEditor = rememberFullMemoEditorOpener(editorController)
+    val openFullMemoEditor =
+        rememberFullMemoEditorOpener(editorController, viewModel::reportError)
 
     LaunchedEffect(errorMessage) {
         errorMessage?.let { message ->
@@ -146,6 +147,7 @@ fun DailyReviewScreen(
         menuCommandHandler = memoMenuCommandHandler,
         controller = editorController,
         editorSurface = editorSurface,
+        onEditorOpenFailure = viewModel::reportError,
     ) { showMenu, openEditor ->
         DailyReviewScreenScaffold(
             onBackClick = onBackClick,
@@ -186,6 +188,7 @@ private fun dailyReviewMemoEditorSurface(
         session =
             MemoEditorSessionState(
                 imageDirectory = imageDirectory,
+                ownerDraftId = viewModel.ownerDraftId,
                 rootPath = rootDirectory,
                 imageMap = imageMap,
                 dateFormat = dateFormat,
@@ -262,7 +265,12 @@ private fun DailyReviewScreenContent(
                 .padding(padding),
         contentAlignment = Alignment.Center,
     ) {
-        when (val state = uiState) {
+        com.lomo.ui.component.common.LomoStateContent(
+            state = uiState,
+            contentKey = { it::class to (it is DailyReviewScreenState.Ready && it.memos.isEmpty()) },
+            modifier = Modifier.fillMaxSize(),
+        ) { state ->
+            when (state) {
             is DailyReviewScreenState.Loading -> ExpressiveContainedLoadingIndicator()
 
             is DailyReviewScreenState.Failed -> {
@@ -299,6 +307,7 @@ private fun DailyReviewScreenContent(
                     )
                 }
             }
+        }
         }
     }
 }

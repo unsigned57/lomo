@@ -1,17 +1,18 @@
 package com.lomo.app.feature.settings
 
-import androidx.activity.compose.BackHandler
+import androidx.compose.ui.unit.LayoutDirection
+
+import androidx.compose.material3.MaterialTheme
+
+import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.animation.core.SeekableTransitionState
+import androidx.compose.animation.core.rememberTransition
+import com.lomo.ui.component.navigation.consumePredictiveBackGesture
+import kotlinx.coroutines.flow.map
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
@@ -25,7 +26,6 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.core.os.LocaleListCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.lomo.ui.theme.MotionTokens
 import com.lomo.app.AppBuildInfo
 import com.lomo.app.R
 import com.lomo.app.feature.update.AppUpdateDialogState
@@ -143,7 +143,6 @@ fun SettingsScreen(
             unknownErrorMessage = resources.messages.unknownErrorMessage,
         )
 
-    SettingsBackHandler(dialogState)
 
     HandleSettingsUpdateDialogs(
         manualUpdateState = manualUpdateState,
@@ -202,12 +201,32 @@ fun SettingsScreen(
 
 
 @Composable
-private fun SettingsBackHandler(dialogState: SettingsDialogState) {
-    if (dialogState.activeSubPage != SettingsSubPage.NONE) {
-        BackHandler {
-            dialogState.activeSubPage = SettingsSubPage.NONE
+private fun rememberSettingsPageTransition(dialogState: SettingsDialogState):
+    androidx.compose.animation.core.Transition<SettingsSubPage> {
+    val pageTransitionState = remember { SeekableTransitionState(dialogState.activeSubPage) }
+    val pageTransition = rememberTransition(pageTransitionState, label = "SettingsSubPagesTransition")
+    var isSeekingBack by remember { mutableStateOf(false) }
+    LaunchedEffect(dialogState.activeSubPage, isSeekingBack) {
+        if (!isSeekingBack) pageTransitionState.animateTo(dialogState.activeSubPage)
+    }
+    PredictiveBackHandler(enabled = dialogState.activeSubPage != SettingsSubPage.NONE) { events ->
+        val initialPage = dialogState.activeSubPage
+        isSeekingBack = true
+        try {
+            consumePredictiveBackGesture(
+                progress = events.map { it.progress },
+                onProgress = { pageTransitionState.seekTo(it, SettingsSubPage.NONE) },
+                onCommit = {
+                    dialogState.activeSubPage = SettingsSubPage.NONE
+                    pageTransitionState.animateTo(SettingsSubPage.NONE)
+                },
+                onCancel = { pageTransitionState.animateTo(initialPage) },
+            )
+        } finally {
+            isSeekingBack = false
         }
     }
+    return pageTransition
 }
 
 @Composable
@@ -226,10 +245,9 @@ private fun SettingsSubPagesAnimatedContent(
     onOpenAvailableUpdateDialog: (AppUpdateDialogState) -> Unit,
     onOpenSyncCenter: (() -> Unit)? = null,
 ) {
-    AnimatedContent(
-        targetState = dialogState.activeSubPage,
+    val pageTransition = rememberSettingsPageTransition(dialogState)
+    pageTransition.AnimatedContent(
         transitionSpec = settingsSubPagesTransitionSpec(),
-        label = "SettingsSubPagesTransition",
     ) { activePage ->
         when (activePage) {
             SettingsSubPage.NONE -> {
@@ -314,69 +332,16 @@ private fun SettingsSubPagesAnimatedContent(
     }
 }
 
+@Composable
 private fun settingsSubPagesTransitionSpec():
-    AnimatedContentTransitionScope<SettingsSubPage>.() -> ContentTransform = {
-    val isForward = initialState == SettingsSubPage.NONE && targetState != SettingsSubPage.NONE
-    if (isForward) {
-        (slideInHorizontally(
-            initialOffsetX = { (it * 0.15f).toInt() },
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
-        ) + fadeIn(
-            animationSpec = tween(durationMillis = MotionTokens.DurationLong2),
-        ) + scaleIn(
-            initialScale = 0.95f,
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
-        )) togetherWith (slideOutHorizontally(
-            targetOffsetX = { -(it * 0.15f).toInt() },
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingEmphasizedAccelerate,
-            ),
-        ) + fadeOut(
-            animationSpec = tween(durationMillis = MotionTokens.DurationLong2),
-        ) + scaleOut(
-            targetScale = 1.05f,
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingEmphasizedAccelerate,
-            ),
-        ))
-    } else {
-        (slideInHorizontally(
-            initialOffsetX = { -(it * 0.15f).toInt() },
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
-        ) + fadeIn(
-            animationSpec = tween(durationMillis = MotionTokens.DurationLong2),
-        ) + scaleIn(
-            initialScale = 1.05f,
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
-        )) togetherWith (slideOutHorizontally(
-            targetOffsetX = { (it * 0.15f).toInt() },
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingEmphasizedAccelerate,
-            ),
-        ) + fadeOut(
-            animationSpec = tween(durationMillis = MotionTokens.DurationLong2),
-        ) + scaleOut(
-            targetScale = 0.95f,
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingEmphasizedAccelerate,
-            ),
-        ))
+    AnimatedContentTransitionScope<SettingsSubPage>.() -> ContentTransform {
+    val scheme = MaterialTheme.motionScheme
+    val layoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
+    val forward = if (layoutDirection == LayoutDirection.Ltr) 1 else -1
+    return {
+        val direction = if (initialState == SettingsSubPage.NONE) forward else -forward
+        com.lomo.ui.theme.pageEnterTransition(scheme, direction) togetherWith
+            com.lomo.ui.theme.pageExitTransition(scheme, -direction)
     }
 }
 

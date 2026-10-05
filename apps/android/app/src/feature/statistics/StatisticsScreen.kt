@@ -123,7 +123,12 @@ fun StatisticsScreen(
                 .padding(padding),
             contentAlignment = Alignment.Center,
         ) {
-            when (val state = uiState) {
+            com.lomo.ui.component.common.LomoStateContent(
+            state = uiState,
+            contentKey = { it::class },
+            modifier = Modifier.fillMaxSize(),
+        ) { state ->
+            when (state) {
                 is StatisticsScreenState.Loading -> ExpressiveContainedLoadingIndicator()
                 is StatisticsScreenState.Error -> {
                     Text(
@@ -141,6 +146,7 @@ fun StatisticsScreen(
                     )
                 }
             }
+        }
         }
     }
 }

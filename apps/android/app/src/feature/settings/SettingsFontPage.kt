@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FontDownload
 import androidx.compose.material.icons.outlined.UploadFile
+import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -56,7 +57,9 @@ import java.util.Locale
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.text.font.FontFamily
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
+import com.lomo.app.feature.preferences.CustomFontStatus
 import com.lomo.domain.model.CustomFontImportResult
 import com.lomo.domain.model.CustomFontInfo
 import com.lomo.domain.model.CustomFontNameState
@@ -76,6 +79,8 @@ internal fun FontSettingsPage(
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val haptic = LocalAppHapticFeedback.current
     val context = LocalContext.current
+    val customFontStatus by displayFeature.customFontStatus
+        .collectAsStateWithLifecycle()
 
     val pickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -99,6 +104,11 @@ internal fun FontSettingsPage(
             verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
         ) {
             FontPreviewCard()
+            // A selected font whose file went missing or no longer parses is an explicit
+            // problem state — surface it, never silently pretend the selection still works.
+            if (customFontStatus == CustomFontStatus.MISSING) {
+                CustomFontMissingBanner()
+            }
             SystemFontCard(
                 selected = uiState.fontPreference is FontPreference.SystemDefault,
                 onSelect = {
@@ -180,6 +190,36 @@ private fun FontTopAppBar(
         ),
         scrollBehavior = scrollBehavior,
     )
+}
+
+@Composable
+private fun CustomFontMissingBanner() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = stringResource(R.string.settings_font_selected_missing),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+        }
+    }
 }
 
 @Composable
