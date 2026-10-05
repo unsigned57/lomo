@@ -22,20 +22,24 @@ private fun scaledLetterSpacing(scale: Float) =
     (BASELINE_LETTER_SPACING + LETTER_SPACING_STEP * (scale - 1.0f)).sp
 
 fun Typography.memoBodyTextStyle(scales: TypographyScales = TypographyScales()): TextStyle =
-    bodyMedium.copy(
-        fontSize = bodyMedium.fontSize * scales.fontSizeScale,
-        lineHeight = 16.sp * scales.fontSizeScale * scales.lineHeightScale,
+    bodyLarge.copy(
+        fontSize = bodyLarge.fontSize * scales.fontSizeScale,
+        lineHeight = bodyLarge.lineHeight * scales.fontSizeScale * scales.lineHeightScale,
         letterSpacing = scaledLetterSpacing(scales.letterSpacingScale),
+        platformStyle = MemoEditorChromePlatformStyle,
+        lineHeightStyle = null,
     )
 
 @Composable
 fun Typography.memoBodyTextStyle(): TextStyle = memoBodyTextStyle(currentTypographyScales())
 
 fun Typography.memoSummaryTextStyle(scales: TypographyScales = TypographyScales()): TextStyle =
-    bodyMedium.copy(
-        fontSize = bodyMedium.fontSize * scales.fontSizeScale,
-        lineHeight = 20.sp * scales.fontSizeScale * scales.lineHeightScale,
+    bodyLarge.copy(
+        fontSize = bodyLarge.fontSize * scales.fontSizeScale,
+        lineHeight = bodyLarge.lineHeight * scales.fontSizeScale * scales.lineHeightScale,
         letterSpacing = scaledLetterSpacing(scales.letterSpacingScale),
+        platformStyle = MemoEditorChromePlatformStyle,
+        lineHeightStyle = null,
     )
 
 @Composable
@@ -51,9 +55,9 @@ fun Typography.memoEditorTextStyle(scales: TypographyScales = TypographyScales()
 fun Typography.memoEditorTextStyle(): TextStyle = memoEditorTextStyle(currentTypographyScales())
 
 fun Typography.memoHintTextStyle(scales: TypographyScales = TypographyScales()): TextStyle =
-    bodyMedium.copy(
-        fontSize = bodyMedium.fontSize * scales.fontSizeScale,
-        lineHeight = 16.sp * scales.fontSizeScale * scales.lineHeightScale,
+    bodyLarge.copy(
+        fontSize = bodyLarge.fontSize * scales.fontSizeScale,
+        lineHeight = bodyLarge.lineHeight * scales.fontSizeScale * scales.lineHeightScale,
         letterSpacing = scaledLetterSpacing(scales.letterSpacingScale),
         lineHeightStyle = MemoEditorChromeLineHeightStyle,
         platformStyle = MemoEditorChromePlatformStyle,

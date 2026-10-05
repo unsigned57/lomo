@@ -2,13 +2,21 @@ package com.lomo.ui.theme
 
 /*
  * Behavior Contract:
+ * Test Change Justification:
+ * Reason category: User-approved behavior change.
+ * Old behavior/assertion being replaced: compact memo defaults of 14sp with 16/20sp line heights.
+ * Why old assertion is no longer correct: the approved Expressive reading baseline is 16sp/24sp.
+ * Coverage preserved by: body/editor/summary/hint parity, scaling, CJK alignment and spacing assertions.
+ * Why this is not fitting the test to the implementation: the new defaults were fixed in the approved plan.
  * - Unit under test: MemoTypography memo text tokens
- * - Behavior focus:
- *   1. Global body-medium and memo body/editor/hint/summary styles keep the tightened reading spacing
- *      while preserving the compact memo line-height rhythm.
- *   2. Editor and hint styles use a line-height that aligns CJK glyphs proportionally and disables
- *      Android's font padding so CJK characters render with the same comfortable in-line balance as
- *      Latin instead of clinging to the bottom of the line box.
+ * - Capability: memo reading typography keeps one Expressive baseline across body, editor, hint
+ *   and summary styles, with CJK glyphs aligned proportionally.
+ * - Scenarios:
+ *   1. Given memo body/editor/hint/summary styles, when resolved, then they keep the tightened
+ *      reading spacing and the compact memo line-height rhythm.
+ *   2. Given CJK glyphs in editor or hint styles, when rendered, then line-height aligns
+ *      proportionally and Android font padding is disabled so CJK characters share the same
+ *      in-line balance as Latin.
  * - Observable outcomes: TextStyle.fontSize, lineHeight, letterSpacing, lineHeightStyle, platformStyle
  *   and memoParagraphBlockSpacing.
  * - TDD proof: Fails before the CJK alignment fix because lineHeightStyle on memoEditorTextStyle/memoHintTextStyle is Center instead of Proportional.
@@ -36,19 +44,19 @@ class MemoTypographyTest : UiComponentsFunSpec() {
             )
         val cjkPlatformStyle = PlatformTextStyle(includeFontPadding = false)
 
-        test("material body medium keeps the tightened global reading spacing") {
+        test("material body medium follows the current Material type scale") {
             (appTypography.bodyMedium.fontSize) shouldBe (14.sp)
             (appTypography.bodyMedium.lineHeight) shouldBe (20.sp)
-            (appTypography.bodyMedium.letterSpacing) shouldBe (0.1.sp)
+            (appTypography.bodyMedium.letterSpacing) shouldBe (0.2.sp)
         }
 
-        test("memo body and editor styles stay close to the previous body medium size") {
+        test("memo body and editor share the Expressive reading metrics") {
             val body = typography.memoBodyTextStyle(defaultScales)
             val editor = typography.memoEditorTextStyle(defaultScales)
             val hint = typography.memoHintTextStyle(defaultScales)
 
-            (body.fontSize) shouldBe (14.sp)
-            (body.lineHeight) shouldBe (16.sp)
+            (body.fontSize) shouldBe (16.sp)
+            (body.lineHeight) shouldBe (24.sp)
             (body.letterSpacing) shouldBe (0.1.sp)
 
             (editor.fontSize) shouldBe (body.fontSize)
@@ -60,11 +68,11 @@ class MemoTypographyTest : UiComponentsFunSpec() {
             (hint.letterSpacing) shouldBe (body.letterSpacing)
         }
 
-        test("memo summary keeps compact body medium rhythm") {
+        test("memo summary shares the Expressive reading rhythm") {
             val summary = typography.memoSummaryTextStyle(defaultScales)
 
-            (summary.fontSize) shouldBe (14.sp)
-            (summary.lineHeight) shouldBe (20.sp)
+            (summary.fontSize) shouldBe (16.sp)
+            (summary.lineHeight) shouldBe (24.sp)
             (summary.letterSpacing) shouldBe (0.1.sp)
         }
 

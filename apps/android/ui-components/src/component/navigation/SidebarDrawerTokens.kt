@@ -9,15 +9,15 @@ import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 
 internal object SidebarDrawerTokens {
-    val TagRowShape = RoundedCornerShape(14.dp)
-    val HubCardShape = RoundedCornerShape(32.dp)
+    val TagRowShape = AppShapes.Large
+    val HubCardShape = AppShapes.ExtraLargeIncreased
     val NavigationItemShape = AppShapes.Full
     val IndicatorShape = AppShapes.Full
 
     val RowHeight = 48.dp
     val NavigationIconSize = 20.dp
     val TagLeadingIconSize = 20.dp
-    val TagExpandButtonSize = 36.dp
+    val TagExpandButtonSize = 48.dp
     val TagExpandIconSize = 18.dp
     val TagRowStartPadding = AppSpacing.Medium
     val TagRowEndPadding = AppSpacing.Small

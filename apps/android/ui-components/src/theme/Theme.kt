@@ -7,7 +7,6 @@ import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.layout.Box
@@ -15,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,7 +40,6 @@ import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.sidebar_memo
 
 private const val FONT_WEIGHT_ADJUSTMENT_FALLBACK = 0
-private const val THEME_COLOR_ANIMATION_DURATION_MS = 220
 
 internal fun shouldAnimateThemeColorTransition(
     themeMode: ThemeMode,
@@ -126,12 +125,13 @@ fun LomoTheme(
 
     val targetColorScheme = resolveLomoColorScheme(context, colorSource, darkTheme)
 
+    val expressiveMotionScheme = rememberExpressiveMotionScheme()
     val animatedColorScheme =
         animateColorSchemeAsState(
             targetColorScheme = targetColorScheme,
             animationSpec =
                 if (shouldAnimateThemeColorTransition(themeMode, previousDarkTheme, darkTheme)) {
-                    tween(durationMillis = THEME_COLOR_ANIMATION_DURATION_MS)
+                    expressiveMotionScheme.defaultEffectsSpec()
                 } else {
                     snap()
                 },
@@ -163,14 +163,12 @@ fun LomoTheme(
 
     // Apply the expressive motion scheme globally so that composables such as ModalBottomSheet
     // (memo menu) inherit the scheme directly and avoid a costly nested MaterialTheme on first use.
-    val expressiveMotionScheme = rememberExpressiveMotionScheme()
-
     CompositionLocalProvider(
         LocalTextSelectionColors provides memoTextSelectionColors(animatedColorScheme),
     ) {
         ProvideTypographyScales(typographyScales) {
             @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
-            MaterialTheme(
+            MaterialExpressiveTheme(
                 colorScheme = animatedColorScheme,
                 typography = typography,
                 shapes = Shapes,
@@ -203,7 +201,7 @@ fun LomoTheme(
 @Composable
 fun animateColorSchemeAsState(
     targetColorScheme: ColorScheme,
-    animationSpec: AnimationSpec<Color> = tween(durationMillis = THEME_COLOR_ANIMATION_DURATION_MS),
+    animationSpec: AnimationSpec<Color>,
 ): ColorScheme {
     val coreColors = animatedCoreColors(targetColorScheme, animationSpec)
     val surfaceColors = animatedSurfaceColors(targetColorScheme, animationSpec)

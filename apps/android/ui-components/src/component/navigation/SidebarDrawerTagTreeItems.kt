@@ -1,5 +1,7 @@
 package com.lomo.ui.component.navigation
 
+import androidx.compose.ui.unit.LayoutDirection
+
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,6 +22,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshots.SnapshotStateList
@@ -32,7 +35,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import com.lomo.ui.benchmark.benchmarkAnchor
-import com.lomo.ui.component.common.lomoListItemMotion
 import com.lomo.ui.generated.resources.Res
 import com.lomo.ui.generated.resources.cd_collapse
 import com.lomo.ui.generated.resources.cd_expand
@@ -69,7 +71,11 @@ internal fun LazyListScope.sidebarTags(input: SidebarTagsInput) {
 
     items(visibleRows, key = { row -> row.node.fullPath }) { row ->
         val rowModifier =
-            Modifier.lomoListItemMotion(this)
+            Modifier.animateItem(
+                fadeInSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+                placementSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+                fadeOutSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+            )
         if (row.level == 0) {
             ReorderableItem(
                 state = reorderableLazyListState,
@@ -112,16 +118,24 @@ private fun sh.calvin.reorderable.ReorderableCollectionItemScope.DraggableRootTa
     anchorTagForPath: (String) -> String?,
     modifier: Modifier = Modifier,
 ) {
+    val scale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isDragging) SidebarDrawerTokens.TagDragScale else 1f,
+        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
+        label = "TagDragScale",
+    )
+    val alpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isDragging) SidebarDrawerTokens.TagDragAlpha else 1f,
+        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+        label = "TagDragAlpha",
+    )
     val haptic = LocalAppHapticFeedback.current
     Box(
         modifier =
             modifier
                 .graphicsLayer {
-                    if (isDragging) {
-                        scaleX = SidebarDrawerTokens.TagDragScale
-                        scaleY = SidebarDrawerTokens.TagDragScale
-                        alpha = SidebarDrawerTokens.TagDragAlpha
-                    }
+                    scaleX = scale
+                    scaleY = scale
+                    this.alpha = alpha
                 }
                 .longPressDraggableHandle(
                     onDragStarted = { haptic.heavy() },
@@ -177,18 +191,21 @@ private fun SidebarTagRow(
     anchorTag: String?,
     modifier: Modifier = Modifier,
 ) {
-    val containerColor =
-        if (isSelected) {
-            SidebarDrawerTokens.selectedContainerColor(MaterialTheme.colorScheme)
-        } else {
-            Color.Transparent
-        }
-    val contentColor =
-        if (isSelected) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        }
+    val containerColor by androidx.compose.animation.animateColorAsState(
+        targetValue =
+            if (isSelected) {
+                SidebarDrawerTokens.selectedContainerColor(MaterialTheme.colorScheme)
+            } else {
+                Color.Transparent
+            },
+        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+        label = "SidebarTagContainer",
+    )
+    val contentColor by androidx.compose.animation.animateColorAsState(
+        targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+        label = "SidebarTagContent",
+    )
 
     val border = null
 
@@ -327,16 +344,18 @@ private fun TagTreeExpandButton(
     color: Color,
     onClick: () -> Unit,
 ) {
+    val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == LayoutDirection.Rtl
+    val rotation by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isExpanded) { if (rtl) -90f else 90f } else 0f,
+        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
+        label = "TagExpandIndicator",
+    )
     IconButton(
         onClick = rememberLightHapticClick(onClick),
         modifier = Modifier.size(SidebarDrawerTokens.TagExpandButtonSize),
     ) {
         Icon(
-            if (isExpanded) {
-                Icons.Rounded.KeyboardArrowDown
-            } else {
-                Icons.AutoMirrored.Rounded.KeyboardArrowRight
-            },
+            Icons.AutoMirrored.Rounded.KeyboardArrowRight,
             contentDescription =
                 org.jetbrains.compose.resources.stringResource(
                     if (isExpanded) {
@@ -345,7 +364,7 @@ private fun TagTreeExpandButton(
                         Res.string.cd_expand
                     },
                 ),
-            modifier = Modifier.size(SidebarDrawerTokens.TagExpandIconSize),
+            modifier = Modifier.size(SidebarDrawerTokens.TagExpandIconSize).graphicsLayer { rotationZ = rotation },
             tint = color,
         )
     }

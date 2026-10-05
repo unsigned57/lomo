@@ -79,19 +79,15 @@ object AppShapes {
         )
 }
 
-/**
- * M3 Shapes slot configuration for MaterialTheme.
- *
- * The `extraLarge` slot is bound to the Expressive 32dp token so that every
- * M3 component that reads `MaterialTheme.shapes.extraLarge` (FAB, Dialog,
- * SearchBar, elevated Card) picks up the Expressive ramp without needing
- * per-call-site overrides.
- */
+/** Material's named shape slots preserve the distinct standard and increased corner sizes. */
 val Shapes =
     Shapes(
         extraSmall = AppShapes.ExtraSmall,
         small = AppShapes.Small,
         medium = AppShapes.Medium,
         large = AppShapes.Large,
-        extraLarge = AppShapes.ExtraLargeIncreased,
+        extraLarge = AppShapes.ExtraLarge,
+        largeIncreased = AppShapes.LargeIncreased,
+        extraLargeIncreased = AppShapes.ExtraLargeIncreased,
+        extraExtraLarge = AppShapes.ExtraExtraLarge,
     )
