@@ -37,6 +37,7 @@ import com.lomo.app.R
 import com.lomo.app.TrustedLaunchIntents
 import com.lomo.app.util.MarkdownCleanupFormatter
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.RecordingDeepLink
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import java.time.Instant
@@ -260,7 +261,7 @@ private fun MemoItem(
                     actionStartActivity(
                         Intent(context, MainActivity::class.java).apply {
                             action = MainActivity.ACTION_OPEN_MEMO
-                            putExtra(MainActivity.EXTRA_MEMO_ID, memo.id)
+                            putExtra(RecordingDeepLink.EXTRA_MEMO_ID, memo.id)
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                         },
                     ),

@@ -36,7 +36,7 @@ internal fun extractPendingLaunchActions(intent: Intent?): List<PendingLaunchAct
         -> extractShareLaunchActions(intent)
 
         MainActivity.ACTION_OPEN_MEMO ->
-            intent.getStringExtra(MainActivity.EXTRA_MEMO_ID)
+            intent.getStringExtra(RecordingDeepLink.EXTRA_MEMO_ID)
                 ?.takeIf(String::isNotBlank)
                 ?.let { memoId -> listOf(PendingLaunchAction.OpenMemo(memoId)) }
                 .orEmpty()

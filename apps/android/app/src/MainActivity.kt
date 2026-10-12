@@ -182,7 +182,6 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val ACTION_EXTERNAL_APP_COMMAND = "com.lomo.app.ACTION_EXTERNAL_APP_COMMAND"
         const val ACTION_OPEN_MEMO = "com.lomo.app.ACTION_OPEN_MEMO"
-        const val EXTRA_MEMO_ID = "memo_id"
         private const val KEY_PENDING_LAUNCH_COMMANDS = "lomo.pendingLaunchCommands"
     }
 }
