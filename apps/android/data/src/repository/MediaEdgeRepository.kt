@@ -10,8 +10,6 @@ import com.lomo.data.engine.media.MediaStageRootProvider
 import com.lomo.data.engine.media.MediaSweepDraftGuard
 import com.lomo.data.engine.media.PendingMediaStageRegistry
 import com.lomo.data.engine.media.WorkspaceFilesystemRoot
-import com.lomo.data.engine.store.StoreMemoQuery
-import com.lomo.data.engine.store.StorePort
 import com.lomo.data.source.MediaStorageDataSource
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
@@ -40,8 +38,6 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 
-private const val MEDIA_REFERENCE_PAGE_SIZE = 256
-
 /**
  * Production media edge after P4-10A: Android URI/temp + path-only [MediaPort] owner.
  *
@@ -67,7 +63,6 @@ data class MediaEdgeRepositoryDependencies(
     val workspaceRoot: WorkspaceFilesystemRoot,
     val stageRoot: MediaStageRootProvider,
     val writeLease: WorkspaceMutationLease,
-    val storePort: StorePort,
     val createDraftRepository: MemoCreateDraftRepository,
     val editDraftRepository: MemoEditDraftRepository,
 )
@@ -92,7 +87,6 @@ constructor(
     private val workspaceRoot: WorkspaceFilesystemRoot = dependencies.workspaceRoot
     private val stageRoot: MediaStageRootProvider = dependencies.stageRoot
     private val writeLease: WorkspaceMutationLease = dependencies.writeLease
-    private val storePort: StorePort = dependencies.storePort
     private val createDraftRepository: MemoCreateDraftRepository = dependencies.createDraftRepository
     private val editDraftRepository: MemoEditDraftRepository = dependencies.editDraftRepository
     private val clockMs: () -> Long = limits.clockMs
@@ -129,12 +123,13 @@ constructor(
                     record.suggestedFinalRelativePath.ifBlank {
                         error("Rust stage must return suggestedFinalRelativePath")
                     }
-                // Preview map points at the staging absolute path until promote commits final.
+                // Preview map keys the owner-resolved relative path — the exact
+                // destination the draft body writes — and points at the staging
+                // absolute path until promote commits final.
                 val stagingFile = File(record.stagingPath)
-                val basename = finalRelative.substringAfterLast('/')
                 imageLocationMap.update { current ->
                     current + (
-                        MediaEntryId(basename) to
+                        MediaEntryId(finalRelative) to
                             MediaImageDescriptor(
                                 location = StorageLocation(fileLocationRaw(stagingFile)),
                                 contentId = record.digest,
@@ -161,14 +156,12 @@ constructor(
             val released = pendingStages.releaseDraftDestination(draftId, key)
             if (released != null) {
                 imageLocationMap.update { current ->
-                    current - MediaEntryId(key) - MediaEntryId(key.substringAfterLast('/')) -
-                        MediaEntryId(released.substringAfterLast('/'))
+                    current - MediaEntryId(key) - MediaEntryId(released)
                 }
                 return@mediaWrite
             }
-            val basename = key.substringAfterLast('/')
             // Drop UI/path cache + sync journal; permanent FS authority is media-trash / orphan sweep.
-            imageLocationMap.update { current -> current - entryId - MediaEntryId(basename) }
+            imageLocationMap.update { current -> current - entryId }
             runOrphanSweepAtOperationBoundary()
         }
     }
@@ -180,7 +173,7 @@ constructor(
      * Commit-receipt publication: a successful memo command already carries the promoted
      * artifacts' final relative paths and witnessed digests, so the location owner learns each
      * final location directly instead of re-walking the manifest. The staged preview entry keyed
-     * by the same basename is replaced by the final location under the same content identity.
+     * by the same relative path is replaced by the final location under the same content identity.
      */
     override fun publishCommittedMedia(plans: List<MediaPromotePlan>) {
         if (plans.isEmpty()) return
@@ -190,7 +183,7 @@ constructor(
             for (plan in plans) {
                 val finalFile = File(root, plan.finalRelativePath)
                 if (!finalFile.isFile) continue
-                next[MediaEntryId(plan.finalRelativePath.substringAfterLast('/'))] =
+                next[MediaEntryId(plan.finalRelativePath)] =
                     MediaImageDescriptor(
                         location = StorageLocation(fileLocationRaw(finalFile)),
                         contentId = plan.staged.digest,
@@ -213,27 +206,24 @@ constructor(
             }
             // No Direct root: path-cache only from legacy storage listing (no digest claims).
             val fromStorage = mediaStorageDataSource.listImageFiles()
-            imageLocationMap.value =
-                buildProviderImageLocationMap(
-                    providerFiles = fromStorage,
-                    attachmentPaths = storePort.currentAttachmentPaths(),
-                )
+            imageLocationMap.value = buildProviderImageLocationMap(providerFiles = fromStorage)
             lastManifestEntries = emptyList()
             return
         }
         val manifest = mediaPort.queryMediaManifest(root, lastManifestEntries)
         lastManifestEntries = manifest.entries
+        // The Rust manifest walker already excludes media-trash/stage/delete-intents trees.
+        // Entries key on their workspace-relative path — directory identity,
+        // not basename, so a nested hit and a root hit never collide in the map.
+        val rootDir = File(root)
         val fromManifest =
             manifest.entries.mapNotNull { entry ->
                 val file = File(entry.absolutePath)
                 if (!file.isFile) return@mapNotNull null
-                // Skip media-trash and other hidden trees under media root.
-                if (entry.absolutePath.contains("/$MEDIA_TRASH_DIR_SEGMENT/") ||
-                    entry.absolutePath.contains("\\$MEDIA_TRASH_DIR_SEGMENT\\")
-                ) {
-                    return@mapNotNull null
-                }
-                MediaEntryId(file.name) to
+                val relative =
+                    file.relativeToOrNull(rootDir)?.invariantSeparatorsPath
+                        ?: return@mapNotNull null
+                MediaEntryId(relative) to
                     MediaImageDescriptor(
                         location = StorageLocation(fileLocationRaw(file)),
                         contentId = entry.digest,
@@ -381,8 +371,7 @@ constructor(
             if (released.isNotEmpty()) {
                 imageLocationMap.update { current ->
                     released.fold(current) { acc, record ->
-                        val key = record.suggestedFinalRelativePath
-                        acc - MediaEntryId(key) - MediaEntryId(key.substringAfterLast('/'))
+                        acc - MediaEntryId(record.suggestedFinalRelativePath)
                     }
                 }
             }
@@ -590,7 +579,6 @@ constructor(
         private const val TAG = "MediaEdgeRepository"
         private const val IMAGE_DIRECTORY_NAME = "images"
         private const val VOICE_DIRECTORY_NAME = "voice"
-        private const val MEDIA_TRASH_DIR_SEGMENT = ".lomo" + "-media-trash"
         private const val COPY_BUFFER_BYTES = 64 * 1024
 
         /** Matches Rust media DEFAULT_RECOVERY_WINDOW_MS (30 days). */
@@ -601,50 +589,17 @@ constructor(
     }
 }
 
+/**
+ * Provider (SAF) media key on DocumentsContract display names — the flat
+ * namespace the platform actually exposes. Directory disambiguation happens in
+ * the app-side resolver, which pools these bare-name keys against filesystem
+ * probes and rejects shared claims.
+ */
 private fun buildProviderImageLocationMap(
     providerFiles: List<Pair<String, String>>,
-    attachmentPaths: Set<String>,
-): Map<MediaEntryId, MediaImageDescriptor> {
-    val index =
-        MediaReferenceIndex.build(
-            providerFiles.map { (name, location) -> ProviderMediaLocation(name, location) },
-        )
-    val resolved =
-        providerFiles.associate { (name, location) ->
-            // Provider listing has no digest witness; location-only descriptors never claim identity.
-            MediaEntryId(name) to
-                MediaImageDescriptor(location = StorageLocation(location), contentId = null)
-        }.toMutableMap()
-    attachmentPaths.forEach { reference ->
-        when (val resolution = index.resolve(reference)) {
-            is MediaReferenceResolution.Resolved -> {
-                val basename = reference.replace('\\', '/').substringAfterLast('/')
-                resolved[MediaEntryId(basename)] =
-                    MediaImageDescriptor(
-                        location = StorageLocation(resolution.location),
-                        contentId = null,
-                    )
-            }
-            MediaReferenceResolution.Ambiguous,
-            MediaReferenceResolution.Missing,
-            -> Unit
-        }
+): Map<MediaEntryId, MediaImageDescriptor> =
+    providerFiles.associate { (name, location) ->
+        // Provider listing has no digest witness; location-only descriptors never claim identity.
+        MediaEntryId(name) to
+            MediaImageDescriptor(location = StorageLocation(location), contentId = null)
     }
-    return resolved
-}
-
-private fun StorePort.currentAttachmentPaths(): Set<String> {
-    val paths = linkedSetOf<String>()
-    var cursor: com.lomo.data.engine.store.StorePageCursor? = null
-    do {
-        val page =
-            queryMemos(
-                query = StoreMemoQuery(),
-                cursor = cursor,
-                pageSize = MEDIA_REFERENCE_PAGE_SIZE,
-            )
-        page.items.forEach { memo -> paths += memo.imageUrls }
-        cursor = page.nextCursor
-    } while (cursor != null)
-    return paths
-}

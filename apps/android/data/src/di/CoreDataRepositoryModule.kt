@@ -186,7 +186,6 @@ val coreDataRepositoryModule = module {
                     workspaceRoot = get(),
                     stageRoot = get(),
                     writeLease = get(),
-                    storePort = get(),
                     createDraftRepository = get(),
                     editDraftRepository = get(),
                 ),

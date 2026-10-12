@@ -6,18 +6,6 @@ import com.lomo.data.engine.media.MediaPort
 import com.lomo.data.engine.media.MediaPromotePlan
 import com.lomo.data.engine.media.MediaStagedFacts
 import com.lomo.data.engine.media.PendingMediaStageRegistry
-import com.lomo.data.engine.store.StoreMemoBatchCommit
-import com.lomo.data.engine.store.StoreMemoCommand
-import com.lomo.data.engine.store.StoreMemoCommit
-import com.lomo.data.engine.store.StoreMemoDeleteTarget
-import com.lomo.data.engine.store.StoreMemoPage
-import com.lomo.data.engine.store.StoreMemoQuery
-import com.lomo.data.engine.store.StoreMemoSnapshot
-import com.lomo.data.engine.store.StorePageCursor
-import com.lomo.data.engine.store.StorePort
-import com.lomo.data.engine.store.StoreRebuildResult
-import com.lomo.data.engine.store.StoreReminderPlan
-import com.lomo.data.engine.store.StoreSidebarProjection
 import com.lomo.data.testing.DataFunSpec
 import com.lomo.data.testing.fakes.FakeFileDataSource
 import com.lomo.domain.model.MediaEntryId
@@ -43,9 +31,9 @@ import kotlin.io.path.createTempDirectory
  *
  * Scenarios:
  * - Given a memo commit promoted an image, when the receipt publishes the plan, then the image
- *   map resolves the basename to the final location under the witnessed content identity.
+ *   map resolves the relative path to the final location under the witnessed content identity.
  * - Given a publish whose final file is absent, when the receipt arrives, then no location is
- *   fabricated for that basename.
+ *   fabricated for that relative path.
  * - Given a completed manifest walk, when the next refresh runs, then the previous entries are
  *   handed back to the port as verified hints.
  *
@@ -85,7 +73,7 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                 ),
             )
 
-            val descriptor = repository.observeImageLocations().first()[MediaEntryId("img_1.png")]
+            val descriptor = repository.observeImageLocations().first()[MediaEntryId("media/img_1.png")]
             descriptor shouldNotBe null
             descriptor!!.location.raw shouldBe "file://${finalFile.absolutePath}"
             descriptor.contentId shouldBe "a".repeat(64)
@@ -106,7 +94,7 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                 ),
             )
 
-            repository.observeImageLocations().first()[MediaEntryId("missing.png")] shouldBe null
+            repository.observeImageLocations().first()[MediaEntryId("media/missing.png")] shouldBe null
         }
 
         test("manifest refresh feeds the previous witnessed entries back as verified hints") {
@@ -138,7 +126,6 @@ class MediaEdgeRepositoryPublishTest : DataFunSpec() {
                     workspaceRoot = { workspace.absolutePath },
                     stageRoot = { workspace.absolutePath },
                     writeLease = alwaysWritableWorkspaceMutationLease(),
-                    storePort = UnexpectedStorePort(),
                     createDraftRepository = EmptyCreateDrafts(),
                     editDraftRepository = EmptyEditDrafts(),
                 ),
@@ -196,47 +183,4 @@ private class RecordingManifestMediaPort(
                 ),
         )
     }
-}
-
-private class UnexpectedStorePort : StorePort {
-    private fun unexpected(): Nothing = error("unexpected store call in media publish test")
-
-    override fun queryMemos(
-        query: StoreMemoQuery,
-        cursor: StorePageCursor?,
-        pageSize: Int,
-        startMemoId: String?,
-        backward: Boolean,
-    ): StoreMemoPage = unexpected()
-
-    override fun getMemo(memoId: String): StoreMemoSnapshot? = unexpected()
-
-    override fun queryCount(query: StoreMemoQuery): Long = unexpected()
-
-    override fun sidebarProjection(): StoreSidebarProjection = unexpected()
-
-    override fun queryReminderPlan(nowUtcMs: Long): StoreReminderPlan = unexpected()
-
-    override fun applyMemoCommand(
-        command: StoreMemoCommand,
-        onPublication: (StoreMemoCommit) -> Unit,
-    ): StoreMemoCommit = unexpected()
-
-    override fun permanentDeleteMany(
-        operationId: String,
-        targets: List<StoreMemoDeleteTarget>,
-    ): StoreMemoBatchCommit = unexpected()
-
-    override fun commitDocumentMutation(
-        mutation: com.lomo.domain.model.MemoDocumentMutation,
-    ): StoreMemoCommit = unexpected()
-
-    override fun startRebuild(batchSize: Int): StoreRebuildResult = unexpected()
-
-    override fun snoozeReminder(
-        opaqueId: String,
-        snoozeDurationMs: Long,
-    ) = unexpected()
-
-    override fun recoverReminderSnooze() = unexpected()
 }

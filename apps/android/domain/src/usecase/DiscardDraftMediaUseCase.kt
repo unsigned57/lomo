@@ -6,25 +6,25 @@ import com.lomo.domain.repository.MediaRepository
 import kotlinx.coroutines.CancellationException
 
 /**
- * Best-effort draft media cleanup. Stage discard is preferred; this removes committed basenames
- * tracked by the editor when the draft is abandoned.
+ * Best-effort draft media cleanup. Stage discard is preferred; this removes the committed media
+ * entries (owner-resolved relative paths) tracked by the editor when the draft is abandoned.
  */
 open class DiscardDraftMediaUseCase(
     private val mediaRepository: MediaRepository,
 ) {
     open suspend operator fun invoke(
-        filenames: Collection<String>,
+        entryIds: Collection<String>,
         draftId: DraftId,
     ) {
-        filenames.forEach { filename ->
+        entryIds.forEach { entryId ->
             try {
                 // behavior-contract: loop-io-ok: no bulk removeImage API; each iteration is one bounded media id
-                mediaRepository.removeImage(MediaEntryId(filename), draftId)
+                mediaRepository.removeImage(MediaEntryId(entryId), draftId)
             } catch (error: Exception) {
                 if (error is CancellationException) {
                     throw error
                 }
-                // behavior-contract: silent-result-ok: draft discard is best-effort; missing basename is ignored
+                // behavior-contract: silent-result-ok: draft discard is best-effort; a missing entry is ignored
             }
         }
         // Release the draft's lease claims last: every staged byte still owned by this draft dies

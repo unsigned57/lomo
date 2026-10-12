@@ -394,10 +394,18 @@ pub fn load_image(
     {
         return Err(TuiError::config("image owner changed while loading"));
     }
-    let bytes = lomo_application::rebuild::read_workspace_file(
+    // Bare basenames resolve through the workspace directory vocabulary; the
+    // authored path stays the site-binding identity (the reader matches sites
+    // to requests by `request.path`), so resolution only locates the bytes.
+    let path = lomo_application::attachment_lookup::resolve_attachment_path(
         &runtime.session_config,
         &runtime.executor,
         &request.path,
+    )?;
+    let bytes = lomo_application::rebuild::read_workspace_file(
+        &runtime.session_config,
+        &runtime.executor,
+        &path,
     )?;
     prepare_image(
         &bytes,

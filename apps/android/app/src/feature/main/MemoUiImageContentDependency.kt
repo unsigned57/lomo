@@ -1,56 +1,20 @@
 package com.lomo.app.feature.main
 
 import android.net.Uri
-import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
 
+/**
+ * The `key=uri` lines every image destination in [imagePaths] can legitimately
+ * resolve through — the exact surface [MemoUiImageContentResolver] consults,
+ * so the signature moves precisely when a resolvable location changes and
+ * stays stable under unrelated map churn.
+ */
 internal fun buildImageMapDependencySignatureForPaths(
     imagePaths: Set<String>,
     imageMap: Map<String, Uri>,
 ): String =
     imagePaths
         .asSequence()
-        .flatMap { path -> buildImageMapCandidates(path).asSequence() }
+        .flatMap { path -> imageMapLookupLines(path, imageMap).asSequence() }
         .distinct()
-        .mapNotNull { key -> imageMap[key]?.let { uri -> "$key=$uri" } }
         .sorted()
         .joinToString(separator = "\n")
-
-internal fun buildImageMapCandidates(imageUrl: String): List<String> {
-    val candidates = LinkedHashSet<String>()
-
-    fun decodeUrlComponent(value: String): String =
-        // behavior-contract: silent-result-ok: malformed percent-encoding is still a lookup token
-        runCatching {
-            URLDecoder.decode(value, StandardCharsets.UTF_8.name())
-        }.getOrDefault(value)
-
-    fun addCandidate(raw: String?) {
-        val value = raw?.trim().orEmpty()
-        if (value.isNotEmpty()) {
-            candidates.add(value)
-        }
-    }
-
-    val normalized = normalizeImageUrl(imageUrl)
-    if (normalized.isBlank()) {
-        return emptyList()
-    }
-
-    addCandidate(normalized)
-    addCandidate(decodeUrlComponent(normalized))
-    val noQuery = normalized.substringBefore(QUERY_SEPARATOR).substringBefore(FRAGMENT_SEPARATOR)
-    addCandidate(noQuery)
-    addCandidate(decodeUrlComponent(noQuery))
-    val stripped = normalizeRelativePath(noQuery, removeParentSegments = true)
-    addCandidate(stripped)
-    val basename = stripped.substringAfterLast(PATH_SEPARATOR)
-    addCandidate(basename)
-    addCandidate(decodeUrlComponent(basename))
-
-    if (normalized.startsWith(FILE_URI_PREFIX) || normalized.startsWith(CONTENT_URI_PREFIX)) {
-        addCandidate(parseUriPath(normalized)?.substringAfterLast(PATH_SEPARATOR))
-    }
-
-    return candidates.toList()
-}

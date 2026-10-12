@@ -186,8 +186,9 @@ class PendingMediaStageRegistry(
     }
 
     /**
-     * Releases one draft's claim on the record matching [destinationKey] (full relative path or
-     * basename). Returns the resolved destination when a draft-owned record matched, else null.
+     * Releases one draft's claim on the record whose owner-resolved relative path equals
+     * [destinationKey]. Returns the resolved destination when a draft-owned record matched,
+     * else null. Matching is exact — a basename never releases another directory's record.
      */
     fun releaseDraftDestination(
         draftId: DraftId,
@@ -200,8 +201,7 @@ class PendingMediaStageRegistry(
             mediaPort
                 .stageRecordsForOwner(root, MediaStageOwnerKind.Draft, draftId.value)
                 .firstOrNull { record ->
-                    record.suggestedFinalRelativePath == key ||
-                        record.suggestedFinalRelativePath.substringAfterLast('/') == key
+                    record.suggestedFinalRelativePath == key
                 } ?: return null
         mediaPort.releaseStageLease(
             mediaRoot = root,

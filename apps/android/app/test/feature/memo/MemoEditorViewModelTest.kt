@@ -520,11 +520,11 @@ class MemoEditorViewModelTest : AppFunSpec() {
         }
 
         override suspend fun invoke(
-            filenames: Collection<String>,
+            entryIds: Collection<String>,
             draftId: com.lomo.domain.model.DraftId,
         ) {
             discardException?.let { throw it }
-            discardCalledWith = filenames
+            discardCalledWith = entryIds
         }
     }
 

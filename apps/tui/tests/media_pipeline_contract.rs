@@ -457,4 +457,44 @@ mod tests {
         let page = lomo_tui::reader::page(&model).expect("reader page");
         assert_eq!(page.pictures.len(), 1, "placement exists for emit");
     }
+
+    /// Directory-resolution law (P-56): a bare attachment basename resolves
+    /// through the managed directory vocabulary — `stage_attachment` finds a
+    /// unique nested `media/` file and never reads it as a root-relative
+    /// literal.
+    #[test]
+    fn stage_attachment_resolves_a_bare_basename_under_nested_media() {
+        let fixture = RuntimeFixture::new().expect("fixture");
+        std::fs::create_dir_all(fixture.runtime.workspace.join("media/recordings"))
+            .expect("nested media dir");
+        let bytes = vec![9u8; 2048];
+        std::fs::write(
+            fixture.runtime.workspace.join("media/recordings/take.mp3"),
+            &bytes,
+        )
+        .expect("seed audio");
+        let bare = lomo_core::RelativeWorkspacePath::parse("take.mp3").expect("path");
+        let staged = lomo_tui::mutations::stage_attachment(&fixture.runtime, &bare).expect("stage");
+        let staged_bytes = std::fs::read(&staged).expect("staged bytes");
+        assert_eq!(staged_bytes, bytes, "the nested file staged, not a miss");
+    }
+
+    /// Same-name ambiguity fails closed: identical basenames in two managed
+    /// directories error out instead of silently choosing one.
+    #[test]
+    fn stage_attachment_rejects_a_basename_shared_by_two_managed_dirs() {
+        let fixture = RuntimeFixture::new().expect("fixture");
+        std::fs::create_dir_all(fixture.runtime.workspace.join("media")).expect("media dir");
+        std::fs::create_dir_all(fixture.runtime.workspace.join("voice")).expect("voice dir");
+        std::fs::write(fixture.runtime.workspace.join("media/take.mp3"), b"a").expect("seed");
+        std::fs::write(fixture.runtime.workspace.join("voice/take.mp3"), b"b").expect("seed");
+        let bare = lomo_core::RelativeWorkspacePath::parse("take.mp3").expect("path");
+        let error = lomo_tui::mutations::stage_attachment(&fixture.runtime, &bare)
+            .expect_err("ambiguous basename must fail");
+        let diagnostic = error.to_string();
+        assert!(
+            diagnostic.contains("ambiguous_attachment"),
+            "the fail-closed code surfaces: {diagnostic}"
+        );
+    }
 }

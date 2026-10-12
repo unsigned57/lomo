@@ -33,7 +33,7 @@ interface MediaRepository {
     /**
      * D4 voice finalize: stop-side path only stages+verifies via Rust finalizeRecording.
      * Holds staged facts for memo save promote under the same operation-id.
-     * Returns the markdown destination (suggested final relative path or basename).
+     * Returns the markdown destination (owner-suggested final relative path).
      * Never promotes; never journals sync.
      */
     suspend fun finalizeVoiceCapture(

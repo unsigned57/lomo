@@ -38,7 +38,7 @@ class DiscardDraftMediaUseCaseTest : DomainFunSpec() {
     private val useCase = DiscardDraftMediaUseCase(mediaRepository)
 
     init {
-        test("removes each tracked draft basename") {
+        test("removes each tracked draft media entry") {
             useCase(listOf("a.jpg", "b.png"), com.lomo.domain.model.DraftId("draft-test"))
             mediaRepository.removedImageIds.size shouldBe 2
         }

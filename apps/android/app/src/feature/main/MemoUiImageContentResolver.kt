@@ -1,11 +1,12 @@
 package com.lomo.app.feature.main
 
 import android.net.Uri
+import com.lomo.domain.model.MediaClass
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
+import com.lomo.domain.model.markdown.MarkdownRenderInline
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import java.io.File
-import java.net.URI
 
 internal const val CONTENT_URI_PREFIX = "content://"
 internal const val FILE_URI_PREFIX = "file://"
@@ -13,12 +14,9 @@ private const val HTTP_URI_PREFIX = "http://"
 private const val HTTPS_URI_PREFIX = "https://"
 private const val DATA_IMAGE_PREFIX = "data:image/"
 private const val PATH_ROOT_PREFIX = "/"
-private const val CURRENT_DIR_PREFIX = "./"
-private const val PARENT_DIR_PREFIX = "../"
 internal const val QUERY_SEPARATOR = '?'
 internal const val FRAGMENT_SEPARATOR = '#'
 internal const val PATH_SEPARATOR = '/'
-private val MANAGED_IMAGE_FILENAME_REGEX = Regex("""img_\d+\.(png|jpg|jpeg|gif|webp)""")
 private const val IMAGE_RESOLVE_CACHE_SIZE = 256
 
 internal data class ResolvedMemoImages(
@@ -30,7 +28,7 @@ private data class ImageResolveCacheKey(
     val url: String,
     val rootPath: String?,
     val imagePath: String?,
-    val mappedUri: String?,
+    val mappedSignature: String?,
 )
 
 internal class MemoUiImageContentResolver {
@@ -44,19 +42,34 @@ internal class MemoUiImageContentResolver {
         imageMap: Map<String, Uri>,
     ): ResolvedMemoImages {
         val callCache = HashMap<ImageResolveCacheKey, String>()
-        fun resolve(url: String): String = resolveCached(url, rootPath, imagePath, imageMap, callCache)
+        fun resolveImageDestination(url: String): String =
+            resolveCached(url, rootPath, imagePath, imageMap, callCache)
+
+        // Every non-audio destination resolves into the image-load lane; authenticity is
+        // judged fail-closed inside Coil. Audio keeps the raw workspace path its player needs.
+        fun resolveImageDestination(image: MarkdownRenderInline.Image): String =
+            if (image.mediaClass != MediaClass.AUDIO) {
+                resolveImageDestination(image.destination)
+            } else {
+                image.destination
+            }
+
         return ResolvedMemoImages(
             document =
                 document.copy(
-                    attachmentDestinations = document.attachmentDestinations.map(::resolve),
-                    blocks = document.blocks.map { block -> block.resolveImages(::resolve) },
+                    attachments =
+                        document.attachments.map { attachment ->
+                            if (attachment.mediaClass != MediaClass.AUDIO) {
+                                attachment.copy(destination = resolveImageDestination(attachment.destination))
+                            } else {
+                                attachment
+                            }
+                        },
+                    blocks = document.blocks.map { block -> block.resolveImages(::resolveImageDestination) },
                 ),
             imageUrls =
                 imageUrls
-                    .asSequence()
-                    .filterNot(::isAudioAttachmentPath)
-                    .map(::resolve)
-                    .toList()
+                    .map(::resolveImageDestination)
                     .toImmutableList(),
         )
     }
@@ -87,7 +100,7 @@ internal class MemoUiImageContentResolver {
                     sourceByteLength = 0uL,
                     plainText = "",
                     tagNames = emptyList(),
-                    attachmentDestinations = emptyList(),
+                    attachments = emptyList(),
                     blocks = emptyList(),
                 ),
             imageUrls = imageUrls,
@@ -103,11 +116,8 @@ internal class MemoUiImageContentResolver {
         imageMap: Map<String, Uri>,
         callCache: MutableMap<ImageResolveCacheKey, String>,
     ): String {
-        if (isAudioAttachmentPath(url)) {
-            return url
-        }
-        val mappedUri = findCachedImageUri(normalizeImageUrl(url), imageMap)?.toString()
-        val key = ImageResolveCacheKey(url, rootPath, imagePath, mappedUri)
+        val mappedSignature = imageMapLookupSignature(url, imageMap)
+        val key = ImageResolveCacheKey(url, rootPath, imagePath, mappedSignature)
         callCache[key]?.let { return it }
         resolvedPathCache[key]?.let { cached ->
             callCache[key] = cached
@@ -119,157 +129,83 @@ internal class MemoUiImageContentResolver {
         return resolved
     }
 
-    private fun resolveImageModel(
-        imageUrl: String,
-        isWikiStyle: Boolean,
-        rootPath: String?,
-        imagePath: String?,
-        imageMap: Map<String, Uri>,
-    ): Any {
-        val normalizedImageUrl = normalizeImageUrl(imageUrl)
-        resolveDirectImageModel(normalizedImageUrl, imageMap)?.let { return it }
-
-        return resolveRelativeImageModel(
-            normalizedImageUrl = normalizedImageUrl,
-            isWikiStyle = isWikiStyle,
-            rootPath = rootPath,
-            imagePath = imagePath,
-        )
-    }
-
     private fun resolveDestination(
         destination: String,
         rootPath: String?,
         imagePath: String?,
         imageMap: Map<String, Uri>,
     ): String {
-        if (isAudioAttachmentPath(destination)) return destination
-        val resolved =
-            resolveImageModel(
-                imageUrl = destination,
-                isWikiStyle = false,
-                rootPath = rootPath,
-                imagePath = imagePath,
-                imageMap = imageMap,
-            )
+        val resolved = resolveImageModel(
+            imageUrl = destination,
+            rootPath = rootPath,
+            imagePath = imagePath,
+            imageMap = imageMap,
+        )
         return (resolved as? File)?.absolutePath ?: resolved.toString()
     }
 
-    private fun resolveDirectImageModel(
-        normalizedImageUrl: String,
+    /**
+     * Resolves one normalized destination under the workspace directory law:
+     * qualified paths are identities; bare basenames pool every candidate that
+     * claims the name and resolve only when the claim is unique.
+     */
+    private fun resolveImageModel(
+        imageUrl: String,
+        rootPath: String?,
+        imagePath: String?,
         imageMap: Map<String, Uri>,
-    ): Any? =
-        findCachedImageUri(normalizedImageUrl, imageMap)
-            ?: normalizedImageUrl.takeIf(::isAbsoluteOrRemoteImageUrl)
-
-    private fun resolveRelativeImageModel(
-        normalizedImageUrl: String,
-        isWikiStyle: Boolean,
-        rootPath: String?,
-        imagePath: String?,
     ): Any {
-        val relativePath = normalizeRelativePath(normalizedImageUrl, removeParentSegments = false)
-        val candidateBasePaths = buildCandidateBasePaths(isWikiStyle, rootPath, imagePath, relativePath)
+        val normalizedImageUrl = normalizeImageUrl(imageUrl)
+        if (isAbsoluteOrRemoteImageUrl(normalizedImageUrl)) {
+            return normalizedImageUrl
+        }
+        // Canonicalize exactly like the workspace owner: `.`/`..` segments fold
+        // and a root escape rejects — `../x.png` is not a workspace file.
+        val canonical =
+            canonicalizeAttachmentPath(normalizedImageUrl) ?: return normalizedImageUrl
+        val isBareName = PATH_SEPARATOR !in canonical
 
-        return resolveExistingRelativeFile(candidateBasePaths, relativePath)
-            ?: resolveRelativeContentUri(candidateBasePaths, relativePath)
-            ?: resolveFallbackRelativeFile(candidateBasePaths, relativePath)
-            ?: normalizedImageUrl
-    }
-
-    private fun buildCandidateBasePaths(
-        isWikiStyle: Boolean,
-        rootPath: String?,
-        imagePath: String?,
-        relativePath: String,
-    ): List<String> {
-        val candidates = LinkedHashSet<String>()
-
-        fun addBasePath(path: String?) {
-            val value = path?.trim().orEmpty()
-            if (value.isNotEmpty()) {
-                candidates += value
+        // Pooled verifiable candidates: image-map hits plus existing files. Two
+        // distinct locations claiming one basename fail closed — the first
+        // candidate is never a default.
+        val pooled = LinkedHashMap<String, Any>()
+        for (key in imageMapLookupKeys(normalizedImageUrl, imageMap.keys)) {
+            imageMap[key]?.let { uri ->
+                pooled.putIfAbsent(locationIdentity(uri.toString()), uri)
             }
         }
-
-        if (isWikiStyle) {
-            addBasePath(imagePath)
-            addBasePath(rootPath)
-        } else if (looksLikeManagedImageFilename(relativePath)) {
-            addBasePath(imagePath)
-            addBasePath(rootPath)
-        } else {
-            addBasePath(rootPath)
-            addBasePath(imagePath)
+        for (probe in fileProbeTargets(canonical, isBareName, rootPath, imagePath)) {
+            if (probe.isFile) {
+                pooled.putIfAbsent(locationIdentity(probe.absolutePath), probe)
+            }
         }
-        return candidates.toList()
-    }
+        when (pooled.size) {
+            0 -> Unit
+            1 -> return pooled.values.single()
+            else -> return normalizedImageUrl
+        }
 
-    private fun findCachedImageUri(
-        imageUrl: String,
-        imageMap: Map<String, Uri>,
-    ): Uri? {
-        if (imageMap.isEmpty()) return null
-        val candidates = buildImageMapCandidates(imageUrl)
-        return candidates.firstNotNullOfOrNull { key -> imageMap[key] }
+        // Unverifiable lanes: SAF docId joins in deterministic order, then the
+        // first-base file path for the not-found display. A join names the same
+        // canonical path under each base, so a wrong guess misses instead of
+        // loading another directory's file.
+        return resolveRelativeContentUri(canonical, isBareName, rootPath, imagePath)
+            ?: resolveFallbackRelativeFile(canonical, isBareName, rootPath, imagePath)
+            ?: normalizedImageUrl
     }
-
 }
 
-private fun resolveRelativeContentUri(
-    candidateBasePaths: List<String>,
-    relativePath: String,
-): String? =
-    candidateBasePaths.firstNotNullOfOrNull { basePath ->
-        if (basePath.startsWith(CONTENT_URI_PREFIX)) {
-            // behavior-contract: silent-result-ok: non-tree URI or malformed URI syntax falls back to next candidate
-            runCatching {
-                val rootUri = Uri.parse(basePath)
-                val treeDocId = android.provider.DocumentsContract.getTreeDocumentId(rootUri)
-                    ?: return@firstNotNullOfOrNull null
-                val normalized = normalizeRelativePath(relativePath, removeParentSegments = false)
-                val docId = if (treeDocId.endsWith('/')) "$treeDocId$normalized" else "$treeDocId/$normalized"
-                android.provider.DocumentsContract.buildDocumentUriUsingTree(rootUri, docId).toString()
-            }.getOrNull()
-        } else {
-            null
-        }
-    }
-
-private fun resolveExistingRelativeFile(
-    candidateBasePaths: List<String>,
-    relativePath: String,
-): File? =
-    candidateBasePaths.firstNotNullOfOrNull { basePath ->
-        if (basePath.startsWith(CONTENT_URI_PREFIX)) {
-            null
-        } else {
-            resolveRelativeFile(
-                basePath = normalizeBasePath(basePath),
-                relativePath = relativePath,
-            ).takeIf(File::exists)
-        }
-    }
-
-private fun resolveFallbackRelativeFile(
-    candidateBasePaths: List<String>,
-    relativePath: String,
-): File? =
-    candidateBasePaths
-        .firstOrNull()
-        ?.takeUnless { it.startsWith(CONTENT_URI_PREFIX) }
-        ?.let { basePath ->
-            resolveRelativeFile(
-                basePath = normalizeBasePath(basePath),
-                relativePath = relativePath,
-            )
-        }
-
-internal fun normalizeImageUrl(raw: String): String =
+/**
+ * Dedupe key across `file://` URIs, plain paths and content URIs. The
+ * `file://` scheme and any query/fragment (the `lomo-cid` content-id cache
+ * salt) are transport decoration, not location — two spellings of one file
+ * must collapse to a single claim instead of counting as an ambiguity.
+ */
+private fun locationIdentity(raw: String): String =
     raw
-        .trim()
-        .removeSurrounding("<", ">")
-        .replace('\\', PATH_SEPARATOR)
+        .removePrefix(FILE_URI_PREFIX)
+        .substringBefore(FRAGMENT_SEPARATOR)
+        .substringBefore(QUERY_SEPARATOR)
 
 private fun isAbsoluteOrRemoteImageUrl(value: String): Boolean {
     val lower = value.lowercase(java.util.Locale.ROOT)
@@ -279,54 +215,4 @@ private fun isAbsoluteOrRemoteImageUrl(value: String): Boolean {
         lower.startsWith(HTTP_URI_PREFIX) ||
         lower.startsWith(HTTPS_URI_PREFIX) ||
         lower.startsWith(DATA_IMAGE_PREFIX)
-}
-
-private fun normalizeBasePath(basePath: String): String =
-    if (basePath.startsWith(FILE_URI_PREFIX)) {
-        parseUriPath(basePath) ?: basePath
-    } else {
-        basePath
-    }
-
-internal fun normalizeRelativePath(
-    path: String,
-    removeParentSegments: Boolean,
-): String {
-    var result = path
-    while (result.startsWith(CURRENT_DIR_PREFIX)) {
-        result = result.removePrefix(CURRENT_DIR_PREFIX)
-    }
-    if (removeParentSegments) {
-        while (result.startsWith(PARENT_DIR_PREFIX)) {
-            result = result.removePrefix(PARENT_DIR_PREFIX)
-        }
-        result = result.trimStart(PATH_SEPARATOR)
-    }
-    return result
-}
-
-private fun resolveRelativeFile(
-    basePath: String,
-    relativePath: String,
-): File {
-    var base = File(basePath)
-    var path = relativePath
-
-    while (path.startsWith(PARENT_DIR_PREFIX)) {
-        base = base.parentFile ?: base
-        path = path.removePrefix(PARENT_DIR_PREFIX)
-    }
-    path = normalizeRelativePath(path, removeParentSegments = false)
-    return File(base, path)
-}
-
-internal fun parseUriPath(value: String): String? =
-    // behavior-contract: silent-result-ok: URISyntaxException on malformed input means "no path component"
-    runCatching {
-        URI(value).path
-    }.getOrNull()
-
-private fun looksLikeManagedImageFilename(path: String): Boolean {
-    val candidate = path.substringAfterLast(PATH_SEPARATOR).lowercase(java.util.Locale.ROOT)
-    return candidate.matches(MANAGED_IMAGE_FILENAME_REGEX)
 }

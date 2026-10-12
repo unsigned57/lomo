@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 use crate::error::{resource_limit, validation};
 use crate::limits::{MAX_ACTION_PAGE_ITEMS, MAX_SYNC_PATH_BYTES, MAX_WHOLE_BATCH_INTENTS};
 use lomo_core::LomoError;
+use lomo_workspace::{IMAGES_ROOT_NAME, MEDIA_ROOT_NAME, VOICE_ROOT_NAME};
 
 /// Completeness of a remote listing. Only [`SnapshotCompleteness::Complete`] may participate in
 /// missing-path / delete derivation.
@@ -553,7 +554,10 @@ pub fn is_owned_sync_user_path(path: &str) -> bool {
     let Some(first) = path.split(['/', '\\']).next() else {
         return false;
     };
-    matches!(first, "memo" | "media" | "images" | "voice")
+    matches!(
+        first,
+        "memo" | MEDIA_ROOT_NAME | IMAGES_ROOT_NAME | VOICE_ROOT_NAME
+    )
 }
 
 fn is_markdown_path_suffix(path: &str) -> bool {

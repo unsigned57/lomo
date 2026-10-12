@@ -54,70 +54,45 @@ fn history_rows(
     })
 }
 
-/// Drops every trashed memo. Each memo is its own transaction; the first failure stops the
-/// sweep and reports how many were removed so the trash view shows the true remainder.
-/// The pending token is checked between pages: a revoked sweep stops doing
-/// work instead of running to completion and discarding its result (I3).
+/// Drops every trashed memo in one engine call: the session enumerates the trash lane and
+/// commits bounded replay-safe child batches (`WorkspaceSession::empty_trash`), so there is no
+/// per-memo mutation loop here. The pending token is polled inside the pass — a revoked sweep
+/// reports its committed partial count instead of running to completion and discarding it (I3).
 fn empty_trash(
     runtime: &TuiRuntime,
     req: crate::model::Req,
     token: &crate::model::CancelToken,
 ) -> Result<RuntimeMessage, TuiError> {
     let s = crate::i18n::UiStrings::detect();
-    let query = lomo_application::MemoQuery {
-        search_text: None,
-        filters: lomo_application::MemoFilters {
-            trash_only: true,
-            ..lomo_application::MemoFilters::default()
-        },
-        sort: lomo_application::MemoSort::default(),
-    };
-    let mut removed = 0_u64;
-    loop {
-        if token.is_cancelled() {
-            return Err(TuiError::config(format!(
-                "{} {removed}",
-                s.text(
-                    "Emptying the trash cancelled after",
-                    "清空回收站已取消，已删除"
-                )
-            )));
-        }
-        let page =
-            runtime
-                .session
-                .query_memos_page(&query, None, None, lomo_core::PageSize::new(64)?)?;
-        if page.items.is_empty() {
-            break;
-        }
-        for summary in page.items {
-            if token.is_cancelled() {
-                return Err(TuiError::config(format!(
-                    "{} {removed}",
-                    s.text(
-                        "Emptying the trash cancelled after",
-                        "清空回收站已取消，已删除"
-                    )
-                )));
-            }
-            runtime
-                .session
-                .permanently_delete_memo(&PermanentDeleteRequest {
-                    operation_id: mint_operation_id()?,
-                    memo_id: lomo_workspace::MemoId::parse(&summary.memo_id)?,
-                })
-                .map_err(|error| {
-                    TuiError::config(format!(
-                        "{} {removed} · {error}",
-                        s.text("Emptying the trash stopped after", "清空回收站中断，已删除")
-                    ))
-                })?;
-            removed += 1;
-        }
+    let result = runtime
+        .session
+        .empty_trash(
+            &lomo_application::EmptyTrashRequest {
+                operation_id: mint_operation_id()?,
+            },
+            &mut || token.is_cancelled(),
+        )
+        .map_err(|error| {
+            TuiError::config(format!(
+                "{} · {error}",
+                s.text("Emptying the trash stopped", "清空回收站中断")
+            ))
+        })?;
+    if result.cancelled {
+        return Err(TuiError::config(format!(
+            "{} {}",
+            s.text(
+                "Emptying the trash cancelled after",
+                "清空回收站已取消，已删除"
+            ),
+            result.removed
+        )));
     }
     Ok(RuntimeMessage::Mutated {
         req,
-        outcome: MutationOutcome::TrashEmptied { removed },
+        outcome: MutationOutcome::TrashEmptied {
+            removed: result.removed,
+        },
     })
 }
 
@@ -273,16 +248,14 @@ pub fn import_clipboard_png(runtime: &TuiRuntime, png: &[u8]) -> Result<String, 
     // Clipboard import is a one-shot draft: the minted operation owns the staged
     // artifact as a Draft lease from staging until the claim transfers to the
     // pending operation, so bytes stay ledger-owned between verify and commit.
+    // The clipboard payload is already materialized — it stages from memory
+    // (`MediaSource::Bytes`), never through a state-dir temp file (P-59).
     let media_root = &runtime.session_config.media_stage_root;
-    let digest = ContentDigest::of_slice(png);
-    let temp = runtime
-        .paths
-        .state_dir
-        .join(format!("{}.png", digest.as_str()));
-    fs::write(&temp, png)?;
     let staged = stage_media(
         media_root,
-        MediaSource::StagedTemp { path: temp },
+        MediaSource::Bytes {
+            bytes: png.to_vec(),
+        },
         "pasted.png",
     )?;
     let stage_dir = stage_directory_of(&staged.staging_path)?;
@@ -331,10 +304,18 @@ pub fn stage_attachment(
     runtime: &TuiRuntime,
     path: &RelativeWorkspacePath,
 ) -> Result<std::path::PathBuf, TuiError> {
-    let bytes = lomo_application::rebuild::read_workspace_file(
+    // Directory resolution is the workspace law: a bare basename locates its
+    // unique managed file, ambiguity errors, and the authored path stays the
+    // player's extension source below.
+    let resolved = lomo_application::attachment_lookup::resolve_attachment_path(
         &runtime.session_config,
         &runtime.executor,
         path,
+    )?;
+    let bytes = lomo_application::rebuild::read_workspace_file(
+        &runtime.session_config,
+        &runtime.executor,
+        &resolved,
     )?;
     // The digest is computed in memory — exchange staging is a durable
     // workspace-transfer channel, not a digest calculator (D-05).

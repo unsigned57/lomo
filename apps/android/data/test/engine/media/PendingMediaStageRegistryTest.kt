@@ -92,11 +92,25 @@ class PendingMediaStageRegistryTest : DataFunSpec() {
             val registry = PendingMediaStageRegistry(port, stageRoot = { MEDIA_ROOT })
             port.recordStageLease(null, stagedFacts(), MediaStageOwnerKind.Draft, DRAFT.value)
 
-            val released = registry.releaseDraftDestination(DRAFT, "photo.png")
+            val released = registry.releaseDraftDestination(DRAFT, "media/photo.png")
 
             released shouldBe "media/photo.png"
             port.leaseOwners() shouldBe emptySet()
             port.deletedArtifacts shouldBe listOf("a".repeat(64))
+        }
+
+        test("a bare basename never releases another directory's staged record") {
+            val port = FakeLedgerMediaPort()
+            val registry = PendingMediaStageRegistry(port, stageRoot = { MEDIA_ROOT })
+            port.recordStageLease(null, stagedFacts(), MediaStageOwnerKind.Draft, DRAFT.value)
+
+            // Destination identity is the full relative path — `photo.png` must
+            // not reach into `media/` and drop that draft's claim.
+            val released = registry.releaseDraftDestination(DRAFT, "photo.png")
+
+            released shouldBe null
+            port.leaseOwners() shouldBe setOf(MediaStageOwnerKind.Draft to DRAFT.value)
+            port.deletedArtifacts shouldBe emptyList()
         }
     }
 }
