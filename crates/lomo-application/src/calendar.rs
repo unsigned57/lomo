@@ -29,13 +29,16 @@ pub enum DateFormat {
 }
 
 impl DateFormat {
-    /// All supported pattern strings in standard resolution order.
-    pub const SUPPORTED_PATTERNS: [&'static str; 5] = [
-        "yyyy_MM_dd",
-        "yyyy-MM-dd",
-        "yyyy.MM.dd",
-        "yyyyMMdd",
-        "MM-dd-yyyy",
+    /// The single registry of every supported variant, in canonical resolution order.
+    ///
+    /// `from_token`, `parse_date_key`, and any host-facing enumeration derive from this list —
+    /// adding a variant here extends parsing, formatting, and validation together.
+    pub const ALL: [Self; 5] = [
+        Self::YyyyMmDdUnderscore,
+        Self::YyyyMmDdHyphen,
+        Self::YyyyMmDdDot,
+        Self::YyyyMmDdCompact,
+        Self::MmDdYyyyHyphen,
     ];
 
     /// Returns the pattern string for this format.
@@ -48,6 +51,24 @@ impl DateFormat {
             Self::YyyyMmDdCompact => "yyyyMMdd",
             Self::MmDdYyyyHyphen => "MM-dd-yyyy",
         }
+    }
+
+    /// Strictly resolves a host-supplied format token against [`DateFormat::ALL`].
+    ///
+    /// This is the only token→variant gate: callers never re-map or "fix" tokens, so an
+    /// unknown value fails here instead of being coerced to a different format.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CalendarError::InvalidDateFormat`] if the token is not a declared pattern.
+    pub fn from_token(token: &str) -> Result<Self, CalendarError> {
+        Self::ALL
+            .iter()
+            .find(|format| format.pattern() == token)
+            .copied()
+            .ok_or_else(|| CalendarError::InvalidDateFormat {
+                pattern: token.to_owned(),
+            })
     }
 }
 
@@ -431,24 +452,6 @@ fn parse_date_mm_dd_yyyy(bytes: &[u8], raw: &str) -> Result<(i32, u8, u8), Calen
     Ok((year, month, day))
 }
 
-/// Parses a date format pattern string into a [`DateFormat`] enum.
-///
-/// # Errors
-///
-/// Returns [`CalendarError::InvalidDateFormat`] if the pattern is unknown.
-pub fn parse_pattern(pattern: &str) -> Result<DateFormat, CalendarError> {
-    match pattern {
-        "yyyy_MM_dd" => Ok(DateFormat::YyyyMmDdUnderscore),
-        "yyyy-MM-dd" => Ok(DateFormat::YyyyMmDdHyphen),
-        "yyyy.MM.dd" => Ok(DateFormat::YyyyMmDdDot),
-        "yyyyMMdd" => Ok(DateFormat::YyyyMmDdCompact),
-        "MM-dd-yyyy" => Ok(DateFormat::MmDdYyyyHyphen),
-        _ => Err(CalendarError::InvalidDateFormat {
-            pattern: pattern.to_string(),
-        }),
-    }
-}
-
 /// Formats a [`CivilDate`] according to the given [`DateFormat`].
 #[must_use]
 pub fn format_date_key(date: CivilDate, format: DateFormat) -> String {
@@ -498,13 +501,7 @@ pub fn parse_date_key_with_format(
 ///
 /// Returns [`CalendarError::InvalidDateKey`] if the key does not match any supported format.
 pub fn parse_date_key(raw: &str) -> Result<CivilDate, CalendarError> {
-    for &format in &[
-        DateFormat::YyyyMmDdUnderscore,
-        DateFormat::YyyyMmDdHyphen,
-        DateFormat::YyyyMmDdDot,
-        DateFormat::YyyyMmDdCompact,
-        DateFormat::MmDdYyyyHyphen,
-    ] {
+    for format in DateFormat::ALL {
         if let Ok(date) = parse_date_with_format(raw, format) {
             return Ok(date);
         }

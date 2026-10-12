@@ -36,6 +36,7 @@ package com.lomo.domain.model
 
 
 import com.lomo.domain.testing.DomainFunSpec
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 import io.kotest.property.Arb
 import io.kotest.property.arbitrary.localDate
@@ -45,13 +46,21 @@ import java.time.LocalDate
 
 class StorageFilenameFormatsTest : DomainFunSpec() {
     init {
-        test("normalize returns default when pattern is null or unsupported") {
-            StorageFilenameFormats.normalize(null) shouldBe StorageFilenameFormats.DEFAULT_PATTERN
-            StorageFilenameFormats.normalize("yyyy/MM/dd") shouldBe StorageFilenameFormats.DEFAULT_PATTERN
+        test("supportedPatterns mirrors the Rust DateFormat registry order") {
+            // `lomo-application` `DateFormat::ALL` is the single authority; this projection must
+            // list exactly its five pattern tokens in canonical order.
+            StorageFilenameFormats.supportedPatterns shouldBe
+                listOf("yyyy_MM_dd", "yyyy-MM-dd", "yyyy.MM.dd", "yyyyMMdd", "MM-dd-yyyy")
         }
 
-        test("normalize keeps supported pattern") {
-            StorageFilenameFormats.normalize("yyyy-MM-dd") shouldBe "yyyy-MM-dd"
+        test("formatter resolves a supported pattern without rewriting") {
+            StorageFilenameFormats.formatter("yyyy-MM-dd").format(LocalDate.of(2024, 2, 29)) shouldBe "2024-02-29"
+        }
+
+        test("formatter fails closed on a foreign token") {
+            shouldThrow<IllegalArgumentException> {
+                StorageFilenameFormats.formatter("yyyy/MM/dd")
+            }
         }
 
         test("parseOrNull parses all supported formats") {

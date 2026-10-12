@@ -59,6 +59,8 @@ class BoltFfiNativeEngineFactoryTest : DataFunSpec() {
                 request.controlRoot.path shouldContain "lomo-engine/v1/control"
                 request.exchangeRoot.path shouldContain "lomo-engine/v1/exchange"
                 request.workspace shouldBe null
+                // Bootstrap never opens a workspace session, so it carries no date token.
+                request.dateFormat shouldBe null
                 request.bootstrapDeadlineMillis shouldBe
                     NativeEngineOpenRequest.DEFAULT_BOOTSTRAP_DEADLINE_MILLIS
             } finally {

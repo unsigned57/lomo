@@ -2,7 +2,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
-use lomo_application::calendar::{DateFormat, parse_pattern, system_zone_name, validate_zone};
+use lomo_application::calendar::{DateFormat, system_zone_name, validate_zone};
 use serde::Deserialize;
 
 use crate::error::TuiError;
@@ -189,7 +189,7 @@ impl SettingsField {
             }
             Self::DateFormat => {
                 let pattern = required(self.key(), trimmed)?;
-                let format = parse_pattern(pattern)
+                let format = DateFormat::from_token(pattern)
                     .map_err(|error| TuiError::config(format!("date_format: {error}")))?;
                 Ok(FieldValue::DateFormat(format))
             }
@@ -456,7 +456,7 @@ pub fn parse_config_toml(
     let media_dir = match parsed.media_dir.as_deref() {
         // The media staging root defaults to the workspace's `media/`
         // convention, matching the Android/client layout.
-        None => workspace.join("media"),
+        None => workspace.join(lomo_workspace::MEDIA_ROOT_NAME),
         Some(raw) => normalize_config_dir("media_dir", raw, home_dir)?,
     };
     let time_zone = match parsed.time_zone.as_deref() {
@@ -471,7 +471,7 @@ pub fn parse_config_toml(
         None => DateFormat::default(),
         Some(raw) => {
             let pattern = required("date_format", raw)?;
-            parse_pattern(pattern)
+            DateFormat::from_token(pattern)
                 .map_err(|error| TuiError::config(format!("date_format: {error}")))?
         }
     };

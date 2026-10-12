@@ -6,10 +6,12 @@ import java.time.format.ResolverStyle
 import java.util.Locale
 
 /**
- * Single source of truth for memo storage filename date formats.
+ * Kotlin projection of the Rust `DateFormat` registry (`lomo-application::calendar`).
  *
- * Add a new pattern here and all format-dependent features (settings options, parsing,
- * sidebar/date stats, and storage validation) adapt automatically.
+ * The token's semantics are owned by Rust `DateFormat::from_token`/`pattern()`; this table only
+ * mirrors the supported set for settings options and offline filename parsing. It never rewrites
+ * a token: writers and readers transport the configured value verbatim and unknown tokens fail
+ * closed at the Rust session boundary instead of being healed here.
  */
 object StorageFilenameFormats {
     const val DEFAULT_PATTERN = "yyyy_MM_dd"
@@ -29,10 +31,9 @@ object StorageFilenameFormats {
     private val supportedFormatters: List<DateTimeFormatter> =
         supportedPatterns.map(::buildStrictFormatter)
 
-    fun normalize(pattern: String?): String = pattern?.takeIf { supportedPatterns.contains(it) } ?: DEFAULT_PATTERN
-
     fun formatter(pattern: String): DateTimeFormatter =
-        formattersByPattern[normalize(pattern)] ?: formattersByPattern.getValue(DEFAULT_PATTERN)
+        formattersByPattern[pattern]
+            ?: throw IllegalArgumentException("Unsupported storage filename format: $pattern")
 
     fun parseOrNull(raw: String): LocalDate? =
         supportedFormatters.firstNotNullOfOrNull { formatter ->

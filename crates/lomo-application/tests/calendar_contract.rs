@@ -45,8 +45,7 @@
 mod tests {
     use lomo_application::calendar::{
         CalendarError, CivilDate, CivilTime, DateFormat, JournalStamp, day_bounds, journal_stamp,
-        local_date, memo_chronology, parse_date_key, parse_date_key_with_format, parse_pattern,
-        parse_time_token,
+        local_date, memo_chronology, parse_date_key, parse_date_key_with_format, parse_time_token,
     };
 
     fn test_ok<T, E: core::fmt::Debug>(result: Result<T, E>) -> T {
@@ -332,28 +331,86 @@ mod tests {
         test_err(parse_date_key("2024-03-10-suffix"));
         test_err(parse_date_key(""));
 
-        // Pattern parsing tests
+        // Pattern token gate tests
         assert_eq!(
-            test_ok(parse_pattern("yyyy_MM_dd")),
+            test_ok(DateFormat::from_token("yyyy_MM_dd")),
             DateFormat::YyyyMmDdUnderscore
         );
         assert_eq!(
-            test_ok(parse_pattern("yyyy-MM-dd")),
+            test_ok(DateFormat::from_token("yyyy-MM-dd")),
             DateFormat::YyyyMmDdHyphen
         );
         assert_eq!(
-            test_ok(parse_pattern("yyyy.MM.dd")),
+            test_ok(DateFormat::from_token("yyyy.MM.dd")),
             DateFormat::YyyyMmDdDot
         );
         assert_eq!(
-            test_ok(parse_pattern("yyyyMMdd")),
+            test_ok(DateFormat::from_token("yyyyMMdd")),
             DateFormat::YyyyMmDdCompact
         );
         assert_eq!(
-            test_ok(parse_pattern("MM-dd-yyyy")),
+            test_ok(DateFormat::from_token("MM-dd-yyyy")),
             DateFormat::MmDdYyyyHyphen
         );
-        test_err(parse_pattern("dd/MM/yyyy"));
+        test_err(DateFormat::from_token("dd/MM/yyyy"));
+    }
+
+    /// The variant registry is the single source: every `DateFormat` variant must appear exactly
+    /// once in `ALL`, round-trip through `from_token(pattern())`, and stay parseable by
+    /// `parse_date_key`. A drifted copy (a missing or duplicated arm) fails here at compile-independent
+    /// assertion time, because `ALL` is the only list of variants left in the crate.
+    #[test]
+    fn date_format_all_registry_round_trips_every_variant() {
+        assert_eq!(
+            DateFormat::ALL.len(),
+            5,
+            "registry drifted from five formats"
+        );
+        let mut seen = std::collections::BTreeSet::new();
+        for format in DateFormat::ALL {
+            assert!(
+                seen.insert(format.pattern()),
+                "duplicate pattern in DateFormat::ALL: {}",
+                format.pattern()
+            );
+            assert_eq!(
+                test_ok(DateFormat::from_token(format.pattern())),
+                format,
+                "from_token must resolve every declared pattern",
+            );
+            let formatted = lomo_application::calendar::format_filename(
+                test_ok(CivilDate::new(2026, 5, 23)),
+                format,
+            );
+            assert!(
+                std::path::Path::new(&formatted)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("md")),
+                "format_filename must emit a markdown name for {format:?}: {formatted}"
+            );
+        }
+    }
+
+    #[test]
+    fn date_format_token_gate_rejects_empty_and_foreign_patterns() {
+        for token in [
+            "",
+            " ",
+            "dd/MM/yyyy",
+            "yyyy/MM/dd",
+            "YYYY-MM-DD",
+            "yyyy-mm-dd",
+            "MM/dd/yyyy",
+        ] {
+            let error = test_err(DateFormat::from_token(token));
+            assert_eq!(
+                error,
+                CalendarError::InvalidDateFormat {
+                    pattern: token.to_owned()
+                },
+                "foreign token must fail closed: {token}"
+            );
+        }
     }
 
     #[test]

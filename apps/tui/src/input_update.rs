@@ -471,7 +471,7 @@ fn confirm_setup(setup: &crate::model::SetupState) -> Result<crate::config::AppC
         Err(error) => return Err(error),
     };
     Ok(crate::config::AppConfig {
-        media_dir: workspace.join("media"),
+        media_dir: workspace.join(lomo_workspace::MEDIA_ROOT_NAME),
         workspace,
         time_zone,
         date_format: lomo_application::calendar::DateFormat::default(),

@@ -27,7 +27,7 @@ mod tests {
         ops::{bootstrap_model, execute, open_runtime},
         settings::{SettingRow, SettingsView},
         update::apply_command,
-        xdg::{EnvLookup, RuntimePaths, resolve_paths},
+        xdg::{HostDirs, RuntimePaths, resolve_paths},
     };
     use std::path::{Path, PathBuf};
     use tempfile::tempdir;
@@ -35,7 +35,7 @@ mod tests {
     fn paths_in(dir: &Path, default_workspace: Option<PathBuf>) -> RuntimePaths {
         RuntimePaths {
             config_dir: dir.join("cfg"),
-            drafts_dir: dir.join("drafts"),
+            capture_dir: dir.join("capture"),
             exchange_dir: dir.join("ex"),
             state_dir: dir.join("state"),
             cache_dir: dir.join("cache"),
@@ -332,29 +332,22 @@ mod tests {
         );
     }
 
-    /// XDG overrides must be absolute per the base-dir spec. `dir_or`
-    /// (xdg.rs:219-226) joins a relative `XDG_CONFIG_HOME` verbatim, anchoring
-    /// config/state/cache to the process cwd — the same strictness
-    /// `normalize_workspace` applies to `workspace` is missing here.
+    /// Host-provided bases must be absolute per the base-dir spec. A relative
+    /// config base fails closed — an error is honest, a cwd-anchored directory
+    /// is poison.
     #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
-    fn relative_xdg_dirs_are_rejected() {
-        let paths = resolve_paths(EnvLookup {
-            home: Some("/home/u"),
-            config: Some("relative/cfg"),
-            state: None,
-            cache: None,
-            runtime: Some("/run/user/1"),
-            data: None,
-            appdata: None,
-            localappdata: None,
+    fn relative_host_dirs_fail_closed() {
+        let error = resolve_paths(&HostDirs {
+            home: Some(PathBuf::from("/home/u")),
+            config: Some(PathBuf::from("relative/cfg")),
+            runtime: Some(PathBuf::from("/run/user/1")),
+            ..HostDirs::default()
         })
-        .expect("resolve");
+        .expect_err("relative config base");
         assert!(
-            paths.config_dir.is_absolute(),
-            "a relative XDG_CONFIG_HOME must be ignored or rejected, not \
-             silently anchored to the cwd: {:?}",
-            paths.config_dir
+            matches!(error, TuiError::Config { .. }),
+            "a relative config base must be an error, not a sideways path: {error}"
         );
     }
 
@@ -609,47 +602,38 @@ mod tests {
         );
     }
 
-    /// `dir_or` treats a whitespace-only env value as a real directory: `XDG_CONFIG_HOME=" "`
-    /// produces ` /lomo`, anchored to the process cwd. Only `is_empty` is
-    /// filtered (xdg.rs:223), never whitespace.
+    /// A whitespace-only base carries no configuration intent: it counts as
+    /// unset, and a missing required base fails closed — never a literal
+    /// `"-anchored"` directory like ` /lomo`.
     #[test]
-    fn whitespace_xdg_dirs_are_not_literal_directories() {
-        let paths = resolve_paths(EnvLookup {
-            home: Some("/home/u"),
-            config: Some(" "),
-            state: Some("\t"),
-            cache: None,
-            runtime: Some("/run/user/1"),
-            data: None,
-            appdata: None,
-            localappdata: None,
+    fn whitespace_host_dirs_are_not_literal_directories() {
+        let error = resolve_paths(&HostDirs {
+            home: Some(PathBuf::from("/home/u")),
+            config: Some(PathBuf::from(" ")),
+            state: Some(PathBuf::from("\t")),
+            runtime: Some(PathBuf::from("/run/user/1")),
+            ..HostDirs::default()
         })
-        .expect("resolve");
+        .expect_err("whitespace config base");
         assert!(
-            paths.config_dir.is_absolute() && paths.state_dir.is_absolute(),
-            "a whitespace XDG value must be treated as unset, not as a literal \
-             directory name: {:?} {:?}",
-            paths.config_dir,
-            paths.state_dir
+            matches!(error, TuiError::Config { .. }),
+            "a whitespace base must be treated as unset, not as a literal \
+             directory name: {error}"
         );
     }
 
-    /// `XDG_DATA_HOME` is the documented fallback for the first-run workspace
-    /// (xdg.rs:203-205). A relative value mints `default_workspace` verbatim;
-    /// `resolve_paths` accepts it and `mint_first_run_config` later dies with the
-    /// generic "workspace path must be absolute" — blaming the workspace key
-    /// for a poisoned XDG input.
+    /// `data` is the fallback base for the first-run workspace proposal. A
+    /// relative value is ignored — `no proposal` is honest, `relative` is
+    /// poison.
     #[test]
-    fn relative_xdg_data_home_does_not_poison_first_run() {
-        let paths = resolve_paths(EnvLookup {
-            home: None,
-            config: Some("/cfg"),
-            state: Some("/state"),
-            cache: Some("/cache"),
-            runtime: Some("/run/user/1"),
-            data: Some("relative/data"),
-            appdata: None,
-            localappdata: None,
+    fn relative_data_dir_does_not_poison_first_run() {
+        let paths = resolve_paths(&HostDirs {
+            config: Some(PathBuf::from("/cfg")),
+            state: Some(PathBuf::from("/state")),
+            cache: Some(PathBuf::from("/cache")),
+            runtime: Some(PathBuf::from("/run/user/1")),
+            data: Some(PathBuf::from("relative/data")),
+            ..HostDirs::default()
         })
         .expect("resolve");
         assert!(
@@ -816,7 +800,7 @@ mod tests {
     }
 
     /// `date_format` is the one `FileConfig` value validated where it is parsed
-    /// (config.rs:147-152 -> `parse_pattern`), proving the layer for `time_zone`
+    /// (config.rs:470-476 -> `DateFormat::from_token`), proving the layer for `time_zone`
     /// already exists.
     #[test]
     fn date_format_fails_closed_at_parse() {
