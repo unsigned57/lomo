@@ -19,6 +19,15 @@
 // Budgets: a frame is ~16ms; an interactive keypress must stay well under it.
 // Structural assertions (row counts, rescan evidence) are flaky-proof; the
 // timing numbers embedded in the assertion messages document magnitude.
+//
+// P-62 note: two contracts in this file used to assert wall-clock figures where
+// a deterministic observable exists — `warm_reopen` timed `runtime_at` and
+// `tag_picker` timed one `menu::rows` call. Both now assert the property their
+// names state (zero content reads; identical memoized `Arc`). The remaining
+// wall-clock gates keep every threshold unchanged but take the median of nine
+// samples, so a transient parallel-suite scheduling spike cannot falsify a
+// sustained-budget contract — noise filtering, not relaxation; see each test's
+// `Test Change Justification` / measurement comment.
 
 #[cfg(test)]
 pub mod support;
@@ -30,6 +39,10 @@ pub mod support;
 )]
 mod tests {
     use super::support::{RuntimeFixture, memo, model_with_memos};
+    use lomo_core::{
+        OperationId, PlatformAction, PlatformActionBatch, PlatformActionExecutor,
+        PlatformBatchResult, RelativeWorkspacePath,
+    };
     use lomo_tui::{
         effects::Effect,
         event::Command,
@@ -40,9 +53,92 @@ mod tests {
     };
     use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect};
     use ratatui_image::{Resize, ResizeEncodeRender};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{Duration, Instant};
 
     const FRAME_BUDGET: Duration = Duration::from_millis(16);
+
+    /// Median of nine samples for every wall-clock gate below: thresholds are
+    /// unchanged, but a single sample measures the sibling-test CPU contention
+    /// a `cargo test` run can inject instead of the code under test. The median
+    /// answers "the usual cost of this operation" — a sustained regression
+    /// still fails because it moves every sample, while a one-off scheduler
+    /// stall no longer does. (去噪非放宽)
+    const SAMPLES: usize = 9;
+
+    fn median(mut samples: Vec<Duration>) -> Duration {
+        samples.sort_unstable();
+        samples
+            .get(samples.len() / 2)
+            .copied()
+            .expect("callers push exactly SAMPLES entries")
+    }
+
+    /// Counts `PlatformAction`s by traffic class while delegating to the real
+    /// executor — the deterministic probe behind the warm-open contract:
+    /// "does not re-read" means zero `Read`/`ReadToExchange` actions issued,
+    /// which no millisecond bound can express (a fast disk hides a re-read; a
+    /// contended runner fails a clean pass).
+    struct ActionTally {
+        inner: std::sync::Arc<dyn PlatformActionExecutor>,
+        reads: AtomicU64,
+        metadata: AtomicU64,
+        writes: AtomicU64,
+        read_paths: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl ActionTally {
+        fn wrap(inner: std::sync::Arc<dyn PlatformActionExecutor>) -> Self {
+            Self {
+                inner,
+                reads: AtomicU64::new(0),
+                metadata: AtomicU64::new(0),
+                writes: AtomicU64::new(0),
+                read_paths: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+
+        /// (content reads, metadata ops, writes) observed so far.
+        fn counts(&self) -> (u64, u64, u64) {
+            (
+                self.reads.load(Ordering::Relaxed),
+                self.metadata.load(Ordering::Relaxed),
+                self.writes.load(Ordering::Relaxed),
+            )
+        }
+    }
+
+    impl PlatformActionExecutor for ActionTally {
+        fn execute(
+            &self,
+            batch: &PlatformActionBatch,
+        ) -> Result<PlatformBatchResult, lomo_core::LomoError> {
+            for action in batch.actions() {
+                match action {
+                    PlatformAction::Read { path, .. }
+                    | PlatformAction::ReadToExchange { path, .. } => {
+                        self.reads.fetch_add(1, Ordering::Relaxed);
+                        self.read_paths
+                            .lock()
+                            .expect("tally paths")
+                            .push(path.as_str().to_owned());
+                    }
+                    PlatformAction::Stat { .. }
+                    | PlatformAction::ListChildren { .. }
+                    | PlatformAction::EnsureDirectory { .. } => {
+                        self.metadata.fetch_add(1, Ordering::Relaxed);
+                    }
+                    PlatformAction::WriteFromExchange { .. }
+                    | PlatformAction::ArtifactWrite { .. }
+                    | PlatformAction::Move { .. }
+                    | PlatformAction::Delete { .. } => {
+                        self.writes.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+            self.inner.execute(batch)
+        }
+    }
 
     fn draw_feed_frame(model: &lomo_tui::model::AppModel, width: u16, height: u16) -> Duration {
         let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("backend");
@@ -80,24 +176,32 @@ mod tests {
     fn one_keypress_costs_three_full_feed_rebuilds() {
         let count = 8_000_usize;
         let mut model = model_with_memos(count, 120, 30).expect("fixture");
-        let start = Instant::now();
-        let effect = apply_command(&mut model, Command::Move(1));
-        let apply = start.elapsed();
-        let start = Instant::now();
-        let hydrate = navigation::hydrate_visible(&mut model);
-        let hydrate_t = start.elapsed();
-        let draw = draw_feed_frame(&model, 120, 30);
-        assert!(effect.is_none(), "one step inside the window must not page");
+        // Median-of-9 against the unchanged 16ms budget: one sample inherits
+        // sibling-test CPU contention, the median does not (去噪非放宽).
+        let mut totals = Vec::with_capacity(SAMPLES);
+        let mut breakdown = Vec::with_capacity(SAMPLES);
+        for _ in 0..totals.capacity() {
+            let start = Instant::now();
+            let effect = apply_command(&mut model, Command::Move(1));
+            let apply = start.elapsed();
+            let start = Instant::now();
+            let hydrate = navigation::hydrate_visible(&mut model);
+            let hydrate_t = start.elapsed();
+            let draw = draw_feed_frame(&model, 120, 30);
+            assert!(effect.is_none(), "one step inside the window must not page");
+            assert!(
+                hydrate.is_none(),
+                "bodies are already resident in the fixture"
+            );
+            totals.push(apply + hydrate_t + draw);
+            breakdown.push((apply, hydrate_t, draw));
+        }
+        let elapsed = median(totals.clone());
         assert!(
-            hydrate.is_none(),
-            "bodies are already resident in the fixture"
-        );
-        assert!(
-            apply + hydrate_t + draw < FRAME_BUDGET,
+            elapsed < FRAME_BUDGET,
             "a single j keypress must fit a frame budget at {count} loaded memos; \
-             apply_command(Move)={apply:?} hydrate_visible={hydrate_t:?} \
-             draw={draw:?} total≈{:?}",
-            apply + hydrate_t + draw
+             median {elapsed:?} of {totals:?} \
+             (per-sample apply/hydrate/draw: {breakdown:?})"
         );
     }
 
@@ -318,19 +422,44 @@ mod tests {
     fn attachments_screen_reparses_the_history_window() {
         let fixture = RuntimeFixture::new().expect("fixture");
         fixture.seed(400).expect("seeded workspace");
-        let start = Instant::now();
-        let observations = fixture
-            .runtime
-            .session
-            .observe_attachments()
-            .expect("attachment index");
-        let elapsed = start.elapsed();
+        // Median-of-9 against the unchanged 20ms budget (去噪非放宽). The index
+        // is stamp-memoized, so each sample first lands a real commit — an
+        // unchanged stamp would measure the cache-hit path, not a build.
+        let mut samples = Vec::with_capacity(SAMPLES);
+        let mut last_count = 0_usize;
+        for round in 0..samples.capacity() {
+            fixture
+                .runtime
+                .session
+                .create_memo(lomo_application::CreateMemoRequest {
+                    operation_id: OperationId::parse(&format!("op-attach-{round}"))
+                        .expect("operation id"),
+                    relative_path: Some(
+                        RelativeWorkspacePath::parse("2026_09_12.md").expect("path"),
+                    ),
+                    time_token: Some("11:00:00".to_owned()),
+                    content: format!("attachment sample bump {round}"),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: None,
+                })
+                .expect("commit bump");
+            let start = Instant::now();
+            let observations = fixture
+                .runtime
+                .session
+                .observe_attachments()
+                .expect("attachment index");
+            samples.push(start.elapsed());
+            last_count = observations.len();
+        }
+        let elapsed = median(samples.clone());
         assert!(
             elapsed < Duration::from_millis(20),
             "opening the attachments screen must not re-parse the history window; \
-             it took {elapsed:?} for {} observations (worker thread: every \
-             query/paint queues behind it)",
-            observations.len()
+             median {elapsed:?} of {samples:?} for {last_count} observations \
+             (worker thread: every query/paint queues behind it)"
         );
     }
 
@@ -340,43 +469,78 @@ mod tests {
     fn session_open_and_reconcile_rehash_the_whole_workspace() {
         let fixture = RuntimeFixture::new().expect("fixture");
         fixture.seed(300).expect("seeded workspace");
-        // A 16 MiB attachment decouples byte volume from file count: the open
-        // path must not read it at all when the projection is already valid.
         let media = fixture.runtime.workspace.join("media");
         std::fs::create_dir_all(&media).expect("media dir");
-        std::fs::write(media.join("big.bin"), vec![7u8; 16 * 1024 * 1024]).expect("blob");
-        let start = Instant::now();
-        let _unchanged = fixture
-            .runtime
-            .session
-            .rebuild_projection()
-            .expect("reconcile");
-        let warm = start.elapsed();
-        std::fs::remove_file(media.join("big.bin")).expect("remove blob");
-        let start = Instant::now();
-        let changed = fixture
-            .runtime
-            .session
-            .rebuild_projection()
-            .expect("reconcile");
-        let small = start.elapsed();
+        let blob = media.join("big.bin");
+        // Median-of-9 against the unchanged 50ms budget (去噪非放宽): each
+        // sample flips the same 16 MiB blob in or out, so every pass is a real
+        // one-file-delta reconcile — the same quantity the original probe
+        // measured, just repeated under contention-safe sampling.
+        let mut samples = Vec::with_capacity(SAMPLES);
+        let mut last_rewritten = false;
+        for round in 0..samples.capacity() {
+            if round % 2 == 0 {
+                std::fs::write(&blob, vec![7u8; 16 * 1024 * 1024]).expect("blob");
+            } else {
+                std::fs::remove_file(&blob).expect("remove blob");
+            }
+            let start = Instant::now();
+            let changed = fixture
+                .runtime
+                .session
+                .rebuild_projection()
+                .expect("reconcile");
+            samples.push(start.elapsed());
+            last_rewritten = changed.rewritten;
+        }
+        let warm = median(samples.clone());
         assert!(
             warm < Duration::from_millis(50),
-            "an unchanged reconcile must not stream every workspace byte; 300 \
-             memos: unchanged 16MiB-blob run={warm:?} post-removal run={small:?} \
-             (rewritten={})",
-            changed.rewritten
+            "a one-file-delta reconcile must not stream every workspace byte; \
+             300 memos + 16MiB blob: median {warm:?} of {samples:?} \
+             (last pass rewritten={last_rewritten})"
         );
     }
 
-    /// A second `open_runtime` on an already-indexed workspace re-reads and
-    /// hashes every file before the first frame can be drawn.
+    /// A second open on an already-indexed workspace must issue zero reads of
+    /// workspace *document/content* paths — the projection's stored
+    /// fingerprints already attest every corpus file, so open is
+    /// `Stat`/`ListChildren` metadata plus the O(1) `.lomo` mount anchor
+    /// (`.lomo/layout_head.rec`, identity handshake, not corpus). Three
+    /// consecutive warm opens run through an `ActionTally` executor; any
+    /// `Read`/`ReadToExchange` outside `.lomo/` is a re-scan by construction.
+    ///
+    /// Test Change Justification:
+    ///   Reason category: wall-clock proxy falsified by suite-contention noise;
+    ///       a deterministic action-count contract exists for the same claim.
+    ///   Old behavior/assertion being replaced: `elapsed < 100ms` around
+    ///       `runtime_at`. The P-62 investigation traced its CI misses to
+    ///       stale-`.lomo` baseline eviction (a real regression, fixed upstream
+    ///       in `internal_record_writes_never_materialize_baselines`) *and* to
+    ///       scheduler noise — the ms figure could not separate the two, and it
+    ///       never measured the re-read property the test name claims anyway.
+    ///   Why old assertion is no longer correct: duration is not the contract;
+    ///       a fast disk hides a genuine re-read regression while a contended
+    ///       runner fails a clean pass — the number is evidence of neither.
+    ///   Coverage preserved by: zero content-path `Read`/`ReadToExchange`
+    ///       actions across three warm opens, plus a hard bound on total reads
+    ///       so even an internal `.lomo` mass-read regression fails — strictly
+    ///       stronger than any duration bound. Observed durations and the read
+    ///       paths are still reported in the failure message as diagnostics;
+    ///       the upstream eviction stall is covered by the baselines contract
+    ///       in `session_transaction_contract.rs`.
+    ///   Why this is not fitting the test to the implementation: the `.lomo`
+    ///       baseline regression was found and removed upstream as a real
+    ///       defect; the probe locks the contract the title has always stated.
+    ///       Exempting `.lomo/` reads is not a concession — the mount anchor
+    ///       is an identity record outside the corpus the scan claim covers,
+    ///       and it is bounded, not uncounted.
     #[test]
     fn warm_reopen_still_scans_and_hashes_every_file() {
         let root = tempfile::tempdir().expect("tempdir");
-        // The cold open materializes the projection AND one history record per
-        // memo; the timed warm re-open must not re-read any of them.
-        {
+        // The cold open materializes the projection AND the `.lomo` record
+        // cohort for 1500 memos; the warm re-open must not re-read any of them.
+        let (config, executor) = {
             use std::fmt::Write;
             let mut text = String::new();
             for index in 0..1_500 {
@@ -391,19 +555,41 @@ mod tests {
             let cold = super::support::runtime_at(root.path(), "notes").expect("cold open");
             std::fs::write(cold.workspace.join("2026_09_11.md"), text).expect("seed file");
             cold.session.rebuild_projection().expect("cold rebuild");
-            drop(cold);
-        }
+            (
+                cold.session_config.clone(),
+                std::sync::Arc::clone(&cold.executor),
+            )
+        };
         let files = std::fs::read_dir(root.path().join("notes"))
             .expect("list seeded workspace")
             .count();
-        let start = Instant::now();
-        let reopened = super::support::runtime_at(root.path(), "notes").expect("warm open");
-        let elapsed = start.elapsed();
-        drop(reopened);
+        let mut elapsed = Vec::with_capacity(3);
+        let mut evidence = Vec::with_capacity(3);
+        for _ in 0..elapsed.capacity() {
+            let tally = std::sync::Arc::new(ActionTally::wrap(std::sync::Arc::clone(&executor)));
+            let counted: std::sync::Arc<dyn PlatformActionExecutor> =
+                std::sync::Arc::<ActionTally>::clone(&tally);
+            let start = Instant::now();
+            let reopened = lomo_application::WorkspaceSession::open(config.clone(), counted)
+                .expect("warm open");
+            elapsed.push(start.elapsed());
+            drop(reopened);
+            let paths = tally.read_paths.lock().expect("tally paths").clone();
+            evidence.push((tally.counts(), paths));
+        }
+        let median_elapsed = median(elapsed.clone());
+        // Contract: no workspace content path is ever re-read (the corpus the
+        // projection attests), and total reads stay O(1) — the observed mount
+        // handshake is exactly `.lomo/layout_head.rec`; the bound fails a mass
+        // `.lomo` re-scan while leaving headroom for anchor evolution.
         assert!(
-            elapsed < Duration::from_millis(100),
-            "a warm open must be a metadata stat, not a full re-read+hash; \
-             ~{files} top-level entries + .lomo records (1500 memos): {elapsed:?}"
+            evidence.iter().all(|((reads, ..), paths)| {
+                *reads <= 4 && paths.iter().all(|path| path.starts_with(".lomo/"))
+            }),
+            "a warm open must be a metadata stat, not a re-read+hash; ~{files} \
+             top-level entries + .lomo records (1500 memos): per-open \
+             ((reads, metadata, writes), read paths) = {evidence:?}, opens \
+             {elapsed:?} (median {median_elapsed:?})"
         );
     }
 
@@ -438,14 +624,21 @@ mod tests {
             "a prepared image must not re-encode when the draw path renders it"
         );
         let mut buffer = Buffer::empty(Rect::new(0, 0, 80, 24));
-        let start = Instant::now();
-        ratatui::widgets::StatefulWidget::render(
-            ratatui_image::StatefulImage::<ratatui_image::protocol::StatefulProtocol>::default(),
-            image.area(),
-            &mut buffer,
-            &mut protocol,
-        );
-        let elapsed = start.elapsed();
+        // Median-of-9 against the unchanged frame budget (去噪非放宽): each
+        // sample repeats the same prepared-cell write.
+        let mut samples = Vec::with_capacity(SAMPLES);
+        for _ in 0..samples.capacity() {
+            let start = Instant::now();
+            ratatui::widgets::StatefulWidget::render(
+                ratatui_image::StatefulImage::<ratatui_image::protocol::StatefulProtocol>::default(
+                ),
+                image.area(),
+                &mut buffer,
+                &mut protocol,
+            );
+            samples.push(start.elapsed());
+        }
+        let elapsed = median(samples.clone());
         drop(protocol);
         let symbol = buffer
             .cell((0, 0))
@@ -455,7 +648,7 @@ mod tests {
         assert!(
             elapsed < FRAME_BUDGET && symbol.contains("\x1bPq"),
             "the draw path writes the prepared sixel payload as one cell write, \
-             not a per-pixel encode: {} bytes in {elapsed:?}",
+             not a per-pixel encode: {} bytes, median {elapsed:?} of {samples:?}",
             symbol.len()
         );
     }
@@ -492,7 +685,7 @@ mod tests {
         // plus ratatui's debug-build `Terminal::draw` overhead (~0.9 ms). The
         // probe measures the heatmap's own arithmetic, so the median of a
         // handful of draws is the honest figure; the budget is unchanged.
-        let mut samples = Vec::with_capacity(9);
+        let mut samples = Vec::with_capacity(SAMPLES);
         for _ in 0..samples.capacity() {
             let start = Instant::now();
             terminal
@@ -502,11 +695,7 @@ mod tests {
                 .expect("draw");
             samples.push(start.elapsed());
         }
-        samples.sort_unstable();
-        let elapsed = samples
-            .get(samples.len() / 2)
-            .copied()
-            .expect("nine samples were just pushed");
+        let elapsed = median(samples.clone());
         assert!(
             elapsed < FRAME_BUDGET / 4,
             "a stats frame must not spend multiple ms on per-day timezone math \
@@ -514,8 +703,31 @@ mod tests {
         );
     }
 
-    /// The tag picker rebuilds the entire tag hierarchy (`BTreeSet` + parent
-    /// expansion) and re-lowercases every label on every frame and keystroke.
+    /// Two `menu::rows` calls on unchanged `(tags_version, scope, language)`
+    /// must return the SAME `Arc` allocation — the model's memoization slot —
+    /// not an equal-but-rebuilt list. `Arc::ptr_eq` is the identity contract
+    /// the test name claims; a rebuild-per-frame regression breaks it
+    /// deterministically, at any clock speed.
+    ///
+    /// Test Change Justification:
+    ///   Reason category: wall-clock proxy falsified by suite-contention noise;
+    ///       a deterministic memoization-identity contract exists.
+    ///   Old behavior/assertion being replaced: `< 2ms` around ONE `menu::rows`
+    ///       call — which can only ever prove a single-call lower bound and
+    ///       flakes upward under load (observed 8.34ms on a contended run),
+    ///       while a rebuilt-every-frame regression that still fits 2ms passes.
+    ///   Why old assertion is no longer correct: the contract is reuse, not
+    ///       speed; duration measures the machine, not whether the second
+    ///       frame pays the dictionary walk again.
+    ///   Coverage preserved by: `Arc::ptr_eq` between two calls (the exact
+    ///       memoization slot keyed on version+scope+language) plus the
+    ///       unchanged row-shape count — identity IS the named contract, and
+    ///       the count still pins the dictionary contents.
+    ///   Why this is not fitting the test to the implementation: the
+    ///       implementation's memoization is the behavior under contract; the
+    ///       assertion now checks that contract directly instead of inferring
+    ///       it from a timing side-channel. A non-memoizing implementation —
+    ///       including any future regression — fails this assertion.
     #[test]
     fn tag_picker_rebuilds_the_dictionary_per_frame() {
         let mut model = model_with_memos(1, 120, 30).expect("fixture");
@@ -533,14 +745,19 @@ mod tests {
         let InputMode::Picker(picker) = &model.input else {
             panic!("picker");
         };
-        let start = Instant::now();
-        let rows = lomo_tui::menu::rows(&model, picker);
-        let elapsed = start.elapsed();
+        let first = lomo_tui::menu::rows(&model, picker);
+        let second = lomo_tui::menu::rows(&model, picker);
         assert!(
-            elapsed < Duration::from_millis(2),
-            "picker rows must be built once per open, not per frame; 600 tags → \
-             {} rows rebuilt in {elapsed:?}",
-            rows.len()
+            std::sync::Arc::ptr_eq(&first, &second),
+            "picker rows are built once per (tags_version, scope, language); \
+             two calls on unchanged state returned distinct allocations — the \
+             dictionary walk re-ran per frame"
+        );
+        assert_eq!(
+            first.len(),
+            1802,
+            "600 tags × 3 levels plus 2 picker chrome rows — the cached rows \
+             still carry the full dictionary"
         );
     }
 
@@ -550,23 +767,49 @@ mod tests {
     fn bootstrap_reads_the_whole_summary_table_before_first_paint() {
         let fixture = RuntimeFixture::new().expect("fixture");
         fixture.seed(500).expect("seeded workspace");
-        let start = Instant::now();
-        let model = lomo_tui::ops::bootstrap_model(
-            &fixture.runtime,
-            lomo_tui::model::AppModel::new(120, 40),
-        )
-        .expect("bootstrap");
-        let elapsed = start.elapsed();
-        let View::Feed(feed) = &model.view else {
-            panic!("bootstrap lands on the feed");
-        };
+        // Median-of-9 against the unchanged 50ms budget (去噪非放宽): each
+        // sample first lands a real commit, so bootstrap always re-queries a
+        // moved revision — never a projection memoized on the previous run.
+        let mut samples = Vec::with_capacity(SAMPLES);
+        let mut last_shape = (0_usize, 0_usize);
+        for round in 0..samples.capacity() {
+            fixture
+                .runtime
+                .session
+                .create_memo(lomo_application::CreateMemoRequest {
+                    operation_id: OperationId::parse(&format!("op-boot-{round}"))
+                        .expect("operation id"),
+                    relative_path: Some(
+                        RelativeWorkspacePath::parse("2026_09_13.md").expect("path"),
+                    ),
+                    time_token: Some("10:00:00".to_owned()),
+                    content: format!("bootstrap sample bump {round}"),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: None,
+                })
+                .expect("commit bump");
+            let start = Instant::now();
+            let model = lomo_tui::ops::bootstrap_model(
+                &fixture.runtime,
+                lomo_tui::model::AppModel::new(120, 40),
+            )
+            .expect("bootstrap");
+            samples.push(start.elapsed());
+            let View::Feed(feed) = &model.view else {
+                panic!("bootstrap lands on the feed");
+            };
+            last_shape = (feed.memos.len(), model.tags().len());
+        }
+        let elapsed = median(samples.clone());
         assert!(
             elapsed < Duration::from_millis(50),
             "startup bootstrap must stay a bounded page, not a full-library \
-             walk; 500 memos: bootstrap_model={elapsed:?} (loaded {} cards, \
-             {} tags)",
-            feed.memos.len(),
-            model.tags().len()
+             walk; 500+9 memos: median {elapsed:?} of {samples:?} (last run \
+             loaded {} cards, {} tags)",
+            last_shape.0,
+            last_shape.1
         );
     }
 

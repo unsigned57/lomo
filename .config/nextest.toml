@@ -1,0 +1,12 @@
+# Wall-clock perf assertions must not race parallel test load. `perf_scale_contract`
+# asserts frame/open budgets in milliseconds, so its tests join the `timing` group
+# (serialized among themselves) and each requires every test thread — the runner
+# gives each timing test an uncontended window instead of measuring sibling-test
+# CPU load. Thresholds are unchanged; this is serialization, not relaxation.
+[test-groups.timing]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'binary_id(lomo-tui::perf_scale_contract)'
+test-group = 'timing'
+threads-required = 'num-test-threads'

@@ -115,6 +115,10 @@ Thumbs.db
 .commandcode/
 .local
 .config
+# nextest's serialization policy IS the quality gate: perf_scale_contract must
+# not race sibling test load. Track the config that pins it.
+!.config/
+!.config/nextest.toml
 .home
 .android
 .android-test-home
