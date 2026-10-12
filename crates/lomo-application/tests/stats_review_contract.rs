@@ -127,6 +127,54 @@ mod tests {
     }
 
     #[test]
+    fn review_candidates_share_the_summary_walk_but_completed_state_stays_live() {
+        let ctx = open();
+        let created = ctx
+            .session
+            .create_memo(CreateMemoRequest {
+                operation_id: OperationId::parse("share-walk").expect("op"),
+                relative_path: Some(RelativeWorkspacePath::parse("2026_09_10.md").expect("path")),
+                time_token: Some("08:00:00".to_owned()),
+                content: "shared projection walk".to_owned(),
+                expected_document_fingerprint: None,
+                pinned: false,
+                pending_promotes: Vec::new(),
+                chronology_epoch_ms: None,
+            })
+            .expect("create");
+        let date = CivilDate::new(2026, 9, 10).expect("date");
+
+        let first = ctx.session.review_candidates("UTC", date).expect("first");
+        let probe = ctx.session.projection_query_stats().expect("probe");
+        assert_eq!(probe.summary_walks, 1, "the first entry walks the store");
+
+        let second = ctx.session.review_candidates("UTC", date).expect("second");
+        assert_eq!(first, second);
+        let probe = ctx.session.projection_query_stats().expect("probe");
+        assert_eq!(probe.summary_walks, 1);
+        assert_eq!(
+            probe.summary_hits, 1,
+            "a re-entry serves the same revision from cache"
+        );
+
+        // Completion is private state outside the projection — it must keep
+        // filtering live against the cached walk, never freeze into it.
+        ctx.session
+            .complete_review("UTC", date, &created.memo_id)
+            .expect("complete");
+        let third = ctx.session.review_candidates("UTC", date).expect("third");
+        assert!(
+            third
+                .iter()
+                .all(|item| item.memo_id != created.memo_id.as_str()),
+            "a cached walk still filters freshly completed memos"
+        );
+        let probe = ctx.session.projection_query_stats().expect("probe");
+        assert_eq!(probe.summary_walks, 1);
+        assert_eq!(probe.summary_hits, 2);
+    }
+
+    #[test]
     fn statistics_reads_materialized_rows_without_body_bytes() {
         let ctx = open();
         ctx.session

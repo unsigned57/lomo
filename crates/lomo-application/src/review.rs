@@ -5,26 +5,23 @@ use std::{collections::BTreeSet, path::PathBuf};
 use lomo_core::LomoError;
 use lomo_store::{MemoFilters, MemoQuery, MemoSummary};
 use lomo_workspace::MemoId;
-use serde::{Deserialize, Serialize};
 
 use crate::{
     calendar::{CivilDate, DateFormat, day_bounds, format_date_key},
     error::{storage, validation},
-    paging::collect_summaries,
+    paging::{NEVER_CANCELLED, collect_summaries},
     private_io::{read_optional, write_atomic},
     session::WorkspaceSession,
 };
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ReviewCandidate {
-    pub memo_id: String,
-    pub created_at_ms: i64,
-    pub body_preview: String,
-    pub source_path: String,
-}
-
 impl WorkspaceSession {
-    /// Returns memos whose chronology falls on `date` in `zone`, minus completed review IDs.
+    /// Returns the day-sliced memo summaries in `zone`, minus completed review IDs.
+    ///
+    /// Callers get the projection summary itself — preview, identity and path —
+    /// so a review surface renders without hydrating bodies. The completed set
+    /// is device-private state outside the projection: it is re-loaded and
+    /// re-filtered on every call even when the shared walk is served from the
+    /// revision-keyed cache, so completion can never freeze into a snapshot.
     ///
     /// # Errors
     /// Invalid zones/dates and projection failures.
@@ -32,7 +29,7 @@ impl WorkspaceSession {
         &self,
         zone: &str,
         date: CivilDate,
-    ) -> Result<Vec<ReviewCandidate>, LomoError> {
+    ) -> Result<Vec<MemoSummary>, LomoError> {
         let (from, until) = day_bounds(date, zone)?;
         let query = MemoQuery {
             search_text: None,
@@ -44,12 +41,13 @@ impl WorkspaceSession {
             sort: lomo_store::MemoSort::default(),
         };
         let completed = load_completed(&self.config.state_dir, zone, date)?;
+        let walk = collect_summaries(self, &query, NEVER_CANCELLED)?;
         let mut out = Vec::new();
-        for summary in collect_summaries(self, &query)? {
+        for summary in walk.items.iter() {
             if completed.contains(&summary.memo_id) {
                 continue;
             }
-            out.push(candidate(summary));
+            out.push(summary.clone());
         }
         Ok(out)
     }
@@ -67,15 +65,6 @@ impl WorkspaceSession {
         let mut completed = load_completed(&self.config.state_dir, zone, date)?;
         completed.insert(memo_id.as_str().to_owned());
         save_completed(&self.config.state_dir, zone, date, &completed)
-    }
-}
-
-fn candidate(summary: MemoSummary) -> ReviewCandidate {
-    ReviewCandidate {
-        memo_id: summary.memo_id,
-        created_at_ms: summary.created_at_ms,
-        body_preview: summary.body_preview,
-        source_path: summary.source_path,
     }
 }
 

@@ -14,6 +14,7 @@ lomo-store = { path = "../lomo-store" }
 lomo-media = { path = "../lomo-media" }
 getrandom.workspace = true
 jiff.workspace = true
+lru.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -37,6 +38,10 @@ path = "tests/calendar_contract.rs"
 [[test]]
 name = "session_transaction_contract"
 path = "tests/session_transaction_contract.rs"
+
+[[test]]
+name = "document_plan_contract"
+path = "tests/document_plan_contract.rs"
 
 [[test]]
 name = "session_command_validation_contract"
@@ -70,10 +75,6 @@ path = "tests/reminder_plan_contract.rs"
 [[test]]
 name = "workspace_interchange_contract"
 path = "tests/workspace_interchange_contract.rs"
-
-[[test]]
-name = "exchange_budget_contract"
-path = "tests/exchange_budget_contract.rs"
 
 [[test]]
 name = "media_artifact_contract"
@@ -114,3 +115,7 @@ path = "tests/reconcile_pin_authority_contract.rs"
 [[test]]
 name = "reconcile_identity_binding_contract"
 path = "tests/reconcile_identity_binding_contract.rs"
+
+[[test]]
+name = "attachment_lookup_contract"
+path = "tests/attachment_lookup_contract.rs"

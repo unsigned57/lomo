@@ -6,8 +6,8 @@ use lomo_workspace::MemoId;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    error::validation,
-    paging::collect_summaries,
+    error::{storage, validation},
+    paging::{NEVER_CANCELLED, collect_summaries, verify_summary_version},
     session::WorkspaceSession,
     types::{UpdateMemoRequest, UpdateMemoResult},
 };
@@ -32,9 +32,26 @@ pub struct ToggleTaskRequest {
 impl WorkspaceSession {
     /// Aggregates checkbox tasks from active memos.
     ///
+    /// The task view is a function of one projection revision: the shared
+    /// summary walk selects todo-bearing memos and bodies hydrate once per
+    /// revision to derive line items — screen re-entry is served from the
+    /// revision-keyed view, and only a committed write pays the walk again.
+    ///
     /// # Errors
-    /// Projection access failures.
+    /// Projection access failures; `stale_projection` when a commit lands
+    /// between the walk and body hydration.
     pub fn list_tasks(&self) -> Result<Vec<TaskItem>, LomoError> {
+        let revision = self.with_store(|store| Ok(store.high_water_revision()))?;
+        let cached = self
+            .query_projection
+            .lock()
+            .map_err(|error| storage("query_projection_poisoned", error.to_string()))?
+            .tasks_at(revision);
+        if let Some(items) = cached {
+            return Ok(items.to_vec());
+        }
+
+        let start = std::time::Instant::now();
         let query = MemoQuery {
             search_text: None,
             filters: MemoFilters {
@@ -43,8 +60,9 @@ impl WorkspaceSession {
             },
             sort: lomo_store::MemoSort::default(),
         };
-        let summaries = collect_summaries(self, &query)?;
-        let memo_ids = summaries
+        let walk = collect_summaries(self, &query, NEVER_CANCELLED)?;
+        let memo_ids = walk
+            .items
             .iter()
             .map(|summary| summary.memo_id.clone())
             .collect::<Vec<_>>();
@@ -54,17 +72,26 @@ impl WorkspaceSession {
             .map(|snapshot| (snapshot.summary.memo_id.clone(), snapshot))
             .collect::<std::collections::BTreeMap<_, _>>();
         let mut tasks = Vec::new();
-        for summary in summaries {
+        for summary in walk.items.iter() {
             let snapshot = snapshots
                 .remove(&summary.memo_id)
                 .ok_or_else(|| validation("memo_not_found", "task memo disappeared"))?;
+            // The parsed set installs under `walk.revision` — a content
+            // rewrite between the walk and this hydrate would poison the key.
+            verify_summary_version(summary, &snapshot.summary)?;
             tasks.extend(parse_tasks(
                 &summary.memo_id,
                 &summary.source_path,
                 &snapshot.body,
             ));
         }
-        Ok(tasks)
+        let micros = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
+        let items: std::sync::Arc<[TaskItem]> = std::sync::Arc::from(tasks);
+        self.query_projection
+            .lock()
+            .map_err(|error| storage("query_projection_poisoned", error.to_string()))?
+            .record_tasks(walk.revision, std::sync::Arc::clone(&items), micros);
+        Ok(items.to_vec())
     }
 
     /// Rewrites one task marker through the shared memo update transaction.

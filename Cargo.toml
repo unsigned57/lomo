@@ -29,6 +29,10 @@ camino = "=1.2.4"
 serde = { version = "=1.0.228", default-features = false, features = ["derive", "std"] }
 serde_json = { version = "=1.0.150", default-features = false, features = ["std"] }
 sha2 = "=0.10.9"
+# B-14 W-09: event-streaming XML reader for S3/WebDAV response parsers (replaces handwritten scanners).
+quick-xml = { version = "=0.42.0", default-features = false }
+# B-14 W-11: strict rclone filename codecs (base32hex/base64url NOPAD) + hex (replaces handwritten).
+data-encoding = { version = "=2.11.1", default-features = false, features = ["alloc"] }
 thiserror = "=2.0.18"
 # Stage-2 calendar / timezone primitives: pure Rust IANA database bundled offline.
 jiff = { version = "=0.2.31", default-features = false, features = ["alloc", "std", "tzdb-bundle-always"] }
@@ -69,6 +73,9 @@ rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs"
 getrandom = "=0.4.3"
 zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
 pinyin = { version = "=0.10.0", default-features = false, features = ["plain"] }
+# Bounded LRU memoization for fuzzy search snapshots. Pinned to the version ratatui already
+# resolved so the deny.toml multiple-versions=deny graph keeps exactly one lru build.
+lru = { version = "=0.12.5", default-features = false }
 
 [workspace.lints.rust]
 warnings = "deny"

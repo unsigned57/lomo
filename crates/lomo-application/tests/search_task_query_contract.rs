@@ -1,9 +1,15 @@
 //! Behavior Contract
 //! Capability: dual-mode search (Unicode fulltext + pinyin fuzzy) with epoch cancellation,
-//! and Markdown task aggregation/toggle through the shared session.
-//! Scenarios: `bdlcc` ranks 八达岭长城; stale epochs are discarded; `- [ ]` aggregates and toggles.
-//! Observable outcomes: ordered hits, discarded epochs, `[x]` in source Markdown.
-//! TDD proof: fuzzy continuation skipped the first item after each page; the pagination regression fails before the fix.
+//! incremental prefix re-scoring, and Markdown task aggregation/toggle through the shared
+//! session — all backed by revision-keyed projection caches.
+//! Scenarios: `bdlcc` ranks 八达岭长城; stale epochs are discarded; `- [ ]` aggregates and
+//! toggles; extending the fuzzy needle rescans only the prior hit set; a superseded scan
+//! drops partial work fail-closed; task lists rebuild only when the projection revision moves.
+//! Observable outcomes: ordered hits, discarded epochs, `[x]` in source Markdown, scan/build
+//! counters proving incremental reuse.
+//! TDD proof: fuzzy continuation skipped the first item after each page; the pagination
+//! regression fails before the fix. Incremental/cached-path counters (`seeded_scans`,
+//! `task_hits`) do not exist before this change — the tests do not compile.
 //! Excludes: Android UI, TUI rendering, network.
 
 #[cfg(test)]
@@ -501,5 +507,243 @@ mod tests {
             .search(&request)
             .expect_err("projection changed between pages");
         assert!(error.to_string().contains("stale_cursor"));
+    }
+
+    #[test]
+    fn fuzzy_result_cache_evicts_the_least_recently_used_entry_at_capacity() {
+        // Test Change Justification: `cache_fuzzy` now carries the scored needle and filter
+        // fingerprint (the prefix-derivation evidence); the calls below are the same inserts
+        // with the metadata the entry genuinely belongs to.
+        use lomo_application::search::{
+            FUZZY_CACHE_ENTRIES, FuzzyResult, cache_fuzzy, cached_fuzzy,
+        };
+        use std::sync::Mutex;
+
+        let cache: Mutex<lru::LruCache<(String, u64), FuzzyResult>> =
+            Mutex::new(lru::LruCache::new(FUZZY_CACHE_ENTRIES));
+        for query in ["q1", "q2", "q3", "q4", "q5"] {
+            cache_fuzzy(
+                &cache,
+                query.to_owned(),
+                7,
+                query.to_owned(),
+                "filters".to_owned(),
+                Vec::new(),
+            )
+            .expect("cache insert");
+        }
+        // The fifth insert overfills the bound — the oldest entry leaves.
+        assert_eq!(cached_queries(&cache), ["q5", "q4", "q3", "q2"]);
+
+        cached_fuzzy(&cache, "q2", 7)
+            .expect("cache read")
+            .expect("q2 remains memoized");
+        cache_fuzzy(
+            &cache,
+            "q6".to_owned(),
+            7,
+            "q6".to_owned(),
+            "filters".to_owned(),
+            Vec::new(),
+        )
+        .expect("cache insert");
+
+        // A hit promotes: q3 — not the re-read q2 — is the next victim.
+        assert_eq!(cached_queries(&cache), ["q6", "q2", "q5", "q4"]);
+    }
+
+    #[test]
+    fn fuzzy_prefix_derivation_rescores_only_prior_hits_and_matches_a_fresh_scan() {
+        let ctx = open_session();
+        // The needle chain narrows purely on body content: no `z` ever appears
+        // in the `2026_09_*.md` source paths.
+        create(&ctx, "z1", "2026_09_10.md", "10:00:00", "zoo meadow", None);
+        create(&ctx, "z2", "2026_09_11.md", "10:00:00", "zap maple", None);
+        create(&ctx, "z3", "2026_09_12.md", "10:00:00", "cozy unit", None);
+        create(&ctx, "z4", "2026_09_13.md", "10:00:00", "lazy calm", None);
+        create(&ctx, "z5", "2026_09_14.md", "10:00:00", "plain water", None);
+
+        let fuzzy = |epoch: u64, text: &str| {
+            let outcome = ctx
+                .session
+                .search(&SearchRequest {
+                    query_epoch: epoch,
+                    mode: SearchMode::Fuzzy,
+                    text: text.to_owned(),
+                    cursor: None,
+                    anchor: None,
+                    page_size: PageSize::new(16).expect("size"),
+                    filters: lomo_application::MemoFilters::default(),
+                })
+                .expect("fuzzy");
+            let SearchOutcome::Ready(page) = outcome else {
+                panic!("current query must be ready");
+            };
+            page
+        };
+        let key = |page: &lomo_application::SearchPage| {
+            page.items
+                .iter()
+                .map(|hit| (hit.memo_id.clone(), hit.score, hit.excerpt.clone()))
+                .collect::<Vec<_>>()
+        };
+
+        let baseline = ctx.session.fuzzy_scan_stats().expect("stats");
+        let wide = fuzzy(1, "z");
+        assert_eq!(wide.total, 4, "z hits every z-bearing body");
+        let stats = ctx.session.fuzzy_scan_stats().expect("stats");
+        assert_eq!(stats.full_scans - baseline.full_scans, 1);
+        assert_eq!(stats.corpus_builds - baseline.corpus_builds, 1);
+        assert_eq!(
+            stats.candidates_scored - baseline.candidates_scored,
+            5,
+            "the first keystroke still pays the whole corpus"
+        );
+
+        let mid = fuzzy(2, "za");
+        assert_eq!(mid.total, 3);
+        let stats = ctx.session.fuzzy_scan_stats().expect("stats");
+        assert_eq!(stats.seeded_scans - baseline.seeded_scans, 1);
+        assert_eq!(stats.corpus_builds - baseline.corpus_builds, 1);
+        assert_eq!(
+            stats.candidates_scored - baseline.candidates_scored,
+            9,
+            "an extending keystroke rescores only the prior hit set (5 + 4)"
+        );
+
+        let deep = fuzzy(3, "zap");
+        assert_eq!(deep.total, 1);
+        assert_eq!(
+            ctx.session
+                .fuzzy_scan_stats()
+                .expect("stats")
+                .candidates_scored
+                - baseline.candidates_scored,
+            12,
+            "the deepest step pays only the 'za' hits (5 + 4 + 3)"
+        );
+
+        // "ZAP" folds to the same needle but is not a textual prefix of any
+        // cached entry — a fresh full scan that must equal the seeded order.
+        let fresh = fuzzy(4, "ZAP");
+        assert_eq!(
+            key(&fresh),
+            key(&deep),
+            "incremental derivation must equal a fresh full scan"
+        );
+        let stats = ctx.session.fuzzy_scan_stats().expect("stats");
+        assert_eq!(stats.full_scans - baseline.full_scans, 2);
+        assert_eq!(stats.seeded_scans - baseline.seeded_scans, 2);
+
+        // A repeated query is a snapshot hit — no scan work at all.
+        let again = fuzzy(5, "zap");
+        assert_eq!(key(&again), key(&deep));
+        let stats = ctx.session.fuzzy_scan_stats().expect("stats");
+        assert_eq!(stats.snapshot_hits - baseline.snapshot_hits, 1);
+        assert_eq!(stats.candidates_scored - baseline.candidates_scored, 17);
+    }
+
+    #[test]
+    fn fuzzy_scan_cancellation_is_fail_safe_and_poaches_nothing() {
+        let ctx = open_session();
+        for index in 0..6 {
+            create(
+                &ctx,
+                &format!("s{index}"),
+                &format!("2026_09_{}.md", 10 + index),
+                "10:00:00",
+                "zesty note",
+                None,
+            );
+        }
+        let filters = lomo_application::MemoFilters::default();
+
+        // Warm the corpus so the injected cancellation lands inside the
+        // scoring loop — deterministic, no threads or clocks.
+        let built =
+            lomo_application::search::fuzzy_snapshot(&ctx.session, "z", &filters, &|| false)
+                .expect("warm build");
+        assert_eq!(built.hits().len(), 6);
+
+        let checks = std::sync::atomic::AtomicUsize::new(0);
+        let cancel = || checks.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2;
+        let error = lomo_application::search::fuzzy_snapshot(&ctx.session, "ze", &filters, &cancel)
+            .expect_err("a superseded scan fails closed");
+        assert_eq!(error.category(), lomo_core::ErrorCategory::Cancelled);
+        let stats = ctx.session.fuzzy_scan_stats().expect("stats");
+        assert_eq!(stats.superseded_scans, 1);
+        assert_eq!(stats.seeded_scans, 0, "a cancelled scan is never counted");
+        assert_eq!(
+            stats.candidates_scored, 8,
+            "six warm scores + two partial scores before the drop"
+        );
+
+        // Nothing torn was cached: the same needle re-runs and derives from
+        // the "z" seed exactly once.
+        let retried =
+            lomo_application::search::fuzzy_snapshot(&ctx.session, "ze", &filters, &|| false)
+                .expect("retry");
+        assert_eq!(retried.hits().len(), 6);
+        let stats = ctx.session.fuzzy_scan_stats().expect("stats");
+        assert_eq!(stats.seeded_scans, 1);
+
+        // The same fail-safe guards the corpus build's paged walk: cancelling
+        // before the first page leaves no corpus behind.
+        let cold = open_session();
+        create(&cold, "cold", "2026_09_10.md", "10:00:00", "zesty", None);
+        let error =
+            lomo_application::search::fuzzy_snapshot(&cold.session, "z", &filters, &|| true)
+                .expect_err("a cancelled build fails closed");
+        assert_eq!(error.category(), lomo_core::ErrorCategory::Cancelled);
+        let stats = cold.session.fuzzy_scan_stats().expect("stats");
+        assert_eq!(stats.superseded_scans, 1);
+        assert_eq!(stats.corpus_builds, 0);
+    }
+
+    #[test]
+    fn task_list_is_built_once_per_projection_revision() {
+        let ctx = open_session();
+        create(&ctx, "t1", "2026_09_10.md", "10:00:00", "- [ ] alpha", None);
+        create(&ctx, "t2", "2026_09_11.md", "10:00:00", "- [x] beta", None);
+
+        let first = ctx.session.list_tasks().expect("tasks");
+        assert_eq!(first.len(), 2);
+        let probe = ctx.session.projection_query_stats().expect("probe");
+        assert_eq!(probe.task_builds, 1);
+        assert_eq!(probe.summary_walks, 1);
+
+        let second = ctx.session.list_tasks().expect("cached tasks");
+        assert_eq!(first, second);
+        let probe = ctx.session.projection_query_stats().expect("probe");
+        assert_eq!(probe.task_builds, 1, "re-entry reuses the built view");
+        assert_eq!(probe.task_hits, 1);
+        assert_eq!(
+            probe.summary_walks, 1,
+            "a cached task list never re-walks SQL"
+        );
+
+        // A committed write bumps the revision — the next entry rebuilds.
+        create(&ctx, "t3", "2026_09_12.md", "10:00:00", "- [ ] gamma", None);
+        let third = ctx.session.list_tasks().expect("rebuilt tasks");
+        assert_eq!(third.len(), 3);
+        assert!(third.iter().any(|task| task.text == "gamma"));
+        let probe = ctx.session.projection_query_stats().expect("probe");
+        assert_eq!(probe.task_builds, 2);
+        assert_eq!(probe.summary_walks, 2);
+    }
+
+    /// Iteration order is most- to least-recently-used — the tail is the next
+    /// eviction victim.
+    fn cached_queries(
+        cache: &std::sync::Mutex<
+            lru::LruCache<(String, u64), lomo_application::search::FuzzyResult>,
+        >,
+    ) -> Vec<String> {
+        cache
+            .lock()
+            .expect("fuzzy cache lock")
+            .iter()
+            .map(|((fingerprint, _), _)| fingerprint.clone())
+            .collect()
     }
 }

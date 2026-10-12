@@ -1,8 +1,12 @@
 //! Behavior Contract
-//! Capability: reminder plan from Markdown tokens and `RecordFired` token rewrite (`.1`).
-//! Scenarios: `@2026-07-20-10:45x2rd` first fire becomes `.1` without rewriting other text.
-//! Observable outcomes: planned catch-up/future alarms, updated token, preserved surrounding text.
-//! TDD proof: session reminder APIs did not exist.
+//! Capability: reminder plan from Markdown tokens and `RecordFired` token rewrite (`.1`),
+//! with reminder session extraction sharing the revision-keyed query projection.
+//! Scenarios: `@2026-07-20-10:45x2rd` first fire becomes `.1` without rewriting other text;
+//! re-planning at an unchanged revision reuses the extracted sessions instead of re-walking.
+//! Observable outcomes: planned catch-up/future alarms, updated token, preserved surrounding
+//! text, build/hit counters proving reuse.
+//! TDD proof: session reminder APIs did not exist; the reuse counters do not exist before
+//! this change — the test does not compile.
 //! Excludes: TUI process timers and Android `AlarmManager`.
 //!
 //! The session no longer owns a dedicated record-fired entry point: the store's reminder
@@ -105,7 +109,7 @@ mod tests {
                         fired_count: reminder.fired_count,
                         done: reminder.done,
                         interval_minutes: reminder.interval_minutes,
-                        recurrence_code: reminder.recurrence_code.clone(),
+                        recurrence: reminder.recurrence,
                     },
                     expected_revision: reminder.revision.clone(),
                 },
@@ -178,5 +182,67 @@ mod tests {
             "token should record first fire: {body}"
         );
         assert!(!body.contains("@2026-07-20-10:45x2rd "));
+    }
+
+    #[test]
+    fn reminder_plan_reuses_the_shared_query_projection_per_revision() {
+        let fixture = Fixture::new();
+        fixture
+            .session
+            .create_memo(CreateMemoRequest {
+                operation_id: OperationId::parse("rem-share").expect("op"),
+                relative_path: Some(RelativeWorkspacePath::parse("2026_07_21.md").expect("path")),
+                time_token: Some("10:45:00".to_owned()),
+                content: "shared walk @2026-07-21-10:45x1d".to_owned(),
+                expected_document_fingerprint: None,
+                pinned: false,
+                pending_promotes: Vec::new(),
+                chronology_epoch_ms: None,
+            })
+            .expect("create");
+        let now = 1_784_547_900_000_i64;
+        let first = fixture.session.reminder_plan(Some(now)).expect("plan");
+        let probe = fixture.session.projection_query_stats().expect("probe");
+        assert_eq!(probe.reminder_builds, 1);
+        assert_eq!(probe.summary_walks, 1);
+
+        let second = fixture
+            .session
+            .reminder_plan(Some(now))
+            .expect("plan again");
+        assert_eq!(
+            first.alarms.len(),
+            second.alarms.len(),
+            "a cached session set produces the identical plan"
+        );
+        let probe = fixture.session.projection_query_stats().expect("probe");
+        assert_eq!(
+            probe.reminder_builds, 1,
+            "re-entry reuses the sessions view"
+        );
+        assert_eq!(probe.reminder_hits, 1);
+        assert_eq!(
+            probe.summary_walks, 1,
+            "reminder planning shares the summary walk with tasks/review"
+        );
+
+        // A committed projection write moves the revision — the next plan rebuilds.
+        fixture
+            .session
+            .create_memo(CreateMemoRequest {
+                operation_id: OperationId::parse("rem-share-2").expect("op"),
+                relative_path: Some(RelativeWorkspacePath::parse("2026_07_22.md").expect("path")),
+                time_token: Some("10:45:00".to_owned()),
+                content: "plain note".to_owned(),
+                expected_document_fingerprint: None,
+                pinned: false,
+                pending_promotes: Vec::new(),
+                chronology_epoch_ms: None,
+            })
+            .expect("create second");
+        fixture.session.reminder_plan(Some(now)).expect("replan");
+        let probe = fixture.session.projection_query_stats().expect("probe");
+        assert_eq!(probe.reminder_builds, 2);
+        assert_eq!(probe.summary_walks, 2);
     }
 }

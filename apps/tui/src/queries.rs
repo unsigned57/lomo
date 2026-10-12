@@ -490,31 +490,13 @@ pub fn load_feed(runtime: &TuiRuntime, kind: FeedKind) -> Result<FeedState, TuiE
 /// `Bodies` effect like every other feed, never eagerly per candidate.
 fn review_cards(runtime: &TuiRuntime) -> Result<Vec<MemoCard>, TuiError> {
     let date = local_date(now_ms()?, &runtime.config().time_zone)?;
-    let candidates = runtime
+    // The session returns projection summaries directly — a card needs nothing
+    // beyond them, so no `projected_memos` hydration happens on this path.
+    runtime
         .session
-        .review_candidates(&runtime.config().time_zone, date)?;
-    // One batched projection read for the whole candidate set — the store
-    // chunks the id list internally instead of a round-trip per candidate.
-    let ids: Vec<String> = candidates
-        .iter()
-        .map(|candidate| candidate.memo_id.clone())
-        .collect();
-    let snapshots = runtime.session.projected_memos(&ids)?;
-    let by_id: BTreeMap<&str, &lomo_application::MemoSnapshot> = snapshots
-        .iter()
-        .map(|snapshot| (snapshot.summary.memo_id.as_str(), snapshot))
-        .collect();
-    candidates
-        .iter()
-        .map(|candidate| {
-            let snapshot = by_id.get(candidate.memo_id.as_str()).ok_or_else(|| {
-                TuiError::config(format!(
-                    "review candidate disappeared: {}",
-                    candidate.memo_id
-                ))
-            })?;
-            card(snapshot.summary.clone(), runtime)
-        })
+        .review_candidates(&runtime.config().time_zone, date)?
+        .into_iter()
+        .map(|summary| card(summary, runtime))
         .collect()
 }
 

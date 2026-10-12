@@ -4,6 +4,8 @@ ignore = [
     { id = "RUSTSEC-2026-0195", reason = "quick-xml NsReader is only used by wayland-scanner to parse trusted protocol XML at compile time, not untrusted runtime input" },
     { id = "RUSTSEC-2026-0194", reason = "quick-xml attribute duplicate check is only reached by wayland-scanner parsing trusted protocol XML at compile time, not untrusted runtime input" },
     { id = "RUSTSEC-2024-0436", reason = "paste is a compile-time proc-macro of ratatui 0.29; no runtime use and no ratatui release without it yet" },
+    { id = "RUSTSEC-2026-0002", reason = "lru 0.12.5 IterMut unsoundness is unreachable: lomo-application iterates with iter() and ratatui 0.29's layout cache calls only new/resize/get_or_insert/cap; ratatui pins lru to 0.12.x so no fixed version is selectable until ratatui upgrades" },
+    { id = "RUSTSEC-2026-0253", reason = "lru 0.12.5 pop() UAF needs a key Drop that panics under catch_unwind; our keys are (String, u64) and ratatui's are (Rect, Layout) — plain data that cannot panic on drop" },
 ]
 
 [bans]
@@ -30,6 +32,9 @@ skip = [
     # ratatui-image 8.0.1 stays on thiserror 1 while the workspace uses thiserror 2.
     { name = "thiserror", version = "1.0" },
     { name = "thiserror-impl", version = "1.0" },
+    # B-14: lomo-sync pins quick-xml 0.42 while wayland-scanner stays on 0.39
+    # (compile-time-only protocol XML reader; upgrading it is blocked by the pinned ratatui/wl-clipboard stack).
+    { name = "quick-xml", version = "0.39" },
 ]
 
 [licenses]
