@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, OpenFlags};
 
 use crate::error::{from_sqlite, storage, validation};
-use crate::open::{SQLITE_DIR_NAME, SQLITE_FILE_NAME, database_path};
+use crate::open::{IntegrityWitness, database_path, quick_integrity};
 use crate::{
     HistoryAttachmentRef, HistoryRevisionBody, MemoHistoryPage, MemoPage, MemoQuery,
     MemoQueryBoundary, MemoQueryStart, MemoSnapshot, MemoStatisticsRow, MemoSummary,
@@ -46,6 +46,16 @@ impl std::fmt::Debug for StoreReader {
     }
 }
 
+/// Result of a pool-facing reader open: the connection plus the integrity evidence the pool
+/// propagates inside one database generation.
+pub struct OpenedReader {
+    pub reader: StoreReader,
+    /// Token of the database file this connection opened; recorded by the pool when `checked`.
+    pub token: Option<IntegrityWitness>,
+    /// `true` when this open ran `PRAGMA quick_check` itself instead of inheriting a verdict.
+    pub checked: bool,
+}
+
 impl StoreReader {
     /// Opens an existing projection without creating or migrating it.
     ///
@@ -54,8 +64,24 @@ impl StoreReader {
     /// Returns a storage/validation error when the projection is missing, has an unsupported
     /// schema, or fails integrity checks.
     pub fn open(workspace_root: impl AsRef<Path>) -> Result<Self, LomoError> {
-        let workspace_root = workspace_root.as_ref().to_path_buf();
-        let path = workspace_root.join(SQLITE_DIR_NAME).join(SQLITE_FILE_NAME);
+        Ok(Self::open_shared(workspace_root.as_ref().to_path_buf(), None)?.reader)
+    }
+
+    /// Opens with an optional inherited integrity verdict.
+    ///
+    /// The reader repeats the full `PRAGMA quick_check` unless `witnessed` is a token captured for
+    /// this exact live database file — `None`, an unreadable token, or a token bound to a
+    /// different file or generation all fail closed into a fresh scan. A successful self-check
+    /// reports its own token so the pool can share the verdict across that generation.
+    ///
+    /// # Errors
+    ///
+    /// Same contract as [`StoreReader::open`].
+    pub fn open_shared(
+        workspace_root: PathBuf,
+        witnessed: Option<IntegrityWitness>,
+    ) -> Result<OpenedReader, LomoError> {
+        let path = database_path(&workspace_root);
         let connection = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
             .map_err(|error| from_sqlite(&error))?;
         connection
@@ -78,18 +104,25 @@ impl StoreReader {
                 "readers require the current schema admitted by the writable store",
             ));
         }
-        let integrity: String = connection
-            .query_row("PRAGMA quick_check", [], |row| row.get(0))
-            .map_err(|error| from_sqlite(&error))?;
-        if !integrity.eq_ignore_ascii_case("ok") {
-            return Err(storage(
-                "reader_integrity_failed",
-                "read-only projection quick_check did not return ok",
-            ));
-        }
-        Ok(Self {
-            workspace_root,
-            connection,
+        let token = IntegrityWitness::capture(&path);
+        let checked = if token.is_some() && token == witnessed {
+            false
+        } else {
+            if !quick_integrity(&connection)? {
+                return Err(storage(
+                    "reader_integrity_failed",
+                    "read-only projection quick_check did not return ok",
+                ));
+            }
+            true
+        };
+        Ok(OpenedReader {
+            reader: Self {
+                workspace_root,
+                connection,
+            },
+            token,
+            checked,
         })
     }
 

@@ -1,10 +1,11 @@
 //! History listing, trash restore, history body restore, and permanent delete.
 
-use lomo_core::{LomoError, OperationId, RelativeWorkspacePath};
+use lomo_core::{LomoError, OperationId, PageSize, RelativeWorkspacePath};
 use lomo_store::{
-    DocumentPublication, MemoHistoryPage, MemoSnapshot, PurgeRecordV1, SafPermanentDeleteTarget,
-    SafProjectionCommitResult, SafProjectionMutation, SafProjectionMutationKind,
-    ScannedMemoProjection, encode_purge_record, purge_record_relative_path,
+    DocumentPublication, MemoFilters, MemoHistoryPage, MemoQuery, MemoSnapshot, MemoSort,
+    PageCursor, PurgeRecordV1, SafPermanentDeleteTarget, SafProjectionCommitResult,
+    SafProjectionMutation, SafProjectionMutationKind, ScannedMemoProjection, encode_purge_record,
+    purge_record_relative_path,
 };
 use lomo_workspace::{
     DocumentPatchCommand, MemoId, MemoIdentityChange, SourceFingerprint, decode_trash_record,
@@ -74,6 +75,44 @@ pub struct PermanentDeleteManyResult {
     pub deleted: Vec<MemoId>,
     pub batches: Vec<SafProjectionCommitResult>,
     pub idempotent_replay: bool,
+}
+
+/// Request to permanently drop every memo the trash lane projects.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct EmptyTrashRequest {
+    pub operation_id: OperationId,
+}
+
+/// Outcome of one `empty_trash` pass.
+///
+/// `cancelled` reports a real domain state — the caller's token fired mid-pass — never an
+/// error: children already committed stay durable and `removed` counts them, the remainder
+/// stays trashed. `commit_result` is `None` only when nothing was committed (empty trash or
+/// a pre-empted pass).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EmptyTrashResult {
+    /// Memos whose trash record and projection row committed away.
+    pub removed: u64,
+    /// Last committed child receipt, when any chunk committed.
+    pub commit_result: Option<SafProjectionCommitResult>,
+    /// Durable child receipts in canonical order.
+    pub batches: Vec<SafProjectionCommitResult>,
+    /// `true` when every child batch replayed a committed receipt instead of re-executing.
+    pub idempotent_replay: bool,
+    /// `true` when the caller's cancellation fired; the pass stopped and `removed` is the
+    /// committed partial count.
+    pub cancelled: bool,
+}
+
+/// Committed state of one chunked permanent-delete pass.
+struct DeleteTargetsOutcome {
+    /// Targets whose child batch committed or replayed a committed receipt, in canonical order.
+    deleted: Vec<MemoId>,
+    /// Durable child receipts in canonical order.
+    batches: Vec<SafProjectionCommitResult>,
+    /// `true` when cancellation fired between chunks — trailing targets were never planned;
+    /// committed children stay durable.
+    cancelled: bool,
 }
 
 impl WorkspaceSession {
@@ -185,27 +224,118 @@ impl WorkspaceSession {
                 "permanent delete batch contains a duplicate memo identity",
             ));
         }
-        // Child ids are "{parent}.{token16}"; keep the derived id inside OperationId's limit.
-        if request.operation_id.as_str().len() + 1 + BATCH_TOKEN_LEN > 128 {
-            return Err(validation(
-                "invalid_operation_id",
-                "operation id leaves no room for the derived batch token",
-            ));
-        }
+        require_batch_parent_room(&request.operation_id)?;
         self.recover_pending()?;
+        let outcome = self.commit_delete_targets(&request.operation_id, &targets, &mut || false)?;
+        let idempotent_replay = outcome.batches.iter().all(|batch| batch.idempotent_replay);
+        let commit_result = outcome.batches.last().cloned().ok_or_else(|| {
+            validation(
+                "invalid_batch_targets",
+                "permanent delete produced no batch",
+            )
+        })?;
+        Ok(PermanentDeleteManyResult {
+            commit_result,
+            deleted: outcome.deleted,
+            batches: outcome.batches,
+            idempotent_replay,
+        })
+    }
 
-        // Chunks are a pure function of the sorted request: replay of a committed child must be
-        // decidable before any file or projection read, because a committed child already deleted
-        // both. Every target plans two files (trash-record delete + purge tombstone), so the
-        // chunk halves against the transaction file budget. The retained-byte budget is verified
-        // when each uncommitted chunk is planned and fails closed instead of silently re-chunking.
+    /// Permanently drops every memo the trash lane projects in one durable batch operation.
+    ///
+    /// The engine enumerates the trash lane in bounded pages — each target carries the
+    /// snapshot's CAS evidence, so a row that was restored or rewritten between listing and
+    /// commit fails closed instead of being deleted blind — then commits the sorted targets
+    /// through the same replay-safe child intents as [`Self::permanently_delete_many`].
+    /// `is_cancelled` is polled before every page read and between chunk commits: a fired
+    /// token stops the pass and reports the committed partial count in `cancelled`/`removed`;
+    /// committed children stay durable and the remainder stays trashed.
+    ///
+    /// # Errors
+    ///
+    /// Trash-enumeration, target-parse, stale-snapshot, and file/projection commit failures
+    /// propagate; a partially committed pass never hides what already committed — retry with a
+    /// fresh operation re-enumerates the remaining lane.
+    pub fn empty_trash(
+        &self,
+        request: &EmptyTrashRequest,
+        is_cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<EmptyTrashResult, LomoError> {
+        let _lock = TransactionLock::acquire(&self.config.runtime_dir)?;
+        require_batch_parent_room(&request.operation_id)?;
+        self.recover_pending()?;
+        let mut targets = Vec::new();
+        let mut cursor: Option<PageCursor> = None;
+        loop {
+            if is_cancelled() {
+                return Ok(EmptyTrashResult {
+                    removed: 0,
+                    commit_result: None,
+                    batches: Vec::new(),
+                    idempotent_replay: true,
+                    cancelled: true,
+                });
+            }
+            let page = self.query_memos_page(
+                &trash_lane_query(),
+                None,
+                cursor.as_ref(),
+                PageSize::new(256)?,
+            )?;
+            for summary in page.items {
+                targets.push(PermanentDeleteManyTarget {
+                    memo_id: MemoId::parse(&summary.memo_id)?,
+                    source_path: summary.source_path,
+                    expected_revision: summary.content_revision,
+                    expected_fingerprint: summary.file_fingerprint,
+                });
+            }
+            match page.next_cursor {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+        targets.sort_by(|left, right| left.memo_id.as_str().cmp(right.memo_id.as_str()));
+        targets.dedup_by(|left, right| left.memo_id == right.memo_id);
+        let outcome = self.commit_delete_targets(&request.operation_id, &targets, is_cancelled)?;
+        let idempotent_replay = outcome.batches.iter().all(|batch| batch.idempotent_replay);
+        Ok(EmptyTrashResult {
+            removed: u64::try_from(outcome.deleted.len())
+                .map_err(|error| resource_limit("empty_trash_count_overflow", error.to_string()))?,
+            commit_result: outcome.batches.last().cloned(),
+            batches: outcome.batches,
+            idempotent_replay,
+            cancelled: outcome.cancelled,
+        })
+    }
+
+    /// Commits sorted permanent-delete targets as bounded, replay-safe child batches.
+    ///
+    /// Chunks are a pure function of the sorted request: replay of a committed child must be
+    /// decidable before any file or projection read, because a committed child already deleted
+    /// both. Every target plans two files (trash-record delete + purge tombstone), so the
+    /// chunk halves against the transaction file budget. The retained-byte budget is verified
+    /// when each uncommitted chunk is planned and fails closed instead of silently re-chunking.
+    fn commit_delete_targets(
+        &self,
+        parent_operation: &OperationId,
+        targets: &[PermanentDeleteManyTarget],
+        is_cancelled: &mut dyn FnMut() -> bool,
+    ) -> Result<DeleteTargetsOutcome, LomoError> {
         let mut batches = Vec::new();
         let mut deleted = Vec::with_capacity(targets.len());
         for chunk in targets.chunks(MAX_TRANSACTION_FILES / 2) {
+            if is_cancelled() {
+                return Ok(DeleteTargetsOutcome {
+                    deleted,
+                    batches,
+                    cancelled: true,
+                });
+            }
             let token = batch_token(chunk)?;
-            let child_id =
-                OperationId::parse(&format!("{}.{token}", request.operation_id.as_str()))?;
-            let digest = payload_digest(&(&request.operation_id, chunk))?;
+            let child_id = OperationId::parse(&format!("{}.{token}", parent_operation.as_str()))?;
+            let digest = payload_digest(&(parent_operation, chunk))?;
             if let Some(receipt) = self.replay(&child_id, &digest)? {
                 deleted.extend(chunk.iter().map(|target| target.memo_id.clone()));
                 batches.push(receipt);
@@ -215,18 +345,10 @@ impl WorkspaceSession {
             deleted.extend(chunk.iter().map(|target| target.memo_id.clone()));
             batches.push(receipt);
         }
-        let idempotent_replay = batches.iter().all(|batch| batch.idempotent_replay);
-        let commit_result = batches.last().cloned().ok_or_else(|| {
-            validation(
-                "invalid_batch_targets",
-                "permanent delete produced no batch",
-            )
-        })?;
-        Ok(PermanentDeleteManyResult {
-            commit_result,
+        Ok(DeleteTargetsOutcome {
             deleted,
             batches,
-            idempotent_replay,
+            cancelled: false,
         })
     }
 
@@ -473,6 +595,30 @@ impl WorkspaceSession {
 
 /// Length of the content-derived token in a child batch operation id ("{parent}.{token}").
 const BATCH_TOKEN_LEN: usize = 16;
+
+/// Child ids are "{parent}.{token16}"; keep the derived id inside `OperationId`'s limit —
+/// rejected before any enumeration or IO.
+fn require_batch_parent_room(parent: &OperationId) -> Result<(), LomoError> {
+    if parent.as_str().len() + 1 + BATCH_TOKEN_LEN > 128 {
+        return Err(validation(
+            "invalid_operation_id",
+            "operation id leaves no room for the derived batch token",
+        ));
+    }
+    Ok(())
+}
+
+/// The trash lane as one bounded query — every trashed projection, newest sort.
+fn trash_lane_query() -> MemoQuery {
+    MemoQuery {
+        search_text: None,
+        filters: MemoFilters {
+            trash_only: true,
+            ..MemoFilters::default()
+        },
+        sort: MemoSort::default(),
+    }
+}
 
 /// Derives the stable identity token of one child batch from the caller's CAS facts alone. The
 /// derivation must not touch the filesystem or projection: replay of a committed child is decided

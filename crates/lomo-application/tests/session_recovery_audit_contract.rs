@@ -19,6 +19,10 @@
 //! operation ID arrives, Then it is admitted normally.
 //! Epoch TDD proof: without the retirement witness the retry falls through to the new-command path
 //! and fails with `identity_operation_mismatch`; GREEN returns `operation_expired`.
+//! Startup integrity scenario: Given one admitted projection generation, When the session opens
+//! and pooled readers serve reads, Then exactly one `quick_check` runs — at the writer's open —
+//! and a rebuild swap re-seeds the same rule for the next generation (probe:
+//! `reader_integrity_checks` stays 0).
 //! Excludes: UI, network providers, terminal rendering and Android lifecycle.
 
 #[cfg(test)]
@@ -613,7 +617,7 @@ mod tests {
         let first = session
             .create_memo(Fixture::request("create", "version one"))
             .value();
-        let paths = lomo_workspace::LomoPaths::for_workspace_with_layout(
+        let paths = lomo_workspace::WorkspaceLayout::for_workspace_with_layout(
             &fixture.temp.path().join("notes"),
             lomo_workspace::LomoLayoutVersion::V2,
         );
@@ -660,7 +664,7 @@ mod tests {
         let created = session
             .create_memo(Fixture::request("create", "merged body"))
             .value();
-        let paths = lomo_workspace::LomoPaths::for_workspace_with_layout(
+        let paths = lomo_workspace::WorkspaceLayout::for_workspace_with_layout(
             &fixture.temp.path().join("notes"),
             lomo_workspace::LomoLayoutVersion::V2,
         );
@@ -901,5 +905,48 @@ mod tests {
             };
             assert_eq!(error.code(), "operation_expired");
         }
+    }
+
+    /// One projection generation pays exactly one `PRAGMA quick_check`: the
+    /// writer's `open_projection`. Every pooled reader the session opens
+    /// afterwards inherits the verdict through the database-file token, so the
+    /// pool's `integrity_checks` counter stays at zero; a rebuild's atomic swap
+    /// re-seeds the same one-check-per-generation rule.
+    #[test]
+    fn session_open_pays_one_integrity_check_per_projection_generation() {
+        let fixture = Fixture::new();
+        let session = fixture.open();
+        let page = || {
+            session
+                .query_memos_page(
+                    &lomo_store::MemoQuery {
+                        search_text: None,
+                        filters: lomo_store::MemoFilters::default(),
+                        sort: lomo_store::MemoSort::default(),
+                    },
+                    None,
+                    None,
+                    lomo_core::PageSize::new(8).value(),
+                )
+                .value()
+        };
+        page();
+        session
+            .create_memo(Fixture::request("qc-one", "first memo"))
+            .value();
+        page();
+        assert_eq!(
+            session.reader_integrity_checks(),
+            0,
+            "a witnessed generation pays no reader-side quick_check"
+        );
+
+        session.rebuild_projection().value();
+        page();
+        assert_eq!(
+            session.reader_integrity_checks(),
+            0,
+            "the swapped generation verified once at reopen and readers inherit it"
+        );
     }
 }

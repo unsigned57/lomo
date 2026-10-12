@@ -3,11 +3,15 @@
 use crate::{
     StoreReader,
     error::{storage, validation},
+    open::IntegrityWitness,
 };
 use lomo_core::LomoError;
 use std::{
     path::PathBuf,
-    sync::{Condvar, Mutex},
+    sync::{
+        Condvar, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -53,6 +57,10 @@ struct PoolState {
     total: usize,
     epoch: u64,
     phase: Phase,
+    /// Database file token already verified for this pool — seeded by the owning `Store`'s
+    /// open-time `quick_check`, or recorded from a reader's own scan. One database generation
+    /// pays exactly one integrity check; `clear_idle` drops it with the generation.
+    verified: Option<IntegrityWitness>,
 }
 
 pub struct StoreReaderPool {
@@ -60,6 +68,9 @@ pub struct StoreReaderPool {
     options: ReaderPoolOptions,
     state: Mutex<PoolState>,
     available: Condvar,
+    /// Reader-side `PRAGMA quick_check` executions — the startup-duplication probe: a witnessed
+    /// generation contributes zero.
+    integrity_checks: AtomicU64,
 }
 
 pub struct StoreReaderLease<'a> {
@@ -79,9 +90,36 @@ impl StoreReaderPool {
                 total: 0,
                 epoch: 0,
                 phase: Phase::Open,
+                verified: None,
             }),
             available: Condvar::new(),
+            integrity_checks: AtomicU64::new(0),
         }
+    }
+
+    /// Seeds the verdict of an integrity check already performed on this exact database
+    /// generation — typically the owning `Store`'s open-time `quick_check`. A token that does
+    /// not match the live file at open time can never skip the reader-side scan.
+    ///
+    /// # Errors
+    /// Poisoned/closed pools are surfaced.
+    pub fn mark_verified(&self, witness: IntegrityWitness) -> Result<(), LomoError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_error| pool_error("store_reader_pool_poisoned"))?;
+        if state.phase == Phase::Closed {
+            return Err(pool_error("store_reader_pool_closed"));
+        }
+        state.verified = Some(witness);
+        drop(state);
+        Ok(())
+    }
+
+    /// Reader-side `PRAGMA quick_check` executions since pool creation.
+    #[must_use]
+    pub fn integrity_checks(&self) -> u64 {
+        self.integrity_checks.load(Ordering::SeqCst)
     }
 
     /// Leases one read connection without holding the pool mutex while querying or opening SQLite.
@@ -108,8 +146,9 @@ impl StoreReaderPool {
             if state.total < self.options.capacity {
                 state.total += 1;
                 let epoch = state.epoch;
+                let witnessed = state.verified;
                 drop(state);
-                return self.open_reserved(epoch);
+                return self.open_reserved(epoch, witnessed);
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
@@ -123,19 +162,33 @@ impl StoreReaderPool {
         }
     }
 
-    fn open_reserved(&self, epoch: u64) -> Result<StoreReaderLease<'_>, LomoError> {
-        match StoreReader::open(&self.root) {
-            Ok(reader) => {
+    fn open_reserved(
+        &self,
+        epoch: u64,
+        witnessed: Option<IntegrityWitness>,
+    ) -> Result<StoreReaderLease<'_>, LomoError> {
+        match StoreReader::open_shared(self.root.clone(), witnessed) {
+            Ok(opened) => {
+                if opened.checked {
+                    self.integrity_checks.fetch_add(1, Ordering::SeqCst);
+                }
                 let lease = StoreReaderLease {
                     pool: self,
-                    reader: Some(reader),
+                    reader: Some(opened.reader),
                     epoch,
                 };
-                let state = self
+                let mut state = self
                     .state
                     .lock()
                     .map_err(|_error| pool_error("store_reader_pool_poisoned"))?;
                 let valid = state.phase == Phase::Open && state.epoch == epoch;
+                if valid && opened.checked {
+                    // A reader that had to scan itself verified the live file;
+                    // propagate the token so the rest of this generation skips.
+                    if opened.token.is_some() {
+                        state.verified = opened.token;
+                    }
+                }
                 drop(state);
                 if !valid {
                     return Err(pool_error("store_reader_pool_changed"));
@@ -180,6 +233,9 @@ impl StoreReaderPool {
             .checked_sub(state.idle.len())
             .ok_or_else(|| pool_error("store_reader_pool_inconsistent"))?;
         state.idle.clear();
+        // The verdict belonged to the retiring generation; the replacement is verified
+        // again by its opener.
+        state.verified = None;
         drop(state);
         self.available.notify_all();
         Ok(())

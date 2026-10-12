@@ -42,11 +42,26 @@ pub struct WorkspaceSession {
     read_gate: RwLock<()>,
     mount: Mutex<Option<RebuildResult>>,
     pub(crate) draft_store: DraftStore,
+    /// Token-keyed decoded draft projections shared by the sweep and attachment
+    /// queries — a draft whose file token still matches never pays a decode.
+    pub(crate) draft_ref_cache: Mutex<crate::media_index::DraftRefCache>,
+    /// Unified-stamp memoized attachment index — the committed revision plus
+    /// pending-record, draft-evidence, and stage-ledger file tokens decide
+    /// whether a read rebuilds or serves the retained index.
+    pub(crate) attachment_index_cache: Mutex<crate::media_index::AttachmentIndexCache>,
     pub(crate) search_epoch: AtomicU64,
-    /// Ranked fuzzy hits memoized per query fingerprint and projection
-    /// revision — a continuation cursor paginates the snapshot instead of
-    /// rescanning and rescoring every candidate.
-    pub(crate) fuzzy_results: Mutex<std::collections::VecDeque<crate::search::FuzzyResult>>,
+    /// Ranked fuzzy hits memoized per (query fingerprint, projection
+    /// revision) — a continuation cursor paginates the snapshot instead of
+    /// rescanning and rescoring every candidate, and a prefix-extending
+    /// keystroke derives its candidate set from the cached ancestor's hits.
+    pub(crate) fuzzy_results: Mutex<lru::LruCache<(String, u64), crate::search::FuzzyResult>>,
+    /// Hydrated fuzzy candidate corpus plus scan counters — one build per
+    /// `(filters, revision)` publication, shared by every keystroke there.
+    pub(crate) fuzzy_scan: Mutex<crate::search::FuzzyScan>,
+    /// Revision-keyed query projection shared by search, tasks, review and
+    /// reminder planning — collected walks and the derived views cut from
+    /// them are functions of one committed revision and invalidate by key.
+    pub(crate) query_projection: Mutex<crate::paging::QueryProjection>,
 }
 
 impl WorkspaceSession {
@@ -69,7 +84,8 @@ impl WorkspaceSession {
                 .map_err(|error| storage("private_directory_failed", error.to_string()))?;
         }
         let _lock = TransactionLock::acquire(&config.runtime_dir)?;
-        let identity_path = config.state_dir.join("device_id");
+        let state_layout = lomo_workspace::SessionStateLayout::for_state_dir(&config.state_dir);
+        let identity_path = state_layout.device_id.clone();
         let device_id = if let Some(bytes) = read_optional(&identity_path)? {
             let value = String::from_utf8(bytes)
                 .map_err(|error| validation("invalid_device_identity", error.to_string()))?;
@@ -81,30 +97,109 @@ impl WorkspaceSession {
             value
         };
         let store = Store::open_projection(&config.cache_dir)?;
+        let readers = StoreReaderPool::new(config.cache_dir.clone(), ReaderPoolOptions::default());
+        // One database generation pays exactly one `quick_check`: the writer's
+        // open above. Pooled readers inherit the verdict through the file token
+        // and only re-scan when a different file or generation shows up.
+        if let Some(witness) = store.integrity_witness() {
+            readers.mark_verified(witness)?;
+        }
         let session = Self {
-            intent_journal: IntentJournal::new(&config.state_dir)?,
-            readers: StoreReaderPool::new(config.cache_dir.clone(), ReaderPoolOptions::default()),
+            intent_journal: IntentJournal::new(&state_layout)?,
+            readers,
             read_gate: RwLock::new(()),
-            draft_store: DraftStore::new(&config.state_dir)?,
+            draft_store: DraftStore::new(&state_layout)?,
+            draft_ref_cache: Mutex::new(crate::media_index::DraftRefCache::new()),
+            attachment_index_cache: Mutex::new(crate::media_index::AttachmentIndexCache::new()),
             config,
             executor,
             device_id,
             store: Mutex::new(Some(store)),
             mount: Mutex::new(None),
             search_epoch: AtomicU64::new(0),
-            fuzzy_results: Mutex::new(std::collections::VecDeque::new()),
+            fuzzy_results: Mutex::new(lru::LruCache::new(crate::search::FUZZY_CACHE_ENTRIES)),
+            fuzzy_scan: Mutex::new(crate::search::FuzzyScan::new()),
+            query_projection: Mutex::new(crate::paging::QueryProjection::new()),
         };
         let pending = session.recover_files_for_mount()?;
         let floor = session.intent_journal.clock_floor()?;
         session.with_store_mut(|store| store.restore_clock_floor(floor))?;
         session.rebuild_locked(!pending.is_empty())?;
         session.acknowledge_mounted_operations(&pending)?;
+        session.evict_stale_baselines()?;
         Ok(session)
     }
 
     #[must_use]
     pub fn device_id(&self) -> &str {
         &self.device_id
+    }
+
+    /// Cumulative token-hit/decode evidence for retained conflict-evidence drafts.
+    ///
+    /// Attachment-index builds decode a draft only when its file token (name, size,
+    /// modification time) changed; unchanged tokens reuse the retained projection.
+    ///
+    /// # Errors
+    /// Storage when the cache lock is poisoned.
+    pub fn draft_evidence_stats(
+        &self,
+    ) -> Result<crate::media_index::DraftEvidenceStats, LomoError> {
+        self.draft_ref_cache
+            .lock()
+            .map(|cache| cache.stats)
+            .map_err(|error| storage("draft_ref_cache_poisoned", error.to_string()))
+    }
+
+    /// Reader-side `PRAGMA quick_check` executions since session open — the
+    /// startup-duplication probe: one projection generation verifies once inside
+    /// `Store::open_projection`, and every pooled reader inherits that verdict
+    /// through the database-file token, so a healthy session reports `0` here
+    /// regardless of how many readers it has opened.
+    #[must_use]
+    pub fn reader_integrity_checks(&self) -> u64 {
+        self.readers.integrity_checks()
+    }
+
+    /// Cumulative build/hit evidence for the stamp-memoized attachment index.
+    ///
+    /// `attachment_index`/`observe_attachments` rebuild only when the unified stamp —
+    /// committed revision plus pending-record, draft-evidence, and stage-ledger file
+    /// tokens — deviates from the last build's.
+    ///
+    /// # Errors
+    /// Storage when the cache lock is poisoned.
+    pub fn attachment_index_stats(
+        &self,
+    ) -> Result<crate::media_index::AttachmentIndexStats, LomoError> {
+        self.attachment_index_cache
+            .lock()
+            .map(|cache| cache.stats)
+            .map_err(|error| storage("attachment_index_cache_poisoned", error.to_string()))
+    }
+
+    /// Cumulative fuzzy-scan evidence: snapshot hits, prefix-seeded and full
+    /// scans, epoch supersessions and scored-candidate counts.
+    ///
+    /// # Errors
+    /// Storage when the scan-state lock is poisoned.
+    pub fn fuzzy_scan_stats(&self) -> Result<crate::search::FuzzyScanStats, LomoError> {
+        self.fuzzy_scan
+            .lock()
+            .map(|scan| scan.stats)
+            .map_err(|error| storage("fuzzy_scan_poisoned", error.to_string()))
+    }
+
+    /// Cumulative query-projection evidence: shared summary walks and the
+    /// per-screen derived sets (tasks, reminder sessions) keyed by revision.
+    ///
+    /// # Errors
+    /// Storage when the projection lock is poisoned.
+    pub fn projection_query_stats(&self) -> Result<crate::paging::ProjectionQueryStats, LomoError> {
+        self.query_projection
+            .lock()
+            .map(|projection| projection.stats)
+            .map_err(|error| storage("query_projection_poisoned", error.to_string()))
     }
 
     /// Result of the most recent mount or explicit projection rebuild.
@@ -626,16 +721,6 @@ impl WorkspaceSession {
         self.with_reader(|store| store.get_projected_memo(memo_id))
     }
 
-    /// Reads projected snapshots for one id set in a single batched query —
-    /// the store chunks the `IN` list internally. Ids without a projected row
-    /// simply produce no entry; callers needing an exact set check each id.
-    ///
-    /// # Errors
-    /// Propagates projection storage failures.
-    pub fn projected_memos(&self, memo_ids: &[String]) -> Result<Vec<MemoSnapshot>, LomoError> {
-        self.with_reader(|store| store.get_projected_memos(memo_ids))
-    }
-
     /// Live projection word/character rows for every active memo.
     ///
     /// # Errors
@@ -718,6 +803,7 @@ impl WorkspaceSession {
         observed: Option<&[RelativeWorkspacePath]>,
     ) -> Result<RebuildResult, LomoError> {
         let evidence = crate::rebuild::list_workspace_listing(&self.config, &self.executor)?;
+        let skipped_sync = evidence.skipped_sync_subtrees();
         let listing = evidence.admitted_listing()?;
         if !force_scan {
             if let Some(digest) = evidence.listing_digest() {
@@ -725,6 +811,8 @@ impl WorkspaceSession {
                     Ok(store.workspace_listing_digest()?.as_deref() == Some(digest.as_str()))
                 })?;
                 if matched {
+                    // Digest-matched reconciles stay write-free: telemetry counters
+                    // persist only on passes that committed a projection write.
                     let result = self.with_store(Store::reconciled_live_result)?;
                     return self.record_mount(result);
                 }
@@ -746,6 +834,7 @@ impl WorkspaceSession {
                 }
             };
             if let Some(result) = scoped {
+                self.with_store_mut(|store| store.record_reconcile_telemetry(false, skipped_sync))?;
                 return self.record_mount(result);
             }
         }
@@ -766,7 +855,11 @@ impl WorkspaceSession {
         };
         if let Some(result) = reconciled {
             self.with_store_mut(|store| {
-                crate::rebuild_incremental::align_listing_snapshot(store, inventory.listing_rows())
+                crate::rebuild_incremental::align_listing_snapshot(
+                    store,
+                    inventory.listing_rows(),
+                )?;
+                store.record_reconcile_telemetry(false, skipped_sync)
             })?;
             return self.record_mount(result);
         }
@@ -789,25 +882,23 @@ impl WorkspaceSession {
                 format!("{error}; rebuild result: {result:?}"),
             )
         })?;
+        let witness = reopened.integrity_witness();
         let mut guard = self
             .store
             .lock()
             .map_err(|error| storage("store_lock_poisoned", error.to_string()))?;
         *guard = Some(reopened);
         drop(guard);
+        // `clear_idle` above retired the previous generation's verdict; re-seed
+        // the token this fresh `open_projection` just verified.
+        if let Some(witness) = witness {
+            self.readers.mark_verified(witness)?;
+        }
         let result = result?;
-        self.persist_scanned_listing_digest(inventory.listing_digest())?;
+        self.with_store_mut(|store| store.record_reconcile_telemetry(true, skipped_sync))?;
+        // The build commit already carried `workspace_listing_digest` derived from the exact
+        // `file_listing` rows it wrote — no post-promote write exists to lose to a crash.
         self.record_mount(result)
-    }
-
-    /// Persists the digest of the exact `file_listing` rows the materialize commit wrote.
-    ///
-    /// Re-listing here would certify the projection against a later directory state it never read,
-    /// so a concurrent external change could be skipped permanently. The digest therefore comes
-    /// from the inventory — the provoking listing's fingerprints already refreshed with the
-    /// post-write tokens of files the scan itself wrote — and never from a re-list.
-    fn persist_scanned_listing_digest(&self, digest: &str) -> Result<(), LomoError> {
-        self.with_store_mut(|store| store.set_workspace_listing_digest(digest))
     }
 
     fn record_mount(&self, result: RebuildResult) -> Result<RebuildResult, LomoError> {
@@ -833,16 +924,36 @@ impl WorkspaceSession {
         draft: &str,
     ) -> Result<(), LomoError> {
         if let Err(error) = document.check_baseline(expected) {
-            self.draft_store.save_conflict_evidence(&ConflictEvidence {
-                operation_id: operation_id.clone(),
-                path: document.path.clone(),
-                baseline_fingerprint: expected.to_owned(),
-                disk_fingerprint: document.fingerprint().to_owned(),
-                draft_content: draft.to_owned(),
-                recorded_at_ms: epoch_millis()?,
-            })?;
+            self.draft_store.save_conflict_evidence(
+                &ConflictEvidence {
+                    operation_id: operation_id.clone(),
+                    path: document.path.clone(),
+                    baseline_fingerprint: expected.to_owned(),
+                    disk_fingerprint: document.fingerprint().to_owned(),
+                    draft_content: draft.to_owned(),
+                    recorded_at_ms: epoch_millis()?,
+                },
+                document
+                    .original
+                    .as_ref()
+                    .map(|snapshot| snapshot.bytes.as_slice()),
+            )?;
             return Err(error);
         }
+        Ok(())
+    }
+
+    /// Retires CAS baseline blobs no live fingerprint can cite: the keep-set is retained
+    /// conflict evidence ∪ committed `memo` fingerprints (trashed identities carry theirs on
+    /// the same `memo` row). Runs once per open after the projection mounts so the criterion
+    /// is never a stale snapshot.
+    fn evict_stale_baselines(&self) -> Result<(), LomoError> {
+        let mut keep = self.draft_store.referenced_fingerprints()?;
+        keep.extend(self.with_store(Store::live_document_fingerprints)?);
+        crate::private_io::evict_unreferenced_baselines(
+            &lomo_workspace::SessionStateLayout::for_state_dir(&self.config.state_dir).baselines,
+            &keep,
+        )?;
         Ok(())
     }
 

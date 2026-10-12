@@ -31,7 +31,8 @@
 //   worker fails every queued job with its own req; saturation refuses;
 //   `finish` is bounded against a permanently blocked worker.
 // - Durability: `commit_capture` replays idempotently; a Pending record
-//   restores as a Failed-save draft; a cancelled EmptyTrash deletes nothing.
+//   restores as a Failed-save draft; a cancelled EmptyTrash deletes nothing,
+//   and a live EmptyTrash is one engine batch call landing `TrashEmptied`.
 //
 // TDD proof: this file is evidence-first, not change-driven — tests asserting
 // the CORRECT invariant that still FAIL are genuine residual defects and are
@@ -1684,5 +1685,84 @@ mod tests {
             1,
             "the trashed memo survived the cancelled sweep"
         );
+    }
+
+    /// The `EmptyTrash` effect is one engine call — the session enumerates the
+    /// trash lane and commits bounded replay-safe child batches — so a live
+    /// token lands `TrashEmptied` with the committed count and the lane empty;
+    /// no per-memo mutation runs on this path.
+    #[test]
+    fn empty_trash_effect_empties_the_lane_in_one_call() {
+        let fixture = RuntimeFixture::new().expect("fixture");
+        for (op, body) in [("et-a", "alpha"), ("et-b", "beta")] {
+            let created = fixture
+                .runtime
+                .session
+                .create_memo(lomo_application::CreateMemoRequest {
+                    operation_id: lomo_tui::ops::mint_operation_id().expect("op"),
+                    relative_path: None,
+                    time_token: None,
+                    content: format!("{op} {body}"),
+                    expected_document_fingerprint: None,
+                    pinned: false,
+                    pending_promotes: Vec::new(),
+                    chronology_epoch_ms: None,
+                })
+                .expect("create");
+            let view = fixture
+                .runtime
+                .session
+                .get_memo(&created.memo_id)
+                .expect("get")
+                .expect("exists");
+            fixture
+                .runtime
+                .session
+                .delete_memo(lomo_application::DeleteMemoRequest {
+                    operation_id: lomo_tui::ops::mint_operation_id().expect("op"),
+                    memo_id: created.memo_id,
+                    expected_document_fingerprint: view.file_fingerprint,
+                    trashed_at_ms: None,
+                })
+                .expect("trash");
+        }
+
+        let token = CancelToken::live();
+        let (sender, _inbox) = mpsc::sync_channel(8);
+        let outcome = lomo_tui::ops::execute(
+            &fixture.runtime,
+            &Effect::EmptyTrash { req: Req(9) },
+            &lomo_tui::executor::Outbox::new(sender),
+            &token,
+        );
+        let message = outcome.expect("one batch call empties the lane");
+        assert!(
+            matches!(
+                message,
+                RuntimeMessage::Mutated {
+                    req: Req(9),
+                    outcome: lomo_tui::effects::MutationOutcome::TrashEmptied { removed: 2 },
+                }
+            ),
+            "the engine's batch endpoint reports the committed count; got {message:?}"
+        );
+        let trash = fixture
+            .runtime
+            .session
+            .query_memos_page(
+                &lomo_application::MemoQuery {
+                    search_text: None,
+                    filters: lomo_application::MemoFilters {
+                        trash_only: true,
+                        ..lomo_application::MemoFilters::default()
+                    },
+                    sort: lomo_application::MemoSort::default(),
+                },
+                None,
+                None,
+                lomo_core::PageSize::new(64).expect("size"),
+            )
+            .expect("query");
+        assert!(trash.items.is_empty(), "the batch call emptied the lane");
     }
 }

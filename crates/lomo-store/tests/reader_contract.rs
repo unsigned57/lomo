@@ -12,9 +12,13 @@
 //!   fails instead of creating an implicit writable database.
 //! - Given all bounded reader leases are held, when another checkout is requested, then explicit
 //!   exhaustion is returned; releasing one lease admits the next read, and close rejects new reads.
+//! - Given a pool seeded with the writer's open-time integrity verdict, when readers open against
+//!   the same database file generation, then no second `PRAGMA quick_check` runs; a cleared
+//!   generation or a foreign file token falls back to one fresh reader-side check whose verdict
+//!   then covers the rest of that generation.
 //!
-//! Observable outcomes: returned page items, high-water revision, pin flag, and structured open
-//! failure.
+//! Observable outcomes: returned page items, high-water revision, pin flag, structured open
+//! failure, and the pool's reader-side `integrity_checks` counter.
 //!
 //! TDD proof:
 //!
@@ -157,5 +161,88 @@ mod tests {
         let root = tempdir().expect("workspace");
         let error = StoreReader::open(root.path()).expect_err("missing projection must fail");
         assert_eq!(ErrorCategory::Storage, error.category());
+    }
+
+    /// The session open path pays `PRAGMA quick_check` exactly once: inside the
+    /// writer's `Store::open_projection`. A pool seeded with that verdict opens
+    /// every reader of the same file generation without re-scanning; a
+    /// `clear_idle` generation change or a token captured from a different file
+    /// fails closed back to one reader-side check, which itself propagates.
+    #[test]
+    fn witnessed_pool_runs_one_quick_check_per_database_generation() {
+        let root = tempdir().expect("workspace");
+        seed_memo(root.path(), "witnessed", "body witnessed", &[]);
+        let store = indexed_store(root.path());
+        let witness = store
+            .integrity_witness()
+            .expect("a verified open must carry the database file token");
+        let pool = StoreReaderPool::new(
+            root.path().to_owned(),
+            ReaderPoolOptions::new(2, std::time::Duration::ZERO).expect("pool options"),
+        );
+        pool.mark_verified(witness).expect("seed the open verdict");
+
+        // Both capacity-bounded opens of the witnessed generation skip the scan.
+        let first = pool.checkout().expect("first lease");
+        let second = pool.checkout().expect("second lease");
+        assert_eq!(
+            first
+                .reader()
+                .expect("reader")
+                .query_count(&query())
+                .expect("query"),
+            1
+        );
+        assert_eq!(
+            pool.integrity_checks(),
+            0,
+            "witnessed generation pays no reader-side quick_check"
+        );
+        drop(first);
+        drop(second);
+
+        // A token captured from a different database file can never skip the
+        // check on this one — the mismatch forces one fresh scan, whose verdict
+        // then covers the rest of the new generation.
+        let foreign_root = tempdir().expect("foreign workspace");
+        seed_memo(
+            foreign_root.path(),
+            "foreign",
+            "a different body, deliberately longer",
+            &[],
+        );
+        let _foreign =
+            lomo_store::Store::open_projection(foreign_root.path()).expect("foreign store");
+        let foreign =
+            lomo_store::IntegrityWitness::capture(&lomo_store::database_path(foreign_root.path()))
+                .expect("foreign token");
+        pool.clear_idle().expect("new generation");
+        pool.mark_verified(foreign).expect("foreign witness");
+        let third = pool
+            .checkout()
+            .expect("first open of the cleared generation");
+        assert_eq!(
+            pool.integrity_checks(),
+            1,
+            "a foreign token must not inherit the verdict — one fresh check runs"
+        );
+        let fourth = pool
+            .checkout()
+            .expect("second open of the cleared generation");
+        assert_eq!(
+            pool.integrity_checks(),
+            1,
+            "the reader-verified token propagates inside its generation"
+        );
+        assert_eq!(
+            fourth
+                .reader()
+                .expect("reader")
+                .query_count(&query())
+                .expect("query"),
+            1
+        );
+        drop(third);
+        drop(fourth);
     }
 }

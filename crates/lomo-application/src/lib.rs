@@ -1,6 +1,7 @@
 #![deny(unsafe_code)]
 
 pub mod archive_cmd;
+pub mod attachment_lookup;
 pub mod calendar;
 pub mod config;
 pub mod csprng;
@@ -38,16 +39,17 @@ mod workspace_io;
 pub use config::WorkspaceSessionConfig;
 pub use draft::GuardedDraftBody;
 pub use lifecycle::{
-    PermanentDeleteManyRequest, PermanentDeleteManyResult, PermanentDeleteManyTarget,
-    PermanentDeleteRequest, RestoreMemoRequest, RestoreMemoResult, RestoreRevisionRequest,
+    EmptyTrashRequest, EmptyTrashResult, PermanentDeleteManyRequest, PermanentDeleteManyResult,
+    PermanentDeleteManyTarget, PermanentDeleteRequest, RestoreMemoRequest, RestoreMemoResult,
+    RestoreRevisionRequest,
 };
 pub use lomo_store::{
     MemoFilters, MemoPage, MemoQuery, MemoQueryStart, MemoSnapshot, MemoSort, MemoSummary,
     MemoWindowSides, PageCursor, PlannedAlarm, ReminderPlan, TagSelectionMode,
 };
-pub use media_index::AttachmentObservation;
-pub use review::ReviewCandidate;
-pub use search::{SearchHit, SearchMode, SearchOutcome, SearchPage, SearchRequest};
+pub use media_index::{AttachmentIndexStats, AttachmentObservation, DraftEvidenceStats};
+pub use paging::ProjectionQueryStats;
+pub use search::{FuzzyScanStats, SearchHit, SearchMode, SearchOutcome, SearchPage, SearchRequest};
 pub use session::WorkspaceSession;
 pub use statistics::{
     DayOfWeek, MemoStatistics, MemoTagCount, StatisticsError, StatisticsMemoFact,

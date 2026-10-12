@@ -39,7 +39,7 @@ pub use content_facts::{
 };
 // Attachment-destination canonicalization is owned by `lomo_workspace`; re-export the authority
 // so projection callers share one implementation.
-pub use cursor::{PageCursor, fingerprint_plan, fingerprint_query};
+pub use cursor::{HistoryPageCursor, PageCursor, fingerprint_plan, fingerprint_query};
 pub use history_refs::{
     DEFAULT_HISTORY_MEDIA_RETENTION_REVISIONS, HistoryAttachmentRef, HistoryRevisionBody,
     MemoHistoryPage, MemoHistoryRevision, list_history_attachment_refs,
@@ -47,14 +47,16 @@ pub use history_refs::{
 };
 pub use lomo_format::{
     BatchDeleteReminderSet, BatchDeleteTarget, LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoLayoutVersion,
-    LomoPaths, LomoPayload, LomoRecord, LomoRecordKind, MemoCommandKind, OperationIntent,
-    OperationStatus, decode_record, encode_record, isolate_corrupt_record, read_record,
+    LomoPayload, LomoRecord, LomoRecordKind, MemoCommandKind, OperationIntent, OperationStatus,
+    WorkspaceLayout, decode_record, encode_record, isolate_corrupt_record, read_record,
     write_record_atomic,
 };
 pub use lomo_workspace::{
     canonical_attachment_keys, canonical_attachment_path, is_external_attachment_destination,
 };
-pub use open::{OpenedStore, SQLITE_DIR_NAME, SQLITE_FILE_NAME, database_path, open_store};
+pub use open::{
+    IntegrityWitness, OpenedStore, SQLITE_DIR_NAME, SQLITE_FILE_NAME, database_path, open_store,
+};
 pub use publication::{DocumentPublication, ProjectionClock};
 pub use purge::{
     PURGE_RECORD_DIRECTORY, PurgeRecordV1, decode_purge_record, encode_purge_record,
@@ -86,8 +88,7 @@ pub use rebuild::{
 };
 pub use reminder::{
     PlannedAlarm, REMINDER_ROLLING_WINDOW, ReminderCommand, ReminderCommandResult, ReminderPlan,
-    ReminderQuery, ReminderSessionInput, SnoozeStore, TimeZoneContext, ZoneTransition,
-    apply_reminder_command, naive_local_epoch_ms, query_reminder_plan,
+    ReminderQuery, ReminderSessionInput, SnoozeStore, apply_reminder_command, query_reminder_plan,
     resolve_floating_local_to_utc_ms, session_base_trigger_utc_ms,
 };
 pub use schema::{BUSY_TIMEOUT_MS, STORE_SCHEMA_VERSION, TOKENIZER_VERSION, tables};
@@ -192,7 +193,7 @@ impl Store {
     pub fn open(workspace_root: impl AsRef<Path>) -> Result<Self, LomoError> {
         let workspace_root = workspace_root.as_ref().to_path_buf();
         // Dual-layout fence at the store open boundary (generation fence + layout authority).
-        let paths = LomoPaths::for_workspace(&workspace_root);
+        let paths = WorkspaceLayout::for_workspace(&workspace_root);
         refuse_v1_writers_on_layout_v2(&paths)?;
         let opened = open_store(&workspace_root)?;
         // Lifecycle wiring for the transaction journal: successful replay guards are bounded at
@@ -255,6 +256,14 @@ impl Store {
         }
     }
 
+    /// Token binding this connection's open-time `quick_check` to the database file it verified.
+    /// Reader pools inherit it so one database generation pays exactly one integrity scan; `None`
+    /// means token capture failed and every reader must verify directly.
+    #[must_use]
+    pub const fn integrity_witness(&self) -> Option<IntegrityWitness> {
+        self.opened.integrity_witness
+    }
+
     /// Current high-water core revision counter.
     #[must_use]
     pub const fn high_water_revision(&self) -> u64 {
@@ -283,20 +292,80 @@ impl Store {
         read_meta_optional(&self.opened.connection, "workspace_listing_digest")
     }
 
-    /// Stores the workspace file listing digest used by the next mount short-circuit.
-    ///
-    /// # Errors
-    /// Propagates SQLite write failures.
-    pub fn set_workspace_listing_digest(&mut self, digest: &str) -> Result<(), LomoError> {
-        write_meta_string(&self.opened.connection, "workspace_listing_digest", digest)
-    }
-
     /// Verified listing rows committed with the last projection update.
     ///
     /// # Errors
     /// Propagates SQLite read failures.
     pub fn workspace_listing_snapshot(&self) -> Result<BTreeMap<String, String>, LomoError> {
         workspace_listing_snapshot(&self.opened.connection)
+    }
+
+    /// Accumulates reconcile telemetry counters in `store_meta`.
+    ///
+    /// `fell_back` bumps `reconcile_fallback_total` — a reconcile pass that had to
+    /// re-materialize the whole projection because cheaper evidence could not prove scope.
+    /// `skipped_sync_subtrees` adds to `reconcile_skipped_sync_v1_total` — `.lomo/sync`
+    /// subtrees the enumeration excluded from the admitted listing. Callers persist
+    /// counters only on reconciles that committed writes, so a digest-matched no-op
+    /// reconcile never pays a write for telemetry.
+    ///
+    /// # Errors
+    /// Propagates SQLite read/write failures; the two counters commit atomically.
+    pub fn record_reconcile_telemetry(
+        &mut self,
+        fell_back: bool,
+        skipped_sync_subtrees: u64,
+    ) -> Result<(), LomoError> {
+        let transaction = self
+            .opened
+            .connection
+            .unchecked_transaction()
+            .map_err(|error| from_sqlite(&error))?;
+        if fell_back {
+            increment_meta_u64(&transaction, "reconcile_fallback_total", 1)?;
+        }
+        if skipped_sync_subtrees > 0 {
+            increment_meta_u64(
+                &transaction,
+                "reconcile_skipped_sync_v1_total",
+                skipped_sync_subtrees,
+            )?;
+        }
+        transaction.commit().map_err(|error| from_sqlite(&error))
+    }
+
+    /// Reconcile telemetry counters `(fallback_total, skipped_sync_v1_total)`.
+    ///
+    /// # Errors
+    /// Propagates SQLite read failures.
+    pub fn reconcile_telemetry(&self) -> Result<(u64, u64), LomoError> {
+        Ok((
+            read_meta_u64_optional(&self.opened.connection, "reconcile_fallback_total")?,
+            read_meta_u64_optional(&self.opened.connection, "reconcile_skipped_sync_v1_total")?,
+        ))
+    }
+
+    /// Every `file_fingerprint` a committed `memo` row still projects — the fingerprints a
+    /// future edit may cite as its baseline. Trashed identities carry their fingerprint on
+    /// the same `memo` row (`memo_trash` is a lifecycle side table with no fingerprint
+    /// column), so one table covers both lanes.
+    ///
+    /// # Errors
+    /// Propagates SQLite read failures.
+    pub fn live_document_fingerprints(&self) -> Result<BTreeSet<String>, LomoError> {
+        let mut out = BTreeSet::new();
+        let mut statement = self
+            .opened
+            .connection
+            .prepare("SELECT file_fingerprint FROM memo")
+            .map_err(|error| from_sqlite(&error))?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|error| from_sqlite(&error))?;
+        for row in rows {
+            out.insert(row.map_err(|error| from_sqlite(&error))?);
+        }
+        Ok(out)
     }
 
     /// Applies path-scoped scanned facts to the live projection in one transaction.
@@ -948,6 +1017,31 @@ pub(crate) fn read_meta_u64(
     value
         .parse::<u64>()
         .map_err(|_parse| store_validation("invalid_meta_u64", "store_meta value is not u64"))
+}
+
+fn read_meta_u64_optional(connection: &rusqlite::Connection, key: &str) -> Result<u64, LomoError> {
+    read_meta_optional(connection, key)?.map_or(Ok(0), |value| {
+        value
+            .parse::<u64>()
+            .map_err(|_parse| store_validation("invalid_meta_u64", "store_meta value is not u64"))
+    })
+}
+
+/// `INSERT OR IGNORE` + `UPDATE` keeps the counter correct across resets: the row may be
+/// absent (fresh store) or carry any prior total.
+fn increment_meta_u64(
+    connection: &rusqlite::Connection,
+    key: &str,
+    delta: u64,
+) -> Result<(), LomoError> {
+    connection
+        .execute(
+            "INSERT INTO store_meta(key, value) VALUES(?1, ?2) \
+             ON CONFLICT(key) DO UPDATE SET value = CAST(store_meta.value AS INTEGER) + ?2",
+            params![key, delta.to_string()],
+        )
+        .map_err(|error| from_sqlite(&error))?;
+    Ok(())
 }
 
 fn write_meta_u64(

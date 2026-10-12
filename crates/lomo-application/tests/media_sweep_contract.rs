@@ -7,7 +7,22 @@
 //! name while a referenced sibling stays; audio references protect like images; two files sharing
 //! a basename in different directories are independent candidates; trash/history/draft/pending/
 //! stage-lease protections each keep their bytes; an expired trash entry is journaled then
-//! deleted and a fresh one survives; an empty workspace sweeps clean.
+//! deleted and a fresh one survives; an empty workspace sweeps clean. Conflict drafts are
+//! consumed by file token: an unchanged token reuses the retained projection without decoding,
+//! a changed token falls back to the full fail-closed decode. The read-side index itself is
+//! memoized on one unified stamp — committed revision plus pending-record, draft-evidence, and
+//! stage-ledger file tokens — so a second call at unchanged state pays zero rebuild and any
+//! deviation rebuilds fail-closed; the sweep's under-lock recheck always collects fresh.
+//! Test Change Justification:
+//! - Reason category: `attachment_index` is now stamp-memoized (P-39); the always-fresh
+//!   collector moved behind `attachment_index_guarding`, which the sweep already used.
+//! - Old behavior/assertion being replaced: draft-token reuse asserted through `attachment_index`.
+//! - Why old assertion is no longer correct: a second cached call returns without touching the
+//!   draft layer at all, so it cannot observe token hits.
+//! - Coverage preserved by: the same assertions run through `attachment_index_guarding(&[])`
+//!   (identical collect path, uncached), and `attachment_index_memoizes_on_its_unified_stamp`
+//!   proves the zero-rebuild hit contract plus every invalidation leg.
+//!
 //! Observable outcomes: sweep report protections/moves/purges/failures, durable trash and
 //! delete-intent files, surviving candidate bytes.
 //! TDD proof: the Kotlin collector saw only `imageUrls`, keyed digests by basename, and ran
@@ -29,6 +44,7 @@ mod tests {
             Arc,
             atomic::{AtomicBool, Ordering},
         },
+        time::{Duration, SystemTime},
     };
 
     use lomo_application::{
@@ -360,6 +376,241 @@ mod tests {
             "the retained draft body must protect its attachment"
         );
         assert!(ctx.workspace_path.join("media/img/d.png").is_file());
+    }
+
+    /// Collects a fresh attachment index through the always-uncached sweep path.
+    fn fresh_index(ctx: &Ctx) -> lomo_application::media_index::AttachmentIndex {
+        ctx.session.attachment_index_guarding(&[]).expect("index")
+    }
+
+    /// Draft evidence is consumed by file token: a second protection pass reuses the
+    /// retained projection without reading or decoding bytes, only a file whose size or
+    /// modification time moved is decoded again, and corrupt evidence still fails closed
+    /// on that decode path.
+    #[test]
+    fn draft_evidence_tokens_redecode_only_changed_files() {
+        let ctx = open_session();
+        let drafts = ctx.state_path.join("drafts");
+        fs::create_dir_all(&drafts).expect("drafts dir");
+        // Controlled ASCII bodies need no escaping inside the JSON literal.
+        let write_draft = |name: &str, operation: &str, body: &str| {
+            fs::write(
+                drafts.join(name),
+                format!(r#"{{"operation_id":"{operation}","draft_content":"{body}"}}"#),
+            )
+            .expect("seed draft evidence");
+        };
+        // Force one file's modification token forward so even a coarse mtime
+        // clock must observe the rewrite.
+        let bump_token = |name: &str, ahead: Duration| {
+            fs::File::options()
+                .write(true)
+                .open(drafts.join(name))
+                .expect("open draft")
+                .set_modified(SystemTime::now() + ahead)
+                .expect("bump token");
+        };
+        write_draft("op-a.json", "op-a", "keep ![[media/a.png]]");
+        write_draft("op-b.json", "op-b", "keep ![[media/b.png]]");
+
+        let index = fresh_index(&ctx);
+        assert!(index.protects_path("media/a.png"));
+        assert!(index.protects_path("media/b.png"));
+        let stats = ctx
+            .session
+            .draft_evidence_stats()
+            .expect("draft evidence stats");
+        assert_eq!(
+            (stats.decoded, stats.token_hits),
+            (2, 0),
+            "first pass decodes every unseen draft token once"
+        );
+
+        // Unchanged file tokens prove the retained projections are still valid: the
+        // second pass decodes zero bytes.
+        let index = fresh_index(&ctx);
+        assert!(index.protects_path("media/a.png"));
+        assert!(index.protects_path("media/b.png"));
+        let stats = ctx
+            .session
+            .draft_evidence_stats()
+            .expect("draft evidence stats");
+        assert_eq!(
+            (stats.decoded, stats.token_hits),
+            (2, 2),
+            "stable tokens reuse the retained projections; no draft is re-decoded"
+        );
+
+        // Rewrite only op-b with a different reference.
+        write_draft("op-b.json", "op-b", "keep ![[media/c.png]]");
+        bump_token("op-b.json", Duration::from_secs(30));
+
+        let index = fresh_index(&ctx);
+        assert!(
+            index.protects_path("media/a.png"),
+            "unchanged draft stays cached"
+        );
+        assert!(
+            index.protects_path("media/c.png"),
+            "rewritten draft re-decodes"
+        );
+        assert!(
+            !index.protects_path("media/b.png"),
+            "the stale projection must not survive its invalidated token"
+        );
+        let stats = ctx
+            .session
+            .draft_evidence_stats()
+            .expect("draft evidence stats");
+        assert_eq!(
+            (stats.decoded, stats.token_hits),
+            (3, 3),
+            "only the file whose token changed pays the full decode"
+        );
+
+        // Corrupt retained evidence still fails closed on the decode path — the token
+        // cache never converts evidence failure into a skipped or empty keep-set.
+        fs::write(drafts.join("op-a.json"), b"not json").expect("corrupt draft");
+        bump_token("op-a.json", Duration::from_secs(60));
+        let error = ctx
+            .session
+            .attachment_index_guarding(&[])
+            .expect_err("corrupt evidence must fail closed");
+        assert_eq!(error.code(), "draft_evidence_corrupt");
+
+        // The token path feeds the sweep itself: a rewritten draft still protects its
+        // attachment through the two-phase collector. Protection reporting enumerates
+        // sweep candidates, so the referenced objects must exist on disk.
+        write_draft("op-a.json", "op-a", "keep ![[media/a.png]]");
+        bump_token("op-a.json", Duration::from_secs(90));
+        seed_media(&ctx, "media/a.png", PNG);
+        seed_media(&ctx, "media/c.png", PNG);
+        let report = ctx
+            .session
+            .media_orphan_sweep(NOW_MS, WINDOW_MS)
+            .expect("sweep");
+        assert_eq!(
+            protection_source(&report, "media/c.png"),
+            Some(ReferenceSource::Draft),
+            "the re-decoded draft protects through the sweep"
+        );
+        assert_eq!(
+            protection_source(&report, "media/a.png"),
+            Some(ReferenceSource::Draft),
+            "the token-hit draft protects through the sweep"
+        );
+    }
+
+    /// `attachment_index`/`observe_attachments` are memoized on one unified stamp — committed
+    /// revision plus pending-record, draft-evidence, and stage-ledger file tokens — so a second
+    /// read at unchanged state is a counted hit with zero rebuild, while a revision move, a new
+    /// draft file, or a stage-ledger write each force exactly one rebuild.
+    #[test]
+    fn attachment_index_memoizes_on_its_unified_stamp() {
+        let ctx = open_session();
+        seed_media(&ctx, "media/img/k.png", PNG);
+        create_memo(
+            &ctx,
+            "memo-idx",
+            "2026_09_10.md",
+            "see ![[media/img/k.png]]",
+        );
+
+        let first = ctx.session.attachment_index().expect("first index");
+        assert!(first.protects_path("media/img/k.png"));
+        let stats = ctx.session.attachment_index_stats().expect("stats");
+        assert_eq!(
+            (stats.builds, stats.hits),
+            (1, 0),
+            "the first read pays one build"
+        );
+
+        // Same stamp → identical observations, zero rebuild — also through the
+        // `observe_attachments` view the TUI consumes.
+        let second = ctx.session.attachment_index().expect("second index");
+        assert_eq!(first.observations(), second.observations());
+        let observed = ctx.session.observe_attachments().expect("observed");
+        assert_eq!(observed.as_slice(), second.observations());
+        let stats = ctx.session.attachment_index_stats().expect("stats");
+        assert_eq!(
+            (stats.builds, stats.hits),
+            (1, 2),
+            "an unchanged stamp must serve the memoized index without rebuilding"
+        );
+
+        // A committed revision move invalidates.
+        create_memo(&ctx, "memo-idx2", "2026_09_11.md", "plain body");
+        let third = ctx.session.attachment_index().expect("third index");
+        assert!(third.protects_path("media/img/k.png"));
+        let stats = ctx.session.attachment_index_stats().expect("stats");
+        assert_eq!(
+            (stats.builds, stats.hits),
+            (2, 2),
+            "a committed revision change must rebuild"
+        );
+
+        // Draft evidence appearing with no revision move still invalidates: the
+        // file token is part of the stamp, so a retained draft protects immediately.
+        let drafts = ctx.state_path.join("drafts");
+        fs::create_dir_all(&drafts).expect("drafts dir");
+        fs::write(
+            drafts.join("op-x.json"),
+            r#"{"operation_id":"op-x","draft_content":"keep ![[media/img/d.png]]"}"#,
+        )
+        .expect("draft evidence");
+        let fourth = ctx.session.attachment_index().expect("fourth index");
+        assert!(
+            fourth.protects_path("media/img/d.png"),
+            "a draft arriving between reads must be observed"
+        );
+        assert_eq!(
+            ctx.session.attachment_index_stats().expect("stats").builds,
+            3,
+            "draft evidence is part of the invalidation stamp"
+        );
+
+        // A stage-ledger write invalidates the same way: the new lease's digest
+        // protection appears without any revision movement.
+        let source = ctx.stage_root.join("inbound.png");
+        write_bytes_for_tests(&source, PNG).expect("stage source");
+        let staged = stage_media(
+            &ctx.stage_root,
+            MediaSource::DirectPath { path: source },
+            "inbound.png",
+        )
+        .expect("stage");
+        let stage_dir = stage_directory(&ctx.stage_root);
+        let mut ledger = StageLedger::load(&stage_dir).expect("ledger");
+        ledger
+            .record(
+                Some(&ctx.workspace_path),
+                &staged,
+                StageLease::new(
+                    ArtifactId::of_digest(&staged.digest),
+                    StageOwnerKind::IncomingTransfer,
+                    "transfer-idx",
+                )
+                .expect("lease"),
+            )
+            .expect("record");
+        let fifth = ctx.session.attachment_index().expect("fifth index");
+        assert!(
+            fifth.protects_digest(staged.digest.as_str()),
+            "a stage lease appearing between reads must be observed"
+        );
+        assert_eq!(
+            ctx.session.attachment_index_stats().expect("stats").builds,
+            4,
+            "the stage-ledger token is part of the invalidation stamp"
+        );
+
+        // The settled stamp hits again.
+        ctx.session.attachment_index().expect("sixth index");
+        assert_eq!(
+            ctx.session.attachment_index_stats().expect("stats"),
+            lomo_application::media_index::AttachmentIndexStats { builds: 4, hits: 3 },
+            "once re-settled the index serves hits again"
+        );
     }
 
     /// Executor wrapper that fails one `WriteFromExchange` path once, freezing the operation as a

@@ -28,7 +28,7 @@ mod tests {
     use std::{fs, sync::Arc};
 
     use lomo_application::{
-        CreateMemoRequest, DeleteMemoRequest, PermanentDeleteManyRequest,
+        CreateMemoRequest, DeleteMemoRequest, EmptyTrashRequest, PermanentDeleteManyRequest,
         PermanentDeleteManyTarget, WorkspaceSession, WorkspaceSessionConfig,
     };
     use lomo_core::{CapabilityToken, OperationId, RelativeWorkspacePath};
@@ -234,5 +234,134 @@ mod tests {
         // Rejected before IO: the trash record of the refused batch survives.
         let rel = trash_record_relative_path(target2.memo_id.as_str()).expect("rel");
         assert!(ctx.workspace_path.join(rel.as_str()).is_file());
+    }
+
+    /// `empty_trash` is the host's single batch call: the engine enumerates the trash
+    /// lane into CAS targets and commits bounded child batches — no per-item
+    /// mutation runs on this path, so one call drops every trashed row durably.
+    #[test]
+    fn empty_trash_removes_every_trashed_memo_in_one_call() {
+        let ctx = open_session();
+        let first = trash_memo(&ctx, "et-a", "2026_09_24.md", "alpha body");
+        let second = trash_memo(&ctx, "et-b", "2026_09_25.md", "beta body");
+        let live = ctx
+            .session
+            .create_memo(CreateMemoRequest {
+                operation_id: OperationId::parse("et-live").expect("op"),
+                relative_path: Some(RelativeWorkspacePath::parse("2026_09_26.md").expect("path")),
+                time_token: Some("12:00:00".to_owned()),
+                content: "still alive".to_owned(),
+                expected_document_fingerprint: None,
+                pinned: false,
+                pending_promotes: Vec::new(),
+                chronology_epoch_ms: None,
+            })
+            .expect("live create");
+
+        let result = ctx
+            .session
+            .empty_trash(
+                &EmptyTrashRequest {
+                    operation_id: OperationId::parse("et-purge").expect("op"),
+                },
+                &mut || false,
+            )
+            .expect("empty trash");
+        assert!(!result.cancelled);
+        assert_eq!(result.removed, 2);
+        assert!(
+            result.commit_result.is_some(),
+            "a non-empty sweep carries its last child receipt"
+        );
+        for target in [&first, &second] {
+            let rel = trash_record_relative_path(target.memo_id.as_str()).expect("rel");
+            assert!(
+                !ctx.workspace_path.join(rel.as_str()).exists(),
+                "the durable trash record is deleted"
+            );
+            assert!(
+                ctx.session
+                    .get_memo(&target.memo_id)
+                    .expect("get")
+                    .is_none(),
+                "the projection row is gone"
+            );
+        }
+        assert!(
+            ctx.session.get_memo(&live.memo_id).expect("get").is_some(),
+            "a live memo is never part of the sweep"
+        );
+        let trash = ctx
+            .session
+            .list_memos(&lomo_store::MemoQuery {
+                search_text: None,
+                filters: lomo_store::MemoFilters {
+                    include_trash: true,
+                    trash_only: true,
+                    ..lomo_store::MemoFilters::default()
+                },
+                sort: lomo_store::MemoSort::default(),
+            })
+            .expect("trash page");
+        assert!(trash.items.is_empty(), "the trash lane is empty");
+    }
+
+    /// Cancellation is an explicit result, not a swallowed error: a token that
+    /// already fired reports `cancelled` with zero removals and deletes nothing,
+    /// and a later pass with a live token still completes the sweep.
+    #[test]
+    fn cancelled_empty_trash_reports_progress_explicitly() {
+        let ctx = open_session();
+        let target = trash_memo(&ctx, "cx", "2026_09_27.md", "survive cancel");
+
+        let cancelled = ctx
+            .session
+            .empty_trash(
+                &EmptyTrashRequest {
+                    operation_id: OperationId::parse("cx-purge").expect("op"),
+                },
+                &mut || true,
+            )
+            .expect("cancelled pass still reports its committed state");
+        assert!(cancelled.cancelled);
+        assert_eq!(cancelled.removed, 0);
+        assert!(cancelled.batches.is_empty());
+        let rel = trash_record_relative_path(target.memo_id.as_str()).expect("rel");
+        assert!(
+            ctx.workspace_path.join(rel.as_str()).is_file(),
+            "a pre-empted sweep deleted nothing"
+        );
+
+        let done = ctx
+            .session
+            .empty_trash(
+                &EmptyTrashRequest {
+                    operation_id: OperationId::parse("cx-purge-2").expect("op"),
+                },
+                &mut || false,
+            )
+            .expect("retry with a live token");
+        assert_eq!(done.removed, 1);
+        assert!(!ctx.workspace_path.join(rel.as_str()).exists());
+    }
+
+    /// An already-empty trash lane is a real domain state, not an error: zero
+    /// removals and no child receipts.
+    #[test]
+    fn empty_trash_on_empty_trash_is_a_no_op() {
+        let ctx = open_session();
+        let result = ctx
+            .session
+            .empty_trash(
+                &EmptyTrashRequest {
+                    operation_id: OperationId::parse("noop-purge").expect("op"),
+                },
+                &mut || false,
+            )
+            .expect("empty lane");
+        assert_eq!(result.removed, 0);
+        assert!(result.commit_result.is_none());
+        assert!(result.batches.is_empty());
+        assert!(!result.cancelled);
     }
 }

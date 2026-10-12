@@ -1,6 +1,7 @@
 //! `SQLite` open path: WAL / FK / busy / version / integrity / reject unknown schema.
 
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use rusqlite::{Connection, OpenFlags, params};
 
@@ -30,7 +31,7 @@ const MIGRATIONS: &[&str] = &[
 ];
 
 /// Relative directory for rebuildable `SQLite` files (must never live under `.lomo/`).
-pub const SQLITE_DIR_NAME: &str = ".lomo-sqlite";
+pub const SQLITE_DIR_NAME: &str = lomo_workspace::LOMO_SQLITE_ROOT_NAME;
 
 /// Primary database file name inside the `SQLite` directory.
 pub const SQLITE_FILE_NAME: &str = "store.db";
@@ -45,6 +46,46 @@ pub struct OpenedStore {
     pub user_version: u32,
     pub busy_timeout_ms: u32,
     pub integrity_ok: bool,
+    /// Token captured at the verified open; propagates to pooled readers so one database
+    /// generation pays exactly one `quick_check`.
+    pub integrity_witness: Option<IntegrityWitness>,
+}
+
+/// Token binding a successful open-time `PRAGMA quick_check` to the database file it verified.
+///
+/// The token is `(len, mtime)` of `store.db`: WAL commits do not touch the main file, so a
+/// matching token means the verified image is still live; a WAL checkpoint or the atomic rebuild
+/// swap rewrites the main file and changes the token. Comparison is structural — a token captured
+/// from a different path can never satisfy a witness, and `None` never does.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct IntegrityWitness {
+    len: u64,
+    modified: SystemTime,
+}
+
+impl IntegrityWitness {
+    /// Captures the token of `database` at this instant; `None` when the file or its metadata is
+    /// unreadable — callers must then verify directly instead of inheriting a verdict.
+    #[must_use]
+    pub fn capture(database: &Path) -> Option<Self> {
+        // A metadata failure means "no verdict to inherit" — the caller then
+        // verifies directly; `None` is the declared token for it.
+        let metadata = match std::fs::metadata(database) {
+            Ok(metadata) => metadata,
+            Err(_error) => return None,
+        };
+        if !metadata.is_file() {
+            return None;
+        }
+        let modified = match metadata.modified() {
+            Ok(modified) => modified,
+            Err(_error) => return None,
+        };
+        Some(Self {
+            len: metadata.len(),
+            modified,
+        })
+    }
 }
 
 /// Resolves the canonical `SQLite` path for a workspace root.
@@ -109,6 +150,7 @@ pub fn open_store(workspace_root: &Path) -> Result<OpenedStore, lomo_core::LomoE
     let journal_mode = read_journal_mode(&connection)?;
     let final_version = read_user_version(&connection)?;
 
+    let integrity_witness = IntegrityWitness::capture(&db_path);
     Ok(OpenedStore {
         connection,
         database_path: db_path,
@@ -117,6 +159,7 @@ pub fn open_store(workspace_root: &Path) -> Result<OpenedStore, lomo_core::LomoE
         user_version: final_version,
         busy_timeout_ms: BUSY_TIMEOUT_MS,
         integrity_ok: true,
+        integrity_witness,
     })
 }
 
@@ -264,7 +307,7 @@ fn read_journal_mode(connection: &Connection) -> Result<String, lomo_core::LomoE
     Ok(mode.to_ascii_lowercase())
 }
 
-fn quick_integrity(connection: &Connection) -> Result<bool, lomo_core::LomoError> {
+pub fn quick_integrity(connection: &Connection) -> Result<bool, lomo_core::LomoError> {
     let result: String = connection
         .query_row("PRAGMA quick_check", [], |row| row.get(0))
         .map_err(|err| from_sqlite(&err))?;
