@@ -225,6 +225,12 @@ impl FsPlatformActionExecutor {
                 exchange_token,
                 expected_source,
             ),
+            PlatformAction::Read {
+                capability,
+                path,
+                expected_source,
+                ..
+            } => self.execute_read(capability, path, expected_source),
             PlatformAction::WriteFromExchange {
                 capability,
                 artifact,
@@ -433,6 +439,38 @@ impl FsPlatformActionExecutor {
             artifact,
         };
         ActionOutcome::Applied(output)
+    }
+
+    /// Direct read: one streaming pass computes verified evidence while the bytes land in the
+    /// output — no exchange staging, no second read, no reclamation fsync.
+    fn execute_read(
+        &self,
+        capability: &CapabilityToken,
+        path: &RelativeWorkspacePath,
+        expected_source: &ExpectedFingerprint,
+    ) -> ActionOutcome {
+        let bound = match self.registry.resolve(capability) {
+            Ok(b) => b,
+            Err(e) => return ActionOutcome::Failed(e),
+        };
+
+        let (source_metadata, content) = match sys::read_document_stream(bound.root(), path) {
+            Ok(pair) => pair,
+            Err(err) => return ActionOutcome::Failed(err),
+        };
+
+        if matches!(expected_source, ExpectedFingerprint::Match(expected_evidence) if source_metadata.evidence() != expected_evidence)
+        {
+            return ActionOutcome::Failed(conflict(
+                "platform_postcondition_mismatch",
+                "Source fingerprint does not match the expected postcondition",
+            ));
+        }
+
+        ActionOutcome::Applied(PlatformActionOutput::Read {
+            source_metadata,
+            bytes: content,
+        })
     }
 
     fn execute_write_from_exchange(

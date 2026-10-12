@@ -52,7 +52,9 @@
 //! `Verified`.
 
 use std::{
+    collections::BTreeSet,
     fs,
+    path::Path,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -95,7 +97,7 @@ mod tests {
         _exchange_dir: tempfile::TempDir,
         workspace_path: std::path::PathBuf,
         session: WorkspaceSession,
-        _executor: Arc<FsPlatformActionExecutor>,
+        executor: Arc<FsPlatformActionExecutor>,
         config: WorkspaceSessionConfig,
     }
 
@@ -139,7 +141,7 @@ mod tests {
             _exchange_dir: exchange_dir,
             workspace_path,
             session,
-            _executor: executor,
+            executor,
             config,
         }
     }
@@ -705,8 +707,19 @@ mod tests {
     impl PlatformActionExecutor for MarkdownReadCounter {
         fn execute(&self, batch: &PlatformActionBatch) -> Result<PlatformBatchResult, LomoError> {
             for action in batch.actions() {
-                if let PlatformAction::ReadToExchange { path, .. } = action
-                    && std::path::Path::new(path.as_str())
+                let read_path = match action {
+                    PlatformAction::ReadToExchange { path, .. }
+                    | PlatformAction::Read { path, .. } => Some(path),
+                    PlatformAction::Stat { .. }
+                    | PlatformAction::ListChildren { .. }
+                    | PlatformAction::EnsureDirectory { .. }
+                    | PlatformAction::WriteFromExchange { .. }
+                    | PlatformAction::ArtifactWrite { .. }
+                    | PlatformAction::Move { .. }
+                    | PlatformAction::Delete { .. } => None,
+                };
+                if let Some(path) = read_path
+                    && Path::new(path.as_str())
                         .extension()
                         .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
                 {
@@ -863,8 +876,19 @@ mod tests {
     impl PlatformActionExecutor for MetadataOnlyListing {
         fn execute(&self, batch: &PlatformActionBatch) -> Result<PlatformBatchResult, LomoError> {
             for action in batch.actions() {
-                if let PlatformAction::ReadToExchange { path, .. } = action
-                    && std::path::Path::new(path.as_str())
+                let read_path = match action {
+                    PlatformAction::ReadToExchange { path, .. }
+                    | PlatformAction::Read { path, .. } => Some(path),
+                    PlatformAction::Stat { .. }
+                    | PlatformAction::ListChildren { .. }
+                    | PlatformAction::EnsureDirectory { .. }
+                    | PlatformAction::WriteFromExchange { .. }
+                    | PlatformAction::ArtifactWrite { .. }
+                    | PlatformAction::Move { .. }
+                    | PlatformAction::Delete { .. } => None,
+                };
+                if let Some(path) = read_path
+                    && Path::new(path.as_str())
                         .extension()
                         .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
                 {
@@ -1107,5 +1131,192 @@ mod tests {
             .expect("query after incomplete listing")
             .expect("prior memo remains");
         assert_eq!(viewed.body, "keep this memo");
+    }
+
+    /// CAS baselines exist only so a future conflict can cite committed bytes. A read
+    /// must never materialize one; a write retains exactly the committed bytes; a blob
+    /// no live document fingerprint and no retained draft evidence cites is stale and
+    /// is evicted at the next session open. Foreign filenames are never eviction's
+    /// business.
+    #[test]
+    fn reads_never_materialize_baselines_and_stale_baselines_evict_on_open() {
+        let ctx = setup_test_context();
+        let baselines_dir = ctx.config.state_dir.join("baselines");
+        let baseline_names = |dir: &Path| -> BTreeSet<String> {
+            let Ok(entries) = fs::read_dir(dir) else {
+                return BTreeSet::new();
+            };
+            entries
+                .filter_map(|entry| {
+                    entry
+                        .expect("baseline entry")
+                        .file_name()
+                        .to_str()
+                        .map(str::to_owned)
+                })
+                .collect()
+        };
+
+        // A committed write retains its committed bytes as a CAS baseline.
+        let created = ctx
+            .session
+            .create_memo(CreateMemoRequest {
+                operation_id: OperationId::parse("op-baseline-create").expect("valid op"),
+                relative_path: Some(RelativeWorkspacePath::parse("2026_09_09.md").expect("path")),
+                time_token: Some("12:00:00".to_string()),
+                content: "baseline create body".to_string(),
+                expected_document_fingerprint: None,
+                pinned: false,
+                pending_promotes: Vec::new(),
+                chronology_epoch_ms: None,
+            })
+            .expect("create");
+        let v1_fingerprint = created.commit_result.file_fingerprint.clone();
+        assert!(
+            baseline_names(&baselines_dir).contains(&v1_fingerprint),
+            "a committed write must baseline exactly the committed bytes"
+        );
+
+        // A file version the session only ever *reads* (an external edit re-scanned
+        // through `io.read`) must never appear as a baseline. The edit appends a
+        // block so the existing memo's identity binding stays resolvable.
+        let doc_path = ctx.workspace_path.join("2026_09_09.md");
+        let mut external = fs::read_to_string(&doc_path).expect("read committed doc");
+        external.push_str("- 12:30:00\nexternal tail memo\n");
+        fs::write(&doc_path, &external).expect("external write");
+        let external_fingerprint = lomo_workspace::SourceFingerprint::of_bytes(external.as_bytes())
+            .as_str()
+            .to_owned();
+        ctx.session
+            .rebuild_projection()
+            .expect("external edit reconciles");
+        assert!(
+            !baseline_names(&baselines_dir).contains(&external_fingerprint),
+            "io.read must not materialize a baseline for bytes it only read"
+        );
+
+        // A committed update against the external bytes baselines the new committed
+        // document; the superseded v1 baseline is stale evidence.
+        let updated = ctx
+            .session
+            .update_memo(UpdateMemoRequest {
+                operation_id: OperationId::parse("op-baseline-update").expect("valid op"),
+                memo_id: created.memo_id.clone(),
+                content: "baseline update body".to_string(),
+                expected_document_fingerprint: external_fingerprint.clone(),
+                pending_promotes: Vec::new(),
+            })
+            .expect("update against the observed baseline");
+        let v3_fingerprint = updated.commit_result.file_fingerprint.clone();
+        assert!(baseline_names(&baselines_dir).contains(&v3_fingerprint));
+
+        // A fingerprint-shaped blob nothing cites is stale; a foreign filename is not
+        // evidence the CAS wrote and must be left alone.
+        let stale_bytes = b"bytes no committed document or retained draft still cites";
+        let stale_name = lomo_workspace::SourceFingerprint::of_bytes(stale_bytes)
+            .as_str()
+            .to_owned();
+        fs::write(baselines_dir.join(&stale_name), stale_bytes).expect("seed stale blob");
+        fs::write(baselines_dir.join("not-a-fingerprint.bin"), b"foreign")
+            .expect("seed foreign blob");
+
+        drop(ctx.session);
+        let reopened = WorkspaceSession::open(ctx.config.clone(), ctx.executor.clone())
+            .expect("reopen runs baseline eviction");
+
+        let kept = baseline_names(&baselines_dir);
+        assert!(
+            !kept.contains(&stale_name),
+            "an unreferenced baseline must be evicted at open"
+        );
+        assert!(
+            !kept.contains(&v1_fingerprint),
+            "a superseded baseline must be evicted at open"
+        );
+        assert!(
+            kept.contains(&v3_fingerprint),
+            "the live committed baseline survives eviction"
+        );
+        assert!(
+            kept.contains("not-a-fingerprint.bin"),
+            "eviction never reaches for foreign files"
+        );
+        assert_eq!(
+            reopened
+                .get_memo(&created.memo_id)
+                .expect("get")
+                .map(|memo| memo.body),
+            Some("baseline update body".to_string())
+        );
+    }
+
+    /// CAS baselines exist only so a future conflict can cite committed *document*
+    /// bytes. The same transaction also commits `.lomo` records (the memo-identity
+    /// binding plus the history head/object) whose bytes no live `memo`
+    /// fingerprint and no retained draft evidence can ever cite — retaining them
+    /// is write-time garbage that open-time eviction must unlink+fsync one blob at
+    /// a time. The commit boundary therefore baselines only the document write.
+    #[test]
+    fn internal_record_writes_never_materialize_baselines() {
+        let ctx = setup_test_context();
+        let baselines_dir = ctx.config.state_dir.join("baselines");
+        let baseline_names = |dir: &Path| -> BTreeSet<String> {
+            let Ok(entries) = fs::read_dir(dir) else {
+                return BTreeSet::new();
+            };
+            entries
+                .filter_map(|entry| {
+                    entry
+                        .expect("baseline entry")
+                        .file_name()
+                        .to_str()
+                        .map(str::to_owned)
+                })
+                .collect()
+        };
+
+        // A create commits the document plus its `.lomo` cohort (identity record,
+        // history object, history head). Exactly one baseline may exist: the
+        // committed document bytes.
+        let created = ctx
+            .session
+            .create_memo(CreateMemoRequest {
+                operation_id: OperationId::parse("op-record-baseline-create").expect("valid op"),
+                relative_path: Some(RelativeWorkspacePath::parse("2026_09_09.md").expect("path")),
+                time_token: Some("12:00:00".to_string()),
+                content: "baseline create body".to_string(),
+                expected_document_fingerprint: None,
+                pinned: false,
+                pending_promotes: Vec::new(),
+                chronology_epoch_ms: None,
+            })
+            .expect("create");
+        let v1_fingerprint = created.commit_result.file_fingerprint.clone();
+        assert_eq!(
+            baseline_names(&baselines_dir),
+            BTreeSet::from([v1_fingerprint.clone()]),
+            "only committed document bytes may occupy the baseline CAS; every \
+             `.lomo` record write in the same transaction is unreferenceable \
+             churn"
+        );
+
+        // An update repeats the cohort under a new revision — still exactly the
+        // document baselines (the superseded one is retained until open-time
+        // eviction, which is the previous test's concern).
+        let updated = ctx
+            .session
+            .update_memo(UpdateMemoRequest {
+                operation_id: OperationId::parse("op-record-baseline-update").expect("valid op"),
+                memo_id: created.memo_id.clone(),
+                content: "baseline update body".to_string(),
+                expected_document_fingerprint: v1_fingerprint.clone(),
+                pending_promotes: Vec::new(),
+            })
+            .expect("update");
+        assert_eq!(
+            baseline_names(&baselines_dir),
+            BTreeSet::from([v1_fingerprint, updated.commit_result.file_fingerprint]),
+            "the `.lomo` record cohort of an update is likewise never baselined"
+        );
     }
 }

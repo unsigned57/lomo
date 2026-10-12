@@ -34,6 +34,7 @@ internal class AndroidPlatformActionAccess(
                 is PlatformAction.ListChildren -> executeList(action)
                 is PlatformAction.EnsureDirectory -> executeEnsureDirectory(action)
                 is PlatformAction.ReadToExchange -> executeReadToExchange(action)
+                is PlatformAction.Read -> executeRead(action)
                 is PlatformAction.WriteFromExchange -> executeWriteFromExchange(action)
                 is PlatformAction.ArtifactWrite -> executeArtifactWrite(action)
                 is PlatformAction.Move -> executeMove(action)
@@ -62,8 +63,10 @@ internal class AndroidPlatformActionAccess(
 
     private fun executeStat(action: PlatformAction.Stat): ActionOutcome {
         val tree = boundTree(action.capabilityToken)
+        // A protocol Stat is the caller's verified-evidence observation (media sweep and
+        // transaction replay compare verified digests against it), so it must hash content.
         val snapshot =
-            tree.stat(action.target)
+            tree.stat(action.target, SnapshotDigestMode.CONTENT)
                 ?: throw notFound("Target document is absent")
         return ActionOutcome.Applied(PlatformActionOutput.Stat(metadata = snapshot.toMetadata()))
     }
@@ -115,7 +118,9 @@ internal class AndroidPlatformActionAccess(
     private fun executeEnsureDirectory(action: PlatformAction.EnsureDirectory): ActionOutcome {
         val tree = boundTree(action.capabilityToken)
         validateWorkspacePath(action.path)
-        val existing = tree.stat(WorkspaceTarget.Relative(action.path))
+        // The probe only answers "is there a directory at this path" — content bytes are
+        // irrelevant to a directory, so the observation stays metadata-only.
+        val existing = tree.stat(WorkspaceTarget.Relative(action.path), SnapshotDigestMode.METADATA_ONLY)
         if (existing != null && existing.kind == DocumentKind.DIRECTORY) {
             return ActionOutcome.AlreadySatisfied(
                 PlatformActionOutput.DirectoryReady(metadata = existing.toMetadata()),
@@ -166,6 +171,39 @@ internal class AndroidPlatformActionAccess(
         )
     }
 
+    /**
+     * Direct read for session document I/O: verified bytes return inside the output instead of
+     * staging an exchange artifact, so a logical read is a single provider pass.
+     */
+    private fun executeRead(action: PlatformAction.Read): ActionOutcome {
+        val tree = boundTree(action.capabilityToken)
+        validateWorkspacePath(action.path)
+        val handle = tree.openRead(action.path)
+        if (handle.snapshot.kind != DocumentKind.FILE) {
+            throw PlatformActionAccessException(
+                category = "validation",
+                code = "document_not_file",
+                diagnostic = "Read requires a file target",
+            )
+        }
+        when (val expected = action.expectedSource) {
+            is ExpectedFingerprint.Absent -> Unit
+            is ExpectedFingerprint.Match -> {
+                if (handle.snapshot.toEvidence() != expected.evidence) {
+                    throw postconditionMismatch(
+                        "Source fingerprint does not match the expected postcondition",
+                    )
+                }
+            }
+        }
+        return ActionOutcome.Applied(
+            PlatformActionOutput.Read(
+                sourceMetadata = handle.snapshot.toMetadata(),
+                bytes = handle.bytes,
+            ),
+        )
+    }
+
     private fun executeWriteFromExchange(action: PlatformAction.WriteFromExchange): ActionOutcome {
         val tree = boundTree(action.capabilityToken)
         validateWorkspacePath(action.path)
@@ -185,7 +223,7 @@ internal class AndroidPlatformActionAccess(
                 diagnostic = "Exchange artifact length/digest does not match the action",
             )
         }
-        val existing = tree.stat(WorkspaceTarget.Relative(action.path))
+        val existing = tree.stat(WorkspaceTarget.Relative(action.path), SnapshotDigestMode.CONTENT)
         PlatformActionPostconditions.alreadySatisfiedWrite(action, existing)?.let { return it }
         PlatformActionPostconditions.assertWritePostcondition(action, existing)
         val written =
@@ -214,7 +252,7 @@ internal class AndroidPlatformActionAccess(
                 diagnostic = "staged artifact source is missing or disagrees with the frozen length",
             )
         }
-        val existing = tree.stat(WorkspaceTarget.Relative(action.path))
+        val existing = tree.stat(WorkspaceTarget.Relative(action.path), SnapshotDigestMode.CONTENT)
         PlatformActionPostconditions.classifyArtifactWrite(action, existing)?.let { return it }
         val written =
             tree.writeFromFile(
@@ -239,8 +277,10 @@ internal class AndroidPlatformActionAccess(
         val tree = boundTree(action.capabilityToken)
         validateWorkspacePath(action.source)
         validateWorkspacePath(action.target)
-        val source = tree.stat(WorkspaceTarget.Relative(action.source))
-        val target = tree.stat(WorkspaceTarget.Relative(action.target))
+        // Expected-fingerprint arbitration compares full evidence including the digest, so
+        // both sides are content-verified observations.
+        val source = tree.stat(WorkspaceTarget.Relative(action.source), SnapshotDigestMode.CONTENT)
+        val target = tree.stat(WorkspaceTarget.Relative(action.target), SnapshotDigestMode.CONTENT)
         PlatformActionPostconditions.alreadySatisfiedMove(action, source, target)?.let { return it }
         PlatformActionPostconditions.assertMovePrecondition(action, source, target)
         val moved = tree.move(action.source, action.target)
@@ -250,7 +290,7 @@ internal class AndroidPlatformActionAccess(
     private fun executeDelete(action: PlatformAction.Delete): ActionOutcome {
         val tree = boundTree(action.capabilityToken)
         validateWorkspacePath(action.path)
-        val existing = tree.stat(WorkspaceTarget.Relative(action.path))
+        val existing = tree.stat(WorkspaceTarget.Relative(action.path), SnapshotDigestMode.CONTENT)
         if (existing == null) {
             // Durable postcondition for delete is absence.
             val fingerprint =
@@ -301,7 +341,10 @@ internal class AndroidPlatformActionAccess(
 }
 
 private interface BoundDocumentTree {
-    fun stat(target: WorkspaceTarget): PlatformDocumentSnapshot?
+    fun stat(
+        target: WorkspaceTarget,
+        digest: SnapshotDigestMode,
+    ): PlatformDocumentSnapshot?
 
     fun listChildren(
         target: WorkspaceTarget,
@@ -344,7 +387,10 @@ private class SafBoundDocumentTree(
     private val documents: PlatformDocumentsGateway,
     private val treeUri: String,
 ) : BoundDocumentTree {
-    override fun stat(target: WorkspaceTarget): PlatformDocumentSnapshot? = documents.stat(treeUri, target)
+    override fun stat(
+        target: WorkspaceTarget,
+        digest: SnapshotDigestMode,
+    ): PlatformDocumentSnapshot? = documents.stat(treeUri, target, digest)
 
     override fun listChildren(
         target: WorkspaceTarget,
@@ -387,7 +433,10 @@ private class DirectBoundDocumentTree(
     private val documents: DirectRootDocumentsGateway,
     private val grant: DirectCapabilityGrant,
 ) : BoundDocumentTree {
-    override fun stat(target: WorkspaceTarget): PlatformDocumentSnapshot? = documents.stat(grant, target)
+    override fun stat(
+        target: WorkspaceTarget,
+        digest: SnapshotDigestMode,
+    ): PlatformDocumentSnapshot? = documents.stat(grant, target, digest)
 
     override fun listChildren(
         target: WorkspaceTarget,

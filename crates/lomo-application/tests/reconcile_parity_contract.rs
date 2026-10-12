@@ -89,7 +89,10 @@ mod tests {
                 batch: &PlatformActionBatch,
             ) -> Result<PlatformBatchResult, lomo_core::LomoError> {
                 for action in batch.actions() {
-                    if matches!(action, PlatformAction::ReadToExchange { .. }) {
+                    if matches!(
+                        action,
+                        PlatformAction::ReadToExchange { .. } | PlatformAction::Read { .. }
+                    ) {
                         self.reads.fetch_add(1, Ordering::SeqCst);
                     }
                 }
@@ -1388,12 +1391,22 @@ mod tests {
                 batch: &PlatformActionBatch,
             ) -> Result<PlatformBatchResult, lomo_core::LomoError> {
                 for action in batch.actions() {
-                    if let PlatformAction::ReadToExchange { path, .. } = action {
-                        self.reads.fetch_add(1, Ordering::SeqCst);
-                        self.read_paths
-                            .lock()
-                            .expect("read paths")
-                            .push(path.as_str().to_owned());
+                    match action {
+                        PlatformAction::ReadToExchange { path, .. }
+                        | PlatformAction::Read { path, .. } => {
+                            self.reads.fetch_add(1, Ordering::SeqCst);
+                            self.read_paths
+                                .lock()
+                                .expect("read paths")
+                                .push(path.as_str().to_owned());
+                        }
+                        PlatformAction::Stat { .. }
+                        | PlatformAction::ListChildren { .. }
+                        | PlatformAction::EnsureDirectory { .. }
+                        | PlatformAction::WriteFromExchange { .. }
+                        | PlatformAction::ArtifactWrite { .. }
+                        | PlatformAction::Move { .. }
+                        | PlatformAction::Delete { .. } => {}
                     }
                 }
                 self.inner.execute(batch)

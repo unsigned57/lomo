@@ -470,6 +470,16 @@ pub enum PlatformAction {
         exchange_token: ExchangeToken,
         expected_source: ExpectedFingerprint,
     },
+    /// Returns verified source bytes directly in the output: the executor hashes once while
+    /// streaming and the evidence inside `source_metadata` attests the returned `bytes`, so no
+    /// exchange round-trip or read-back pass is needed. Job plans that must persist a staged
+    /// artifact still use `ReadToExchange`; session reads use this direct form.
+    Read {
+        action_id: ActionId,
+        capability: CapabilityToken,
+        path: RelativeWorkspacePath,
+        expected_source: ExpectedFingerprint,
+    },
     WriteFromExchange {
         action_id: ActionId,
         capability: CapabilityToken,
@@ -595,6 +605,22 @@ impl PlatformAction {
         })
     }
 
+    /// Creates a direct read action: verified bytes return inside the output.
+    #[must_use]
+    pub const fn read(
+        action_id: ActionId,
+        capability: CapabilityToken,
+        path: RelativeWorkspacePath,
+        expected_source: ExpectedFingerprint,
+    ) -> Self {
+        Self::Read {
+            action_id,
+            capability,
+            path,
+            expected_source,
+        }
+    }
+
     /// Creates a read bound to identity returned by a prior list/stat action.
     ///
     /// # Errors
@@ -695,6 +721,7 @@ impl PlatformAction {
             | Self::ListChildren { action_id, .. }
             | Self::EnsureDirectory { action_id, .. }
             | Self::ReadToExchange { action_id, .. }
+            | Self::Read { action_id, .. }
             | Self::WriteFromExchange { action_id, .. }
             | Self::ArtifactWrite { action_id, .. }
             | Self::Move { action_id, .. }
@@ -851,6 +878,10 @@ pub enum PlatformActionOutput {
     ReadToExchange {
         source_metadata: DocumentMetadata,
         artifact: ExchangeArtifact,
+    },
+    Read {
+        source_metadata: DocumentMetadata,
+        bytes: Vec<u8>,
     },
     WriteComplete {
         metadata: DocumentMetadata,
@@ -1115,6 +1146,7 @@ const fn action_shape(action: &PlatformAction) -> &'static str {
         PlatformAction::ListChildren { .. } => "ListChildren",
         PlatformAction::EnsureDirectory { .. } => "EnsureDirectory",
         PlatformAction::ReadToExchange { .. } => "ReadToExchange",
+        PlatformAction::Read { .. } => "Read",
         PlatformAction::WriteFromExchange { .. } => "WriteFromExchange",
         PlatformAction::ArtifactWrite { .. } => "ArtifactWrite",
         PlatformAction::Move { .. } => "Move",
@@ -1128,6 +1160,7 @@ const fn output_shape(output: &PlatformActionOutput) -> &'static str {
         PlatformActionOutput::Listed { .. } => "Listed",
         PlatformActionOutput::DirectoryReady { .. } => "DirectoryReady",
         PlatformActionOutput::ReadToExchange { .. } => "ReadToExchange",
+        PlatformActionOutput::Read { .. } => "Read",
         PlatformActionOutput::WriteComplete { .. } => "WriteComplete",
         PlatformActionOutput::MoveComplete { .. } => "MoveComplete",
         PlatformActionOutput::DeleteComplete { .. } => "DeleteComplete",
@@ -1219,6 +1252,35 @@ impl PlatformActionOutput {
                     expected: brief(exchange_token.as_str()),
                     observed: brief(artifact.token().as_str()),
                 })
+            }
+            (
+                Self::Read {
+                    source_metadata,
+                    bytes,
+                },
+                PlatformAction::Read {
+                    path,
+                    expected_source,
+                    ..
+                },
+            ) => {
+                expect_relative(source_metadata.target(), path)?;
+                let observed_length = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+                if observed_length != source_metadata.evidence().length() {
+                    return Err(OutputMismatch::Length {
+                        expected: source_metadata.evidence().length(),
+                        observed: observed_length,
+                    });
+                }
+                if let ExpectedFingerprint::Match(expected) = expected_source
+                    && source_metadata.evidence() != expected
+                {
+                    return Err(OutputMismatch::Digest {
+                        expected: brief(expected.fingerprint()),
+                        observed: brief(source_metadata.evidence().fingerprint()),
+                    });
+                }
+                Ok(())
             }
             (
                 Self::WriteComplete { metadata },

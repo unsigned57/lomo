@@ -1950,7 +1950,7 @@ mod tests {
         /// shape a peer's state sync delivers — without any document or record that
         /// could project a `memo` row for it.
         fn write_pinned_state_tip(workspace: &Path, memo_id: &str, pinned_at_ms: i64) {
-            let paths = lomo_workspace::LomoPaths::for_workspace_with_layout(
+            let paths = lomo_workspace::WorkspaceLayout::for_workspace_with_layout(
                 Path::new(""),
                 lomo_workspace::LomoLayoutVersion::V2,
             );

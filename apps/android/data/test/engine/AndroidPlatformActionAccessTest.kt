@@ -595,6 +595,7 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
     override fun stat(
         treeUri: String,
         target: WorkspaceTarget,
+        digest: SnapshotDigestMode,
     ): PlatformDocumentSnapshot? {
         statCount += 1
         return when (target) {
@@ -608,7 +609,7 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
                     documentId = "root",
                     digest = null,
                 )
-            is WorkspaceTarget.Relative -> files[target.path]?.toSnapshot(target)
+            is WorkspaceTarget.Relative -> files[target.path]?.toSnapshot(target, digest)
         }
     }
 
@@ -631,8 +632,9 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
                     } else {
                         path.startsWith(prefix) && !path.removePrefix(prefix).contains('/')
                     }
-                }.map { (path, node) -> node.toSnapshot(WorkspaceTarget.Relative(path)) }
-                .take(pageSize.toInt())
+                }.map { (path, node) ->
+                    node.toSnapshot(WorkspaceTarget.Relative(path), SnapshotDigestMode.METADATA_ONLY)
+                }.take(pageSize.toInt())
         return PlatformMetadataPage(items = items, nextCursor = null)
     }
 
@@ -722,7 +724,10 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
         sideEffectCount += 1
         val node = files.remove(source) ?: error("missing source")
         files[target] = node.copy(documentId = "doc-$target", lastModified = node.lastModified + 1)
-        return files.getValue(target).toSnapshot(WorkspaceTarget.Relative(target))
+        return files.getValue(target).toSnapshot(
+            WorkspaceTarget.Relative(target),
+            SnapshotDigestMode.METADATA_ONLY,
+        )
     }
 
     override fun delete(
@@ -733,7 +738,10 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
         files.remove(path)
     }
 
-    private fun Node.toSnapshot(target: WorkspaceTarget): PlatformDocumentSnapshot =
+    private fun Node.toSnapshot(
+        target: WorkspaceTarget,
+        digest: SnapshotDigestMode = SnapshotDigestMode.CONTENT,
+    ): PlatformDocumentSnapshot =
         PlatformDocumentSnapshot(
             target = target,
             kind = kind,
@@ -741,6 +749,11 @@ internal class FakePlatformDocumentsGateway : PlatformDocumentsGateway {
             length = bytes.size.toULong(),
             lastModifiedEpochMillis = lastModified,
             documentId = documentId,
-            digest = sha256Hex(bytes),
+            digest =
+                if (digest == SnapshotDigestMode.CONTENT && kind == DocumentKind.FILE) {
+                    sha256Hex(bytes)
+                } else {
+                    null
+                },
         )
 }

@@ -441,7 +441,7 @@ mod tests {
 
         /// Absolute path of a memo's canonical v2 state head inside `workspace`.
         fn state_head_file(workspace: &Path, memo_id: &str) -> PathBuf {
-            let paths = lomo_workspace::LomoPaths::for_workspace_with_layout(
+            let paths = lomo_workspace::WorkspaceLayout::for_workspace_with_layout(
                 Path::new(""),
                 lomo_workspace::LomoLayoutVersion::V2,
             );
@@ -450,7 +450,7 @@ mod tests {
 
         /// Absolute path of a memo's canonical v2 history head inside `workspace`.
         fn history_head_file(workspace: &Path, memo_id: &str) -> PathBuf {
-            let paths = lomo_workspace::LomoPaths::for_workspace_with_layout(
+            let paths = lomo_workspace::WorkspaceLayout::for_workspace_with_layout(
                 Path::new(""),
                 lomo_workspace::LomoLayoutVersion::V2,
             );
@@ -1272,7 +1272,7 @@ mod tests {
 
         /// Absolute path of a memo's canonical v2 state head inside `workspace`.
         fn state_head_file(workspace: &Path, memo_id: &str) -> PathBuf {
-            let paths = lomo_workspace::LomoPaths::for_workspace_with_layout(
+            let paths = lomo_workspace::WorkspaceLayout::for_workspace_with_layout(
                 Path::new(""),
                 lomo_workspace::LomoLayoutVersion::V2,
             );
@@ -1281,7 +1281,7 @@ mod tests {
 
         /// Absolute path of a memo's canonical v2 history head inside `workspace`.
         fn history_head_file(workspace: &Path, memo_id: &str) -> PathBuf {
-            let paths = lomo_workspace::LomoPaths::for_workspace_with_layout(
+            let paths = lomo_workspace::WorkspaceLayout::for_workspace_with_layout(
                 Path::new(""),
                 lomo_workspace::LomoLayoutVersion::V2,
             );
@@ -2103,7 +2103,7 @@ mod tests {
 
         /// Absolute path of a memo's canonical v2 history head inside `workspace`.
         fn history_head_file(workspace: &Path, memo_id: &str) -> PathBuf {
-            let paths = lomo_workspace::LomoPaths::for_workspace_with_layout(
+            let paths = lomo_workspace::WorkspaceLayout::for_workspace_with_layout(
                 Path::new(""),
                 lomo_workspace::LomoLayoutVersion::V2,
             );
@@ -3144,7 +3144,7 @@ mod tests {
 
         /// Absolute path of a memo's canonical v2 state head inside `workspace`.
         fn state_head_file(workspace: &Path, memo_id: &str) -> PathBuf {
-            let paths = lomo_workspace::LomoPaths::for_workspace_with_layout(
+            let paths = lomo_workspace::WorkspaceLayout::for_workspace_with_layout(
                 Path::new(""),
                 lomo_workspace::LomoLayoutVersion::V2,
             );
@@ -3166,7 +3166,7 @@ mod tests {
 
         /// Absolute path of a memo's canonical v2 history head inside `workspace`.
         fn history_head_file(workspace: &Path, memo_id: &str) -> PathBuf {
-            let paths = lomo_workspace::LomoPaths::for_workspace_with_layout(
+            let paths = lomo_workspace::WorkspaceLayout::for_workspace_with_layout(
                 Path::new(""),
                 lomo_workspace::LomoLayoutVersion::V2,
             );
@@ -4024,7 +4024,7 @@ mod tests {
 
         /// Absolute path of a memo's canonical v2 state head inside `workspace`.
         fn state_head_file(workspace: &Path, memo_id: &str) -> PathBuf {
-            let paths = lomo_workspace::LomoPaths::for_workspace_with_layout(
+            let paths = lomo_workspace::WorkspaceLayout::for_workspace_with_layout(
                 Path::new(""),
                 lomo_workspace::LomoLayoutVersion::V2,
             );

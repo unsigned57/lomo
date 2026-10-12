@@ -64,7 +64,10 @@ mod tests {
             batch: &PlatformActionBatch,
         ) -> Result<PlatformBatchResult, lomo_core::LomoError> {
             for action in batch.actions() {
-                if matches!(action, PlatformAction::ReadToExchange { .. }) {
+                if matches!(
+                    action,
+                    PlatformAction::ReadToExchange { .. } | PlatformAction::Read { .. }
+                ) {
                     self.reads.fetch_add(1, Ordering::SeqCst);
                 }
             }
@@ -76,6 +79,9 @@ mod tests {
         session: WorkspaceSession,
         workspace: PathBuf,
         counting: Arc<CountingExecutor>,
+        /// The session's projection root — `store_meta` telemetry counters are
+        /// readable here through a second `Store::open_projection` handle.
+        cache_dir: PathBuf,
         _dirs: Vec<tempfile::TempDir>,
     }
 
@@ -102,6 +108,7 @@ mod tests {
             reads: AtomicUsize::new(0),
         });
         let executor: Arc<dyn PlatformActionExecutor> = Arc::<CountingExecutor>::clone(&counting);
+        let cache_dir = fixture_dir(&dirs, 2).to_path_buf();
         let session = WorkspaceSession::open(
             WorkspaceSessionConfig {
                 capability,
@@ -110,7 +117,7 @@ mod tests {
                 time_zone: "UTC".to_owned(),
                 date_format: lomo_application::calendar::DateFormat::default(),
                 state_dir: fixture_dir(&dirs, 1).to_path_buf(),
-                cache_dir: fixture_dir(&dirs, 2).to_path_buf(),
+                cache_dir: cache_dir.clone(),
                 runtime_dir: fixture_dir(&dirs, 3).to_path_buf(),
                 exchange_dir: fixture_dir(&dirs, 4).to_path_buf(),
                 media_stage_root: fixture_dir(&dirs, 5).to_path_buf(),
@@ -122,6 +129,7 @@ mod tests {
             session,
             workspace: workspace_path,
             counting,
+            cache_dir,
             _dirs: dirs,
         }
     }
@@ -143,6 +151,7 @@ mod tests {
             reads: AtomicUsize::new(0),
         });
         let executor: Arc<dyn PlatformActionExecutor> = Arc::<CountingExecutor>::clone(&counting);
+        let cache_dir = fixture_dir(&dirs, 2).to_path_buf();
         let session = WorkspaceSession::open(
             WorkspaceSessionConfig {
                 capability,
@@ -151,7 +160,7 @@ mod tests {
                 time_zone: "UTC".to_owned(),
                 date_format: lomo_application::calendar::DateFormat::default(),
                 state_dir: fixture_dir(&dirs, 1).to_path_buf(),
-                cache_dir: fixture_dir(&dirs, 2).to_path_buf(),
+                cache_dir: cache_dir.clone(),
                 runtime_dir: fixture_dir(&dirs, 3).to_path_buf(),
                 exchange_dir: fixture_dir(&dirs, 4).to_path_buf(),
                 media_stage_root: fixture_dir(&dirs, 5).to_path_buf(),
@@ -162,6 +171,7 @@ mod tests {
             session,
             workspace: workspace_path,
             counting,
+            cache_dir,
             _dirs: dirs,
         })
     }
@@ -514,5 +524,102 @@ mod tests {
                 dump(&oracle.session)
             ),
         }
+    }
+
+    #[test]
+    fn sync_control_tree_writes_never_reach_the_listing_diff() {
+        let scratch = tempdir().expect("workspace");
+        seed_docs(scratch.path(), 4, 4);
+        let ctx = open_session(scratch.path());
+        ctx.session.rebuild_projection().expect("seed rebuild");
+
+        // `.lomo/sync` is transport control state — peer heads, cursors, inflight
+        // records. None of it is a memo document or a supported durable record, so a
+        // sync write must leave the committed listing digest and the reconcile cost
+        // untouched: the diff baseline never sees these paths at all.
+        let sync_dir = ctx.workspace.join(".lomo/sync/v1");
+        fs::create_dir_all(&sync_dir).expect("sync dir");
+        fs::write(sync_dir.join("peer-a-head.rec"), b"peer-head").expect("sync record");
+        fs::write(sync_dir.join("cursor.bin"), b"cursor").expect("sync blob");
+        fs::write(ctx.workspace.join(".lomo/sync/tmp-partial"), b"partial").expect("sync tmp");
+
+        ctx.counting.reset();
+        ctx.session.rebuild_projection().expect("reconcile");
+        assert!(
+            ctx.counting.reads() <= 2,
+            "sync churn must not re-read the workspace: {} reads",
+            ctx.counting.reads()
+        );
+        assert_equivalent_to_fresh_scan(&ctx.session, &ctx.workspace);
+    }
+
+    #[test]
+    fn observed_sync_paths_are_inert_for_scoped_reconcile() {
+        let scratch = tempdir().expect("workspace");
+        seed_docs(scratch.path(), 4, 4);
+        let ctx = open_session(scratch.path());
+        ctx.session.rebuild_projection().expect("seed rebuild");
+
+        let sync_dir = ctx.workspace.join(".lomo/sync/v1");
+        fs::create_dir_all(&sync_dir).expect("sync dir");
+        fs::write(sync_dir.join("peer-b-head.rec"), b"peer-head").expect("sync record");
+
+        ctx.counting.reset();
+        ctx.session
+            .reconcile_observed_paths(&[RelativeWorkspacePath::parse(
+                ".lomo/sync/v1/peer-b-head.rec",
+            )
+            .expect("path")])
+            .expect("scoped reconcile");
+        assert!(
+            ctx.counting.reads() <= 2,
+            "a watcher-reported sync path must not scope or re-read the workspace: {} reads",
+            ctx.counting.reads()
+        );
+        assert_equivalent_to_fresh_scan(&ctx.session, &ctx.workspace);
+    }
+
+    /// The reconcile fallback/skip instrumentation is observable state: a pass that
+    /// re-materialized the projection bumps `reconcile_fallback_total`, every committed
+    /// pass adds the `.lomo/sync` subtrees its enumeration excluded to
+    /// `reconcile_skipped_sync_v1_total`, and a digest-matched no-op commits nothing.
+    #[test]
+    fn reconcile_telemetry_counts_fallbacks_and_skipped_sync_subtrees() {
+        let scratch = tempdir().expect("workspace");
+        seed_docs(scratch.path(), 3, 2);
+        let sync_dir = scratch.path().join(".lomo/sync/v1");
+        fs::create_dir_all(&sync_dir).expect("sync dir");
+        fs::write(sync_dir.join("peer-head.rec"), b"peer-head").expect("sync record");
+
+        // First mount has no committed listing baseline, so it must materialize —
+        // that is exactly the fallback the counter exists to measure.
+        let ctx = open_session(scratch.path());
+        let counters = |ctx: &Ctx| {
+            lomo_store::Store::open_projection(&ctx.cache_dir)
+                .and_then(|store| store.reconcile_telemetry())
+                .expect("telemetry read")
+        };
+        let (fallbacks, skipped) = counters(&ctx);
+        assert_eq!(fallbacks, 1, "first mount materializes once");
+        assert_eq!(skipped, 1, "the .lomo/sync subtree was skipped once");
+
+        // A digest-matched reconcile stays write-free: telemetry never moves.
+        ctx.session.rebuild_projection().expect("no-op reconcile");
+        assert_eq!(counters(&ctx), (fallbacks, skipped));
+
+        // A real document change commits a scoped pass that excluded the same sync
+        // subtree again: the skip counter accumulates without a new fallback.
+        append_memo(
+            &ctx.workspace.join("2026_09_10.md"),
+            "10:04:00",
+            "memo added #tag0",
+        );
+        ctx.session.rebuild_projection().expect("reconcile");
+        assert_eq!(
+            counters(&ctx),
+            (fallbacks, skipped + 1),
+            "committed reconcile counts the skipped subtree, no new fallback"
+        );
+        assert_equivalent_to_fresh_scan(&ctx.session, &ctx.workspace);
     }
 }

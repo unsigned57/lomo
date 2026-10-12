@@ -184,6 +184,7 @@ mod tests {
             | PlatformAction::ListChildren { action_id, .. }
             | PlatformAction::EnsureDirectory { action_id, .. }
             | PlatformAction::ReadToExchange { action_id, .. }
+            | PlatformAction::Read { action_id, .. }
             | PlatformAction::WriteFromExchange { action_id, .. }
             | PlatformAction::ArtifactWrite { action_id, .. }
             | PlatformAction::Move { action_id, .. }
@@ -237,6 +238,7 @@ mod tests {
                     digest: "d".repeat(64),
                 },
             },
+            PlatformAction::Read { path, .. } => read_output(path),
             PlatformAction::WriteFromExchange { artifact, path, .. } => {
                 PlatformActionOutput::WriteComplete {
                     metadata: DocumentMetadata {
@@ -285,6 +287,27 @@ mod tests {
                     fingerprint: "ffi-deleted-fingerprint".to_owned(),
                 },
             },
+        }
+    }
+
+    fn read_output(path: &str) -> PlatformActionOutput {
+        PlatformActionOutput::Read {
+            source_metadata: DocumentMetadata {
+                target: WorkspaceTarget::Relative {
+                    path: path.to_owned(),
+                },
+                document_handle: "fixture-document".to_owned(),
+                kind: DocumentKind::File,
+                mime_type: None,
+                evidence: ActionEvidence {
+                    length: 0,
+                    digest: ContentDigest::Verified {
+                        hex: "d".repeat(64),
+                    },
+                    fingerprint: "ffi-root-fingerprint".to_owned(),
+                },
+            },
+            bytes: Vec::new(),
         }
     }
 }

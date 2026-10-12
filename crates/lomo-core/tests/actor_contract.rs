@@ -148,6 +148,13 @@ mod tests {
                 )
                 .must_succeed("artifact"),
             },
+            PlatformAction::Read { path, .. } => PlatformActionOutput::Read {
+                source_metadata: metadata(
+                    WorkspaceTarget::Relative(path.clone()),
+                    DocumentKind::File,
+                ),
+                bytes: Vec::new(),
+            },
             PlatformAction::WriteFromExchange { artifact, path, .. } => {
                 let written_evidence = ActionEvidence::verified(
                     artifact.length(),

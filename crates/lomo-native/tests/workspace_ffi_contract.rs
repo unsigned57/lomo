@@ -169,6 +169,7 @@ mod tests {
                         },
                     }
                 }
+                PlatformAction::Read { path, .. } => self.execute_read(path),
                 PlatformAction::WriteFromExchange { artifact, path, .. } => {
                     self.write_count.fetch_add(1, Ordering::SeqCst);
                     let bytes = fs::read(self.exchange_root.join(&artifact.token)).test_ok("ex");
@@ -221,6 +222,32 @@ mod tests {
                 PlatformAction::Stat { .. } | PlatformAction::Move { .. } => {
                     panic!("unexpected {action:?}")
                 }
+            }
+        }
+
+        fn execute_read(&self, path: &str) -> ActionOutcome {
+            let bytes = fs::read(self.workspace_root.join(path)).test_ok("read");
+            let digest = {
+                use sha2::{Digest, Sha256};
+                format!("{:x}", Sha256::digest(&bytes))
+            };
+            ActionOutcome::Applied {
+                output: PlatformActionOutput::Read {
+                    source_metadata: DocumentMetadata {
+                        target: WorkspaceTarget::Relative {
+                            path: path.to_owned(),
+                        },
+                        document_handle: path.to_owned(),
+                        kind: DocumentKind::File,
+                        mime_type: None,
+                        evidence: ActionEvidence {
+                            length: bytes.len() as u64,
+                            digest: ContentDigest::Verified { hex: digest },
+                            fingerprint: format!("fp.{}", path.replace('/', ".")),
+                        },
+                    },
+                    bytes,
+                },
             }
         }
 
@@ -394,6 +421,7 @@ mod tests {
             | PlatformAction::ListChildren { action_id, .. }
             | PlatformAction::EnsureDirectory { action_id, .. }
             | PlatformAction::ReadToExchange { action_id, .. }
+            | PlatformAction::Read { action_id, .. }
             | PlatformAction::WriteFromExchange { action_id, .. }
             | PlatformAction::ArtifactWrite { action_id, .. }
             | PlatformAction::Move { action_id, .. }
