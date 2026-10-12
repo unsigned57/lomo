@@ -120,6 +120,15 @@ mod tests {
             .insert(key.to_owned(), serde_json::Value::String(value.to_owned()));
     }
 
+    fn owner_nonce(config: &EngineConfig) -> String {
+        owner_record(config)
+            .get("nonce")
+            .must_succeed("owner nonce field")
+            .as_str()
+            .must_succeed("owner nonce string")
+            .to_owned()
+    }
+
     #[test]
     fn workspace_lock_is_exclusive_and_released_with_the_owner() {
         let fixture = Fixture::new();
@@ -133,6 +142,25 @@ mod tests {
         let reopened =
             LomoEngine::open(fixture.config).must_succeed("lock released after owner drop");
         assert!(matches!(reopened.state(), EngineState::Ready { .. }));
+    }
+
+    #[test]
+    fn workspace_lock_nonce_is_nondeterministic_and_never_degenerate() {
+        // CSPRNG pin: successive owners mint distinct nonces and never publish the digest of a
+        // degenerate all-zero fill. This is the contract `getrandom::fill` must preserve.
+        let fixture = Fixture::new();
+        let first = LomoEngine::open(fixture.config.clone()).must_succeed("first engine");
+        let first_nonce = owner_nonce(&fixture.config);
+        drop(first);
+        let _second = LomoEngine::open(fixture.config.clone()).must_succeed("second engine");
+        let second_nonce = owner_nonce(&fixture.config);
+
+        assert_eq!(first_nonce.len(), 64);
+        assert!(first_nonce.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_ne!(first_nonce, second_nonce);
+        let degenerate = format!("{:x}", Sha256::digest([0_u8; 16]));
+        assert_ne!(first_nonce, degenerate);
+        assert_ne!(second_nonce, degenerate);
     }
 
     #[test]

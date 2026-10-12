@@ -18,13 +18,13 @@ const OWNERS: &[Owner] = &[
         name: "lomo-core",
         directory: "crates/lomo-core",
         internal_dependencies: &[],
-        capabilities: &[Capability::Portable],
+        capabilities: &[Capability::Portable, Capability::Platform],
     },
     Owner {
         name: "lomo-workspace",
         directory: "crates/lomo-workspace",
         internal_dependencies: &["lomo-core"],
-        capabilities: &[Capability::Portable],
+        capabilities: &[Capability::Portable, Capability::Platform],
     },
     Owner {
         name: "lomo-media",
@@ -67,7 +67,13 @@ const OWNERS: &[Owner] = &[
         name: "lomo-sync",
         directory: "crates/lomo-sync",
         internal_dependencies: &["lomo-core", "lomo-workspace", "lomo-store"],
-        capabilities: &[Capability::Portable, Capability::Network],
+        // B-14 P-48: Platform admitted for the direct aws-lc-rs edge (HMAC-SHA256); the crate's
+        // reqwest/rustls stack already links aws-lc-rs, so no new native code enters the graph.
+        capabilities: &[
+            Capability::Portable,
+            Capability::Network,
+            Capability::Platform,
+        ],
     },
     Owner {
         name: "lomo-git",

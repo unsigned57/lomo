@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
@@ -2420,10 +2420,17 @@ impl WorkspaceLockOwner {
                 "current process start identity is unavailable".to_owned(),
             )
         })?;
+        let mut nonce_bytes = [0_u8; 16];
+        getrandom::fill(&mut nonce_bytes).map_err(|error| {
+            LomoError::storage(
+                "workspace_lock_unavailable",
+                format!("workspace lock nonce cannot be generated: {error}"),
+            )
+        })?;
         Ok(Self {
             pid,
             process_start_identity,
-            nonce: random_lock_nonce()?,
+            nonce: sha256_hex(&nonce_bytes),
             created_unix_millis: epoch_millis()?,
         })
     }
@@ -2790,16 +2797,6 @@ fn process_start_identity(pid: u32) -> Result<Option<String>, LomoError> {
     let boot_id = fs::read_to_string("/proc/sys/kernel/random/boot_id")
         .map_err(|error| workspace_lock_error("boot identity cannot be read", &error))?;
     Ok(Some(format!("{}:{start_ticks}", boot_id.trim())))
-}
-
-fn random_lock_nonce() -> Result<String, LomoError> {
-    let mut bytes = [0_u8; 16];
-    File::open("/dev/urandom")
-        .and_then(|mut source| source.read_exact(&mut bytes))
-        .map_err(|error| {
-            workspace_lock_error("workspace lock nonce cannot be generated", &error)
-        })?;
-    Ok(sha256_hex(&bytes))
 }
 
 fn workspace_lock_error(context: &str, error: &std::io::Error) -> LomoError {

@@ -23,9 +23,9 @@ mod tests {
     use super::support::ResultTestExt;
     use lomo_core::ErrorCategory;
     use lomo_workspace::{
-        LomoPaths, RemoteDatasetId, RemoteIdentityDigest, WorkspaceGenerationId, decode_record,
-        load_or_mint_workspace_generation, load_workspace_generation,
-        mint_new_workspace_generation, persist_workspace_generation,
+        RemoteDatasetId, RemoteIdentityDigest, WorkspaceGenerationId, WorkspaceLayout,
+        decode_record, load_or_mint_workspace_generation, load_workspace_generation,
+        mint_new_workspace_generation, mint_reminder_embedded_id, persist_workspace_generation,
     };
     use std::fs;
     use tempfile::tempdir;
@@ -37,7 +37,7 @@ mod tests {
         assert_eq!(first.as_str().len(), 64);
         assert!(first.as_str().bytes().all(|b| b.is_ascii_hexdigit()));
 
-        let path = LomoPaths::generation_record_path(dir.path());
+        let path = WorkspaceLayout::for_workspace(dir.path()).generation_record;
         assert!(path.is_file(), "generation.rec must exist under local/v1");
         assert!(
             path.to_string_lossy()
@@ -58,6 +58,23 @@ mod tests {
         let framed = fs::read(&path).test_ok("read framed");
         let record = decode_record(&framed).test_ok("decode generation");
         assert_eq!(record.payload.record_id, "generation");
+    }
+
+    #[test]
+    fn mint_is_nondeterministic_and_never_degenerate() {
+        // CSPRNG pin: successive mints must differ and a degenerate all-zero fill must never
+        // surface as an identity. This is the contract `getrandom::fill` must preserve.
+        let first = WorkspaceGenerationId::mint().test_ok("first generation mint");
+        let second = WorkspaceGenerationId::mint().test_ok("second generation mint");
+        assert_ne!(first.as_str(), second.as_str());
+        assert_ne!(first.as_str(), "0".repeat(64).as_str());
+
+        let first = mint_reminder_embedded_id().test_ok("first embedded mint");
+        let second = mint_reminder_embedded_id().test_ok("second embedded mint");
+        assert_eq!(first.len(), 16);
+        assert!(first.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_ne!(first, second);
+        assert_ne!(first, "0".repeat(16));
     }
 
     #[test]
@@ -83,7 +100,7 @@ mod tests {
         let dir = tempdir().test_ok("tempdir");
         let id = WorkspaceGenerationId::mint().test_ok("mint");
         persist_workspace_generation(dir.path(), &id).test_ok("persist");
-        let path = LomoPaths::generation_record_path(dir.path());
+        let path = WorkspaceLayout::for_workspace(dir.path()).generation_record;
         fs::write(&path, b"not-a-lomo-record").test_ok("corrupt write");
         let err = load_workspace_generation(dir.path()).test_err("corrupt load");
         assert_eq!(err.category(), ErrorCategory::Corruption);
