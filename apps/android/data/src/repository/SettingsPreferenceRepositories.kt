@@ -3,7 +3,6 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.FontPreference
-import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.ColorSchemePreferencesRepository
@@ -114,7 +113,7 @@ constructor(
     ) : StoragePreferencesRepository {
         override fun getStorageFilenameFormat(): Flow<String> = dataStore.storageFilenameFormat
         override suspend fun setStorageFilenameFormat(format: String) {
-            dataStore.updateStorageFilenameFormat(StorageFilenameFormats.normalize(format))
+            dataStore.updateStorageFilenameFormat(format)
         }
         override fun getStorageTimestampFormat(): Flow<String> = dataStore.storageTimestampFormat
         override suspend fun setStorageTimestampFormat(format: String) {

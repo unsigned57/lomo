@@ -6,7 +6,6 @@ import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.lomo.data.util.PreferenceKeys
 import com.lomo.domain.model.SnapshotPreferenceOptions
-import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceRootTransition
@@ -273,7 +272,6 @@ internal class StorageFormatStoreImpl(
             key = LomoDataStoreKeys.STORAGE_FILENAME_FORMAT,
             flowName = "storageFilenameFormat",
             default = PreferenceKeys.Defaults.STORAGE_FILENAME_FORMAT,
-            normalize = StorageFilenameFormats::normalize,
         )
 
     override val storageTimestampFormat: Flow<String> =
@@ -285,8 +283,10 @@ internal class StorageFormatStoreImpl(
         )
 
     override suspend fun updateStorageFilenameFormat(format: String) {
+        // Verbatim transport: Rust `DateFormat::from_token` is the sole validator; Kotlin must
+        // not rewrite a foreign token into a different format.
         dataStore.editPreferences {
-            this[LomoDataStoreKeys.STORAGE_FILENAME_FORMAT] = StorageFilenameFormats.normalize(format)
+            this[LomoDataStoreKeys.STORAGE_FILENAME_FORMAT] = format
         }
     }
 
@@ -746,6 +746,22 @@ internal class SnapshotPreferencesStoreImpl(
         dataStore.editPreferences {
             this[LomoDataStoreKeys.MEMO_SNAPSHOT_MAX_AGE_DAYS] = normalizeMemoSnapshotMaxAgeDays(days)
         }
+    }
+}
+
+internal class ReminderPreferencesStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoReminderPreferencesStore {
+    override val reminderInterval: Flow<com.lomo.domain.model.ReminderInterval> =
+        dataStore
+            .longFlow(
+                key = LomoDataStoreKeys.REMINDER_INTERVAL_MILLIS,
+                flowName = "reminderInterval",
+                default = PreferenceKeys.Defaults.REMINDER_INTERVAL_MILLIS,
+            ).map(com.lomo.domain.model.ReminderInterval::fromMillis)
+
+    override suspend fun updateReminderInterval(interval: com.lomo.domain.model.ReminderInterval) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.REMINDER_INTERVAL_MILLIS] = interval.millis }
     }
 }
 

@@ -351,6 +351,13 @@ object SettingsCatalog {
     fun descriptorsFor(readModel: SettingsReadModel): List<SettingDescriptor> =
         descriptors.filter { descriptor -> readModel in descriptor.readModels }
 
+    /**
+     * The persisted DataStore name for an app-preference field — the single declaration the
+     * platform store keys derive from, so `LomoDataStoreKeys` never rewrites the literal.
+     */
+    fun appPreferenceStorageKey(field: AppPreferenceSnapshotField): String =
+        appPreferenceDescriptorsByField.getValue(field).storageKey
+
     fun appPreferenceDefaults(): AppPreferenceSnapshot =
         appPreferenceSnapshotFrom(
             appPreferenceDescriptors().associate { descriptor ->
@@ -423,6 +430,9 @@ object SettingsCatalog {
                 valuesByField.requireDecimal(fields, AppPreferenceSnapshotField.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE),
         )
     }
+
+    private val appPreferenceDescriptorsByField: Map<AppPreferenceSnapshotField, SettingDescriptor> =
+        descriptors.associateBy { descriptor -> descriptor.snapshotField }
 
     private data class DescriptorSpec(
         val storageKey: String,

@@ -14,10 +14,11 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import com.lomo.data.util.PreferenceKeys
 import com.lomo.data.webdav.WebDavCredentialStore
+import com.lomo.domain.model.AppPreferenceSnapshotField
 import com.lomo.domain.model.SettingDescriptor
+import com.lomo.domain.model.SettingsCatalog
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SettingValue
-import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.WorkspaceRootTransition
@@ -75,6 +76,11 @@ private object LomoAppDataStoreHolder {
                                             credentialStoreFactory = {
                                                 WebDavCredentialStore(context.applicationContext)
                                             },
+                                        ),
+                                        // P-28: one-shot drain of the lomo_reminder_prefs
+                                        // SharedPreferences island; deletes the legacy file.
+                                        ReminderIntervalSharedPreferencesMigration(
+                                            context.applicationContext,
                                         ),
                                     ),
                                 scope = storeScope,
@@ -284,6 +290,15 @@ interface LomoAppVersionStore {
     suspend fun getLastAppVersionOnce(): String?
 }
 
+/** Snooze interval preference — the sole home after the `lomo_reminder_prefs` island drained. */
+interface LomoReminderPreferencesStore {
+    /** Stored snooze interval as an owner-vocabulary option; decode of a corrupt stored
+     * millisecond value fails explicitly rather than defaulting. */
+    val reminderInterval: Flow<com.lomo.domain.model.ReminderInterval>
+
+    suspend fun updateReminderInterval(interval: com.lomo.domain.model.ReminderInterval)
+}
+
 interface LomoGitSyncBehaviorStore {
     /** Derived view: `syncBackendType` is the sole persisted selection; this reports `type == GIT`. */
     val gitSyncEnabled: Flow<Boolean>
@@ -469,6 +484,7 @@ class LomoDataStore private constructor(
     LomoDailyReviewSessionStore by DailyReviewSessionStoreImpl(dataStore),
     LomoSnapshotPreferencesStore by SnapshotPreferencesStoreImpl(dataStore),
     LomoAppVersionStore by AppVersionStoreImpl(dataStore),
+    LomoReminderPreferencesStore by ReminderPreferencesStoreImpl(dataStore),
     LomoGitSyncBehaviorStore by GitSyncBehaviorStoreImpl(dataStore),
     LomoGitIdentityStore by GitIdentityStoreImpl(dataStore),
     LomoWebDavConnectionStore by WebDavConnectionStoreImpl(dataStore),
@@ -544,7 +560,8 @@ class LomoDataStore private constructor(
         values.forEach { (key, value) ->
             this[key] =
                 when (key) {
-                    LomoDataStoreKeys.STORAGE_FILENAME_FORMAT -> StorageFilenameFormats.normalize(value)
+                    // Filename date tokens restore verbatim; Rust `DateFormat::from_token`
+                    // rejects a foreign token at session open instead of silently rewriting it.
                     LomoDataStoreKeys.STORAGE_TIMESTAMP_FORMAT -> StorageTimestampFormats.normalize(value)
                     else -> value
                 }
@@ -607,33 +624,78 @@ internal object LomoDataStoreKeys {
     val SYNC_INBOX_LOCATION = stringPreferencesKey(PreferenceKeys.SYNC_INBOX_LOCATION)
     val STORAGE_FILENAME_FORMAT = stringPreferencesKey(PreferenceKeys.STORAGE_FILENAME_FORMAT)
     val STORAGE_TIMESTAMP_FORMAT = stringPreferencesKey(PreferenceKeys.STORAGE_TIMESTAMP_FORMAT)
-    val DATE_FORMAT = stringPreferencesKey(PreferenceKeys.DATE_FORMAT)
-    val TIME_FORMAT = stringPreferencesKey(PreferenceKeys.TIME_FORMAT)
-    val THEME_MODE = stringPreferencesKey(PreferenceKeys.THEME_MODE)
-    val CALENDAR_HEATMAP_THRESHOLDS = stringPreferencesKey(PreferenceKeys.CALENDAR_HEATMAP_THRESHOLDS)
-    val COLOR_SOURCE = stringPreferencesKey(PreferenceKeys.COLOR_SOURCE)
+    val DATE_FORMAT =
+        stringPreferencesKey(SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.DATE_FORMAT))
+    val TIME_FORMAT =
+        stringPreferencesKey(SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.TIME_FORMAT))
+    val THEME_MODE =
+        stringPreferencesKey(SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.THEME_MODE))
+    val CALENDAR_HEATMAP_THRESHOLDS =
+        stringPreferencesKey(
+            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.CALENDAR_HEATMAP_THRESHOLDS),
+        )
+    val COLOR_SOURCE =
+        stringPreferencesKey(SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.COLOR_SOURCE))
     val COLOR_HISTORY = stringPreferencesKey(PreferenceKeys.COLOR_HISTORY)
-    val FONT_PREFERENCE = stringPreferencesKey(PreferenceKeys.FONT_PREFERENCE)
-    val HAPTIC_FEEDBACK_ENABLED = booleanPreferencesKey(PreferenceKeys.HAPTIC_FEEDBACK_ENABLED)
+    val FONT_PREFERENCE =
+        stringPreferencesKey(SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.FONT_PREFERENCE))
+    val HAPTIC_FEEDBACK_ENABLED =
+        booleanPreferencesKey(
+            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.HAPTIC_FEEDBACK_ENABLED),
+        )
     val CHECK_UPDATES_ON_STARTUP = booleanPreferencesKey(PreferenceKeys.CHECK_UPDATES_ON_STARTUP)
-    val SHOW_INPUT_HINTS = booleanPreferencesKey(PreferenceKeys.SHOW_INPUT_HINTS)
-    val DOUBLE_TAP_EDIT_ENABLED = booleanPreferencesKey(PreferenceKeys.DOUBLE_TAP_EDIT_ENABLED)
-    val FREE_TEXT_COPY_ENABLED = booleanPreferencesKey(PreferenceKeys.FREE_TEXT_COPY_ENABLED)
+    val SHOW_INPUT_HINTS =
+        booleanPreferencesKey(SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.SHOW_INPUT_HINTS))
+    val DOUBLE_TAP_EDIT_ENABLED =
+        booleanPreferencesKey(
+            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.DOUBLE_TAP_EDIT_ENABLED),
+        )
+    val FREE_TEXT_COPY_ENABLED =
+        booleanPreferencesKey(
+            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.FREE_TEXT_COPY_ENABLED),
+        )
     val MEMO_ACTION_AUTO_REORDER_ENABLED =
-        booleanPreferencesKey(PreferenceKeys.MEMO_ACTION_AUTO_REORDER_ENABLED)
-    val AUTO_OPEN_INPUT_ON_FOREGROUND = booleanPreferencesKey(PreferenceKeys.AUTO_OPEN_INPUT_ON_FOREGROUND)
-    val MEMO_ACTION_ORDER = stringPreferencesKey(PreferenceKeys.MEMO_ACTION_ORDER)
-    val MEMO_ACTION_ORDERS_BY_SCOPE = stringPreferencesKey(PreferenceKeys.MEMO_ACTION_ORDERS_BY_SCOPE)
-    val INPUT_TOOLBAR_TOOL_ORDER = stringPreferencesKey(PreferenceKeys.INPUT_TOOLBAR_TOOL_ORDER)
+        booleanPreferencesKey(
+            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.MEMO_ACTION_AUTO_REORDER_ENABLED),
+        )
+    val AUTO_OPEN_INPUT_ON_FOREGROUND =
+        booleanPreferencesKey(
+            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.AUTO_OPEN_INPUT_ON_FOREGROUND),
+        )
+    val MEMO_ACTION_ORDER =
+        stringPreferencesKey(
+            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.MEMO_ACTION_ORDER),
+        )
+    val MEMO_ACTION_ORDERS_BY_SCOPE =
+        stringPreferencesKey(
+            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.MEMO_ACTION_ORDERS_BY_SCOPE),
+        )
+    val INPUT_TOOLBAR_TOOL_ORDER =
+        stringPreferencesKey(
+            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.INPUT_TOOLBAR_TOOL_ORDER),
+        )
     val SIDEBAR_TAG_ORDER = stringPreferencesKey(PreferenceKeys.SIDEBAR_TAG_ORDER)
-    val QUICK_SAVE_ON_BACK_ENABLED = booleanPreferencesKey(PreferenceKeys.QUICK_SAVE_ON_BACK_ENABLED)
-    val SCROLLBAR_ENABLED = booleanPreferencesKey(PreferenceKeys.SCROLLBAR_ENABLED)
+    val QUICK_SAVE_ON_BACK_ENABLED =
+        booleanPreferencesKey(
+            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.QUICK_SAVE_ON_BACK_ENABLED),
+        )
+    val SCROLLBAR_ENABLED =
+        booleanPreferencesKey(SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.SCROLLBAR_ENABLED))
     val APP_LOCK_ENABLED = booleanPreferencesKey(PreferenceKeys.APP_LOCK_ENABLED)
     val LAN_SHARE_ENABLED = booleanPreferencesKey(PreferenceKeys.LAN_SHARE_ENABLED)
     val LAN_SHARE_DEVICE_NAME = stringPreferencesKey(PreferenceKeys.LAN_SHARE_DEVICE_NAME)
-    val SHARE_CARD_SHOW_TIME = booleanPreferencesKey(PreferenceKeys.SHARE_CARD_SHOW_TIME)
-    val SHARE_CARD_SHOW_BRAND = booleanPreferencesKey(PreferenceKeys.SHARE_CARD_SHOW_BRAND)
-    val SHARE_CARD_SIGNATURE_TEXT = stringPreferencesKey(PreferenceKeys.SHARE_CARD_SIGNATURE_TEXT)
+    val SHARE_CARD_SHOW_TIME =
+        booleanPreferencesKey(
+            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.SHARE_CARD_SHOW_TIME),
+        )
+    val SHARE_CARD_SHOW_BRAND =
+        booleanPreferencesKey(
+            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.SHARE_CARD_SHOW_BRAND),
+        )
+    val SHARE_CARD_SIGNATURE_TEXT =
+        stringPreferencesKey(
+            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.SHARE_CARD_SIGNATURE_TEXT),
+        )
     val SYNC_INBOX_ENABLED = booleanPreferencesKey(PreferenceKeys.SYNC_INBOX_ENABLED)
     val DAILY_REVIEW_SESSION_DATE = stringPreferencesKey(PreferenceKeys.DAILY_REVIEW_SESSION_DATE)
     val DAILY_REVIEW_SESSION_SEED = longPreferencesKey(PreferenceKeys.DAILY_REVIEW_SESSION_SEED)
@@ -641,6 +703,7 @@ internal object LomoDataStoreKeys {
     val MEMO_SNAPSHOTS_ENABLED = booleanPreferencesKey(PreferenceKeys.MEMO_SNAPSHOTS_ENABLED)
     val MEMO_SNAPSHOT_MAX_COUNT = intPreferencesKey(PreferenceKeys.MEMO_SNAPSHOT_MAX_COUNT)
     val MEMO_SNAPSHOT_MAX_AGE_DAYS = intPreferencesKey(PreferenceKeys.MEMO_SNAPSHOT_MAX_AGE_DAYS)
+    val REMINDER_INTERVAL_MILLIS = longPreferencesKey(PreferenceKeys.REMINDER_INTERVAL_MILLIS)
     val LAST_APP_VERSION = stringPreferencesKey(PreferenceKeys.LAST_APP_VERSION)
     val GIT_SYNC_ENABLED = booleanPreferencesKey(PreferenceKeys.GIT_SYNC_ENABLED)
     val GIT_REMOTE_URL = stringPreferencesKey(PreferenceKeys.GIT_REMOTE_URL)
@@ -693,10 +756,22 @@ internal object LomoDataStoreKeys {
     val RETIRED_DRAFT_TEXT = stringPreferencesKey(PreferenceKeys.DRAFT_TEXT)
     val MEMO_CREATE_DRAFT = stringPreferencesKey("memo_create_draft")
     val MEMO_EDIT_DRAFT = stringPreferencesKey("memo_edit_draft")
-    val TYPOGRAPHY_FONT_SIZE_SCALE = floatPreferencesKey(PreferenceKeys.TYPOGRAPHY_FONT_SIZE_SCALE)
-    val TYPOGRAPHY_LINE_HEIGHT_SCALE = floatPreferencesKey(PreferenceKeys.TYPOGRAPHY_LINE_HEIGHT_SCALE)
-    val TYPOGRAPHY_LETTER_SPACING_SCALE = floatPreferencesKey(PreferenceKeys.TYPOGRAPHY_LETTER_SPACING_SCALE)
-    val TYPOGRAPHY_PARAGRAPH_SPACING_SCALE = floatPreferencesKey(PreferenceKeys.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE)
+    val TYPOGRAPHY_FONT_SIZE_SCALE =
+        floatPreferencesKey(
+            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.TYPOGRAPHY_FONT_SIZE_SCALE),
+        )
+    val TYPOGRAPHY_LINE_HEIGHT_SCALE =
+        floatPreferencesKey(
+            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.TYPOGRAPHY_LINE_HEIGHT_SCALE),
+        )
+    val TYPOGRAPHY_LETTER_SPACING_SCALE =
+        floatPreferencesKey(
+            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.TYPOGRAPHY_LETTER_SPACING_SCALE),
+        )
+    val TYPOGRAPHY_PARAGRAPH_SPACING_SCALE =
+        floatPreferencesKey(
+            SettingsCatalog.appPreferenceStorageKey(AppPreferenceSnapshotField.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE),
+        )
 }
 
 /**

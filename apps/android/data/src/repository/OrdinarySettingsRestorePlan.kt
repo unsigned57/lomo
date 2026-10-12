@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import androidx.datastore.preferences.core.Preferences
+import com.lomo.data.local.datastore.LomoDataStoreKeys
 import com.lomo.data.local.datastore.LomoOrdinarySettingsRestoreTransaction
 import com.lomo.domain.model.SettingDescriptor
 import com.lomo.domain.model.SettingValue
@@ -116,7 +117,7 @@ internal fun Map<String, String>.toOrdinaryRestorePlan(
                 stringValues = stringValues,
                 nullableStringValues =
                     nullableStringValues +
-                        (SettingsKey.WEBDAV_USERNAME.requireStringPreferenceKey() to null),
+                        (LomoDataStoreKeys.WEBDAV_USERNAME to null),
                 booleanValues = booleanValues,
                 intValues = intValues,
             ),
@@ -131,33 +132,45 @@ private fun Map<String, String>.catalogAppPreferenceValues(): Map<SettingDescrip
     }.toMap()
 
 private fun Map<String, String>.booleanPreferenceValues(): Map<Preferences.Key<Boolean>, Boolean> =
-    DataStoreMigrationSettingsStore.booleanPreferenceKeys.associateWithPresent(this) { key, value ->
-        requireNotNull(value.toBooleanStrictOrNull()) {
-            "Migration setting $key must be a boolean"
+    buildMap {
+        MigrationOrdinarySettings.booleans.forEach { setting ->
+            this@booleanPreferenceValues[setting.wireKey]?.let { value ->
+                put(
+                    setting.dataStoreKey,
+                    requireNotNull(value.toBooleanStrictOrNull()) {
+                        "Migration setting ${setting.wireKey} must be a boolean"
+                    },
+                )
+            }
         }
-    }.mapKeys { (key, _) -> key.requireBooleanPreferenceKey() }
-
-private fun Map<String, String>.intPreferenceValues(): Map<Preferences.Key<Int>, Int> =
-    DataStoreMigrationSettingsStore.intPreferenceKeys.associateWithPresent(this) { key, value ->
-        requireNotNull(value.toIntOrNull()) {
-            "Migration setting $key must be an integer"
-        }
-    }.mapKeys { (key, _) -> key.requireIntPreferenceKey() }
-
-private fun Map<String, String>.requiredStringPreferenceValues(): Map<Preferences.Key<String>, String> =
-    DataStoreMigrationSettingsStore.requiredStringPreferenceKeys.associateWithPresent(this) { _, value ->
-        value
-    }.mapKeys { (key, _) -> key.requireStringPreferenceKey() }
-
-private fun Map<String, String>.nullableStringPreferenceValues(): Map<Preferences.Key<String>, String?> =
-    DataStoreMigrationSettingsStore.nullablePreferenceKeys.associate { key ->
-        key.requireStringPreferenceKey() to this[key]
     }
 
-private inline fun <T> Set<String>.associateWithPresent(
-    values: Map<String, String>,
-    transform: (key: String, value: String) -> T,
-): Map<String, T> =
-    mapNotNull { key ->
-        values[key]?.let { value -> key to transform(key, value) }
-    }.toMap()
+private fun Map<String, String>.intPreferenceValues(): Map<Preferences.Key<Int>, Int> =
+    buildMap {
+        MigrationOrdinarySettings.ints.forEach { setting ->
+            this@intPreferenceValues[setting.wireKey]?.let { value ->
+                put(
+                    setting.dataStoreKey,
+                    requireNotNull(value.toIntOrNull()) {
+                        "Migration setting ${setting.wireKey} must be an integer"
+                    },
+                )
+            }
+        }
+    }
+
+private fun Map<String, String>.requiredStringPreferenceValues(): Map<Preferences.Key<String>, String> =
+    buildMap {
+        MigrationOrdinarySettings.strings
+            .filterNot { setting -> setting.nullable }
+            .forEach { setting ->
+                this@requiredStringPreferenceValues[setting.wireKey]?.let { value ->
+                    put(setting.dataStoreKey, value)
+                }
+            }
+    }
+
+private fun Map<String, String>.nullableStringPreferenceValues(): Map<Preferences.Key<String>, String?> =
+    MigrationOrdinarySettings.strings
+        .filter { setting -> setting.nullable }
+        .associate { setting -> setting.dataStoreKey to this[setting.wireKey] }

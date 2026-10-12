@@ -99,54 +99,29 @@ constructor(
         private suspend fun buildPreferenceSnapshot(): Map<String, String> =
             buildMap {
                 putCatalogAppPreferenceSettings(dataStore)
-                putBoolean(SettingsKey.CHECK_UPDATES_ON_STARTUP, dataStore.checkUpdatesOnStartup.first())
-                putString(SettingsKey.SIDEBAR_TAG_ORDER, dataStore.sidebarTagOrder.first())
-                putBoolean(SettingsKey.APP_LOCK_ENABLED, dataStore.appLockEnabled.first())
-                putBoolean(SettingsKey.LAN_SHARE_ENABLED, dataStore.lanShareEnabled.first())
-                putStringIfPresent(SettingsKey.LAN_SHARE_DEVICE_NAME, dataStore.lanShareDeviceName.first())
-                putBoolean(SettingsKey.SYNC_INBOX_ENABLED, dataStore.syncInboxEnabled.first())
-                putBoolean(SettingsKey.MEMO_SNAPSHOTS_ENABLED, dataStore.memoSnapshotsEnabled.first())
-                putInt(SettingsKey.MEMO_SNAPSHOT_MAX_COUNT, dataStore.memoSnapshotMaxCount.first())
-                putInt(SettingsKey.MEMO_SNAPSHOT_MAX_AGE_DAYS, dataStore.memoSnapshotMaxAgeDays.first())
-                putString(SettingsKey.STORAGE_FILENAME_FORMAT, dataStore.storageFilenameFormat.first())
-                putString(SettingsKey.STORAGE_TIMESTAMP_FORMAT, dataStore.storageTimestampFormat.first())
+                MigrationOrdinarySettings.strings.forEach { setting ->
+                    if (setting.nullable) {
+                        putStringIfPresent(setting.wireKey, setting.read(dataStore))
+                    } else {
+                        putString(
+                            setting.wireKey,
+                            requireNotNull(setting.read(dataStore)) {
+                                "Required migration setting ${setting.wireKey} produced no value"
+                            },
+                        )
+                    }
+                }
+                MigrationOrdinarySettings.booleans.forEach { setting ->
+                    putBoolean(setting.wireKey, setting.read(dataStore))
+                }
+                MigrationOrdinarySettings.ints.forEach { setting ->
+                    putInt(setting.wireKey, setting.read(dataStore))
+                }
+                // Derived enabled views are still exported under their retired keys so older
+                // builds can read the same backup; they are drained — never restored — here.
                 putBoolean(SettingsKey.GIT_SYNC_ENABLED, dataStore.gitSyncEnabled.first())
-                putStringIfPresent(SettingsKey.GIT_REMOTE_URL, dataStore.gitRemoteUrl.first())
-                putString(SettingsKey.GIT_AUTHOR_NAME, dataStore.gitAuthorName.first())
-                putString(SettingsKey.GIT_AUTHOR_EMAIL, dataStore.gitAuthorEmail.first())
-                putBoolean(SettingsKey.GIT_AUTO_SYNC_ENABLED, dataStore.gitAutoSyncEnabled.first())
-                putString(SettingsKey.GIT_AUTO_SYNC_INTERVAL, dataStore.gitAutoSyncInterval.first())
-                putBoolean(SettingsKey.GIT_SYNC_ON_REFRESH, dataStore.gitSyncOnRefresh.first())
-                putString(SettingsKey.SYNC_BACKEND_TYPE, dataStore.syncBackendType.first())
                 putBoolean(SettingsKey.WEBDAV_SYNC_ENABLED, dataStore.webDavSyncEnabled.first())
-                putString(SettingsKey.WEBDAV_PROVIDER, dataStore.webDavProvider.first())
-                putStringIfPresent(SettingsKey.WEBDAV_BASE_URL, dataStore.webDavBaseUrl.first())
-                putStringIfPresent(SettingsKey.WEBDAV_ENDPOINT_URL, dataStore.webDavEndpointUrl.first())
-                putBoolean(SettingsKey.WEBDAV_AUTO_SYNC_ENABLED, dataStore.webDavAutoSyncEnabled.first())
-                putString(SettingsKey.WEBDAV_AUTO_SYNC_INTERVAL, dataStore.webDavAutoSyncInterval.first())
-                putBoolean(SettingsKey.WEBDAV_SYNC_ON_REFRESH, dataStore.webDavSyncOnRefresh.first())
                 putBoolean(SettingsKey.S3_SYNC_ENABLED, dataStore.s3SyncEnabled.first())
-                putStringIfPresent(SettingsKey.S3_ENDPOINT_URL, dataStore.s3EndpointUrl.first())
-                putStringIfPresent(SettingsKey.S3_REGION, dataStore.s3Region.first())
-                putStringIfPresent(SettingsKey.S3_BUCKET, dataStore.s3Bucket.first())
-                putStringIfPresent(SettingsKey.S3_PREFIX, dataStore.s3Prefix.first())
-                putStringIfPresent(SettingsKey.S3_LOCAL_SYNC_DIRECTORY, dataStore.s3LocalSyncDirectory.first())
-                putString(SettingsKey.S3_PATH_STYLE, dataStore.s3PathStyle.first())
-                putString(SettingsKey.S3_ENCRYPTION_MODE, dataStore.s3EncryptionMode.first())
-                putString(SettingsKey.S3_RCLONE_FILENAME_ENCRYPTION, dataStore.s3RcloneFilenameEncryption.first())
-                putString(SettingsKey.S3_RCLONE_FILENAME_ENCODING, dataStore.s3RcloneFilenameEncoding.first())
-                putBoolean(
-                    SettingsKey.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION,
-                    dataStore.s3RcloneDirectoryNameEncryption.first(),
-                )
-                putBoolean(
-                    SettingsKey.S3_RCLONE_DATA_ENCRYPTION_ENABLED,
-                    dataStore.s3RcloneDataEncryptionEnabled.first(),
-                )
-                putString(SettingsKey.S3_RCLONE_ENCRYPTED_SUFFIX, dataStore.s3RcloneEncryptedSuffix.first())
-                putBoolean(SettingsKey.S3_AUTO_SYNC_ENABLED, dataStore.s3AutoSyncEnabled.first())
-                putString(SettingsKey.S3_AUTO_SYNC_INTERVAL, dataStore.s3AutoSyncInterval.first())
-                putBoolean(SettingsKey.S3_SYNC_ON_REFRESH, dataStore.s3SyncOnRefresh.first())
             }
         private suspend fun buildSensitiveSnapshot(): Map<String, String> {
             val sensitive = mutableMapOf<String, String>()
@@ -259,56 +234,11 @@ constructor(
             // the keys are retired in favor of SYNC_BACKEND_TYPE, so restoring them would
             // re-introduce the duplicate facts. Exports still emit the derived values for
             // older versions reading the same backup format.
-            val booleanPreferenceKeys =
-                setOf(
-                    SettingsKey.CHECK_UPDATES_ON_STARTUP,
-                    SettingsKey.APP_LOCK_ENABLED,
-                    SettingsKey.LAN_SHARE_ENABLED,
-                    SettingsKey.SYNC_INBOX_ENABLED,
-                    SettingsKey.MEMO_SNAPSHOTS_ENABLED,
-                    SettingsKey.GIT_AUTO_SYNC_ENABLED,
-                    SettingsKey.GIT_SYNC_ON_REFRESH,
-                    SettingsKey.WEBDAV_AUTO_SYNC_ENABLED,
-                    SettingsKey.WEBDAV_SYNC_ON_REFRESH,
-                    SettingsKey.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION,
-                    SettingsKey.S3_RCLONE_DATA_ENCRYPTION_ENABLED,
-                    SettingsKey.S3_AUTO_SYNC_ENABLED,
-                    SettingsKey.S3_SYNC_ON_REFRESH,
-                )
-            val intPreferenceKeys =
-                setOf(
-                    SettingsKey.MEMO_SNAPSHOT_MAX_COUNT,
-                    SettingsKey.MEMO_SNAPSHOT_MAX_AGE_DAYS,
-                )
+            val booleanPreferenceKeys = MigrationOrdinarySettings.booleanWireKeys
+            val intPreferenceKeys = MigrationOrdinarySettings.intWireKeys
             val floatPreferenceKeys =
                 emptySet<String>()
-            val stringPreferenceKeys =
-                setOf(
-                    SettingsKey.SIDEBAR_TAG_ORDER,
-                    SettingsKey.LAN_SHARE_DEVICE_NAME,
-                    SettingsKey.STORAGE_FILENAME_FORMAT,
-                    SettingsKey.STORAGE_TIMESTAMP_FORMAT,
-                    SettingsKey.GIT_REMOTE_URL,
-                    SettingsKey.GIT_AUTHOR_NAME,
-                    SettingsKey.GIT_AUTHOR_EMAIL,
-                    SettingsKey.GIT_AUTO_SYNC_INTERVAL,
-                    SettingsKey.SYNC_BACKEND_TYPE,
-                    SettingsKey.WEBDAV_PROVIDER,
-                    SettingsKey.WEBDAV_BASE_URL,
-                    SettingsKey.WEBDAV_ENDPOINT_URL,
-                    SettingsKey.WEBDAV_AUTO_SYNC_INTERVAL,
-                    SettingsKey.S3_ENDPOINT_URL,
-                    SettingsKey.S3_REGION,
-                    SettingsKey.S3_BUCKET,
-                    SettingsKey.S3_PREFIX,
-                    SettingsKey.S3_LOCAL_SYNC_DIRECTORY,
-                    SettingsKey.S3_PATH_STYLE,
-                    SettingsKey.S3_ENCRYPTION_MODE,
-                    SettingsKey.S3_RCLONE_FILENAME_ENCRYPTION,
-                    SettingsKey.S3_RCLONE_FILENAME_ENCODING,
-                    SettingsKey.S3_RCLONE_ENCRYPTED_SUFFIX,
-                    SettingsKey.S3_AUTO_SYNC_INTERVAL,
-                )
+            val stringPreferenceKeys = MigrationOrdinarySettings.stringWireKeys
             // Retired keys are drained without being restored: GIT/WEBDAV/S3_SYNC_ENABLED were
             // replaced by SYNC_BACKEND_TYPE, so an older backup may carry them but they must
             // not resurrect independent flag facts on this version.
@@ -319,18 +249,7 @@ constructor(
                     SettingsKey.WEBDAV_SYNC_ENABLED,
                     SettingsKey.S3_SYNC_ENABLED,
                 )
-            val nullablePreferenceKeys =
-                setOf(
-                    SettingsKey.LAN_SHARE_DEVICE_NAME,
-                    SettingsKey.GIT_REMOTE_URL,
-                    SettingsKey.WEBDAV_BASE_URL,
-                    SettingsKey.WEBDAV_ENDPOINT_URL,
-                    SettingsKey.S3_ENDPOINT_URL,
-                    SettingsKey.S3_REGION,
-                    SettingsKey.S3_BUCKET,
-                    SettingsKey.S3_PREFIX,
-                    SettingsKey.S3_LOCAL_SYNC_DIRECTORY,
-                )
+            val nullablePreferenceKeys = MigrationOrdinarySettings.nullableStringWireKeys
             val requiredStringPreferenceKeys =
                 stringPreferenceKeys - nullablePreferenceKeys
             val requiredOrdinaryPreferenceKeys =

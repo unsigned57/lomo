@@ -5,7 +5,6 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import com.lomo.data.util.PreferenceKeys
-import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -53,7 +52,7 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
     init {
         test("root and media stores prefer uris over old directory values") { `root and media stores prefer uris over old directory values`() }
 
-        test("storage display and interaction stores persist normalized values") { `storage display and interaction stores persist normalized values`() }
+        test("storage display and interaction stores persist configured values") { `storage display and interaction stores persist configured values`() }
 
         test("git webdav and create draft stores persist configuration and clear empty draft") { `git webdav and create draft stores persist configuration and clear empty draft`() }
     }
@@ -96,7 +95,7 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
             mediaStore.imageDirectory.first() shouldBe "/vault/images-replaced"
         }
 
-    private fun `storage display and interaction stores persist normalized values`() =
+    private fun `storage display and interaction stores persist configured values`() =
         runTest {
             val dataStore = newDataStore(backgroundScope)
             val storageStore = StorageFormatStoreImpl(dataStore)
@@ -114,7 +113,9 @@ class LomoDataStoreDelegatesTest : DataFunSpec() {
             interactionStore.updateFreeTextCopyEnabled(enabled = true)
             interactionStore.updateQuickSaveOnBackEnabled(enabled = false)
 
-            storageStore.storageFilenameFormat.first() shouldBe StorageFilenameFormats.DEFAULT_PATTERN
+            // Filename tokens persist verbatim: Rust `DateFormat::from_token` is the only
+            // validation gate, so an arbitrary token must read back unmodified.
+            storageStore.storageFilenameFormat.first() shouldBe "unsupported"
             storageStore.storageTimestampFormat.first() shouldBe StorageTimestampFormats.DEFAULT_PATTERN
             displayStore.dateFormat.first() shouldBe "MM/dd/yyyy"
             displayStore.timeFormat.first() shouldBe "hh:mm a"

@@ -28,11 +28,16 @@ val reminderModule = module {
     }
     single { ReminderExecutionLedger(androidContext()) }
     single { ReminderRollingWindowScheduler(port = get(), ledger = get()) }
+    single<com.lomo.data.local.datastore.LomoReminderPreferencesStore> {
+        get<com.lomo.data.local.datastore.LomoDataStore>()
+    }
     single {
         AlarmManagerReminderScheduler(
             context = androidContext(),
             storePort = get(),
             readiness = get(),
+            reminderPreferences = get(),
+            appScope = get(named("ApplicationScope")),
             schedulePort = get(),
             rollingWindow = get(),
         )

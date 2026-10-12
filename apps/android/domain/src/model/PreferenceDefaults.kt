@@ -29,6 +29,7 @@ object PreferenceDefaults {
     const val MEMO_SNAPSHOTS_ENABLED = true
     const val MEMO_SNAPSHOT_MAX_COUNT = 20
     const val MEMO_SNAPSHOT_MAX_AGE_DAYS = 30
+    const val REMINDER_INTERVAL_MILLIS = ReminderInterval.DEFAULT_MILLIS
     const val STORAGE_FILENAME_FORMAT = StorageFilenameFormats.DEFAULT_PATTERN
     const val STORAGE_TIMESTAMP_FORMAT = StorageTimestampFormats.DEFAULT_PATTERN
     const val GIT_SYNC_ENABLED = false

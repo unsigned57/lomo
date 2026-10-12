@@ -1,29 +1,16 @@
 package com.lomo.data.repository
 
+/**
+ * Export/restore wire vocabulary for migrated settings. Catalog-covered app preferences
+ * serialize under their `SettingDescriptor.storageKey` and need no entry here — only the
+ * ordinary, legacy-drain, and credential keys below appear on the wire.
+ */
 internal object SettingsKey {
-    const val DATE_FORMAT = "dateFormat"
-    const val TIME_FORMAT = "timeFormat"
-    const val THEME_MODE = "themeMode"
-    const val COLOR_SOURCE = "colorSource"
-    const val FONT_PREFERENCE = "fontPreference"
-    const val HAPTIC_FEEDBACK_ENABLED = "hapticFeedbackEnabled"
     const val CHECK_UPDATES_ON_STARTUP = "checkUpdatesOnStartup"
-    const val SHOW_INPUT_HINTS = "showInputHints"
-    const val DOUBLE_TAP_EDIT_ENABLED = "doubleTapEditEnabled"
-    const val FREE_TEXT_COPY_ENABLED = "freeTextCopyEnabled"
-    const val MEMO_ACTION_AUTO_REORDER_ENABLED = "memoActionAutoReorderEnabled"
-    const val MEMO_ACTION_ORDER = "memoActionOrder"
-    const val MEMO_ACTION_ORDERS_BY_SCOPE = "memoActionOrdersByScope"
-    const val INPUT_TOOLBAR_TOOL_ORDER = "inputToolbarToolOrder"
     const val SIDEBAR_TAG_ORDER = "sidebarTagOrder"
-    const val QUICK_SAVE_ON_BACK_ENABLED = "quickSaveOnBackEnabled"
-    const val SCROLLBAR_ENABLED = "scrollbarEnabled"
     const val APP_LOCK_ENABLED = "appLockEnabled"
     const val LAN_SHARE_ENABLED = "lanShareEnabled"
     const val LAN_SHARE_DEVICE_NAME = "lanShareDeviceName"
-    const val SHARE_CARD_SHOW_TIME = "shareCardShowTime"
-    const val SHARE_CARD_SHOW_BRAND = "shareCardShowBrand"
-    const val SHARE_CARD_SIGNATURE_TEXT = "shareCardSignatureText"
     const val SYNC_INBOX_ENABLED = "syncInboxEnabled"
     const val MEMO_SNAPSHOTS_ENABLED = "memoSnapshotsEnabled"
     const val MEMO_SNAPSHOT_MAX_COUNT = "memoSnapshotMaxCount"
@@ -62,10 +49,6 @@ internal object SettingsKey {
     const val S3_AUTO_SYNC_ENABLED = "s3AutoSyncEnabled"
     const val S3_AUTO_SYNC_INTERVAL = "s3AutoSyncInterval"
     const val S3_SYNC_ON_REFRESH = "s3SyncOnRefresh"
-    const val TYPOGRAPHY_FONT_SIZE_SCALE = "typographyFontSizeScale"
-    const val TYPOGRAPHY_LINE_HEIGHT_SCALE = "typographyLineHeightScale"
-    const val TYPOGRAPHY_LETTER_SPACING_SCALE = "typographyLetterSpacingScale"
-    const val TYPOGRAPHY_PARAGRAPH_SPACING_SCALE = "typographyParagraphSpacingScale"
     const val GIT_TOKEN = "gitToken"
     const val GIT_USERNAME = "gitUsername"
     const val WEBDAV_STORED_USERNAME = "webDavStoredUsername"

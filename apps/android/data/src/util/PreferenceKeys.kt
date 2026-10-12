@@ -27,41 +27,15 @@ object PreferenceKeys {
     const val STORAGE_FILENAME_FORMAT = "storage_filename_format"
     const val STORAGE_TIMESTAMP_FORMAT = "storage_timestamp_format"
 
-    // Display
-    const val DATE_FORMAT = "date_format_only"
-    const val TIME_FORMAT = "time_format_only"
-    const val THEME_MODE = "theme_mode"
-    const val CALENDAR_HEATMAP_THRESHOLDS = "calendar_heatmap_thresholds"
-    const val COLOR_SOURCE = "color_source"
+    // Display (catalog-owned storage keys derive from SettingsCatalog.appPreferenceStorageKey)
     const val COLOR_HISTORY = "color_history"
-    const val FONT_PREFERENCE = "font_preference"
-
-    // Typography
-    const val TYPOGRAPHY_FONT_SIZE_SCALE = "typography_font_size_scale"
-    const val TYPOGRAPHY_LINE_HEIGHT_SCALE = "typography_line_height_scale"
-    const val TYPOGRAPHY_LETTER_SPACING_SCALE = "typography_letter_spacing_scale"
-    const val TYPOGRAPHY_PARAGRAPH_SPACING_SCALE = "typography_paragraph_spacing_scale"
 
     // Interaction
-    const val HAPTIC_FEEDBACK_ENABLED = "haptic_feedback_enabled"
     const val CHECK_UPDATES_ON_STARTUP = "check_updates_on_startup"
-    const val SHOW_INPUT_HINTS = "show_input_hints"
-    const val DOUBLE_TAP_EDIT_ENABLED = "double_tap_edit_enabled"
-    const val FREE_TEXT_COPY_ENABLED = "free_text_copy_enabled"
-    const val MEMO_ACTION_AUTO_REORDER_ENABLED = "memo_action_auto_reorder_enabled"
-    const val AUTO_OPEN_INPUT_ON_FOREGROUND = "auto_open_input_on_foreground"
-    const val MEMO_ACTION_ORDER = "memo_action_order"
-    const val MEMO_ACTION_ORDERS_BY_SCOPE = "memo_action_orders_by_scope"
-    const val INPUT_TOOLBAR_TOOL_ORDER = "input_toolbar_tool_order"
     const val SIDEBAR_TAG_ORDER = "sidebar_tag_order"
-    const val QUICK_SAVE_ON_BACK_ENABLED = "quick_save_on_back_enabled"
-    const val SCROLLBAR_ENABLED = "scrollbar_enabled"
     const val APP_LOCK_ENABLED = "app_lock_enabled"
     const val LAN_SHARE_ENABLED = "lan_share_enabled"
     const val LAN_SHARE_DEVICE_NAME = "lan_share_device_name"
-    const val SHARE_CARD_SHOW_TIME = "share_card_show_time"
-    const val SHARE_CARD_SHOW_BRAND = "share_card_show_brand"
-    const val SHARE_CARD_SIGNATURE_TEXT = "share_card_signature_text"
     const val SYNC_INBOX_ENABLED = "sync_inbox_enabled"
     const val DAILY_REVIEW_SESSION_DATE = "daily_review_session_date"
     const val DAILY_REVIEW_SESSION_SEED = "daily_review_session_seed"
@@ -69,6 +43,7 @@ object PreferenceKeys {
     const val MEMO_SNAPSHOTS_ENABLED = "memo_snapshots_enabled"
     const val MEMO_SNAPSHOT_MAX_COUNT = "memo_snapshot_max_count"
     const val MEMO_SNAPSHOT_MAX_AGE_DAYS = "memo_snapshot_max_age_days"
+    const val REMINDER_INTERVAL_MILLIS = "reminder_interval_millis"
     const val LAST_APP_VERSION = "last_app_version"
 
     // Git Sync
@@ -139,6 +114,7 @@ object PreferenceKeys {
         const val MEMO_SNAPSHOTS_ENABLED = PreferenceDefaults.MEMO_SNAPSHOTS_ENABLED
         const val MEMO_SNAPSHOT_MAX_COUNT = PreferenceDefaults.MEMO_SNAPSHOT_MAX_COUNT
         const val MEMO_SNAPSHOT_MAX_AGE_DAYS = PreferenceDefaults.MEMO_SNAPSHOT_MAX_AGE_DAYS
+        const val REMINDER_INTERVAL_MILLIS = PreferenceDefaults.REMINDER_INTERVAL_MILLIS
 
         // Typography
         const val TYPOGRAPHY_FONT_SIZE_SCALE = PreferenceDefaults.TYPOGRAPHY_FONT_SIZE_SCALE
