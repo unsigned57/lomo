@@ -58,6 +58,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.ColorUtils
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import com.lomo.app.R
@@ -72,6 +73,7 @@ import java.util.Locale
 private const val HUE_MAX = 360f
 private const val SATURATION_MAX = 1f
 private const val LIGHTNESS_MAX = 1f
+private const val HSL_COMPONENT_COUNT = 3
 private const val SEED_PREVIEW_SWATCH_DP = 56
 private const val DEFAULT_CUSTOM_SEED_ARGB: Int = 0xFF4F63D6.toInt()
 private const val COLOR_PREVIEW_WORD_COUNT = 284
@@ -88,14 +90,16 @@ internal fun ColorPaletteSettingsPage(
 
     val activeCustomSeed = (uiState.colorSource as? ColorSource.CustomSeed)?.argb
     val initialSeed = activeCustomSeed ?: DEFAULT_CUSTOM_SEED_ARGB
-    val initialHsl = remember(initialSeed) { argbToHsl(initialSeed) }
+    val initialHsl = remember(initialSeed) {
+        FloatArray(HSL_COMPONENT_COUNT).also { ColorUtils.colorToHSL(initialSeed, it) }
+    }
 
     var hue by rememberSaveable(initialSeed) { mutableFloatStateOf(initialHsl[0]) }
     var saturation by rememberSaveable(initialSeed) { mutableFloatStateOf(initialHsl[1]) }
     var lightness by rememberSaveable(initialSeed) { mutableFloatStateOf(initialHsl[2]) }
 
     val currentCustomSeedArgb = remember(hue, saturation, lightness) {
-        hslToOpaqueArgb(hue, saturation, lightness)
+        ColorUtils.HSLToColor(floatArrayOf(hue, saturation, lightness))
     }
 
     var showCustomPreview by rememberSaveable(uiState.colorSource) {
@@ -157,7 +161,8 @@ internal fun ColorPaletteSettingsPage(
                 selectedSeed = activeCustomSeed,
                 colorHistory = uiState.colorHistory,
                 onSelect = { argb ->
-                    val hsl = argbToHsl(argb)
+                    val hsl = FloatArray(HSL_COMPONENT_COUNT)
+                    ColorUtils.colorToHSL(argb, hsl)
                     hue = hsl[0]; saturation = hsl[1]; lightness = hsl[2]
                     showCustomPreview = true
                 },

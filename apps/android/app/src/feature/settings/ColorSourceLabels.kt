@@ -7,6 +7,9 @@ import com.lomo.domain.model.ColorPresetId
 import com.lomo.domain.model.ColorSource
 import java.util.Locale
 
+/** Mask selecting the RGB channels of a packed ARGB int for `#RRGGBB` hex display. */
+internal const val COLOR_PICKER_RGB_MASK = 0xFFFFFF
+
 @Composable
 internal fun colorSourceSummaryLabel(source: ColorSource): String =
     when (source) {
