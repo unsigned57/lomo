@@ -38,6 +38,7 @@ internal class RustEngineAdapter private constructor(
     private val native: WorkspaceNativeEnginePort,
     private val platformBatchRunner: PlatformBatchRunner,
     invalidation: StoreInvalidationBus,
+    sessionOpenResult: com.lomo.nativebridge.SessionOpenResult?,
 ) : WorkspaceNativeAdapter,
     AutoCloseable {
     private val closed = AtomicBoolean(false)
@@ -45,6 +46,14 @@ internal class RustEngineAdapter private constructor(
     private val jobDriveMonitorLock = Any()
     private val jobDriveMonitors = mutableMapOf<String, JobDriveMonitor>()
     private val projectionObserver = StoreProjectionObserver(invalidation)
+
+    /**
+     * The projection revision committed by the session-open rebuild, delivered in-band by the
+     * FFI receipt. Null for bootstrap adapters that never opened a workspace session. This is
+     * the only projection authority a session mount may publish — querying the store again
+     * after open would race commits that already landed.
+     */
+    val sessionProjectionRevision: ULong? = sessionOpenResult?.projectionRevision
 
     val readiness: StateFlow<EngineReadiness> = _readiness.asStateFlow()
 
@@ -256,8 +265,10 @@ internal class RustEngineAdapter private constructor(
     override fun openWorkspaceSession(
         host: com.lomo.nativebridge.PlatformBatchHost,
         timeZone: String,
+        dateFormat: String,
         mediaStageRoot: String,
-    ): String = native.openWorkspaceSession(host, timeZone, mediaStageRoot)
+    ): com.lomo.nativebridge.SessionOpenResult =
+        native.openWorkspaceSession(host, timeZone, dateFormat, mediaStageRoot)
 
     override fun sessionCreateMemo(
         request: com.lomo.nativebridge.SessionCreateMemoRequest,
@@ -321,8 +332,8 @@ internal class RustEngineAdapter private constructor(
 
     override fun sessionSnoozeReminder(
         opaqueId: String,
-        snoozeDurationMs: Long,
-    ) = native.sessionSnoozeReminder(opaqueId, snoozeDurationMs)
+        interval: com.lomo.nativebridge.ReminderSnoozeInterval,
+    ) = native.sessionSnoozeReminder(opaqueId, interval)
 
     override fun sessionRecoverReminderSnooze() = native.sessionRecoverReminderSnooze()
 
@@ -406,10 +417,11 @@ internal class RustEngineAdapter private constructor(
     ): com.lomo.nativebridge.SessionMediaSweepReportDto =
         native.sessionMediaOrphanSweep(nowMs, recoveryWindowMs, externalDrafts)
 
-    override fun archiveExport(
+    override fun sessionExportArchive(
         workspaceRoot: String,
-        archivePath: String,
-    ): com.lomo.nativebridge.ArchiveExportResultDto = native.archiveExport(workspaceRoot, archivePath)
+        fileNameHint: String?,
+    ): com.lomo.nativebridge.ArchiveExportResultDto =
+        native.sessionExportArchive(workspaceRoot, fileNameHint)
 
     override fun sessionImportArchive(
         workspaceRoot: String,
@@ -506,12 +518,14 @@ internal class RustEngineAdapter private constructor(
             native: WorkspaceNativeEnginePort,
             platformBatchRunner: PlatformBatchRunner,
             invalidation: StoreInvalidationBus,
+            sessionOpenResult: com.lomo.nativebridge.SessionOpenResult?,
         ): RustEngineAdapter {
             val adapter =
                 RustEngineAdapter(
                     native,
                     platformBatchRunner,
                     invalidation,
+                    sessionOpenResult,
                 )
             runCatching { adapter.completeAcquisition() }
                 .onFailure { failure ->
@@ -555,37 +569,3 @@ private fun String.toRetryDisposition(): EngineRetryDisposition =
     EngineRetryDisposition.fromWireOrNull(this)
         ?: error("Unknown Rust engine retry disposition: $this")
 
-/**
- * Current store revision through the public query surface; callers use it to decide whether a
- * fresh projection publication is required before an activation or rebuild completes.
- */
-internal fun WorkspaceNativeAdapter.storeProjectionRevision(): ULong =
-    queryMemos(
-        query =
-            com.lomo.nativebridge.StoreMemoQuery(
-                searchText = null,
-                filters =
-                    com.lomo.nativebridge.StoreMemoFilters(
-                        tag = null,
-                        tagSubtree = false,
-                        dateFromInclusiveMs = null,
-                        dateUntilExclusiveMs = null,
-                        hasTodo = null,
-                        hasAttachment = null,
-                        hasUrl = null,
-                        pinnedOnly = false,
-                        includeTrash = false,
-                        trashOnly = false,
-                    ),
-                sort =
-                    com.lomo.nativebridge.StoreMemoSort(
-                        field = com.lomo.nativebridge.StoreMemoSortField.CREATED_AT,
-                        direction = com.lomo.nativebridge.StoreSortDirection.DESCENDING,
-                    ),
-                boundary = null,
-            ),
-        cursor = null,
-        pageSize = 1u,
-        startMemoId = null,
-        backward = false,
-    ).highWaterRevision

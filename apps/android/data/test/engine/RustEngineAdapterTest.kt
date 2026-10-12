@@ -225,6 +225,7 @@ class RustEngineAdapterTest : DataFunSpec() {
                                 error("no platform actions expected for completed job")
                             },
                             currentTimeMillis = { 0L },
+                            readExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(),
                         ),
                 )
 
@@ -233,6 +234,7 @@ class RustEngineAdapterTest : DataFunSpec() {
                     native,
                     platformBatchRunner = runner,
                     invalidation = StoreInvalidationBus(),
+                    sessionOpenResult = null,
                 )
 
             adapter.readiness.value shouldBe EngineReadiness.Ready
@@ -499,12 +501,12 @@ private class FakeNativeEnginePort(
             failures = emptyList(),
         )
 
-    override fun archiveExport(
+    override fun sessionExportArchive(
         workspaceRoot: String,
-        archivePath: String,
+        fileNameHint: String?,
     ): com.lomo.nativebridge.ArchiveExportResultDto =
         com.lomo.nativebridge.ArchiveExportResultDto(
-            archivePath = archivePath,
+            archivePath = "exchange/exports/${fileNameHint?.removeSuffix(".zip") ?: "lomo-archive-test"}.zip",
             schemaVersion = 2u,
             entryCount = 0uL,
         )
@@ -619,9 +621,11 @@ private fun testRustEngineAdapter(
                     AndroidPlatformActionExecutor(
                         access = PlatformActionAccess { error("platform action not expected") },
                         currentTimeMillis = { 0L },
+                        readExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(),
                     ),
             ),
         invalidation = invalidation,
+        sessionOpenResult = null,
     )
 
 private class AdapterProjectionPagingSource : PagingSource<Int, String>() {

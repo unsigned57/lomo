@@ -2,6 +2,7 @@ package com.lomo.data.engine
 
 import com.lomo.nativebridge.PlatformBatchHost
 import com.lomo.nativebridge.SessionCreateMemoRequest
+import com.lomo.nativebridge.SessionOpenResult
 import com.lomo.nativebridge.SessionDeleteMemoRequest
 import com.lomo.nativebridge.SessionPinMemoRequest
 import com.lomo.nativebridge.SessionRestoreRequest
@@ -35,8 +36,9 @@ internal interface SessionNativeBridge {
     fun openWorkspaceSession(
         host: PlatformBatchHost,
         timeZone: String,
+        dateFormat: String,
         mediaStageRoot: String,
-    ): String = error("workspace session open is not expected")
+    ): SessionOpenResult = error("workspace session open is not expected")
 
     fun sessionCreateMemo(request: SessionCreateMemoRequest): StoreMemoCommit =
         error("session create is not expected")
@@ -84,7 +86,7 @@ internal interface SessionNativeBridge {
 
     fun sessionSnoozeReminder(
         opaqueId: String,
-        snoozeDurationMs: Long,
+        interval: com.lomo.nativebridge.ReminderSnoozeInterval,
     ) {
         error("session reminder snooze is not expected")
     }

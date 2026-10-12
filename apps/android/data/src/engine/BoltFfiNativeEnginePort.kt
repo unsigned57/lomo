@@ -282,9 +282,10 @@ internal class BoltFfiNativeEnginePort(
     override fun openWorkspaceSession(
         host: com.lomo.nativebridge.PlatformBatchHost,
         timeZone: String,
+        dateFormat: String,
         mediaStageRoot: String,
-    ): String =
-        withReadLease { engine -> engine.openWorkspaceSession(host, timeZone, mediaStageRoot) }
+    ): com.lomo.nativebridge.SessionOpenResult =
+        withReadLease { engine -> engine.openWorkspaceSession(host, timeZone, dateFormat, mediaStageRoot) }
 
     override fun sessionCreateMemo(
         request: com.lomo.nativebridge.SessionCreateMemoRequest,
@@ -356,8 +357,8 @@ internal class BoltFfiNativeEnginePort(
 
     override fun sessionSnoozeReminder(
         opaqueId: String,
-        snoozeDurationMs: Long,
-    ) = withReadLease { engine -> engine.sessionSnoozeReminder(opaqueId, snoozeDurationMs) }
+        interval: com.lomo.nativebridge.ReminderSnoozeInterval,
+    ) = withReadLease { engine -> engine.sessionSnoozeReminder(opaqueId, interval) }
 
     override fun sessionRecoverReminderSnooze() =
         withReadLease { engine -> engine.sessionRecoverReminderSnooze() }
@@ -449,11 +450,11 @@ internal class BoltFfiNativeEnginePort(
             engine.sessionMediaOrphanSweepGuarding(nowMs, recoveryWindowMs, externalDrafts)
         }
 
-    override fun archiveExport(
+    override fun sessionExportArchive(
         workspaceRoot: String,
-        archivePath: String,
+        fileNameHint: String?,
     ): com.lomo.nativebridge.ArchiveExportResultDto =
-        withReadLease { engine -> engine.archiveExport(workspaceRoot, archivePath) }
+        withReadLease { engine -> engine.sessionExportArchive(workspaceRoot, fileNameHint) }
 
     override fun sessionImportArchive(
         workspaceRoot: String,

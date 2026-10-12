@@ -18,6 +18,10 @@
 //!   page contains that memo id, line index, and unchecked text.
 //! - Given a malformed operation id, when create is requested, then FFI validation fails closed
 //!   before any workspace file appears.
+//! - Given a supported date-format token, when the session opens, then memo filenames are minted in
+//!   that format instead of `DateFormat::default()`.
+//! - Given a foreign date-format token, when the session opens, then the boundary fails closed with
+//!   `invalid_calendar_input` and installs no session.
 //!
 //! Observable outcomes: structured `EngineError` codes, workspace Markdown bytes, session DTOs.
 //! TDD proof: RED because `open_workspace_session` / `session_create_memo` / `session_search`
@@ -113,6 +117,7 @@ mod tests {
                     resume: Mutex::new(resume_rx),
                 }),
                 "UTC".to_owned(),
+                "yyyy_MM_dd".to_owned(),
                 session.workspace.to_string_lossy().into_owned(),
             )
             .test_ok("open session");
@@ -213,6 +218,7 @@ mod tests {
             .open_workspace_session(
                 Box::new(PosixBatchHost { executor }),
                 "UTC".to_owned(),
+                "yyyy_MM_dd".to_owned(),
                 session.workspace.to_string_lossy().into_owned(),
             )
             .test_ok("open session");
@@ -250,6 +256,142 @@ mod tests {
         assert!(
             !workspace_has_markdown(&session.workspace),
             "unopened session must not write markdown"
+        );
+    }
+
+    #[test]
+    fn session_open_binds_the_host_supplied_date_format_to_memo_filenames() {
+        let session = open_direct_engine();
+        let executor = FsPlatformActionExecutor::new(&session.exchange).test_ok("posix executor");
+        executor
+            .bind_root(
+                CapabilityToken::parse("notes-root").test_ok("direct capability"),
+                &session.workspace,
+            )
+            .test_ok("bind workspace");
+        session
+            .engine
+            .open_workspace_session(
+                Box::new(PosixBatchHost { executor }),
+                "UTC".to_owned(),
+                "yyyy-MM-dd".to_owned(),
+                session.workspace.to_string_lossy().into_owned(),
+            )
+            .test_ok("open session with hyphen date format");
+        let commit = session
+            .engine
+            .session_create_memo(SessionCreateMemoRequest {
+                operation_id: "op-create-hyphen-date".to_owned(),
+                relative_path: None,
+                time_token: Some("09:30:00".to_owned()),
+                content: "dated format wiring".to_owned(),
+                expected_document_fingerprint: None,
+                pinned: false,
+                pending_promotes: Vec::new(),
+                // 2026-05-23T12:00:00Z — a real instant the journal stamp resolves locally.
+                chronology_epoch_ms: Some(1_779_537_600_000),
+            })
+            .test_ok("create memo");
+        let loaded = session
+            .engine
+            .get_memo(commit.memo_id)
+            .test_ok("get memo")
+            .test_ok("created memo");
+        assert_eq!(
+            loaded.summary.source_path, "2026-05-23.md",
+            "the host token must reach WorkspaceSessionConfig; default() would mint 2026_05_23.md"
+        );
+    }
+
+    #[test]
+    fn session_open_rejects_unknown_date_format_tokens_without_installing_a_session() {
+        let session = open_direct_engine();
+        let executor = FsPlatformActionExecutor::new(&session.exchange).test_ok("posix executor");
+        executor
+            .bind_root(
+                CapabilityToken::parse("notes-root").test_ok("direct capability"),
+                &session.workspace,
+            )
+            .test_ok("bind workspace");
+        let error = session
+            .engine
+            .open_workspace_session(
+                Box::new(PosixBatchHost { executor }),
+                "UTC".to_owned(),
+                // A Java display-pattern token: never a storage format, must fail closed
+                // rather than fall back to DateFormat::default().
+                "dd/MM/yyyy".to_owned(),
+                session.workspace.to_string_lossy().into_owned(),
+            )
+            .test_err("foreign date format token");
+        assert_eq!(error.code(), "invalid_calendar_input");
+        assert!(
+            !workspace_has_markdown(&session.workspace),
+            "a rejected token must not write markdown"
+        );
+        // Fail-closed means no session was installed: a valid token still opens cleanly.
+        let executor = FsPlatformActionExecutor::new(&session.exchange).test_ok("retry executor");
+        executor
+            .bind_root(
+                CapabilityToken::parse("notes-root").test_ok("direct capability"),
+                &session.workspace,
+            )
+            .test_ok("rebind workspace");
+        session
+            .engine
+            .open_workspace_session(
+                Box::new(PosixBatchHost { executor }),
+                "UTC".to_owned(),
+                "yyyy_MM_dd".to_owned(),
+                session.workspace.to_string_lossy().into_owned(),
+            )
+            .test_ok("valid token opens after rejection");
+    }
+
+    #[test]
+    fn session_open_receipt_names_the_committed_projection_revision() {
+        // P-27 contract: `open_workspace_session` resolves only after the initial rebuild
+        // commits, and the receipt's `projection_revision` is that committed high-water mark —
+        // the same clock a post-open query observes, never a pre-open or re-queried value.
+        let session = open_direct_engine();
+        let executor = FsPlatformActionExecutor::new(&session.exchange).test_ok("posix executor");
+        executor
+            .bind_root(
+                CapabilityToken::parse("notes-root").test_ok("direct capability"),
+                &session.workspace,
+            )
+            .test_ok("bind workspace");
+        let opened = session
+            .engine
+            .open_workspace_session(
+                Box::new(PosixBatchHost { executor }),
+                "UTC".to_owned(),
+                "yyyy_MM_dd".to_owned(),
+                session.workspace.to_string_lossy().into_owned(),
+            )
+            .test_ok("open session");
+        assert!(
+            !opened.device_id.is_empty(),
+            "the open receipt must carry the session device identity"
+        );
+        let page = session
+            .engine
+            .query_memos(
+                lomo_native::StoreMemoQuery {
+                    search_text: None,
+                    filters: lomo_native::StoreMemoFilters::default(),
+                    sort: lomo_native::StoreMemoSort::default(),
+                    boundary: None,
+                },
+                None,
+                32,
+                None,
+                false,
+            )
+            .test_ok("post-open query observes the installed session projection");
+        assert_eq!(
+            opened.projection_revision, page.high_water_revision,
+            "the open receipt must name the projection the initial rebuild committed"
         );
     }
 

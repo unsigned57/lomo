@@ -29,17 +29,28 @@ internal object BoltFfiNativeEngineFactory {
         invalidation: StoreInvalidationBus,
     ): RustEngineAdapter {
         val port = openPort(request)
-        if (request.workspace != null) {
-            port.openWorkspaceSession(
-                host = SessionPlatformBatchHost(executor),
-                timeZone = ZoneId.systemDefault().id,
-                mediaStageRoot = request.mediaStageRoot.absolutePath,
-            )
-        }
+        val sessionOpen =
+            if (request.workspace != null) {
+                port.openWorkspaceSession(
+                    host = SessionPlatformBatchHost(executor),
+                    timeZone = ZoneId.systemDefault().id,
+                    // The configured storage filename token crosses unchanged; Rust `DateFormat`
+                    // is the only authority that resolves or rejects it. A workspace request that
+                    // lost its token is a programming error, not a recoverable preference.
+                    dateFormat =
+                        requireNotNull(request.dateFormat) {
+                            "Workspace session open requires a date format token"
+                        },
+                    mediaStageRoot = request.mediaStageRoot.absolutePath,
+                )
+            } else {
+                null
+            }
         return RustEngineAdapter.acquire(
             native = port,
             platformBatchRunner = PlatformBatchRunner(native = port, executor = executor),
             invalidation = invalidation,
+            sessionOpenResult = sessionOpen,
         )
     }
 
@@ -79,6 +90,11 @@ internal data class NativeEngineOpenRequest(
     val exchangeRoot: File,
     val mediaStageRoot: File,
     val workspace: NativeWorkspaceSelection? = null,
+    /**
+     * Configured storage filename date token, transported verbatim to `openWorkspaceSession`.
+     * Null only for bootstrap requests: they never open a workspace session.
+     */
+    val dateFormat: String? = null,
     val bootstrapDeadlineMillis: ULong = DEFAULT_BOOTSTRAP_DEADLINE_MILLIS,
 ) {
     init {

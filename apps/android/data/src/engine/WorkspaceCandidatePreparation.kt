@@ -58,6 +58,26 @@ internal data class ManagedWorkspaceCandidate(
 }
 
 /**
+ * Reads the configured storage filename date token at candidate-open time so a format change
+ * applies to the next session without caching a stale snapshot. The token is transported
+ * verbatim; Rust `DateFormat` is the only resolver.
+ */
+internal fun interface SessionDateFormatSource {
+    suspend fun token(): String
+}
+
+/**
+ * Inputs the session forwards verbatim into every workspace-candidate open. The capability
+ * registry stays session-owned so grant registration and token revoke share one instance.
+ */
+internal data class CandidateOpenContext(
+    val filesDir: File,
+    val openAdapter: (NativeEngineOpenRequest) -> RustEngineAdapter,
+    val isContentUri: (String) -> Boolean,
+    val sessionDateFormat: SessionDateFormatSource,
+)
+
+/**
  * Opens and prepares a workspace candidate without changing the active session authority.
  *
  * Capability registration, projection inspection and candidate cleanup belong here so every
@@ -69,19 +89,25 @@ internal class WorkspaceCandidatePreparer(
     private val capabilityRegistry: CapabilityRegistry,
     private val openAdapter: (NativeEngineOpenRequest) -> RustEngineAdapter,
     private val isContentUri: (String) -> Boolean,
+    private val sessionDateFormat: SessionDateFormatSource,
 ) {
     fun openBootstrap(): ManagedWorkspaceCandidate =
         ManagedWorkspaceCandidate.bootstrap(
             openAdapter(NativeEngineOpenRequest.forAppFilesDir(filesDir)),
         )
 
-    fun prepare(location: StorageLocation): ManagedWorkspaceCandidate {
+    suspend fun prepare(location: StorageLocation): ManagedWorkspaceCandidate {
         val selection = selectionFor(location)
         val candidate = openWorkspaceAdapter(selection)
         val candidateReadiness = candidate.readiness.value
         if (candidateReadiness is EngineReadiness.Ready) {
             return try {
-                val projectionRevision = candidate.storeProjectionRevision()
+                // The open receipt is the only projection authority: FFI open returns only
+                // after the initial rebuild commits, and no store read can race the receipt.
+                val projectionRevision =
+                    requireNotNull(candidate.sessionProjectionRevision) {
+                        "Workspace session open completed without a projection revision"
+                    }
                 candidate.resnapshot()
                 val afterInspect = candidate.readiness.value
                 if (afterInspect !is EngineReadiness.Ready) {
@@ -120,25 +146,35 @@ internal class WorkspaceCandidatePreparer(
         throw activation
     }
 
-    fun rebuildProjectionForRecovery(
+    suspend fun rebuildProjectionForRecovery(
         location: StorageLocation,
         batchSize: UInt,
     ): com.lomo.nativebridge.StoreRebuildResult {
         val selection = selectionFor(location)
         val repairAdapter = openWorkspaceAdapter(selection)
-        val rebuildResult = runCatching { repairAdapter.startRebuild(batchSize) }
-        val closeFailure = runCatching(repairAdapter::close).exceptionOrNull()
-        selection.capabilityToken?.let(capabilityRegistry::revoke)
-        return rebuildResult.fold(
-            onSuccess = { result ->
-                if (closeFailure != null) throw closeFailure
-                result
-            },
-            onFailure = { failure ->
-                closeFailure?.let(failure::addSuppressed)
-                throw failure
-            },
-        )
+        var result: com.lomo.nativebridge.StoreRebuildResult? = null
+        var failure: Throwable? = null
+        try {
+            result = repairAdapter.startRebuild(batchSize)
+        } catch (cancelled: CancellationException) {
+            failure = cancelled
+            throw cancelled
+        } catch (thrown: Exception) {
+            failure = thrown
+        } finally {
+            val closeFailure = repairAdapter.closeResult()
+            // Capability revoke is never skipped by a failing adapter close.
+            selection.capabilityToken?.let(capabilityRegistry::revoke)
+            closeFailure?.let { failure?.addSuppressed(it) }
+            if (failure == null) {
+                failure = closeFailure
+            }
+        }
+        return if (failure == null) {
+            checkNotNull(result)
+        } else {
+            throw failure
+        }
     }
 
     private fun selectionFor(location: StorageLocation): PreparedSelection {
@@ -158,27 +194,33 @@ internal class WorkspaceCandidatePreparer(
         }
     }
 
-    private fun openWorkspaceAdapter(selection: PreparedSelection): RustEngineAdapter =
-        runCatching {
-            // Stage root follows the candidate selection, not the currently active workspace: a
-            // Direct workspace stages beside its root while SAF workspaces share the app-private
-            // host stage root.
-            val stageRoot =
-                when (val workspace = selection.workspace) {
-                    is NativeWorkspaceSelection.Direct -> workspace.rootPath
-                    is NativeWorkspaceSelection.Saf ->
-                        File(filesDir, com.lomo.data.engine.media.HOST_MEDIA_STAGE_ROOT_NAME)
-                }
+    private suspend fun openWorkspaceAdapter(selection: PreparedSelection): RustEngineAdapter {
+        // Stage root follows the candidate selection, not the currently active workspace: a
+        // Direct workspace stages beside its root while SAF workspaces share the app-private
+        // host stage root.
+        val stageRoot =
+            when (val workspace = selection.workspace) {
+                is NativeWorkspaceSelection.Direct -> workspace.rootPath
+                is NativeWorkspaceSelection.Saf ->
+                    File(filesDir, com.lomo.data.engine.media.HOST_MEDIA_STAGE_ROOT_NAME)
+            }
+        return try {
             openAdapter(
                 NativeEngineOpenRequest
                     .forAppFilesDir(filesDir)
                     .copy(
                         workspace = selection.workspace,
                         mediaStageRoot = stageRoot,
+                        dateFormat = sessionDateFormat.token(),
                     ),
             )
-        }.onFailure { selection.capabilityToken?.let(capabilityRegistry::revoke) }
-            .getOrThrow()
+        } catch (failure: Exception) {
+            selection.capabilityToken?.let(capabilityRegistry::revoke)
+            throw failure
+        }
+    }
+
+    private fun RustEngineAdapter.closeResult(): Throwable? = runCatching { close() }.exceptionOrNull()
 
     private fun failPreparation(
         candidate: RustEngineAdapter,

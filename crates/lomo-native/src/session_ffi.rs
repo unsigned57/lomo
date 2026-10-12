@@ -19,7 +19,7 @@ use lomo_core::{
     RelativeWorkspacePath,
 };
 use lomo_store::SafProjectionCommitResult;
-use lomo_workspace::{MemoId, WorkspaceRootId};
+use lomo_workspace::{MemoId, SessionLayout, WorkspaceRootId};
 
 use crate::{
     ActionOutcome, ActionResult, DocumentKind, DocumentMetadata, EngineError, ExpectedFingerprint,
@@ -31,7 +31,7 @@ use crate::{
     StoreSidebarDateCount, StoreSidebarProjection, StoreSidebarTagCount, VerifiedAbsence,
     artifact_from_ffi, artifact_to_ffi, batch_to_ffi, evidence_from_ffi, evidence_to_ffi,
     failure_from_core, failure_to_core,
-    media_ffi::{MediaPromotePlanDto, pending_promotes_from_ffi},
+    media_ffi::{ArchiveExportResultDto, MediaPromotePlanDto, pending_promotes_from_ffi},
     result_from_ffi,
     store_ffi::{
         decode_cursor, encode_cursor, ffi_query_start, memo_page_to_ffi, memo_query_from_ffi,
@@ -55,6 +55,21 @@ impl PlatformActionExecutor for HostedExecutor {
             .map_err(lomo_from_engine)?;
         result_from_ffi(result).map_err(lomo_from_engine)
     }
+}
+
+/// Successful session-open receipt.
+///
+/// `WorkspaceSession::open` returns only after the initial projection rebuild
+/// commits, so `projection_revision` is the coherent ready revision the host may
+/// publish immediately — a collector racing the open can never observe a
+/// pre-open clock as the mounted session's projection.
+#[data]
+#[derive(Clone, Debug)]
+pub struct SessionOpenResult {
+    /// Minted or loaded device identity for this session.
+    pub device_id: String,
+    /// `high_water_revision` of the projection committed by the initial rebuild.
+    pub projection_revision: u64,
 }
 
 #[data]
@@ -175,15 +190,6 @@ pub struct SessionCivilDate {
     pub year: i32,
     pub month: u8,
     pub day: u8,
-}
-
-#[data]
-#[derive(Clone, Debug)]
-pub struct SessionReviewCandidate {
-    pub memo_id: String,
-    pub created_at_ms: i64,
-    pub body_preview: String,
-    pub source_path: String,
 }
 
 #[data]
@@ -381,15 +387,29 @@ fn sweep_report_to_dto(
 impl LomoEngine {
     /// Opens the shared application session with a foreign platform-action host.
     ///
+    /// `date_format` is the host's configured journal-date token. It is resolved strictly
+    /// against [`DateFormat::ALL`] before any filesystem work runs: an unknown token fails
+    /// closed with `invalid_calendar_input` and installs no session.
+    ///
     /// # Errors
     ///
-    /// Missing workspace, duplicate open, private-directory, or recovery failures.
+    /// Missing workspace, duplicate open, invalid date-format token, private-directory, or
+    /// recovery failures.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "BoltFFI boundary requires owned request wire types"
+    )]
     pub fn open_workspace_session(
         &self,
         host: Box<dyn PlatformBatchHost>,
         time_zone: String,
+        date_format: String,
         media_stage_root: String,
-    ) -> Result<String, EngineError> {
+    ) -> Result<SessionOpenResult, EngineError> {
+        // Pure validation first: a foreign token must never reach `WorkspaceSessionConfig`
+        // nor trigger the workspace migration below.
+        let date_format = DateFormat::from_token(&date_format)
+            .map_err(|error| EngineError::from(LomoError::from(error)))?;
         let workspace = self.workspace.as_ref().ok_or_else(|| {
             session_err(
                 "workspace_not_selected",
@@ -418,35 +438,40 @@ impl LomoEngine {
                     .map_err(EngineError::from)?
             }
             core::WorkspaceDescriptor::Saf { .. } => {
-                let state = self
-                    .control_root
-                    .join("session")
-                    .join(identity)
-                    .join("state");
-                lomo_workspace::load_or_mint_workspace_generation(&state)
+                let session = SessionLayout::for_control_root(&self.control_root, identity);
+                lomo_workspace::load_or_mint_workspace_generation(&session.state)
                     .map_err(EngineError::from)?
             }
         };
-        let base = self.control_root.join("session").join(identity);
+        let session_layout = SessionLayout::for_control_root(&self.control_root, identity);
         let (capability, root_id) = (workspace.capability().clone(), WorkspaceRootId::Notes);
         let config = WorkspaceSessionConfig {
             capability,
             root_id,
             workspace_generation,
             time_zone,
-            date_format: DateFormat::default(),
-            state_dir: base.join("state"),
-            cache_dir: base.join("cache"),
-            runtime_dir: base.join("runtime"),
+            date_format,
+            state_dir: session_layout.state,
+            cache_dir: session_layout.cache,
+            runtime_dir: session_layout.runtime,
             exchange_dir: self.core.exchange_root().to_path_buf(),
             media_stage_root: PathBuf::from(media_stage_root),
         };
         let executor: Arc<dyn PlatformActionExecutor> = Arc::new(HostedExecutor { host });
         let session = WorkspaceSession::open(config, executor).map_err(EngineError::from)?;
-        let device_id = session.device_id().to_owned();
+        // `open` returns only after `rebuild_locked` commits the initial projection,
+        // so the receipt revision is the projection the session was minted with —
+        // never a value a later query could have raced.
+        let result = SessionOpenResult {
+            device_id: session.device_id().to_owned(),
+            projection_revision: session
+                .projection_clock()
+                .map_err(EngineError::from)?
+                .core_revision,
+        };
         *guard = Some(Arc::new(session));
         drop(guard);
-        Ok(device_id)
+        Ok(result)
     }
 
     /// Creates a memo through the shared application write transaction.
@@ -854,12 +879,13 @@ impl LomoEngine {
         })
     }
 
-    /// Writes a durable app-private snooze binding for one reminder definition. The caller passes
-    /// a validated duration; the deadline instant is computed by the owner.
+    /// Writes a durable app-private snooze binding for one reminder definition. The caller
+    /// passes a [`crate::ReminderSnoozeInterval`] owner option; the deadline instant is computed by
+    /// the owner — durations outside the option set are unrepresentable on the wire.
     ///
     /// # Errors
     ///
-    /// Session, validation, snooze storage, recovery-pending, or entry-budget failures.
+    /// Session, snooze storage, recovery-pending, or entry-budget failures.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "BoltFFI boundary requires owned String for foreign callers"
@@ -867,10 +893,10 @@ impl LomoEngine {
     pub fn session_snooze_reminder(
         &self,
         opaque_id: String,
-        snooze_duration_ms: i64,
+        interval: crate::ReminderSnoozeInterval,
     ) -> Result<(), EngineError> {
         with_session(self, |session| {
-            session.snooze_reminder(&opaque_id, snooze_duration_ms)
+            session.snooze_reminder(&opaque_id, crate::snooze_interval_to_application(interval))
         })
     }
 
@@ -987,6 +1013,17 @@ fn action_from_ffi(value: PlatformAction) -> Result<core::PlatformAction, Engine
                 expected_source: expected_from_ffi(expected_source)?,
             }
         }
+        PlatformAction::Read {
+            action_id,
+            capability_token,
+            path,
+            expected_source,
+        } => core::PlatformAction::Read {
+            action_id: core::ActionId::parse(&action_id).map_err(EngineError::from)?,
+            capability: CapabilityToken::parse(&capability_token).map_err(EngineError::from)?,
+            path: RelativeWorkspacePath::parse(&path).map_err(EngineError::from)?,
+            expected_source: expected_from_ffi(expected_source)?,
+        },
         PlatformAction::WriteFromExchange {
             action_id,
             capability_token,
@@ -1098,6 +1135,13 @@ fn output_to_ffi(value: &core::PlatformActionOutput) -> PlatformActionOutput {
         } => PlatformActionOutput::ReadToExchange {
             source_metadata: metadata_to_ffi(source_metadata),
             artifact: artifact_to_ffi(artifact),
+        },
+        core::PlatformActionOutput::Read {
+            source_metadata,
+            bytes,
+        } => PlatformActionOutput::Read {
+            source_metadata: metadata_to_ffi(source_metadata),
+            bytes: bytes.clone(),
         },
         core::PlatformActionOutput::WriteComplete { metadata } => {
             PlatformActionOutput::WriteComplete {
@@ -1256,6 +1300,30 @@ pub fn session_rebuild_projection(engine: &LomoEngine) -> Result<StoreRebuildRes
         corrupt_lomo_isolated: result.corrupt_lomo_isolated,
         high_water_revision: result.high_water_revision,
         rewritten: result.rewritten,
+    })
+}
+
+/// Exports the live workspace to a plaintext ZIP through the session-owned transaction lock.
+///
+/// The artifact path is derived inside `lomo-application` from the frozen session exchange
+/// environment (`<exchange>/exports/<name>.zip`); the wire carries only an optional bare
+/// file-name stem — hosts cannot nominate a filesystem location.
+///
+/// # Errors
+///
+/// Session, archive, or `archive_export_name_invalid` failures.
+pub fn session_export_archive(
+    engine: &LomoEngine,
+    workspace_root: &str,
+    file_name_hint: Option<&str>,
+) -> Result<ArchiveExportResultDto, EngineError> {
+    with_session(engine, |session| {
+        session.export_archive(Path::new(workspace_root), file_name_hint)
+    })
+    .map(|result| ArchiveExportResultDto {
+        archive_path: result.archive_path.to_string_lossy().into_owned(),
+        schema_version: result.manifest.schema_version,
+        entry_count: result.manifest.entries.len() as u64,
     })
 }
 

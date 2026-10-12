@@ -3,10 +3,12 @@ package com.lomo.data.di
 import com.lomo.data.engine.AndroidPlatformActionAccess
 import com.lomo.data.engine.AndroidPlatformActionExecutor
 import com.lomo.data.engine.BoltFfiNativeEngineFactory
+import com.lomo.data.engine.CandidateOpenContext
 import com.lomo.data.engine.CapabilityRegistry
 import com.lomo.data.engine.ContentResolverPlatformDocumentsGateway
 import com.lomo.data.engine.ExchangeResolver
 import com.lomo.data.engine.LeasedMarkdownWorkspace
+import com.lomo.data.engine.MAX_PARALLEL_READS
 import com.lomo.data.engine.ManagedEngineSession
 import com.lomo.data.engine.NativeEngineOpenRequest
 import com.lomo.data.engine.SessionNativeBridge
@@ -20,7 +22,11 @@ import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.EngineReadinessRepository
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
 import com.lomo.domain.repository.MarkdownReminderRepository
+import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.WorkspaceCandidateValidator
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import kotlinx.coroutines.flow.first
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.onClose
 import org.koin.core.module.dsl.withOptions
@@ -65,10 +71,18 @@ val engineModule =
         single<com.lomo.data.engine.PlatformActionAccess> {
             get<AndroidPlatformActionAccess>()
         }
+        // One shared read lane for the executor's independent-read batches; Koin owns its
+        // lifecycle so batch execution never rebuilds and tears down a pool per call.
+        single<ExecutorService>(named("platformReadExecutor")) {
+            Executors.newFixedThreadPool(MAX_PARALLEL_READS)
+        } withOptions {
+            onClose { executor -> executor?.shutdown() }
+        }
         single {
             AndroidPlatformActionExecutor(
                 access = get(),
                 currentTimeMillis = System::currentTimeMillis,
+                readExecutor = get(named("platformReadExecutor")),
             )
         }
         single<WorkspaceCandidateValidator> {
@@ -86,18 +100,27 @@ val engineModule =
             val executor = get<AndroidPlatformActionExecutor>()
             val invalidation = get<StoreInvalidationBus>()
             ManagedEngineSession(
-                filesDir = filesDir,
+                candidateOpen =
+                    CandidateOpenContext(
+                        filesDir = filesDir,
+                        openAdapter = { request ->
+                            BoltFfiNativeEngineFactory.openAdapter(
+                                request,
+                                executor,
+                                invalidation,
+                            )
+                        },
+                        isContentUri = ::isContentStorageUri,
+                        // Storage filename token is read verbatim at each candidate open; Rust
+                        // `DateFormat::from_token` is the single authority that validates it.
+                        sessionDateFormat =
+                            com.lomo.data.engine.SessionDateFormatSource {
+                                get<PreferencesRepository>().getStorageFilenameFormat().first()
+                            },
+                    ),
                 capabilityRegistry = registry,
-                openAdapter = { request ->
-                    BoltFfiNativeEngineFactory.openAdapter(
-                        request,
-                        executor,
-                        invalidation,
-                    )
-                },
                 directorySettingsRepository = get<DirectorySettingsRepository>(),
                 appScope = get(named("ApplicationScope")),
-                isContentUri = ::isContentStorageUri,
                 invalidation = invalidation,
                 ownsNativeEngine = get(),
             )

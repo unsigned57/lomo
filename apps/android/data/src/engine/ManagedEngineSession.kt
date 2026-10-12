@@ -60,12 +60,16 @@ import kotlin.concurrent.write
  * cold restore.
  */
 internal class ManagedEngineSession(
-    filesDir: File,
+    /**
+     * Candidate-open inputs forwarded verbatim into the preparer. `sessionDateFormat` is sampled
+     * at every candidate open so a settings change applies to the next session; Rust
+     * `DateFormat::from_token` is the sole validator (foreign tokens fail closed at the FFI
+     * boundary).
+     */
+    private val candidateOpen: CandidateOpenContext,
     private val capabilityRegistry: CapabilityRegistry,
-    openAdapter: (NativeEngineOpenRequest) -> RustEngineAdapter,
     private val directorySettingsRepository: DirectorySettingsRepository,
     private val appScope: CoroutineScope,
-    private val isContentUri: (String) -> Boolean,
     private val invalidation: StoreInvalidationBus,
     private val ownsNativeEngine: WorkspaceProcessDuty = WorkspaceProcessDuty.OWNED,
 ) : ManagedEngineCapabilities(),
@@ -83,10 +87,11 @@ internal class ManagedEngineSession(
     private val activationGeneration = AtomicLong(0)
     private val candidatePreparer =
         WorkspaceCandidatePreparer(
-            filesDir = filesDir,
+            filesDir = candidateOpen.filesDir,
             capabilityRegistry = capabilityRegistry,
-            openAdapter = openAdapter,
-            isContentUri = isContentUri,
+            openAdapter = candidateOpen.openAdapter,
+            isContentUri = candidateOpen.isContentUri,
+            sessionDateFormat = candidateOpen.sessionDateFormat,
         )
     // behavior-contract: stateful-var-ok: this is process-owned resource/lease/job handle, not a query cache
     private var activeAdapter: RustEngineAdapter? = null
@@ -167,7 +172,7 @@ internal class ManagedEngineSession(
         val workspaceKind =
             when {
                 location == null -> RecoveryWorkspaceKind.NONE
-                isContentUri(location.raw) -> RecoveryWorkspaceKind.SAF
+                candidateOpen.isContentUri(location.raw) -> RecoveryWorkspaceKind.SAF
                 else -> RecoveryWorkspaceKind.DIRECT
             }
         return recovery.toDiagnosticReport(workspaceKind)
@@ -531,6 +536,14 @@ internal class ManagedEngineSession(
             block(adapter)
         }
     }
+
+    /**
+     * True while any native adapter — bootstrap Awaiting or workspace Ready — is installed.
+     * Passive projections (peer lists, inbox mirrors) gate on this instead of demanding an
+     * adapter that cannot exist before the first engine open; commands keep failing closed
+     * through [withActiveEngineAdapter].
+     */
+    fun hasActiveEngineAdapter(): Boolean = adapterLease.read { activeAdapter != null }
 
     private sealed interface AdapterPromotion {
         data class Committed(

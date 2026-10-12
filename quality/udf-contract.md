@@ -39,6 +39,9 @@ comment cannot change it.
    entry in the same change; a name alone cannot prove the data flow is correct.
 6. An edit submission takes its CAS baseline from the edit session, and must not re-read the latest
    version before saving to replace the version the user saw.
+7. Engine-session mount views (readiness, location, authority, freshness) are slices of one
+   `WorkspaceMount` publication, driven by a single publish point. A consumer that needs cross-field
+   coherence collects `mount`; opening/recovery intermediates never appear as usable projections.
 
 ## 3. Rules and bounded exceptions
 

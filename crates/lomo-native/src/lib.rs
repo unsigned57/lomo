@@ -35,20 +35,18 @@ pub use lan_ffi::{
     LanTransferShapeDto,
 };
 pub use media_ffi::{
-    ArchiveExportResultDto, ArchiveInspectResultDto, MediaCommittedEntryDto, MediaManifestDto,
-    MediaPromotePlanDto, MediaSourceKind, MediaStageLeaseDto, MediaStageOwnerKindDto,
-    MediaStageRecordDto, MediaStageReleaseDto, MediaStagedDto, MediaTrashEntryDto,
-    pending_promotes_from_ffi,
+    ArchiveExportResultDto, MediaCommittedEntryDto, MediaManifestDto, MediaPromotePlanDto,
+    MediaSourceKind, MediaStageLeaseDto, MediaStageOwnerKindDto, MediaStageRecordDto,
+    MediaStageReleaseDto, MediaStagedDto, MediaTrashEntryDto, pending_promotes_from_ffi,
 };
 pub use session_ffi::{
     SessionCivilDate, SessionCivilTime, SessionCreateMemoRequest, SessionDateCount,
     SessionDeleteMemoRequest, SessionDraftGuardDto, SessionHourCount, SessionMediaFailureDto,
     SessionMediaProtectionDto, SessionMediaSweepReportDto, SessionMemoView, SessionPinMemoRequest,
-    SessionRestoreRequest, SessionRestoreRevisionRequest, SessionReviewCandidate, SessionSearchHit,
-    SessionSearchMode, SessionSearchOutcome, SessionSearchPage, SessionSearchRequest,
-    SessionStatistics, SessionStatisticsSnapshot, SessionTagCount, SessionTaskItem,
-    SessionToggleTaskRequest, SessionUpdateMemoRequest, SessionWeeklyHourCount, batch_from_ffi,
-    result_to_ffi,
+    SessionRestoreRequest, SessionRestoreRevisionRequest, SessionSearchHit, SessionSearchMode,
+    SessionSearchOutcome, SessionSearchPage, SessionSearchRequest, SessionStatistics,
+    SessionStatisticsSnapshot, SessionTagCount, SessionTaskItem, SessionToggleTaskRequest,
+    SessionUpdateMemoRequest, SessionWeeklyHourCount, batch_from_ffi, result_to_ffi,
 };
 pub use store_ffi::{
     StoreInvalidationScope, StoreMemoBatchCommit, StoreMemoBatchDelete, StoreMemoCommand,
@@ -86,8 +84,30 @@ pub struct RenderDocument {
     pub plain_text: String,
     pub node_count: u32,
     pub tag_names: Vec<String>,
-    pub attachment_destinations: Vec<String>,
+    pub attachments: Vec<MediaAttachment>,
     pub nodes: Vec<RenderNode>,
+}
+
+/// Owner media class for one attachment destination, projected verbatim from
+/// `lomo_workspace::attachment_media_class`.
+///
+/// The wire enum mirrors the owner variant set; Kotlin must read it directly and fail on
+/// values outside it rather than re-classify by MIME/extension prefixes.
+#[data]
+#[derive(Clone, Copy, Debug)]
+pub enum MediaClass {
+    Image,
+    Video,
+    Audio,
+    File,
+}
+
+/// One render attachment fact: the projected destination plus its owner media class.
+#[data]
+#[derive(Clone, Debug)]
+pub struct MediaAttachment {
+    pub destination: String,
+    pub media_class: MediaClass,
 }
 
 #[data]
@@ -137,6 +157,8 @@ pub struct RenderNode {
     pub checked: Option<bool>,
     pub action_start: Option<u64>,
     pub action_end: Option<u64>,
+    /// Owner media class of an `Image`-kind node destination; `None` on every other kind.
+    pub media_class: Option<MediaClass>,
 }
 
 #[data]
@@ -173,7 +195,32 @@ pub struct WorkspaceReminderReference {
     pub fired_count: u32,
     pub done: bool,
     pub interval_minutes: u32,
-    pub recurrence_code: String,
+    /// Owner recurrence vocabulary, projected verbatim — Kotlin reads the enum and never
+    /// parses or re-encodes grammar codes.
+    pub recurrence: ReminderRecurrence,
+}
+
+/// Recurrence vocabulary of the reminder token grammar (`r` field), mirrored from
+/// `lomo_workspace::ReminderRecurrence`. `None` writes no `r` field.
+#[data]
+#[derive(Clone, Copy, Debug)]
+pub enum ReminderRecurrence {
+    None,
+    Daily,
+    Weekly,
+}
+
+/// Snooze option vocabulary mirrored from `lomo_application::reminder_cmd::SnoozeInterval`:
+/// the complete legal duration set for durable snooze bindings.
+#[data]
+#[derive(Clone, Copy, Debug)]
+pub enum ReminderSnoozeInterval {
+    OneMinute,
+    ThreeMinutes,
+    FiveMinutes,
+    FifteenMinutes,
+    ThirtyMinutes,
+    SixtyMinutes,
 }
 
 #[data]
@@ -204,10 +251,6 @@ pub struct WorkspaceScanPage {
 
 #[data]
 #[derive(Clone, Debug)]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "BoltFFI wire enums must stay flat; the payload is serialized across the boundary"
-)]
 pub enum WorkspaceDocumentCommandKind {
     Create {
         time_part: String,
@@ -503,6 +546,14 @@ pub enum PlatformAction {
         exchange_token: String,
         expected_source: ExpectedFingerprint,
     },
+    /// Returns verified source bytes directly in the action output — session document reads
+    /// never stage an exchange artifact.
+    Read {
+        action_id: String,
+        capability_token: String,
+        path: String,
+        expected_source: ExpectedFingerprint,
+    },
     WriteFromExchange {
         action_id: String,
         capability_token: String,
@@ -593,6 +644,10 @@ pub enum PlatformActionOutput {
     ReadToExchange {
         source_metadata: DocumentMetadata,
         artifact: ExchangeArtifact,
+    },
+    Read {
+        source_metadata: DocumentMetadata,
+        bytes: Vec<u8>,
     },
     WriteComplete {
         metadata: DocumentMetadata,
@@ -1844,11 +1899,13 @@ impl LomoEngine {
             Some(core::WorkspaceDescriptor::Direct { canonical_root, .. }) => {
                 Ok(canonical_root.clone())
             }
-            Some(core::WorkspaceDescriptor::Saf { identity, .. }) => Ok(self
-                .control_root
-                .join("session")
-                .join(identity.as_str())
-                .join("state")),
+            Some(core::WorkspaceDescriptor::Saf { identity, .. }) => {
+                Ok(lomo_workspace::SessionLayout::for_control_root(
+                    &self.control_root,
+                    identity.as_str(),
+                )
+                .state)
+            }
             None => Err(EngineError::from(lomo_lan::lan_permission(
                 "lan_workspace_not_ready",
                 "LAN batch transfer requires an active writable workspace",
@@ -2070,21 +2127,24 @@ impl LomoEngine {
         media_ffi::ffi_query_media_manifest(&workspace_root, verified_entries)
     }
 
-    /// Dark-build archive v2 export (path-only).
+    /// Session-owned archive v2 export under the transaction lock.
+    ///
+    /// The artifact lands in the session-env export root (`<exchange>/exports/`); hosts supply
+    /// at most a bare file-name stem and can never nominate a filesystem path.
     ///
     /// # Errors
     ///
-    /// Archive export errors.
+    /// No active workspace session, `archive_export_name_invalid`, or archive export errors.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "BoltFFI boundary requires owned String for foreign callers"
     )]
-    pub fn archive_export(
+    pub fn session_export_archive(
         &self,
         workspace_root: String,
-        archive_path: String,
+        file_name_hint: Option<String>,
     ) -> Result<ArchiveExportResultDto, EngineError> {
-        media_ffi::ffi_archive_export(&workspace_root, &archive_path)
+        session_ffi::session_export_archive(self, &workspace_root, file_name_hint.as_deref())
     }
 
     /// Imports an archive through the session-owned switch: stage, activate, migrate, rebuild.
@@ -2124,7 +2184,7 @@ pub(crate) fn workspace_reminder_to_ffi(
         fired_count: value.fired_count,
         done: value.done,
         interval_minutes: value.interval_minutes,
-        recurrence_code: value.recurrence_code,
+        recurrence: recurrence_from_workspace(value.recurrence),
     }
 }
 
@@ -2146,7 +2206,37 @@ pub(crate) fn workspace_reminder_from_ffi(
         fired_count: value.fired_count,
         done: value.done,
         interval_minutes: value.interval_minutes,
-        recurrence_code: value.recurrence_code,
+        recurrence: recurrence_to_workspace(value.recurrence),
+    }
+}
+
+const fn recurrence_from_workspace(value: workspace::ReminderRecurrence) -> ReminderRecurrence {
+    match value {
+        workspace::ReminderRecurrence::None => ReminderRecurrence::None,
+        workspace::ReminderRecurrence::Daily => ReminderRecurrence::Daily,
+        workspace::ReminderRecurrence::Weekly => ReminderRecurrence::Weekly,
+    }
+}
+
+const fn recurrence_to_workspace(value: ReminderRecurrence) -> workspace::ReminderRecurrence {
+    match value {
+        ReminderRecurrence::None => workspace::ReminderRecurrence::None,
+        ReminderRecurrence::Daily => workspace::ReminderRecurrence::Daily,
+        ReminderRecurrence::Weekly => workspace::ReminderRecurrence::Weekly,
+    }
+}
+
+const fn snooze_interval_to_application(
+    value: ReminderSnoozeInterval,
+) -> lomo_application::reminder_cmd::SnoozeInterval {
+    use lomo_application::reminder_cmd::SnoozeInterval;
+    match value {
+        ReminderSnoozeInterval::OneMinute => SnoozeInterval::OneMinute,
+        ReminderSnoozeInterval::ThreeMinutes => SnoozeInterval::ThreeMinutes,
+        ReminderSnoozeInterval::FiveMinutes => SnoozeInterval::FiveMinutes,
+        ReminderSnoozeInterval::FifteenMinutes => SnoozeInterval::FifteenMinutes,
+        ReminderSnoozeInterval::ThirtyMinutes => SnoozeInterval::ThirtyMinutes,
+        ReminderSnoozeInterval::SixtyMinutes => SnoozeInterval::SixtyMinutes,
     }
 }
 
@@ -2230,6 +2320,13 @@ pub fn output_from_ffi(
         } => core::PlatformActionOutput::ReadToExchange {
             source_metadata: metadata_from_ffi(source_metadata)?,
             artifact: artifact_from_ffi(&artifact)?,
+        },
+        PlatformActionOutput::Read {
+            source_metadata,
+            bytes,
+        } => core::PlatformActionOutput::Read {
+            source_metadata: metadata_from_ffi(source_metadata)?,
+            bytes,
         },
         PlatformActionOutput::WriteComplete { metadata } => {
             core::PlatformActionOutput::WriteComplete {
@@ -2438,11 +2535,7 @@ pub fn action_to_ffi(value: &core::PlatformAction) -> PlatformAction {
             action_id,
             capability,
             target,
-        } => PlatformAction::Stat {
-            action_id: action_id.as_str().to_owned(),
-            capability_token: capability.as_str().to_owned(),
-            target: target_to_ffi(target),
-        },
+        } => stat_to_ffi(action_id, capability, target),
         core::PlatformAction::ListChildren {
             action_id,
             capability,
@@ -2460,11 +2553,7 @@ pub fn action_to_ffi(value: &core::PlatformAction) -> PlatformAction {
             action_id,
             capability,
             path,
-        } => PlatformAction::EnsureDirectory {
-            action_id: action_id.as_str().to_owned(),
-            capability_token: capability.as_str().to_owned(),
-            path: path.as_str().to_owned(),
-        },
+        } => ensure_directory_to_ffi(action_id, capability, path),
         core::PlatformAction::ReadToExchange {
             action_id,
             capability,
@@ -2480,6 +2569,12 @@ pub fn action_to_ffi(value: &core::PlatformAction) -> PlatformAction {
             exchange_token,
             expected_source,
         ),
+        core::PlatformAction::Read {
+            action_id,
+            capability,
+            path,
+            expected_source,
+        } => read_to_ffi(action_id, capability, path, expected_source),
         core::PlatformAction::WriteFromExchange {
             action_id,
             capability,
@@ -2487,17 +2582,14 @@ pub fn action_to_ffi(value: &core::PlatformAction) -> PlatformAction {
             path,
             mode,
             expected_target,
-        } => PlatformAction::WriteFromExchange {
-            action_id: action_id.as_str().to_owned(),
-            capability_token: capability.as_str().to_owned(),
-            artifact: artifact_to_ffi(artifact),
-            path: path.as_str().to_owned(),
-            mode: match mode {
-                core::WriteMode::Create => WriteMode::Create,
-                core::WriteMode::Replace => WriteMode::Replace,
-            },
-            expected_target: expected_to_ffi(expected_target),
-        },
+        } => write_from_exchange_to_ffi(
+            action_id,
+            capability,
+            artifact,
+            path,
+            *mode,
+            expected_target,
+        ),
         core::PlatformAction::ArtifactWrite {
             action_id,
             capability,
@@ -2512,25 +2604,20 @@ pub fn action_to_ffi(value: &core::PlatformAction) -> PlatformAction {
             target,
             expected_source,
             expected_target,
-        } => PlatformAction::Move {
-            action_id: action_id.as_str().to_owned(),
-            capability_token: capability.as_str().to_owned(),
-            source: source.as_str().to_owned(),
-            target: target.as_str().to_owned(),
-            expected_source: expected_to_ffi(expected_source),
-            expected_target: expected_to_ffi(expected_target),
-        },
+        } => move_to_ffi(
+            action_id,
+            capability,
+            source,
+            target,
+            expected_source,
+            expected_target,
+        ),
         core::PlatformAction::Delete {
             action_id,
             capability,
             path,
             expected_target,
-        } => PlatformAction::Delete {
-            action_id: action_id.as_str().to_owned(),
-            capability_token: capability.as_str().to_owned(),
-            path: path.as_str().to_owned(),
-            expected_target: expected_to_ffi(expected_target),
-        },
+        } => delete_to_ffi(action_id, capability, path, expected_target),
     }
 }
 
@@ -2584,6 +2671,97 @@ fn read_to_exchange_to_ffi(
         },
         exchange_token: exchange_token.as_str().to_owned(),
         expected_source: expected_to_ffi(expected_source),
+    }
+}
+
+fn write_from_exchange_to_ffi(
+    action_id: &core::ActionId,
+    capability: &core::CapabilityToken,
+    artifact: &core::ExchangeArtifact,
+    path: &core::RelativeWorkspacePath,
+    mode: core::WriteMode,
+    expected_target: &core::ExpectedFingerprint,
+) -> PlatformAction {
+    PlatformAction::WriteFromExchange {
+        action_id: action_id.as_str().to_owned(),
+        capability_token: capability.as_str().to_owned(),
+        artifact: artifact_to_ffi(artifact),
+        path: path.as_str().to_owned(),
+        mode: match mode {
+            core::WriteMode::Create => WriteMode::Create,
+            core::WriteMode::Replace => WriteMode::Replace,
+        },
+        expected_target: expected_to_ffi(expected_target),
+    }
+}
+
+fn read_to_ffi(
+    action_id: &core::ActionId,
+    capability: &core::CapabilityToken,
+    path: &core::RelativeWorkspacePath,
+    expected_source: &core::ExpectedFingerprint,
+) -> PlatformAction {
+    PlatformAction::Read {
+        action_id: action_id.as_str().to_owned(),
+        capability_token: capability.as_str().to_owned(),
+        path: path.as_str().to_owned(),
+        expected_source: expected_to_ffi(expected_source),
+    }
+}
+
+fn stat_to_ffi(
+    action_id: &core::ActionId,
+    capability: &core::CapabilityToken,
+    target: &core::WorkspaceTarget,
+) -> PlatformAction {
+    PlatformAction::Stat {
+        action_id: action_id.as_str().to_owned(),
+        capability_token: capability.as_str().to_owned(),
+        target: target_to_ffi(target),
+    }
+}
+
+fn ensure_directory_to_ffi(
+    action_id: &core::ActionId,
+    capability: &core::CapabilityToken,
+    path: &core::RelativeWorkspacePath,
+) -> PlatformAction {
+    PlatformAction::EnsureDirectory {
+        action_id: action_id.as_str().to_owned(),
+        capability_token: capability.as_str().to_owned(),
+        path: path.as_str().to_owned(),
+    }
+}
+
+fn move_to_ffi(
+    action_id: &core::ActionId,
+    capability: &core::CapabilityToken,
+    source: &core::RelativeWorkspacePath,
+    target: &core::RelativeWorkspacePath,
+    expected_source: &core::ExpectedFingerprint,
+    expected_target: &core::ExpectedFingerprint,
+) -> PlatformAction {
+    PlatformAction::Move {
+        action_id: action_id.as_str().to_owned(),
+        capability_token: capability.as_str().to_owned(),
+        source: source.as_str().to_owned(),
+        target: target.as_str().to_owned(),
+        expected_source: expected_to_ffi(expected_source),
+        expected_target: expected_to_ffi(expected_target),
+    }
+}
+
+fn delete_to_ffi(
+    action_id: &core::ActionId,
+    capability: &core::CapabilityToken,
+    path: &core::RelativeWorkspacePath,
+    expected_target: &core::ExpectedFingerprint,
+) -> PlatformAction {
+    PlatformAction::Delete {
+        action_id: action_id.as_str().to_owned(),
+        capability_token: capability.as_str().to_owned(),
+        path: path.as_str().to_owned(),
+        expected_target: expected_to_ffi(expected_target),
     }
 }
 
@@ -2753,10 +2931,18 @@ fn render_document_to_ffi(
         plain_text: document.plain_text().to_owned(),
         node_count: document.node_count(),
         tag_names: document.tag_names().to_vec(),
-        attachment_destinations: document
+        attachments: document
             .attachment_destinations()
             .iter()
-            .map(workspace::ImageDest::projected)
+            .map(|destination| {
+                let projected = destination.projected();
+                MediaAttachment {
+                    media_class: media_class_from_workspace(workspace::attachment_media_class(
+                        &projected,
+                    )),
+                    destination: projected,
+                }
+            })
             .collect(),
         nodes,
     })
@@ -2930,6 +3116,9 @@ fn render_inline_node(inline: &workspace::RenderInline, depth: u32) -> RenderNod
             // The authored token, not the canonical key: downstream renderers resolve
             // the destination against the same workspace the document came from.
             node.destination = Some(destination.raw().to_owned());
+            node.media_class = Some(media_class_from_workspace(
+                workspace::attachment_media_class(destination.raw()),
+            ));
             node.title.clone_from(title);
         }
         workspace::RenderInline::Tag { name, .. } => node.text = Some(name.clone()),
@@ -2945,6 +3134,15 @@ fn render_inline_node(inline: &workspace::RenderInline, depth: u32) -> RenderNod
         | workspace::RenderInline::HardBreak { .. } => {}
     }
     node
+}
+
+const fn media_class_from_workspace(class: workspace::MediaClass) -> MediaClass {
+    match class {
+        workspace::MediaClass::Image => MediaClass::Image,
+        workspace::MediaClass::Video => MediaClass::Video,
+        workspace::MediaClass::Audio => MediaClass::Audio,
+        workspace::MediaClass::File => MediaClass::File,
+    }
 }
 
 const fn render_inline_kind_and_span(
@@ -3005,6 +3203,7 @@ const fn empty_render_node(
         checked: None,
         action_start: None,
         action_end: None,
+        media_class: None,
     }
 }
 
@@ -3082,7 +3281,8 @@ pub struct ReminderTokenBuildRequest {
     pub fired_count: u32,
     pub done: bool,
     pub interval_minutes: u32,
-    pub recurrence_code: String,
+    /// Owner recurrence vocabulary — Kotlin passes the enum, never a grammar code string.
+    pub recurrence: ReminderRecurrence,
 }
 
 #[export]
@@ -3104,10 +3304,31 @@ pub fn build_reminder_token(request: ReminderTokenBuildRequest) -> Result<String
         request.fired_count,
         request.done,
         request.interval_minutes,
-        &request.recurrence_code,
+        recurrence_to_workspace(request.recurrence),
         Some(&embedded_id),
     )
     .map_err(EngineError::from)
+}
+
+#[export]
+/// The token-grammar default repeat interval (`i10` is implicit and never serialized).
+#[must_use]
+pub const fn reminder_default_interval_minutes() -> u32 {
+    workspace::DEFAULT_REMINDER_INTERVAL_MINUTES
+}
+
+#[export]
+/// Classifies one attachment destination or file name through the workspace media owner.
+///
+/// Sessionless: the class is a destination-name law, so storage backends can ask it before an
+/// engine session exists.
+#[must_use]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "BoltFFI boundary requires owned String for foreign callers"
+)]
+pub fn attachment_media_class(destination: String) -> MediaClass {
+    media_class_from_workspace(workspace::attachment_media_class(&destination))
 }
 
 #[export]
