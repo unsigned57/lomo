@@ -57,8 +57,6 @@ import com.lomo.ui.generated.resources.input_mode_edit
 import com.lomo.ui.generated.resources.input_mode_preview
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
-import com.lomo.ui.component.common.WithDraggableScrollbar
-import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.component.markdown.MarkdownRenderState
 import com.lomo.ui.text.scriptAwareFor

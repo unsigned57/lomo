@@ -1,6 +1,5 @@
 package com.lomo.ui.component.picker
 
-import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Box

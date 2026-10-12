@@ -9,12 +9,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -244,53 +241,6 @@ fun WithDraggableScrollbar(
             onThumbFractionChanged = { fraction ->
                 val metrics = lazyMetrics ?: return@DraggableScrollbarOverlay
                 scrollRequestDispatcher.dispatch(metrics.targetForFraction(fraction))
-            },
-            onDragStateChanged = { interaction.isThumbDragged = it },
-        )
-    }
-}
-
-/**
- * Mutable scroll-fraction state for bridging Android View scroll positions
- * (e.g. EditText) to [WithDraggableScrollbar].
- */
-@Stable
-class ViewScrollState {
-    var scrollFraction by mutableFloatStateOf(0f)
-    var canScroll by mutableStateOf(false)
-    var isScrollInProgress by mutableStateOf(false)
-    var onScrollToFraction: ((Float) -> Unit)? = null
-}
-
-@Composable
-fun WithDraggableScrollbar(
-    state: ViewScrollState,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    content: @Composable BoxScope.() -> Unit,
-) {
-    if (!enabled) {
-        Box(modifier = Modifier.then(modifier), content = content)
-        return
-    }
-    val thumbExtentPx = with(LocalDensity.current) { DraggableScrollbarTokens.ThumbHeight.toPx() }
-    val interaction =
-        rememberDraggableScrollbarInteractionState(
-            canScroll = state.canScroll,
-            isScrollInProgress = state.isScrollInProgress,
-        )
-
-    Box(modifier = Modifier.then(modifier)) {
-        content()
-        DraggableScrollbarOverlay(
-            visible = shouldShowDraggableScrollbar(canScroll = state.canScroll),
-            isThumbDragged = interaction.isThumbDragged,
-            isScrollInProgress = state.isScrollInProgress,
-            recentlyScrolled = interaction.recentlyScrolled,
-            thumbFraction = state.scrollFraction,
-            thumbExtentPx = thumbExtentPx,
-            onThumbFractionChanged = { fraction ->
-                state.onScrollToFraction?.invoke(fraction)
             },
             onDragStateChanged = { interaction.isThumbDragged = it },
         )

@@ -73,11 +73,7 @@ private fun isRemoteVersionNewer(
     localVersion: String,
     remoteVersion: String,
 ): Boolean =
-    try {
-        compareVersionParts(localVersion = localVersion, remoteVersion = remoteVersion) > 0
-    } catch (_: Exception) {
-        remoteVersion != localVersion
-    }
+    compareVersionParts(localVersion = localVersion, remoteVersion = remoteVersion) > 0
 
 private fun compareVersionParts(
     localVersion: String,
