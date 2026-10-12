@@ -4,6 +4,7 @@ import com.lomo.data.repository.AppRuntimeInfoRepositoryImpl
 import com.lomo.data.repository.AppUpdateApkDownloader
 import com.lomo.data.repository.AppUpdateApkVerifier
 import com.lomo.data.repository.AppUpdateDownloadRepositoryImpl
+import com.lomo.data.repository.AppUpdateHttpClientProvider
 import com.lomo.data.repository.AppUpdateInstallAttemptStore
 import com.lomo.data.repository.AppUpdateInstallerLauncher
 import com.lomo.data.repository.AppUpdateInstallerResultObserver
@@ -47,6 +48,7 @@ val appUpdateDataModule = module {
     single<AppUpdateInstallerLauncher> { FileProviderAppUpdateInstallerLauncher(androidContext(), get()) }
 
     single { AppUpdateTransportOwner.createDefault() }
+    single<AppUpdateHttpClientProvider> { get<AppUpdateTransportOwner>() }
     single<AppUpdateApkDownloader> { get<AppUpdateTransportOwner>().createDownloader() }
     single<AppUpdateTransportLifecycleRepository> { get<AppUpdateTransportOwner>() }
 

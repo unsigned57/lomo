@@ -6,45 +6,47 @@ import com.lomo.domain.model.AppUpdateFetchException
 import com.lomo.domain.model.AppUpdateFetchFailure
 import com.lomo.domain.model.LatestAppRelease
 import com.lomo.domain.repository.AppUpdateRepository
-import com.lomo.domain.usecase.DefaultDispatcherProvider
-import com.lomo.domain.usecase.DispatcherProvider
-import kotlinx.coroutines.withContext
+import io.ktor.client.plugins.HttpRequestTimeoutException
+import io.ktor.client.plugins.timeout
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
+import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
-class AppUpdateRepositoryImpl(
-    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
-    private val connector: (String) -> HttpURLConnection = { url ->
-        URL(url).openConnection() as HttpURLConnection
-    },
+import java.net.SocketTimeoutException
+import java.nio.channels.UnresolvedAddressException
+internal class AppUpdateRepositoryImpl(
+    private val httpClientProvider: AppUpdateHttpClientProvider,
 ) : AppUpdateRepository {
         override suspend fun fetchLatestRelease(): LatestAppRelease =
-            withContext(dispatcherProvider.io) {
-                var connection: HttpURLConnection? = null
-                try {
-                    connection = connector(GITHUB_LATEST_RELEASES_URL)
-                    connection.requestMethod = "GET"
-                    connection.connectTimeout = CONNECT_TIMEOUT_MS
-                    connection.readTimeout = READ_TIMEOUT_MS
-                    connection.setRequestProperty("User-Agent", USER_AGENT)
-                    val responseCode = connection.responseCode
-                    if (responseCode != HttpURLConnection.HTTP_OK) {
+            try {
+                httpClientProvider.withHttpClient { client ->
+                    val response =
+                        client.get(GITHUB_LATEST_RELEASES_URL) {
+                            header(HttpHeaders.UserAgent, USER_AGENT)
+                            timeout {
+                                connectTimeoutMillis = CONNECT_TIMEOUT_MS
+                                requestTimeoutMillis = REQUEST_TIMEOUT_MS
+                            }
+                        }
+                    if (!response.status.isSuccess()) {
                         throw AppUpdateFetchException(
                             AppUpdateFetchFailure.Http(
-                                code = responseCode,
-                                diagnostic = "release endpoint answered HTTP $responseCode",
+                                code = response.status.value,
+                                diagnostic = "release endpoint answered HTTP ${response.status.value}",
                             ),
                         )
                     }
-                    val response = connection.inputStream.bufferedReader().use { it.readText() }
                     try {
-                        parseLatestReleaseResponse(response)
-                    } catch (error: kotlinx.coroutines.CancellationException) {
+                        parseLatestReleaseResponse(response.bodyAsText())
+                    } catch (error: CancellationException) {
                         throw error
                     } catch (error: Exception) {
                         throw AppUpdateFetchException(
@@ -56,27 +58,35 @@ class AppUpdateRepositoryImpl(
                             error,
                         )
                     }
-                } catch (error: AppUpdateFetchException) {
-                    throw error
-                } catch (error: IOException) {
-                    throw AppUpdateFetchException(
-                        AppUpdateFetchFailure.Network(
-                            diagnostic = error.message ?: error.javaClass.simpleName.orEmpty(),
-                        ),
-                        error,
-                    )
-                } finally {
-                    connection?.disconnect()
                 }
+            } catch (error: AppUpdateFetchException) {
+                throw error
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: HttpRequestTimeoutException) {
+                throw networkFailure(error)
+            } catch (error: SocketTimeoutException) {
+                throw networkFailure(error)
+            } catch (error: UnresolvedAddressException) {
+                throw networkFailure(error)
+            } catch (error: IOException) {
+                throw networkFailure(error)
             }
         private companion object {
             const val GITHUB_LATEST_RELEASES_URL =
                 "https://api.github.com/repos/unsigned57/lomo/releases/latest"
             const val USER_AGENT = "Lomo-App"
-            const val CONNECT_TIMEOUT_MS = 5000
-            const val READ_TIMEOUT_MS = 5000
+            const val CONNECT_TIMEOUT_MS = 5_000L
+            const val REQUEST_TIMEOUT_MS = 5_000L
         }
     }
+private fun networkFailure(cause: Exception): AppUpdateFetchException =
+    AppUpdateFetchException(
+        AppUpdateFetchFailure.Network(
+            diagnostic = cause.message ?: cause.javaClass.simpleName.orEmpty(),
+        ),
+        cause,
+    )
 internal fun parseLatestReleaseResponse(responseBody: String): LatestAppRelease {
     val json = releaseJsonParser.parseToJsonElement(responseBody).jsonObject
     val assets = json["assets"]?.jsonArray.orEmpty()

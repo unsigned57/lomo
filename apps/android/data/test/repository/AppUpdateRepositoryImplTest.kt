@@ -5,11 +5,15 @@ import com.lomo.domain.model.AppUpdateFetchException
 import com.lomo.domain.model.AppUpdateFetchFailure
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
+import io.ktor.utils.io.ByteReadChannel
 import kotlinx.coroutines.test.runTest
-import java.io.ByteArrayInputStream
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 
 /*
  * Behavior Contract:
@@ -17,7 +21,8 @@ import java.net.URL
  * - Owning layer: data
  * - Priority tier: P0
  * - Capability: a manual update check distinguishes success, HTTP rejection, transport failure
- *   and malformed payload as typed failures — never a silent null.
+ *   and malformed payload as typed failures — never a silent null. The release check shares the
+ *   single Ktor transport stack owned by AppUpdateTransportOwner (via AppUpdateHttpClientProvider).
  *
  * Scenarios:
  * - Given an HTTP error code, when the release is fetched, then an Http failure carries the
@@ -27,21 +32,41 @@ import java.net.URL
  * - Given an unparseable payload, when the release is fetched, then a MalformedResponse failure
  *   is surfaced.
  * - Given a well-formed payload, when the release is fetched, then the parsed release is
- *   returned.
+ *   returned with the app User-Agent sent.
  *
  * Observable outcomes: AppUpdateFetchException variants or parsed LatestAppRelease.
  *
  * TDD proof:
- * - Fails before the fix because the contract surface under test did not exist.
- * Excludes: real network, APK download, install verification.
- */
+ * - Fails before the fix because the repository still opens java.net.HttpURLConnection through
+ *   a connector lambda and cannot be driven by a Ktor MockEngine.
+ * Excludes: real network, APK download, install verification, client lease lifecycle.
+  * Test Change Justification:
+ * - Reason category: transport implementation migration — java.net.HttpURLConnection replaced
+ *   by the single Ktor client stack (AppUpdateHttpClientProvider).
+ * - Old behavior/assertion being replaced: the stubbed URLConnection harness driving the
+ *   connector lambda.
+ * - Why old assertion is no longer correct: the repository no longer opens HttpURLConnection;
+ *   responses are driven through a Ktor MockEngine.
+ * - Coverage preserved by: the identical outcome matrix — HTTP error code, transport failure,
+ *   malformed payload, success with User-Agent — asserted as the same typed failures.
+ * - Why this is not fitting the test to the implementation: only the stubbing mechanism moved;
+ *   the asserted failure taxonomy is unchanged.
+*/
 class AppUpdateRepositoryImplTest : DataFunSpec() {
     init {
         test("given http error when fetching release then http failure carries the status code") {
             runTest {
-                val connection = stubbedConnection(statusCode = 503)
+                val repository =
+                    repositoryWith(
+                        MockEngine {
+                            respond(
+                                content = ByteReadChannel("unavailable".encodeToByteArray()),
+                                status = HttpStatusCode.ServiceUnavailable,
+                            )
+                        },
+                    )
 
-                val failure = fetchFailure { connection }
+                val failure = fetchFailure(repository)
 
                 failure.shouldBeInstanceOf<AppUpdateFetchFailure.Http>()
                 failure.code shouldBe 503
@@ -50,7 +75,12 @@ class AppUpdateRepositoryImplTest : DataFunSpec() {
 
         test("given io exception when fetching release then network failure is surfaced") {
             runTest {
-                val failure = fetchFailure { throw IOException("airplane mode") }
+                val repository =
+                    repositoryWith(
+                        MockEngine { throw IOException("airplane mode") },
+                    )
+
+                val failure = fetchFailure(repository)
 
                 failure.shouldBeInstanceOf<AppUpdateFetchFailure.Network>()
                 failure.diagnostic shouldBe "airplane mode"
@@ -59,9 +89,18 @@ class AppUpdateRepositoryImplTest : DataFunSpec() {
 
         test("given malformed payload when fetching release then malformed failure is surfaced") {
             runTest {
-                val connection = stubbedConnection(body = "{ not json")
+                val repository =
+                    repositoryWith(
+                        MockEngine {
+                            respond(
+                                content = ByteReadChannel("{ not json".encodeToByteArray()),
+                                status = HttpStatusCode.OK,
+                                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                            )
+                        },
+                    )
 
-                val failure = fetchFailure { connection }
+                val failure = fetchFailure(repository)
 
                 failure.shouldBeInstanceOf<AppUpdateFetchFailure.MalformedResponse>()
             }
@@ -69,49 +108,47 @@ class AppUpdateRepositoryImplTest : DataFunSpec() {
 
         test("given well formed payload when fetching release then parsed release is returned") {
             runTest {
-                val connection =
-                    stubbedConnection(
-                        body =
-                            """{"tag_name":"v1.2.0","html_url":"https://example.com/r","body":"notes","assets":[]}""",
+                var observedUserAgent: String? = null
+                val repository =
+                    repositoryWith(
+                        MockEngine { request ->
+                            observedUserAgent = request.headers[HttpHeaders.UserAgent]
+                            respond(
+                                content =
+                                    ByteReadChannel(
+                                        """{"tag_name":"v1.2.0","html_url":"https://example.com/r","body":"notes","assets":[]}"""
+                                            .encodeToByteArray(),
+                                    ),
+                                status = HttpStatusCode.OK,
+                                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                            )
+                        },
                     )
-                val repository = AppUpdateRepositoryImpl(connector = { connection })
 
                 val release = repository.fetchLatestRelease()
 
                 release.tagName shouldBe "v1.2.0"
+                observedUserAgent shouldBe AppUpdateHttpDownloader.USER_AGENT
             }
         }
     }
 }
 
-private suspend fun fetchFailure(connector: (String) -> HttpURLConnection): AppUpdateFetchFailure {
-    val repository = AppUpdateRepositoryImpl(connector = connector)
-    return try {
+private suspend fun fetchFailure(repository: AppUpdateRepositoryImpl): AppUpdateFetchFailure =
+    try {
         repository.fetchLatestRelease()
         error("expected AppUpdateFetchException")
     } catch (error: AppUpdateFetchException) {
         error.failure
     }
-}
 
-private fun stubbedConnection(
-    statusCode: Int = HttpURLConnection.HTTP_OK,
-    body: String = "",
-): HttpURLConnection = FakeHttpURLConnection(statusCode, body)
-
-private class FakeHttpURLConnection(
-    private val statusCode: Int,
-    body: String,
-) : HttpURLConnection(URL("https://example.com/releases")) {
-    private val bodyBytes = body.toByteArray()
-
-    override fun connect() = Unit
-
-    override fun disconnect() = Unit
-
-    override fun usingProxy() = false
-
-    override fun getResponseCode() = statusCode
-
-    override fun getInputStream() = ByteArrayInputStream(bodyBytes)
+private fun repositoryWith(engine: MockEngine): AppUpdateRepositoryImpl {
+    val client = HttpClient(engine)
+    return AppUpdateRepositoryImpl(
+        httpClientProvider =
+            object : AppUpdateHttpClientProvider {
+                override suspend fun <T> withHttpClient(block: suspend (HttpClient) -> T): T =
+                    block(client)
+            },
+    )
 }
