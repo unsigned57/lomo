@@ -1,8 +1,10 @@
 package com.lomo.ui.component.markdown
 
+import com.lomo.domain.model.MediaClass
 import com.lomo.domain.model.markdown.MarkdownRenderBlock
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownRenderInline
+import kotlinx.collections.immutable.toImmutableList
 
 /**
  * Compose-facing layout plan built exclusively from the Rust-owned typed Render IR.
@@ -17,12 +19,17 @@ data class MarkdownIrPresentationPlan(
 )
 
 sealed interface MarkdownIrPresentationItem {
+    /**
+     * [block] keeps the typed IR for semantic consumers (summaries, interaction facts) while
+     * [display] carries every derived render value precomputed at plan time.
+     */
     data class Block(
         val block: MarkdownRenderBlock,
+        val display: MarkdownIrBlockDisplay,
     ) : MarkdownIrPresentationItem
 
     data class Gallery(
-        val images: List<MarkdownRenderInline.Image>,
+        val images: kotlinx.collections.immutable.ImmutableList<MarkdownPresentationImage>,
     ) : MarkdownIrPresentationItem
 }
 
@@ -53,8 +60,15 @@ private fun buildPresentationItems(
         when {
             pendingImages.isEmpty() -> Unit
             pendingImages.size == 1 ->
-                items += MarkdownIrPresentationItem.Block(pendingImageBlocks.single())
-            else -> items += MarkdownIrPresentationItem.Gallery(pendingImages.toList())
+                items += presentationBlockItem(pendingImageBlocks.single())
+            else ->
+                items +=
+                    MarkdownIrPresentationItem.Gallery(
+                        images =
+                            pendingImages
+                                .map(MarkdownRenderInline.Image::toPresentationImage)
+                                .toImmutableList(),
+                    )
         }
         pendingImageBlocks.clear()
         pendingImages.clear()
@@ -64,7 +78,7 @@ private fun buildPresentationItems(
         val images = block.imageOnlyParagraphImages()
         if (images == null) {
             flushImages()
-            items += MarkdownIrPresentationItem.Block(block)
+            items += presentationBlockItem(block)
         } else {
             pendingImageBlocks += block as MarkdownRenderBlock.Paragraph
             pendingImages += images
@@ -74,9 +88,21 @@ private fun buildPresentationItems(
     return items
 }
 
+private fun presentationBlockItem(
+    block: MarkdownRenderBlock,
+): MarkdownIrPresentationItem.Block =
+    MarkdownIrPresentationItem.Block(
+        block = block,
+        display = buildMarkdownIrBlockDisplay(block),
+    )
+
 private fun MarkdownRenderBlock.imageOnlyParagraphImages(): List<MarkdownRenderInline.Image>? {
     val paragraph = this as? MarkdownRenderBlock.Paragraph ?: return null
     if (paragraph.inlines.isEmpty()) return null
     if (paragraph.inlines.any { inline -> inline !is MarkdownRenderInline.Image }) return null
-    return paragraph.inlines.map { inline -> inline as MarkdownRenderInline.Image }
+    val images = paragraph.inlines.map { inline -> inline as MarkdownRenderInline.Image }
+    // Audio embeds stay out of the image pager and render per block through the media lane;
+    // every other destination joins the gallery and fails closed inside image loading.
+    if (images.any { image -> image.mediaClass == MediaClass.AUDIO }) return null
+    return images
 }

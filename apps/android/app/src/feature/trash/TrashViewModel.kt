@@ -77,7 +77,7 @@ class TrashViewModel(
                             ),
                         ) { input, pagingData ->
                             pagingData.map { memo ->
-                                memoUiMapper.mapToCachedUiModel(
+                                memoUiMapper.peekOrMapToCachedUiModel(
                                     memo = memo,
                                     rootPath = input.root,
                                     imagePath = input.img,
@@ -100,7 +100,7 @@ class TrashViewModel(
                 scope = viewModelScope,
                 mapToUiModel = { memo ->
                     val input = mappingInput.value
-                    memoUiMapper.mapToCachedUiModel(
+                    memoUiMapper.peekOrMapToCachedUiModel(
                         memo = memo,
                         rootPath = input.root,
                         imagePath = input.img,

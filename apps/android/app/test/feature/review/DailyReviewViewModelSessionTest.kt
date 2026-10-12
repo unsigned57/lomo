@@ -121,7 +121,7 @@ class DailyReviewViewModelSessionTest : AppFunSpec() {
                     ),
                 appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
                 imageMapProvider = imageMapProvider,
-                memoUiMapper = testMemoUiMapper(),
+                memoUiMapper = testMemoUiMapper(dispatcherProvider = com.lomo.domain.usecase.SingleDispatcherProvider(testDispatcher)),
                 deleteMemoUseCase = deleteMemoUseCase,
                 updateMemoContentUseCase = updateMemoContentUseCase,
                 toggleMemoCheckboxUseCase = toggleMemoCheckboxUseCase,

@@ -14,9 +14,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.lomo.app.ExternalAppCommand
 import com.lomo.app.ExternalAppCommandTerminalResult
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.feature.common.PendingUiEvent
 import com.lomo.app.feature.memo.MemoEditorController
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.collections.immutable.toImmutableList
 
 @Composable
@@ -28,7 +30,7 @@ internal fun MainScreenForegroundAutoInputEffect(
     editorController: MemoEditorController,
     isRecording: Boolean,
     hasPendingNewMemoCreation: Boolean,
-    draftText: String,
+    draftText: StateFlow<String>,
 ) {
     MainForegroundAutoInputEffect(
         foregroundEntryId = foregroundEntryId,
@@ -49,20 +51,20 @@ internal fun MainScreenForegroundEffects(
     dependencies: MainScreenDependencies,
     foregroundEntryId: Long,
     autoOpenInputOnForeground: Boolean,
-    uiState: MainViewModel.MainScreenState,
-    sharedContentEvents: List<PendingUiEvent<MainViewModel.SharedContent>>,
-    pendingSharedImageEvents: List<PendingUiEvent<android.net.Uri>>,
-    appActionEvents: List<PendingUiEvent<MainViewModel.AppAction>>,
-    externalAppCommands: List<ExternalAppCommand>,
-    isRecording: Boolean,
-    recordingCaptureId: String?,
-    draftText: String,
-    voiceDirectoryConfigured: Boolean,
     canOpenCreateMemo: Boolean,
     pendingNewMemoCreationEvent: PendingUiEvent<PendingNewMemoCreationRequest>?,
     directoryGuideController: MainDirectoryGuideController,
     editorController: MemoEditorController,
 ) {
+    val uiState by dependencies.mainViewModel.uiState.collectAsStateWithLifecycle()
+    val sharedContentEvents by dependencies.mainViewModel.sharedContentEvents.collectAsStateWithLifecycle()
+    val pendingSharedImageEvents by dependencies.mainViewModel.pendingSharedImageEvents.collectAsStateWithLifecycle()
+    val appActionEvents by dependencies.mainViewModel.appActionEvents.collectAsStateWithLifecycle()
+    val externalAppCommands by dependencies.mainViewModel.externalAppCommands.collectAsStateWithLifecycle()
+    val voiceDirectory by dependencies.mainViewModel.voiceDirectory.collectAsStateWithLifecycle()
+    val isRecording by dependencies.recordingViewModel.isRecording.collectAsStateWithLifecycle()
+    val recordingCaptureId by dependencies.recordingViewModel.recordingCaptureId.collectAsStateWithLifecycle()
+
     MainScreenForegroundAutoInputEffect(
         foregroundEntryId = foregroundEntryId,
         enabled = autoOpenInputOnForeground,
@@ -75,18 +77,18 @@ internal fun MainScreenForegroundEffects(
         editorController = editorController,
         isRecording = isRecording,
         hasPendingNewMemoCreation = pendingNewMemoCreationEvent != null,
-        draftText = draftText,
+        draftText = dependencies.editorViewModel.draftText,
     )
 
     MainScreenExternalAppCommandEffects(
         dependencies = dependencies,
         externalAppCommands = remember(externalAppCommands) { externalAppCommands.toImmutableList() },
         uiState = uiState,
-        voiceDirectoryConfigured = voiceDirectoryConfigured,
+        voiceDirectoryConfigured = voiceDirectory != null,
         canOpenCreateMemo = canOpenCreateMemo,
         isRecording = isRecording,
         recordingCaptureId = recordingCaptureId,
-        draftText = draftText,
+        draftText = dependencies.editorViewModel.draftText,
         directoryGuideController = directoryGuideController,
         editorController = editorController,
     )
@@ -101,7 +103,7 @@ internal fun MainScreenExternalAppCommandEffects(
     canOpenCreateMemo: Boolean,
     isRecording: Boolean,
     recordingCaptureId: String?,
-    draftText: String,
+    draftText: StateFlow<String>,
     directoryGuideController: MainDirectoryGuideController,
     editorController: MemoEditorController,
 ) {

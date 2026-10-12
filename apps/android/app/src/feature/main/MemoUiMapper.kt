@@ -2,8 +2,10 @@ package com.lomo.app.feature.main
 
 import android.net.Uri
 import androidx.collection.LruCache
+import com.lomo.domain.model.MediaClass
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoContentKind
+import com.lomo.domain.model.markdown.MarkdownAttachment
 import com.lomo.domain.model.markdown.MarkdownRenderBlock
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownRenderInline
@@ -21,6 +23,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.LinkedHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 
 class MemoUiMapper(
@@ -31,7 +34,42 @@ class MemoUiMapper(
 
         private val imageContentResolver = MemoUiImageContentResolver()
         private val cacheMutex = Mutex()
-        private val cachedModels = LruCache<String, CachedMemoUiModel>(DEFAULT_CACHE_SIZE)
+        private val cacheHits = AtomicLong()
+        private val cacheMisses = AtomicLong()
+        private val cacheEvictions = AtomicLong()
+
+        /**
+         * Capacity alone decides which rows leave the cache: mapping one screen's collection must
+         * never purge rows another screen still renders, so there is no list-driven removal. LRU
+         * eviction under [DEFAULT_CACHE_SIZE] is the only shrink path and is counted through
+         * `entryRemoved` for observability.
+         */
+        private val cachedModels =
+            object : LruCache<String, CachedMemoUiModel>(DEFAULT_CACHE_SIZE) {
+                override fun entryRemoved(
+                    evicted: Boolean,
+                    key: String,
+                    oldValue: CachedMemoUiModel,
+                    newValue: CachedMemoUiModel?,
+                ) {
+                    if (evicted) {
+                        cacheEvictions.incrementAndGet()
+                    }
+                }
+            }
+
+        /**
+         * Point-in-time cache counters. Hits and misses count every probe (`peek` and the guarded
+         * lookup in [mapToCachedUiModel]), so a peek-miss that falls through to a full map records
+         * two misses; races can skew totals slightly but never lose a count.
+         */
+        fun cacheStats(): MemoUiMapperCacheStats =
+            MemoUiMapperCacheStats(
+                hits = cacheHits.get(),
+                misses = cacheMisses.get(),
+                evictions = cacheEvictions.get(),
+                size = cachedModels.size(),
+            )
 
         suspend fun mapToUiModels(
             memos: List<Memo>,
@@ -42,13 +80,6 @@ class MemoUiMapper(
             withContext(backgroundDispatcher) {
                 if (memos.isEmpty()) {
                     return@withContext emptyList()
-                }
-
-                val currentMemoIds = memos.asSequence().map(Memo::id).toSet()
-                cacheMutex.withLock {
-                    cachedModels.snapshot().keys
-                        .filterNot(currentMemoIds::contains)
-                        .forEach(cachedModels::remove)
                 }
 
                 coroutineScope {
@@ -153,8 +184,45 @@ class MemoUiMapper(
             // LruCache point reads are internally synchronized; key equality is the
             // consistency guard, so a torn read can only degrade to a miss.
             val cached = cachedModels[memo.id]
-            return cached?.takeIf { it.key == cacheKey }?.model
+            return cached
+                ?.takeIf { it.key == cacheKey }
+                ?.run {
+                    cacheHits.incrementAndGet()
+                    model
+                }
+                ?: run {
+                    cacheMisses.incrementAndGet()
+                    null
+                }
         }
+
+        /**
+         * The single cache-aware mapping path for every paging transform. A synchronous peek serves
+         * cached rows without a dispatcher hop; a miss performs the parse on the background
+         * dispatcher so Paging collection never runs the mapping on the caller's lane.
+         */
+        internal suspend fun peekOrMapToCachedUiModel(
+            memo: Memo,
+            rootPath: String?,
+            imagePath: String?,
+            imageMap: Map<String, Uri>,
+            reminders: List<com.lomo.domain.model.ReminderMarker>,
+        ): MemoUiModel =
+            peekCachedUiModel(
+                memo = memo,
+                rootPath = rootPath,
+                imagePath = imagePath,
+                imageMap = imageMap,
+                reminders = reminders,
+            ) ?: withContext(backgroundDispatcher) {
+                mapToCachedUiModel(
+                    memo = memo,
+                    rootPath = rootPath,
+                    imagePath = imagePath,
+                    imageMap = imageMap,
+                    reminders = reminders,
+                )
+            }
 
         internal suspend fun mapToCachedUiModel(
             memo: Memo,
@@ -166,8 +234,10 @@ class MemoUiMapper(
             val cacheKey = buildCacheKey(memo, rootPath, imagePath, imageMap, reminders)
             val cached = cacheMutex.withLock { cachedModels[memo.id] }
             if (cached?.key == cacheKey) {
+                cacheHits.incrementAndGet()
                 return cached.model
             }
+            cacheMisses.incrementAndGet()
 
             val uiModel =
                 mapToUiModel(
@@ -221,7 +291,7 @@ class MemoUiMapper(
                 projectedCharCount = memo.projectedCharCount,
                 imageDependencySignature =
                     buildImageMapDependencySignatureForPaths(
-                        imagePaths = memo.imageUrls.filterNot(::isAudioAttachmentPath).toSet(),
+                        imagePaths = memo.imageUrls.toSet(),
                         imageMap = imageMap,
                     ),
             )
@@ -262,7 +332,10 @@ class MemoUiMapper(
                 sourceByteLength = sourceByteLength,
                 plainText = displayContent,
                 tagNames = memo.tags,
-                attachmentDestinations = memo.imageUrls,
+                attachments =
+                    memo.imageUrls.map { url ->
+                        MarkdownAttachment(destination = url, mediaClass = MediaClass.IMAGE)
+                    },
                 blocks = blocks,
             )
         }
@@ -272,6 +345,14 @@ class MemoUiMapper(
             private const val DEFAULT_CACHE_SIZE = 256
         }
     }
+
+/** Cache observability surface: hits, misses, LRU evictions and current occupancy. */
+data class MemoUiMapperCacheStats(
+    val hits: Long,
+    val misses: Long,
+    val evictions: Long,
+    val size: Int,
+)
 
 private data class MemoUiCacheKey(
     val memoId: String,

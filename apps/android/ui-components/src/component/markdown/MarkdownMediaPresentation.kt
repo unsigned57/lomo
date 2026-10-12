@@ -1,11 +1,13 @@
 package com.lomo.ui.component.markdown
 
 import androidx.compose.runtime.Composable
+import com.lomo.domain.model.MediaClass
 
-/** Presentation projection of an image already identified by the Rust render IR. */
+/** Presentation projection of a media embed already identified by the Rust render IR. */
 data class MarkdownPresentationImage(
     val destination: String,
     val description: String? = null,
+    val mediaClass: MediaClass,
 )
 
 data class MarkdownMediaPresentation(

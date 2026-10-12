@@ -71,7 +71,11 @@ class TrashViewModelTest : AppFunSpec() {
     private val repository = FakeMemoStore()
     private val appConfigRepository = FakeAppConfigRepository()
     private val imageMapProvider: ImageMapProvider = emptyImageMapProvider()
-    private val memoUiMapper: MemoUiMapper = testMemoUiMapper()
+    private val memoUiMapper: MemoUiMapper =
+        testMemoUiMapper(
+            dispatcherProvider =
+                com.lomo.domain.usecase.SingleDispatcherProvider(testDispatcher),
+        )
     private val engineReadinessRepository = FakeEngineReadinessRepository()
 
     init {

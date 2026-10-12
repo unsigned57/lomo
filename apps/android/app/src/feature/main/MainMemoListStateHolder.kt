@@ -25,7 +25,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.withContext
+
 
 private const val SEARCH_DEBOUNCE_MILLIS = 150L
 internal const val DEFAULT_MAIN_LIST_PAGE_SIZE = 20
@@ -52,7 +52,6 @@ internal data class MainMemoListStateHolderDependencies(
     val rootDirectory: StateFlow<String?>,
     val imageDirectory: StateFlow<String?>,
     val imageMap: StateFlow<Map<String, android.net.Uri>>,
-    val dispatcherProvider: com.lomo.domain.usecase.DispatcherProvider,
 )
 
 internal class MainMemoListStateHolder(
@@ -67,7 +66,6 @@ internal class MainMemoListStateHolder(
     private val rootDirectory = dependencies.rootDirectory
     private val imageDirectory = dependencies.imageDirectory
     private val imageMap = dependencies.imageMap
-    private val dispatcherProvider = dependencies.dispatcherProvider
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     private val mainMemoQueryInput: StateFlow<MemoQueryInput> =
         combine(
@@ -128,21 +126,13 @@ internal class MainMemoListStateHolder(
             memoPagingData.filterNotNull(),
         ) { currentMappingInput, pagingData ->
             pagingData.map { memo ->
-                memoUiMapper.peekCachedUiModel(
+                memoUiMapper.peekOrMapToCachedUiModel(
                     memo = memo,
                     rootPath = currentMappingInput.rootDirectory,
                     imagePath = currentMappingInput.imageDirectory,
                     imageMap = currentMappingInput.imageMap,
                     reminders = memo.reminders,
-                ) ?: withContext(dispatcherProvider.default) {
-                    memoUiMapper.mapToCachedUiModel(
-                        memo = memo,
-                        rootPath = currentMappingInput.rootDirectory,
-                        imagePath = currentMappingInput.imageDirectory,
-                        imageMap = currentMappingInput.imageMap,
-                        reminders = memo.reminders,
-                    )
-                }
+                )
             }
         }.cachedIn(scope)
 
@@ -166,7 +156,7 @@ internal class MainMemoListStateHolder(
                     ) { mainMemoListQueryUseCase.getGalleryMemosPagingSource() }.flow
                         .map { pagingData ->
                             pagingData.filter { memo ->
-                                memo.imageUrls.any { path -> !isAudioAttachmentPath(path) }
+                                memo.imageUrls.isNotEmpty()
                             }
                         }
                 }
@@ -183,21 +173,13 @@ internal class MainMemoListStateHolder(
             galleryPagingData.filterNotNull(),
         ) { currentMappingInput, pagingData ->
             pagingData.map { memo ->
-                memoUiMapper.peekCachedUiModel(
+                memoUiMapper.peekOrMapToCachedUiModel(
                     memo = memo,
                     rootPath = currentMappingInput.rootDirectory,
                     imagePath = currentMappingInput.imageDirectory,
                     imageMap = currentMappingInput.imageMap,
                     reminders = memo.reminders,
-                ) ?: withContext(dispatcherProvider.default) {
-                    memoUiMapper.mapToCachedUiModel(
-                        memo = memo,
-                        rootPath = currentMappingInput.rootDirectory,
-                        imagePath = currentMappingInput.imageDirectory,
-                        imageMap = currentMappingInput.imageMap,
-                        reminders = memo.reminders,
-                    )
-                }
+                )
             }
         }.cachedIn(scope)
 }

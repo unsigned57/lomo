@@ -13,19 +13,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.LinkAnnotation
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import com.lomo.domain.model.markdown.MarkdownRenderBlock
+import com.lomo.domain.model.MediaClass
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
-import com.lomo.domain.model.markdown.MarkdownRenderInline
-import com.lomo.domain.model.markdown.MarkdownRenderListItem
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.ui.text.MemoTextSelectionRegistrar
-import kotlinx.collections.immutable.toImmutableList
 
 /** Compose renderer over the validated Rust-owned IR. This surface never accepts Markdown source. */
 @Composable
@@ -91,31 +83,32 @@ internal fun MarkdownIrRenderer(
     LaunchedEffect(plan.totalBlocks, onTotalBlocks) {
         onTotalBlocks?.invoke(plan.totalBlocks)
     }
+    val context =
+        MarkdownIrRenderContext(
+            onTaskClick = onTaskClick,
+            onImageClick = onImageClick,
+            mediaPresentationResolver = mediaPresentationResolver,
+            enableTextSelection = enableTextSelection,
+            textSelectionRegistrar = textSelectionRegistrar,
+            onTextTapFeedback = onTextTapFeedback,
+            onTextBodyClick = onTextBodyClick,
+            onTextDoubleClick = onTextDoubleClick,
+            onTextLongClick = onTextLongClick,
+            hideImages = hideImages,
+            mediaContent = mediaContent,
+        )
     Column(modifier = modifier) {
         plan.items.forEach { item ->
             when (item) {
                 is MarkdownIrPresentationItem.Block ->
-                    MarkdownIrBlock(
-                        block = item.block,
-                        context =
-                            MarkdownIrRenderContext(
-                                onTaskClick = onTaskClick,
-                                onImageClick = onImageClick,
-                                mediaPresentationResolver = mediaPresentationResolver,
-                                enableTextSelection = enableTextSelection,
-                                textSelectionRegistrar = textSelectionRegistrar,
-                                onTextTapFeedback = onTextTapFeedback,
-                                onTextBodyClick = onTextBodyClick,
-                                onTextDoubleClick = onTextDoubleClick,
-                                onTextLongClick = onTextLongClick,
-                                hideImages = hideImages,
-                                mediaContent = mediaContent,
-                            ),
+                    MarkdownIrBlockDisplay(
+                        display = item.display,
+                        context = context,
                     )
                 is MarkdownIrPresentationItem.Gallery ->
                     if (!hideImages) {
                         MarkdownImagePager(
-                            images = item.images.map(MarkdownRenderInline.Image::toPresentationImage).toImmutableList(),
+                            images = item.images,
                             onImageClick = onImageClick,
                         )
                     }
@@ -125,67 +118,66 @@ internal fun MarkdownIrRenderer(
 }
 
 @Composable
-private fun MarkdownIrBlock(
-    block: MarkdownRenderBlock,
+private fun MarkdownIrBlockDisplay(
+    display: MarkdownIrBlockDisplay,
     context: MarkdownIrRenderContext,
 ) {
-    when (block) {
-        is MarkdownRenderBlock.Paragraph ->
+    when (display) {
+        is MarkdownIrBlockDisplay.Paragraph ->
             MarkdownIrParagraph(
-                inlines = block.inlines,
+                text = display.text,
+                images = display.images,
                 context = context,
             )
-        is MarkdownRenderBlock.Heading ->
+        is MarkdownIrBlockDisplay.Heading ->
             Text(
-                text = block.inlines.toAnnotatedText(),
+                text = display.text,
                 style =
-                    when (block.level) {
+                    when (display.level) {
                         1u -> MaterialTheme.typography.headlineMedium
                         2u -> MaterialTheme.typography.headlineSmall
                         else -> MaterialTheme.typography.titleMedium
                     },
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             )
-        is MarkdownRenderBlock.BlockQuote ->
+        is MarkdownIrBlockDisplay.BlockQuote ->
             Column(modifier = Modifier.fillMaxWidth().padding(start = 12.dp)) {
-                block.blocks.forEach { child ->
-                    MarkdownIrBlock(
-                        block = child,
+                display.blocks.forEach { child ->
+                    MarkdownIrBlockDisplay(
+                        display = child,
                         context = context,
                     )
                 }
             }
-        is MarkdownRenderBlock.ListBlock ->
+        is MarkdownIrBlockDisplay.ListBlock ->
             Column(modifier = Modifier.fillMaxWidth()) {
-                block.items.forEachIndexed { index, item ->
+                display.items.forEach { item ->
                     MarkdownIrListItem(
                         item = item,
-                        marker = if (block.ordered) "${block.startNumber + index.toULong()}." else "•",
                         context = context,
                     )
                 }
             }
-        is MarkdownRenderBlock.CodeBlock ->
+        is MarkdownIrBlockDisplay.CodeBlock ->
             Text(
-                text = block.literal,
+                text = display.literal,
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             )
-        is MarkdownRenderBlock.ThematicBreak -> Text("────────", modifier = Modifier.fillMaxWidth())
-        is MarkdownRenderBlock.Table ->
+        is MarkdownIrBlockDisplay.ThematicBreak -> Text("────────", modifier = Modifier.fillMaxWidth())
+        is MarkdownIrBlockDisplay.Table ->
             Column(modifier = Modifier.fillMaxWidth()) {
-                (listOf(block.header) + block.rows).forEach { row ->
-                    Text(row.joinToString(" | ") { cell -> cell.inlines.toPlainText() })
+                display.rows.forEach { row ->
+                    Text(row)
                 }
             }
-        is MarkdownRenderBlock.HtmlBlock -> Text(block.literal, modifier = Modifier.fillMaxWidth())
+        is MarkdownIrBlockDisplay.HtmlBlock -> Text(display.literal, modifier = Modifier.fillMaxWidth())
     }
 }
 
 @Composable
 private fun MarkdownIrListItem(
-    item: MarkdownRenderListItem,
-    marker: String,
+    item: MarkdownIrListItemDisplay,
     context: MarkdownIrRenderContext,
 ) {
     Row(modifier = Modifier.fillMaxWidth()) {
@@ -198,7 +190,7 @@ private fun MarkdownIrListItem(
                 onCheckedChange = if (onTaskClick == null) null else ({ onTaskClick(actionSpan) }),
             )
         } else {
-            Text(marker, modifier = Modifier.width(28.dp))
+            Text(item.marker, modifier = Modifier.width(28.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
             val childContext =
@@ -209,8 +201,8 @@ private fun MarkdownIrListItem(
                     onTextLongClick = null,
                 )
             item.blocks.forEach { child ->
-                MarkdownIrBlock(
-                    block = child,
+                MarkdownIrBlockDisplay(
+                    display = child,
                     context = childContext,
                 )
             }
@@ -220,11 +212,10 @@ private fun MarkdownIrListItem(
 
 @Composable
 private fun MarkdownIrParagraph(
-    inlines: List<MarkdownRenderInline>,
+    text: AnnotatedString,
+    images: List<MarkdownPresentationImage>,
     context: MarkdownIrRenderContext,
 ) {
-    val images = inlines.filterIsInstance<MarkdownRenderInline.Image>()
-    val text = inlines.filterNot { inline -> inline is MarkdownRenderInline.Image }.toAnnotatedText()
     if (text.isNotEmpty()) {
         MDText(
             text = text,
@@ -238,83 +229,15 @@ private fun MarkdownIrParagraph(
         )
     }
     if (!context.hideImages) {
-        images.forEach { image ->
-            val presentationImage = image.toPresentationImage()
+        images.forEach { presentationImage ->
             val media = context.mediaPresentationResolver?.invoke(presentationImage)
             if (media != null && context.mediaContent != null) {
                 context.mediaContent(media)
-            } else {
+            } else if (presentationImage.mediaClass != MediaClass.AUDIO) {
+                // Non-audio destinations enter the image request lane; MarkdownImageBlock
+                // judges real image-ness fail-closed through the Coil load state.
                 MarkdownImageBlock(presentationImage, context.onImageClick)
             }
         }
     }
-}
-
-private fun MarkdownRenderInline.Image.toPresentationImage(): MarkdownPresentationImage =
-    MarkdownPresentationImage(
-        destination = destination,
-        description = title ?: altText.takeIf(String::isNotBlank),
-    )
-
-private fun List<MarkdownRenderInline>.toPlainText(): String =
-    buildString { this@toPlainText.forEach { inline -> append(inline.plainText()) } }
-
-private fun MarkdownRenderInline.plainText(): String =
-    when (this) {
-        is MarkdownRenderInline.Text -> text
-        is MarkdownRenderInline.Strong -> inlines.toPlainText()
-        is MarkdownRenderInline.Emphasis -> inlines.toPlainText()
-        is MarkdownRenderInline.Strikethrough -> inlines.toPlainText()
-        is MarkdownRenderInline.Highlight -> inlines.toPlainText()
-        is MarkdownRenderInline.Code -> text
-        is MarkdownRenderInline.Link -> inlines.toPlainText()
-        is MarkdownRenderInline.Image -> altText
-        is MarkdownRenderInline.Tag -> "#$name"
-        is MarkdownRenderInline.Reminder -> token
-        is MarkdownRenderInline.WikiReference -> inlines.toPlainText().ifBlank { target }
-        is MarkdownRenderInline.SoftBreak,
-        is MarkdownRenderInline.HardBreak,
-        -> "\n"
-        is MarkdownRenderInline.HtmlInline -> literal
-    }
-
-private fun List<MarkdownRenderInline>.toAnnotatedText(): AnnotatedString {
-    val builder = AnnotatedString.Builder()
-    forEach { inline -> builder.appendInline(inline) }
-    return builder.toAnnotatedString()
-}
-
-private fun AnnotatedString.Builder.appendInline(inline: MarkdownRenderInline) {
-    when (inline) {
-        is MarkdownRenderInline.Text -> append(inline.text)
-        is MarkdownRenderInline.Strong -> withStyle(SpanStyle(fontWeight = FontWeight.Bold), inline.inlines)
-        is MarkdownRenderInline.Emphasis -> withStyle(SpanStyle(fontStyle = FontStyle.Italic), inline.inlines)
-        is MarkdownRenderInline.Strikethrough ->
-            withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough), inline.inlines)
-        is MarkdownRenderInline.Highlight -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold), inline.inlines)
-        is MarkdownRenderInline.Code -> append(inline.text)
-        is MarkdownRenderInline.Link -> {
-            pushLink(LinkAnnotation.Url(inline.destination))
-            inline.inlines.forEach(::appendInline)
-            pop()
-        }
-        is MarkdownRenderInline.Image -> Unit
-        is MarkdownRenderInline.Tag -> append("#${inline.name}")
-        is MarkdownRenderInline.Reminder -> append(inline.token)
-        is MarkdownRenderInline.WikiReference ->
-            if (inline.inlines.isEmpty()) append(inline.target) else inline.inlines.forEach(::appendInline)
-        is MarkdownRenderInline.SoftBreak,
-        is MarkdownRenderInline.HardBreak,
-        -> append('\n')
-        is MarkdownRenderInline.HtmlInline -> append(inline.literal)
-    }
-}
-
-private fun AnnotatedString.Builder.withStyle(
-    style: SpanStyle,
-    children: List<MarkdownRenderInline>,
-) {
-    pushStyle(style)
-    children.forEach(::appendInline)
-    pop()
 }

@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.flow.StateFlow
 
 internal enum class MainForegroundAutoInputPolicy {
     Ignore,
@@ -61,12 +62,15 @@ internal fun MainForegroundAutoInputEffect(
     editorVisible: Boolean,
     isRecording: Boolean,
     hasPendingNewMemoCreation: Boolean,
-    draftText: String,
+    /**
+     * The draft body, read from the flow only when an entry actually opens the editor. Keeping it
+     * out of the effect keys means typing never retriggers the foreground-entry decision.
+     */
+    draftText: StateFlow<String>,
     onOpenDraftEditor: (String) -> Unit,
     onRefocusEditor: () -> Unit,
 ) {
     var handledForegroundEntryId by remember { mutableLongStateOf(0L) }
-    val latestDraftText by rememberUpdatedState(draftText)
     val latestOpenDraftEditor by rememberUpdatedState(onOpenDraftEditor)
     val latestRefocusEditor by rememberUpdatedState(onRefocusEditor)
 
@@ -107,7 +111,7 @@ internal fun MainForegroundAutoInputEffect(
             }
 
             MainForegroundAutoInputPolicy.OpenDraftEditor -> {
-                latestOpenDraftEditor(latestDraftText)
+                latestOpenDraftEditor(draftText.value)
                 handledForegroundEntryId = foregroundEntryId
             }
         }

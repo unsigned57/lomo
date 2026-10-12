@@ -7,19 +7,24 @@ import com.lomo.app.ExternalAppCommandTerminalResult
 import com.lomo.app.feature.memo.MemoEditorController
 import com.lomo.app.feature.memo.appendMarkdownBlock
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.coroutines.flow.StateFlow
 
 @Composable
 internal fun ExternalAppCommandExecutionEffect(
     commands: ImmutableList<ExternalAppCommand>,
     readiness: ExternalAppCommandReadiness,
-    draftText: String,
+    /**
+     * Read at execution time, never an effect key: a keystroke change used to restart this effect
+     * and re-run every pending command's steps (including re-seeding the draft editor).
+     */
+    draftText: StateFlow<String>,
     directoryGuideController: MainDirectoryGuideController,
     editorController: MemoEditorController,
     onRequestRecordAudioPermission: (ExternalAppCommand) -> Unit,
     dependencies: MainScreenDependencies,
     permissionRequestInFlightCommandId: String?,
 ) {
-    LaunchedEffect(commands, readiness, draftText, permissionRequestInFlightCommandId) {
+    LaunchedEffect(commands, readiness, permissionRequestInFlightCommandId) {
         val nowMillis = System.currentTimeMillis()
         dependencies.mainViewModel.expireExternalAppCommands(nowMillis)
         commands
@@ -50,7 +55,7 @@ internal fun ExternalAppCommandExecutionEffect(
 private fun executeExternalAppCommandPlan(
     command: ExternalAppCommand,
     plan: ExternalAppCommandExecutionPlan,
-    draftText: String,
+    draftText: StateFlow<String>,
     directoryGuideController: MainDirectoryGuideController,
     editorController: MemoEditorController,
     onRequestRecordAudioPermission: (ExternalAppCommand) -> Unit,
@@ -63,7 +68,7 @@ private fun executeExternalAppCommandPlan(
     plan.steps.forEach { step ->
         when (step) {
             ExternalAppCommandStep.RequestVoiceDirectory -> directoryGuideController.requestVoice()
-            ExternalAppCommandStep.OpenDraftEditor -> editorController.openForCreate(draftText)
+            ExternalAppCommandStep.OpenDraftEditor -> editorController.openForCreate(draftText.value)
             ExternalAppCommandStep.EnsureEditorVisible -> editorController.ensureVisible()
             ExternalAppCommandStep.RequestRecordAudioPermission -> onRequestRecordAudioPermission(command)
             ExternalAppCommandStep.StartRecording -> dependencies.recordingViewModel.startRecording()

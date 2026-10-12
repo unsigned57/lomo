@@ -192,7 +192,7 @@ class SearchViewModel(
                 searchPagedMemos.filterNotNull(),
             ) { mapInput, pagingData ->
                 pagingData.map { memo ->
-                    projectionMapper.memoUiMapper.mapToCachedUiModel(
+                    projectionMapper.memoUiMapper.peekOrMapToCachedUiModel(
                         memo = memo,
                         rootPath = mapInput.root,
                         imagePath = mapInput.img,
@@ -218,7 +218,7 @@ class SearchViewModel(
                     ),
                 scope = viewModelScope,
                 mapToUiModel = { memo ->
-                    projectionMapper.memoUiMapper.mapToCachedUiModel(
+                    projectionMapper.memoUiMapper.peekOrMapToCachedUiModel(
                         memo = memo,
                         rootPath = rootDirectory.value,
                         imagePath = imageDirectory.value,

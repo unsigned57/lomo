@@ -222,7 +222,6 @@ class MainViewModel(
                     rootDirectory = rootDirectory,
                     imageDirectory = imageDirectory,
                     imageMap = imageMap,
-                    dispatcherProvider = dispatcherProvider,
                 ),
             )
 

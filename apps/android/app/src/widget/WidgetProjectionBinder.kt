@@ -39,6 +39,16 @@ internal class WidgetProjectionBinder(
     private val writeMutex = Mutex()
     private val lastObservedStamp = AtomicLong(0L)
 
+    /**
+     * The rendered widget surface is the availability plus the item list; workspace id and
+     * projection stamp are durable receipts that do not change widget pixels. A refresh whose
+     * signature matches the last notified one skips the remote redraw entirely — the widget
+     * re-reads the same content — while the file write still advances the stamped revision.
+     * The signature is updated only after a successful notify so a failed redraw is retried on
+     * the next refresh instead of being forgotten.
+     */
+    private var lastNotifiedRenderSignature: WidgetRenderSignature? = null
+
     init {
         // Commit-driven ticks: debounce into one snapshot write per window.
         scope.launch {
@@ -87,9 +97,13 @@ internal class WidgetProjectionBinder(
                     availability = availability,
                     items = items,
                 )
+                val renderSignature = WidgetRenderSignature(availability = availability, items = items)
+                if (lastNotifiedRenderSignature != renderSignature) {
+                    // The snapshot is durable before the host is asked to redraw.
+                    appWidgetRepository.updateAllWidgets()
+                    lastNotifiedRenderSignature = renderSignature
+                }
             }
-            // The snapshot is durable before the host is asked to redraw.
-            appWidgetRepository.updateAllWidgets()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -115,3 +129,9 @@ internal class WidgetProjectionBinder(
         const val WIDGET_PROJECTION_DEBOUNCE_MILLIS = 500L
     }
 }
+
+/** What the widget actually draws; identical signatures mean identical remote output. */
+private data class WidgetRenderSignature(
+    val availability: WidgetSnapshotAvailability,
+    val items: List<WidgetGlanceSnapshotItem>,
+)

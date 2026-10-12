@@ -567,7 +567,7 @@ class SearchViewModelTest : AppFunSpec() {
                     ),
                 appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
                 imageMapProvider = imageMapProvider,
-                projectionMapper = MemoCollectionProjectionMapper(testMemoUiMapper()),
+                projectionMapper = MemoCollectionProjectionMapper(testMemoUiMapper(dispatcherProvider = com.lomo.domain.usecase.SingleDispatcherProvider(testDispatcher))),
                 searchMemosPageUseCase = SearchMemosPageUseCase(searchRepository),
                 deleteMemoUseCase = deleteMemoUseCase,
                 updateMemoContentUseCase = updateMemoContentUseCase,

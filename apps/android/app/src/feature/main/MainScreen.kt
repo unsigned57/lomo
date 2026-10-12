@@ -457,40 +457,60 @@ private fun MainScreenTransientEffects(
     autoOpenInputOnForeground: Boolean,
     pendingNewMemoCreationEvent: PendingUiEvent<PendingNewMemoCreationRequest>?,
 ) {
-    val errorMessage by dependencies.mainViewModel.errorMessage.collectAsStateWithLifecycle()
-    val editorErrorMessage by dependencies.editorViewModel.errorMessage.collectAsStateWithLifecycle()
-    val recordingErrorMessage by dependencies.recordingViewModel.errorMessage.collectAsStateWithLifecycle()
-    val uiState by dependencies.mainViewModel.uiState.collectAsStateWithLifecycle()
-    val sharedContentEvents by dependencies.mainViewModel.sharedContentEvents.collectAsStateWithLifecycle()
-    val pendingSharedImageEvents by dependencies.mainViewModel.pendingSharedImageEvents.collectAsStateWithLifecycle()
-    val appActionEvents by dependencies.mainViewModel.appActionEvents.collectAsStateWithLifecycle()
-    val externalAppCommands by dependencies.mainViewModel.externalAppCommands.collectAsStateWithLifecycle()
-    val imageDirectory by dependencies.mainViewModel.imageDirectory.collectAsStateWithLifecycle()
-    val voiceDirectory by dependencies.mainViewModel.voiceDirectory.collectAsStateWithLifecycle()
-    val draftText by dependencies.editorViewModel.draftText.collectAsStateWithLifecycle()
-    val isRecording by dependencies.recordingViewModel.isRecording.collectAsStateWithLifecycle()
-    val recordingCaptureId by dependencies.recordingViewModel.recordingCaptureId.collectAsStateWithLifecycle()
-    val openFullMemoEditor =
-        rememberFullMemoEditorOpener(editorController, dependencies.editorViewModel::reportError)
-
+    // Two leaf scopes collect their own StateFlows so a change in one surface does not recompose
+    // the other. draftText is deliberately passed as the StateFlow itself: it is read inside the
+    // effects when a decision runs, and must never become a composition or LaunchedEffect key —
+    // per-keystroke recomposition of this host previously restarted external command execution.
     MainScreenForegroundEffects(
         dependencies = dependencies,
         foregroundEntryId = foregroundEntryId,
         autoOpenInputOnForeground = autoOpenInputOnForeground,
-        uiState = uiState,
-        sharedContentEvents = sharedContentEvents,
-        pendingSharedImageEvents = pendingSharedImageEvents,
-        appActionEvents = appActionEvents,
-        externalAppCommands = externalAppCommands,
-        isRecording = isRecording,
-        recordingCaptureId = recordingCaptureId,
-        draftText = draftText,
-        voiceDirectoryConfigured = voiceDirectory != null,
         canOpenCreateMemo = canOpenCreateMemo,
         pendingNewMemoCreationEvent = pendingNewMemoCreationEvent,
         directoryGuideController = directoryGuideController,
         editorController = editorController,
     )
+
+    MainScreenEventEffectsSurface(
+        dependencies = dependencies,
+        visibleUiMemos = visibleUiMemos,
+        visibleUiMemoStartIndex = visibleUiMemoStartIndex,
+        searchQuery = searchQuery,
+        memoListFilter = memoListFilter,
+        canResolveOffscreenMainListFocus = canResolveOffscreenMainListFocus,
+        listState = listState,
+        editorController = editorController,
+        directoryGuideController = directoryGuideController,
+        snackbarHostState = snackbarHostState,
+        unknownErrorMessage = unknownErrorMessage,
+        memoNotFoundMessage = memoNotFoundMessage,
+    )
+}
+
+@Composable
+private fun MainScreenEventEffectsSurface(
+    dependencies: MainScreenDependencies,
+    visibleUiMemos: List<MemoUiModel>,
+    visibleUiMemoStartIndex: Int,
+    searchQuery: String,
+    memoListFilter: MemoListFilter,
+    canResolveOffscreenMainListFocus: Boolean,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    editorController: MemoEditorController,
+    directoryGuideController: MainDirectoryGuideController,
+    snackbarHostState: SnackbarHostState,
+    unknownErrorMessage: String,
+    memoNotFoundMessage: String,
+) {
+    val errorMessage by dependencies.mainViewModel.errorMessage.collectAsStateWithLifecycle()
+    val editorErrorMessage by dependencies.editorViewModel.errorMessage.collectAsStateWithLifecycle()
+    val recordingErrorMessage by dependencies.recordingViewModel.errorMessage.collectAsStateWithLifecycle()
+    val sharedContentEvents by dependencies.mainViewModel.sharedContentEvents.collectAsStateWithLifecycle()
+    val pendingSharedImageEvents by dependencies.mainViewModel.pendingSharedImageEvents.collectAsStateWithLifecycle()
+    val appActionEvents by dependencies.mainViewModel.appActionEvents.collectAsStateWithLifecycle()
+    val imageDirectory by dependencies.mainViewModel.imageDirectory.collectAsStateWithLifecycle()
+    val openFullMemoEditor =
+        rememberFullMemoEditorOpener(editorController, dependencies.editorViewModel::reportError)
 
     MainScreenEventEffectsHost(
         sharedContentEvents = remember(sharedContentEvents) { sharedContentEvents.toImmutableList() },

@@ -188,7 +188,8 @@ class MainViewModelTest : AppFunSpec() {
             appRuntimeInfoRepository = FakeAppRuntimeInfoRepository()
             appVersionRepository = FakeAppVersionRepository()
             memoVersionRepository = FakeMemoVersionRepository()
-            memoUiMapper = testMemoUiMapper()
+            dispatcherProvider = SingleDispatcherProvider(testDispatcher)
+            memoUiMapper = testMemoUiMapper(dispatcherProvider = dispatcherProvider)
             imageMapProvider = com.lomo.app.provider.FakeImageMapProvider(mediaRepository)
             audioPlayerManager = com.lomo.app.testing.fakes.FakeAudioPlayerManager()
             workspaceStateResolver = FakeWorkspaceStateResolver()
@@ -201,7 +202,6 @@ class MainViewModelTest : AppFunSpec() {
                     workspaceMutationLease = workspaceMutationLease,
                     engineReadinessRepository = engineReadinessRepository,
                 )
-            dispatcherProvider = SingleDispatcherProvider(testDispatcher)
             reminderCoordinator = com.lomo.app.testing.fakes.FakeReminderCoordinator()
 
             appVersionRepository.lastAppVersion = ""

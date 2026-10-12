@@ -79,6 +79,11 @@ fun GalleryGridContent(
         }
 
     val listState = rememberLazyListState()
+    GalleryGridPreheatEffect(
+        bands = layout,
+        listState = listState,
+        onResolveImageAspect = onResolveImageAspect,
+    )
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         state = listState,

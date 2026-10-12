@@ -34,6 +34,7 @@
  */
 package com.lomo.ui.component.markdown
 
+import com.lomo.domain.model.MediaClass
 import com.lomo.domain.model.markdown.MarkdownRenderBlock
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownRenderInline
@@ -159,6 +160,7 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
                                             destination = "img1.png",
                                             title = null,
                                             altText = "First",
+                                            mediaClass = MediaClass.IMAGE,
                                         ),
                                     ),
                             ),
@@ -171,6 +173,7 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
                                             destination = "img2.png",
                                             title = null,
                                             altText = "Second",
+                                            mediaClass = MediaClass.IMAGE,
                                         ),
                                     ),
                             ),
@@ -189,7 +192,8 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
             plan.items.size shouldBe 2
             val gallery = plan.items.first().shouldBeInstanceOf<MarkdownIrPresentationItem.Gallery>()
             gallery.images.map { it.destination } shouldBe listOf("img1.png", "img2.png")
-            gallery.images.map { it.altText } shouldBe listOf("First", "Second")
+            gallery.images.map { it.description } shouldBe listOf("First", "Second")
+            gallery.images.map { it.mediaClass } shouldBe listOf(MediaClass.IMAGE, MediaClass.IMAGE)
             val trailing = plan.items.last().shouldBeInstanceOf<MarkdownIrPresentationItem.Block>()
             trailing.block.shouldBeInstanceOf<MarkdownRenderBlock.Paragraph>()
         }
@@ -304,6 +308,7 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
                                             destination = "wiki-cover.png",
                                             title = null,
                                             altText = "",
+                                            mediaClass = MediaClass.IMAGE,
                                         ),
                                     ),
                             ),
@@ -337,6 +342,7 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
                                                         destination = "wiki-cover.png",
                                                         title = null,
                                                         altText = "",
+                                                        mediaClass = MediaClass.IMAGE,
                                                     ),
                                                 ),
                                         ),
@@ -496,6 +502,146 @@ class MarkdownIrPresentationPlanTest : UiComponentsFunSpec() {
             val text = innerParagraph.inlines.filterIsInstance<MarkdownRenderInline.Text>().joinToString("") { it.text }
             text shouldBe "Buy milk"
         }
+
+        test("given styled paragraph with link and image when plan is built then display carries precomputed text and image split") {
+            val document =
+                document(
+                    sourceLength = 60uL,
+                    blocks =
+                        listOf(
+                            MarkdownRenderBlock.Paragraph(
+                                sourceSpan = span(0uL, 60uL),
+                                inlines =
+                                    listOf(
+                                        MarkdownRenderInline.Text(span(0uL, 6uL), "See "),
+                                        MarkdownRenderInline.Strong(
+                                            sourceSpan = span(6uL, 14uL),
+                                            inlines = listOf(MarkdownRenderInline.Text(span(7uL, 13uL), "bold ")),
+                                        ),
+                                        MarkdownRenderInline.Link(
+                                            sourceSpan = span(14uL, 30uL),
+                                            destination = "https://example.com",
+                                            title = null,
+                                            inlines = listOf(MarkdownRenderInline.Text(span(15uL, 29uL), "linked words")),
+                                        ),
+                                        MarkdownRenderInline.Image(
+                                            sourceSpan = span(30uL, 60uL),
+                                            destination = "pic.png",
+                                            title = null,
+                                            altText = "Pic",
+                                            mediaClass = MediaClass.IMAGE,
+                                        ),
+                                    ),
+                            ),
+                        ),
+                )
+
+            val plan = buildMarkdownIrPresentationPlan(document)
+
+            val display =
+                plan.items.single()
+                    .shouldBeInstanceOf<MarkdownIrPresentationItem.Block>()
+                    .display.shouldBeInstanceOf<MarkdownIrBlockDisplay.Paragraph>()
+            display.text.text shouldBe "See bold linked words"
+            display.images.map { it.destination } shouldBe listOf("pic.png")
+            display.images.single().description shouldBe "Pic"
+        }
+
+        test("given heading list and table blocks when plan is built then display carries precomputed render data") {
+            val document =
+                document(
+                    sourceLength = 90uL,
+                    blocks =
+                        listOf(
+                            MarkdownRenderBlock.Heading(
+                                sourceSpan = span(0uL, 20uL),
+                                level = 2u,
+                                inlines = listOf(MarkdownRenderInline.Text(span(3uL, 20uL), "Title")),
+                            ),
+                            MarkdownRenderBlock.ListBlock(
+                                sourceSpan = span(21uL, 60uL),
+                                ordered = true,
+                                startNumber = 3uL,
+                                items =
+                                    listOf(
+                                        MarkdownRenderListItem(
+                                            sourceSpan = span(21uL, 40uL),
+                                            actionSpan = null,
+                                            checked = null,
+                                            blocks =
+                                                listOf(
+                                                    MarkdownRenderBlock.Paragraph(
+                                                        sourceSpan = span(24uL, 40uL),
+                                                        inlines = listOf(MarkdownRenderInline.Text(span(24uL, 40uL), "Item")),
+                                                    ),
+                                                ),
+                                        ),
+                                    ),
+                            ),
+                            MarkdownRenderBlock.Table(
+                                sourceSpan = span(61uL, 90uL),
+                                header =
+                                    listOf(
+                                        MarkdownRenderTableCell(
+                                            span(61uL, 70uL),
+                                            listOf(MarkdownRenderInline.Text(span(61uL, 70uL), "Head")),
+                                        ),
+                                    ),
+                                rows =
+                                    listOf(
+                                        listOf(
+                                            MarkdownRenderTableCell(
+                                                span(71uL, 80uL),
+                                                listOf(MarkdownRenderInline.Text(span(71uL, 80uL), "Cell")),
+                                            ),
+                                        ),
+                                    ),
+                            ),
+                        ),
+                )
+
+            val plan = buildMarkdownIrPresentationPlan(document)
+
+            val heading =
+                plan.items[0].shouldBeInstanceOf<MarkdownIrPresentationItem.Block>()
+                    .display.shouldBeInstanceOf<MarkdownIrBlockDisplay.Heading>()
+            heading.level shouldBe 2u
+            heading.text.text shouldBe "Title"
+            val list =
+                plan.items[1].shouldBeInstanceOf<MarkdownIrPresentationItem.Block>()
+                    .display.shouldBeInstanceOf<MarkdownIrBlockDisplay.ListBlock>()
+            val listItem = list.items.single()
+            listItem.marker shouldBe "3."
+            listItem.blocks.single()
+                .shouldBeInstanceOf<MarkdownIrBlockDisplay.Paragraph>()
+                .text.text shouldBe "Item"
+            val table =
+                plan.items[2].shouldBeInstanceOf<MarkdownIrPresentationItem.Block>()
+                    .display.shouldBeInstanceOf<MarkdownIrBlockDisplay.Table>()
+            table.rows shouldBe listOf("Head", "Cell")
+        }
+
+        test("given a plan built once when items are read twice then the same display instances are reused") {
+            val document =
+                document(
+                    sourceLength = 30uL,
+                    blocks =
+                        listOf(
+                            MarkdownRenderBlock.Paragraph(
+                                sourceSpan = span(0uL, 30uL),
+                                inlines = listOf(MarkdownRenderInline.Text(span(0uL, 30uL), "body")),
+                            ),
+                        ),
+                )
+
+            val plan = buildMarkdownIrPresentationPlan(document)
+
+            val first = plan.items.single().shouldBeInstanceOf<MarkdownIrPresentationItem.Block>().display
+            val second = plan.items.single().shouldBeInstanceOf<MarkdownIrPresentationItem.Block>().display
+            // The renderer consumes this same instance on every recomposition; derived text is
+            // never rebuilt per frame.
+            (first === second) shouldBe true
+        }
     }
 }
 
@@ -507,7 +653,7 @@ private fun document(
         sourceByteLength = sourceLength,
         plainText = "ir",
         tagNames = emptyList(),
-        attachmentDestinations = emptyList(),
+        attachments = emptyList(),
         blocks = blocks,
     )
 

@@ -120,7 +120,7 @@ class TagFilterViewModel(
                     },
             ) { input, pagingData ->
                 pagingData.map { memo ->
-                    memoUiMapper.mapToCachedUiModel(
+                    memoUiMapper.peekOrMapToCachedUiModel(
                         memo = memo,
                         rootPath = input.root,
                         imagePath = input.img,
@@ -146,7 +146,7 @@ class TagFilterViewModel(
                     ),
                 scope = viewModelScope,
                 mapToUiModel = { memo ->
-                    memoUiMapper.mapToCachedUiModel(
+                    memoUiMapper.peekOrMapToCachedUiModel(
                         memo = memo,
                         rootPath = rootDir.value,
                         imagePath = imageDir.value,

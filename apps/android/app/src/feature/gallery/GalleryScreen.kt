@@ -178,18 +178,13 @@ private fun rememberGalleryEntryReadiness(
                 aspectByImageUrl = aspectByPath,
             )?.toPersistentMap()
         }
+    // The entry gate only waits on the leading window's aspects: bounding the wait to the first
+    // tiles keeps entry work constant as paging loads grow, and the grid's viewport preheater
+    // resolves later bands while they are still offscreen.
     val dimensionImageUrls =
         remember(galleryLayoutInputs) {
-            galleryLayoutInputs
-                .asSequence()
-                .map { input -> input.firstImageUrl }
-                .distinct()
-                .toList()
-                .toImmutableList()
+            galleryEntryWindowUrls(galleryLayoutInputs).toImmutableList()
         }
-    // Every gallery tile's aspect ratio must be known before the mosaic is laid out, otherwise tiles
-    // start square and visibly reshuffle as ratios decode. Decoded ratios are cached, so this only
-    // gates the first (cold-cache) visit.
     val aspectsReady =
         remember(dimensionImageUrls, aspectByPath) {
             dimensionImageUrls.all { imageUrl -> imageUrl in aspectByPath }
@@ -334,8 +329,9 @@ private fun GalleryScreenEffects(
         }
     }
     LaunchedEffect(dimensionImageUrls, dimensionResolver) {
-        // Resolve every tile's aspect ratio up front (cheap bounds decode, cached) so the mosaic is
-        // laid out once at its final shape; see resolveGalleryScreenDisplayState gating.
+        // Resolve the entry window's aspects up front (cheap bounds decode, cached) so the mosaic
+        // mounts at its final leading shape; the grid's viewport preheater resolves later bands
+        // incrementally once the list is laid out.
         dimensionImageUrls.forEach { imageUrl ->
             dimensionResolver.resolve(imageUrl)
         }

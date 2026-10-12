@@ -282,7 +282,7 @@ class MainViewModelInitialImportStateTest : AppFunSpec() {
                                 com.lomo.app.testing.fakes.FakeMemoMutationRepository(repository),
                             ),
                     ),
-                memoUiMapper = testMemoUiMapper(),
+                memoUiMapper = testMemoUiMapper(dispatcherProvider = dispatcherProvider),
                 imageMapProvider = imageMapProvider,
                 mainMemoMutationCoordinator =
                     MainMemoMutationCoordinator(

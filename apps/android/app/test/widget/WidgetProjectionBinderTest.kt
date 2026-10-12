@@ -25,6 +25,8 @@ package com.lomo.app.widget
  *   UNAVAILABLE with no items — never rendered as an empty vault.
  * - Given a recovered mount, when a publication arrives, then the pending snapshot update
  *   completes with the live workspace identity and stamp.
+ * - Given a publication that leaves the rendered memo set unchanged, when the refresh runs,
+ *   then the durable stamp still advances but the widget redraw is skipped.
  * - Given snapshot persistence or query failure, when refresh throws a non-cancellation error,
  *   then the binder logs, skips the redraw and survives the next publication.
  * - Given a cancellation inside the refresh, when it is rethrown, then the collecting coroutine
@@ -40,6 +42,19 @@ package com.lomo.app.widget
  * - Why old assertion is no longer correct: snapshot writes are now gated on mount admission and lock state, stamped with the publication revision, and ordered before widget refresh.
  * - Coverage preserved by: privacy redaction, stamp binding, write ordering, and recovery cases.
  * - Why this is not fitting the test to the implementation: the gating rules are the audit-required privacy contract.
+ *
+ * Test Change Justification:
+ * - Reason category: product/domain contract changed.
+ * - Old behavior/assertion being replaced: every refresh notified the widget host, so debounced
+ *   publication refreshes always incremented the redraw count.
+ * - Why old assertion is no longer correct: refreshes whose rendered signature (availability and
+ *   item list) matches the last notified snapshot now skip the remote redraw; the durable write
+ *   still happens so the stamp continues to advance.
+ * - Coverage preserved by: redraw counts still assert writes and notifies on content changes, the
+ *   ordering test still proves the file is durable before the redraw, and the failure tests keep
+ *   covering non-cancellation and cancellation paths.
+ * - Why this is not fitting the test to the implementation: the new assertions encode the
+ *   deliberate memo-set-equivalence short-circuit contract.
  */
 
 import androidx.paging.PagingSource
@@ -93,7 +108,9 @@ class WidgetProjectionBinderTest : AppFunSpec() {
                     advanceTimeBy(WidgetProjectionBinder.WIDGET_PROJECTION_DEBOUNCE_MILLIS)
                     runCurrent()
 
-                    widgets.updated shouldBe 2
+                    // The debounced refresh rewrites the durable snapshot on the latest stamp but
+                    // does not redraw the widget: the rendered items did not change.
+                    widgets.updated shouldBe 1
                     val snapshot = store.read() as WidgetGlanceSnapshot.Ready
                     snapshot.projectionStamp shouldBe 3L
                     snapshot.items.map { it.id } shouldBe listOf("a")
@@ -231,6 +248,40 @@ class WidgetProjectionBinderTest : AppFunSpec() {
             }
         }
 
+        test("given an unchanged memo set when a publication refreshes then the widget redraw is skipped while the stamp still advances") {
+            runTest {
+                val dir = createTempDirectory("widget-binder-dedupe").toFile()
+                try {
+                    val store = snapshotStore(dir, testScheduler)
+                    val widgets = RecordingWidgetRepository()
+                    val ticking = TickingMemoListQueryRepository()
+                    ticking.recent = listOf(sampleMemo("a", 1_000L))
+
+                    binder(ticking, widgets, store, debounceMillis = 0L)
+                    runCurrent()
+                    widgets.updated shouldBe 1
+
+                    ticking.publications.emit(MemoProjectionPublication(coreRevision = 9L))
+                    runCurrent()
+
+                    // The rendered signature (availability + items) is unchanged, so the remote
+                    // redraw is skipped; the durable snapshot still records the latest revision.
+                    widgets.updated shouldBe 1
+                    (store.read() as WidgetGlanceSnapshot.Ready).projectionStamp shouldBe 9L
+
+                    ticking.recent = listOf(sampleMemo("a", 1_000L), sampleMemo("b", 2_000L))
+                    ticking.publications.emit(MemoProjectionPublication(coreRevision = 10L))
+                    runCurrent()
+
+                    widgets.updated shouldBe 2
+                    (store.read() as WidgetGlanceSnapshot.Ready).items.map { it.id } shouldBe
+                        listOf("a", "b")
+                } finally {
+                    dir.deleteRecursively()
+                }
+            }
+        }
+
         test("given a publication when the snapshot is written then the widget redraw is requested after the write") {
             runTest {
                 val dir = createTempDirectory("widget-binder-order").toFile()
@@ -249,7 +300,10 @@ class WidgetProjectionBinderTest : AppFunSpec() {
                     ticking.publications.emit(MemoProjectionPublication(coreRevision = 4L))
                     runCurrent()
 
-                    widgets.updated shouldBe 2
+                    // The publication left the rendered item set unchanged, so the redraw count
+                    // stays at the initial write's notification; ordering still held there because
+                    // onUpdate observed the durable snapshot.
+                    widgets.updated shouldBe 1
                 } finally {
                     dir.deleteRecursively()
                 }
