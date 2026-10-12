@@ -82,8 +82,8 @@ fun MemoCard(
     onClick: () -> Unit = {},
     renderDocument: MarkdownRenderDocument,
     presentationPlan: MarkdownIrPresentationPlan? = null,
-    dateFormat: String = "yyyy-MM-dd",
-    timeFormat: String = "HH:mm",
+    dateFormat: String,
+    timeFormat: String,
     isPinned: Boolean = false,
     /** The engine published this memo as a pending create; its durable commit is still in flight. */
     isPending: Boolean = false,

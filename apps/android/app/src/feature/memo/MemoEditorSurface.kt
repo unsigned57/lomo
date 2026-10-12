@@ -42,8 +42,8 @@ data class MemoEditorSessionState(
     val isRecording: Boolean = false,
     val recordingDuration: Long = 0L,
     val recordingAmplitude: Int? = null,
-    val dateFormat: String = "yyyy-MM-dd",
-    val timeFormat: String = "HH:mm",
+    val dateFormat: String,
+    val timeFormat: String,
     val onImageDirectoryMissing: (() -> Unit)? = null,
     val onCameraCaptureError: ((Throwable) -> Unit)? = null,
 )

@@ -26,7 +26,18 @@ import io.kotest.matchers.shouldBe
  *
  * Excludes:
  * - Compose card layout, full document rendering.
- */
+  * Test Change Justification:
+ * - Reason category: production DTO field migration — attachmentDestinations replaced by
+ *   typed attachments: List<MarkdownAttachment>.
+ * - Old behavior/assertion being replaced: the attachmentDestinations = emptyList() fixture
+ *   field.
+ * - Why old assertion is no longer correct: the render IR field was renamed and retyped; the
+ *   old parameter name no longer exists.
+ * - Coverage preserved by: the same collapsed-summary assertions built on
+ *   attachments = emptyList().
+ * - Why this is not fitting the test to the implementation: fixture rename only; the asserted
+ *   summary output is unchanged.
+*/
 class MemoCardCollapsedSummaryTest : UiComponentsFunSpec() {
     init {
         test("given markdown document with tags and reminders when collapsed summary is built then tags and reminders are omitted") {
@@ -35,7 +46,7 @@ class MemoCardCollapsedSummaryTest : UiComponentsFunSpec() {
                     sourceByteLength = 80uL,
                     plainText = "Task item #work @2026-09-02-12:00 done",
                     tagNames = listOf("work"),
-                    attachmentDestinations = emptyList(),
+                    attachments = emptyList(),
                     blocks =
                         listOf(
                             MarkdownRenderBlock.Paragraph(
