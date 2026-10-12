@@ -8,7 +8,7 @@ use rustix::fs::inotify::{self, CreateFlags, ReadFlags, WatchFlags};
 use rustix::io::Errno;
 
 use super::{ChangeKind, DirectoryChangeEvent};
-use crate::error::{storage, validation};
+use crate::error::{storage, validation, watch_root_lost};
 
 /// Inotify-based directory change observer for Linux.
 pub struct DirectoryWatcher {
@@ -183,11 +183,16 @@ impl DirectoryWatcher {
                     // this watcher's descriptors dead; clearing them keeps the next poll
                     // retrying the rebind instead of trusting a stale graph. Buffered
                     // events are still delivered first — the error reports once the
-                    // queue is drained and the rebind is still failing.
+                    // queue is drained and the rebind is still failing, typed
+                    // `watch_root_lost` so the consumer may bounded-retry the
+                    // transient instead of dying on first strike (P-58).
                     self.watch_descriptors.clear();
                     self.root_lost = true;
                     if events.is_empty() {
-                        return Err(error);
+                        return Err(watch_root_lost(&format!(
+                            "watch root '{}' is not observable: {error}",
+                            self.root.display()
+                        )));
                     }
                 }
             }

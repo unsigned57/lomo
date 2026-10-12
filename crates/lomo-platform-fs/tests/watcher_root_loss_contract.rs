@@ -21,7 +21,8 @@
 mod tests {
     use std::{fs, time::Duration};
 
-    use lomo_platform_fs::{ChangeKind, DirectoryWatcher};
+    use lomo_core::RetryDisposition;
+    use lomo_platform_fs::{ChangeKind, DirectoryWatcher, WATCH_ROOT_LOST_CODE};
 
     #[test]
     fn a_deleted_watch_root_errors_then_heals_on_recreation() {
@@ -54,11 +55,21 @@ mod tests {
         );
 
         // Queue drained, root still absent: the next poll retries the rebind and must
-        // report the failure — an `Ok([])` here is a silently deaf watcher.
+        // report the failure — an `Ok([])` here is a silently deaf watcher. The
+        // failure is typed `watch_root_lost`/Transient so the consuming watch
+        // loop may bounded-retry instead of dying on first strike (P-58).
         let deaf = watcher.poll_events();
-        assert!(
-            deaf.is_err(),
-            "a lost root with no queued events must surface the rebind failure, got {deaf:?}"
+        let error =
+            deaf.expect_err("a lost root with no queued events must surface the rebind failure");
+        assert_eq!(
+            error.code(),
+            WATCH_ROOT_LOST_CODE,
+            "root loss must be a typed transient, not a generic storage failure: {error:?}"
+        );
+        assert_eq!(
+            error.retry_disposition(),
+            RetryDisposition::Transient,
+            "root loss is recoverable by rebind, not by user action: {error:?}"
         );
 
         // Root returns: the poll-driven rebind must re-arm the graph and say so.

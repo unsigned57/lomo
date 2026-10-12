@@ -1038,6 +1038,57 @@ mod tests {
         );
     }
 
+    /// P-57 write-path mutual exclusion: the page keeps placements as pure
+    /// layout facts even under a modal, and the *frame* refuses a graphics
+    /// write whose rect intersects the overlay-owned area — protocol payloads
+    /// escape cell bounds, so the exclusion is enforced where cells are
+    /// written, not by an upstream input-mode hint.
+    #[test]
+    fn overlay_owned_cells_reject_the_intersecting_graphics_write() {
+        let fixture = RuntimeFixture::new().expect("fixture");
+        let mut model = two_image_kitty_reader(&fixture);
+        model.input = InputMode::Message {
+            title: "modal".to_owned(),
+            lines: vec!["line".to_owned()],
+            scroll: 0,
+        };
+        let owned = lomo_tui::overlays::owned_area(&model);
+        assert!(!owned.is_empty(), "the modal must own a real rect");
+
+        // Layout truth survives the modal: the placement still exists and the
+        // scenario is genuine — it intersects the overlay-owned area.
+        let overlaid = lomo_tui::reader::page(&model).expect("page under overlay");
+        assert!(
+            overlaid
+                .pictures
+                .iter()
+                .any(|picture| picture.rect.intersects(owned)),
+            "the page keeps the placement and it intersects the owned area"
+        );
+
+        // The write path rejects it: no graphics cell (kitty transmit or
+        // virtual-placement glyph) lands inside the overlay-owned rect.
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("terminal");
+        terminal
+            .draw(|frame| lomo_tui::ui::draw(frame, &model))
+            .expect("overlay draw");
+        let drawn = terminal.backend().buffer();
+        let leaked: Vec<String> = (owned.top()..owned.bottom())
+            .flat_map(|y| (owned.left()..owned.right()).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                drawn.cell((x, y)).is_some_and(|cell| {
+                    let symbol = cell.symbol();
+                    symbol.contains("\x1b_G") || symbol.contains('\u{10EEEE}')
+                })
+            })
+            .map(|(x, y)| format!("({x},{y})"))
+            .collect();
+        assert!(
+            leaked.is_empty(),
+            "graphics cells leaked into the overlay-owned area: {leaked:?}"
+        );
+    }
+
     /// Placement geometry tracks scroll, a modal overlay owns the viewport
     /// (no kitty payload leaks under it), a resize changes request identity and
     /// requeues decode, and leaving the reader retires the image registry.
@@ -1064,7 +1115,10 @@ mod tests {
             "placements after scroll stay inside the reader area"
         );
 
-        // An overlay owns the viewport: image placements leave the frame.
+        // An overlay owns the viewport: intersecting graphics writes are
+        // refused at the frame — the page keeps placements as layout facts
+        // (P-57), and this scenario already scrolled the image out of the
+        // viewport so the page carries none to reject.
         model.input = InputMode::Message {
             title: "modal".to_owned(),
             lines: vec!["line".to_owned()],
@@ -1073,7 +1127,7 @@ mod tests {
         let overlaid = lomo_tui::reader::page(&model).expect("page under overlay");
         assert!(
             overlaid.pictures.is_empty(),
-            "a modal input clears image placements (the overlay owns the cells)"
+            "the scrolled-away image is outside the viewport, so nothing places"
         );
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).expect("terminal");
         terminal
@@ -1588,7 +1642,7 @@ mod tests {
     }
 
     /// D-12: `Effect::MediaSweep` guards the compose buffer *and* every editor
-    /// draft file under `drafts_dir` — only the truly unreferenced file moves.
+    /// draft file under `capture_dir` — only the truly unreferenced file moves.
     #[test]
     fn the_media_sweep_protects_compose_and_editor_draft_media() {
         let fixture = RuntimeFixture::new().expect("fixture");
@@ -1601,9 +1655,9 @@ mod tests {
             seed_file(&fixture, name, &bytes);
         }
         seed_memo(&fixture, "see ![](media/keep.png)");
-        std::fs::create_dir_all(&fixture.runtime.paths.drafts_dir).expect("drafts dir");
+        std::fs::create_dir_all(&fixture.runtime.paths.capture_dir).expect("capture dir");
         std::fs::write(
-            fixture.runtime.paths.drafts_dir.join("draft-1.md"),
+            fixture.runtime.paths.capture_dir.join("draft-1.md"),
             "mid-edit ![](media/editor.png)",
         )
         .expect("editor draft");
@@ -1613,7 +1667,7 @@ mod tests {
             owner_id: "tui-compose".to_owned(),
             content: "draft ![](media/compose.png)".to_owned(),
         };
-        let req = model.request(PendingKind::Maintenance);
+        let req = model.request(PendingKind::Sweep);
         let effect = Effect::MediaSweep {
             req,
             drafts: vec![compose_guard.clone()],
@@ -1664,9 +1718,9 @@ mod tests {
 
         // Dropping the editor draft removes its guard — the file sweeps next
         // run; the compose guard still rides the effect.
-        std::fs::remove_file(fixture.runtime.paths.drafts_dir.join("draft-1.md"))
+        std::fs::remove_file(fixture.runtime.paths.capture_dir.join("draft-1.md"))
             .expect("delete draft");
-        let req2 = model.request(PendingKind::Maintenance);
+        let req2 = model.request(PendingKind::Sweep);
         let effect2 = Effect::MediaSweep {
             req: req2,
             drafts: vec![compose_guard],
@@ -1688,7 +1742,7 @@ mod tests {
     #[test]
     fn sweep_landing_only_reports_real_work() {
         let mut model = AppModel::new(80, 24);
-        let req = model.request(PendingKind::Maintenance);
+        let req = model.request(PendingKind::Sweep);
         drop(lomo_tui::messages::apply_message(
             &mut model,
             RuntimeMessage::MediaSweepDone {
@@ -1702,7 +1756,7 @@ mod tests {
             model.status.is_none(),
             "a silent housekeeping sweep never touches the status line"
         );
-        let req2 = model.request(PendingKind::Maintenance);
+        let req2 = model.request(PendingKind::Sweep);
         drop(lomo_tui::messages::apply_message(
             &mut model,
             RuntimeMessage::MediaSweepDone {

@@ -36,7 +36,14 @@ pub(crate) fn draw_with_reader_page(
     }
     match &model.view {
         View::Feed(feed) => draw_feed(frame, feed, layout.content, s),
-        View::Reader { memo, .. } => draw_reader(frame, memo, page, layout.content, s),
+        View::Reader { memo, .. } => draw_reader(
+            frame,
+            memo,
+            page,
+            layout.content,
+            crate::overlays::owned_area(model),
+            s,
+        ),
         View::Tasks(list) => draw_rows(
             frame,
             layout.content,
@@ -381,6 +388,7 @@ fn draw_reader(
     memo: &crate::model::MemoCard,
     page: Option<&crate::reader::ReaderPage>,
     area: Rect,
+    owned: Rect,
     s: &UiStrings,
 ) {
     let mut title = vec![Span::styled(
@@ -442,7 +450,16 @@ fn draw_reader(
         // protocol's prepared cells into the buffer at the reader's
         // placement rects, so scrolling and overlay changes are ordinary
         // cell diffs and a kitty payload transmits exactly once (D-07/C-14).
+        //
+        // P-57 write-path mutual exclusion: a placement may only write cells
+        // no overlay owns. The page reports placements as pure layout facts;
+        // this frame-time intersection is the buffer-side guard — kitty,
+        // sixel and iTerm2 payloads all escape cell bounds, so a partially
+        // covered image is refused whole rather than cleared mid-payload.
         for placement in &page.pictures {
+            if placement.rect.intersects(owned) {
+                continue;
+            }
             let mut protocol = placement.image.lock_protocol();
             frame.render_stateful_widget(
                 StatefulImage::<StatefulProtocol>::default(),

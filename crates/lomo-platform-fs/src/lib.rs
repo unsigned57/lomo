@@ -14,4 +14,4 @@ pub use executor::FsPlatformActionExecutor;
 pub use lock::ProcessFileLock;
 pub use lomo_core::PlatformActionExecutor;
 pub use registry::RootRegistry;
-pub use watcher::{ChangeKind, DirectoryChangeEvent, DirectoryWatcher};
+pub use watcher::{ChangeKind, DirectoryChangeEvent, DirectoryWatcher, WATCH_ROOT_LOST_CODE};

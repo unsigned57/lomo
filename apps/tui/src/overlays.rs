@@ -80,6 +80,25 @@ pub fn field_width(model: &AppModel) -> u16 {
     }
 }
 
+/// The screen rect the overlay currently owns — the same cells `draw` clears
+/// and repaints. `Browse`, `Compose` and `Search` draw no overlay, so they own
+/// nothing (`Rect::ZERO`).
+///
+/// This is the buffer-write-path authority for graphics exclusion (P-57):
+/// protocol payloads escape cell bounds, so an image placement may only write
+/// where it does not intersect this rect.
+#[must_use]
+pub fn owned_area(model: &AppModel) -> Rect {
+    if matches!(
+        model.input,
+        InputMode::Browse | InputMode::Compose | InputMode::Search { .. }
+    ) {
+        return Rect::ZERO;
+    }
+    let screen = Rect::new(0, 0, model.width, model.height);
+    overlay_area(model).intersection(screen)
+}
+
 /// The interior the overlay's bordered block exposes at this terminal size,
 /// clipped to the screen. Empty means the box cannot hold one content row —
 /// `draw` then degrades to a bare strip instead of an empty bordered shell.
@@ -568,7 +587,7 @@ fn draw_setup_cursor(
 /// `editor` and `player` show the registry's platform defaults.
 fn setup_preview_lines(setup: &crate::model::SetupState, s: &UiStrings) -> Vec<Line<'static>> {
     let media_preview = std::path::Path::new(setup.workspace.text().trim())
-        .join("media")
+        .join(lomo_workspace::MEDIA_ROOT_NAME)
         .display()
         .to_string();
     let editor_preview = s

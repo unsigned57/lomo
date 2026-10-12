@@ -247,8 +247,11 @@ mod tests {
         assert_eq!(page.pictures.len(), 1, "the placement lands in the reader");
     }
 
+    /// P-57: placements are layout facts — they persist on the page under an
+    /// overlay input, and the frame's write path (not the page) refuses the
+    /// intersecting graphics write; leaving the reader still drops the page.
     #[test]
-    fn pictures_are_removed_from_overlays_and_from_the_returned_feed() {
+    fn pictures_persist_as_layout_facts_and_vanish_with_the_reader() {
         let fixture = RuntimeFixture::new().expect("fixture and operation must succeed");
         std::fs::create_dir_all(fixture.runtime.workspace.join("media"))
             .expect("fixture and operation must succeed");
@@ -288,12 +291,20 @@ mod tests {
                 .all(|picture| picture.rect.intersection(page.area) == picture.rect)
         );
         model.input = InputMode::Help { scroll: 0 };
+        // The placement stays on the page — overlay exclusion is geometric at
+        // the buffer write path (`overlay_owned_cells_reject_the_intersecting_
+        // graphics_write` proves the drawn frame keeps owned cells clean).
+        let overlaid = lomo_tui::reader::page(&model)
+            .ok_or("reader")
+            .expect("fixture and operation must succeed");
+        let owned = lomo_tui::overlays::owned_area(&model);
+        assert_eq!(overlaid.pictures.len(), 1);
         assert!(
-            lomo_tui::reader::page(&model)
-                .ok_or("reader")
-                .expect("fixture and operation must succeed")
+            overlaid
                 .pictures
-                .is_empty()
+                .iter()
+                .any(|picture| picture.rect.intersects(owned)),
+            "the placement intersects the overlay-owned area — the write path rejects it"
         );
         model.input = InputMode::Browse;
         command(&fixture.runtime, &mut model, Command::Back)

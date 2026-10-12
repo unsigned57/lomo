@@ -15,6 +15,14 @@ pub use poll::DirectoryWatcher;
 
 use std::path::PathBuf;
 
+/// `LomoError::code()` minted while the watched root cannot be observed —
+/// deleted, moved away, or replaced by something unreadable.
+///
+/// Both backends retry the rebind internally on every poll; the failure is
+/// typed transient so the consuming watch loop may bounded-retry it instead
+/// of treating the first strike as a fatal outage.
+pub const WATCH_ROOT_LOST_CODE: &str = "watch_root_lost";
+
 /// Kind of filesystem change observed by `DirectoryWatcher`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ChangeKind {

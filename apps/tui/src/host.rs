@@ -195,6 +195,87 @@ impl ObservedPaths {
     }
 }
 
+/// Consecutive `watch_root_lost` strikes the watch thread forgives before
+/// declaring the outage (P-58).
+///
+/// The platform watcher already retries its rebind on every poll; this
+/// budget only caps how long the host tolerates the typed transient — about
+/// one `WATCHER_FALLBACK_INTERVAL` — before the watcher is declared dead and
+/// the 15s reconcile fallback takes over.
+pub const ROOT_LOST_RETRY_LIMIT: u32 = 10;
+
+/// Backoff for the `attempt`-th consecutive `watch_root_lost` strike.
+///
+/// Strikes are 1-based: 250ms doubling to a 2s ceiling — a re-appearing root
+/// is re-observed quickly while a missing one stops hammering the
+/// filesystem. `None` once the budget is spent
+/// (`attempt > ROOT_LOST_RETRY_LIMIT`), when the caller must report the
+/// outage instead of sleeping again.
+#[must_use]
+pub fn root_lost_retry_delay(attempt: u32) -> Option<Duration> {
+    if attempt == 0 || attempt > ROOT_LOST_RETRY_LIMIT {
+        return None;
+    }
+    Some(Duration::from_millis(250 << (attempt - 1).min(3)))
+}
+
+/// The verdict for one watcher failure inside the bounded root-loss policy.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RootLossVerdict {
+    /// Transient strike — back off this long, then re-poll.
+    Retry(Duration),
+    /// The typed root loss outlived the retry budget — report the outage.
+    Exhausted,
+    /// Any other watcher failure — fatal on first strike.
+    Fatal,
+}
+
+/// Bounded tolerance for a lost watch root (P-58).
+///
+/// A `watch_root_lost` failure is transient: the platform watcher keeps
+/// retrying its rebind internally, so the host forgives up to
+/// `ROOT_LOST_RETRY_LIMIT` *consecutive* strikes with backoff. Any delivered
+/// batch settles the streak — a re-appearing root earns a fresh budget — and
+/// the strike past the budget, like every other watcher error, is the death
+/// the reconcile fallback then stands in for.
+#[derive(Default)]
+pub struct RootLossRetry {
+    streak: u32,
+}
+
+impl RootLossRetry {
+    /// A delivered batch proves the watcher is alive — the consecutive-loss
+    /// streak settles so the next outage starts with a fresh budget.
+    pub const fn settled(&mut self) {
+        self.streak = 0;
+    }
+
+    /// The verdict for one `wait_events` failure: `Retry` while the typed
+    /// root loss is inside its budget, `Exhausted` once it is spent, `Fatal`
+    /// for every other failure class.
+    pub fn struck(&mut self, error: &lomo_core::LomoError) -> RootLossVerdict {
+        if error.code() != lomo_platform_fs::WATCH_ROOT_LOST_CODE {
+            return RootLossVerdict::Fatal;
+        }
+        self.streak = self.streak.saturating_add(1);
+        root_lost_retry_delay(self.streak)
+            .map_or(RootLossVerdict::Exhausted, RootLossVerdict::Retry)
+    }
+}
+
+/// Backs off between root-loss retries in flag-sliced chunks so the stop
+/// signal lands inside `CLOSE_BUDGET` even mid-window.
+fn sleep_for_retry(delay: Duration, flag: &Arc<AtomicBool>) {
+    let deadline = Instant::now() + delay;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() || flag.load(Ordering::Relaxed) {
+            return;
+        }
+        thread::sleep(remaining.min(Duration::from_millis(25)));
+    }
+}
+
 /// Workspace observation runs on its own thread; every drained batch becomes
 /// one `FsChanged` carrying its attested path set, never one message per event.
 /// `pending` coalesces batches while the UI has not consumed the previous one —
@@ -302,10 +383,14 @@ fn watch_loop(
         return;
     }
     let mut observed = ObservedPaths::default();
+    let mut root_lost = RootLossRetry::default();
     while !flag.load(Ordering::Relaxed) {
         match watcher.wait_events(Duration::from_millis(250)) {
-            Ok(events) if events.is_empty() => {}
+            Ok(events) if events.is_empty() => {
+                root_lost.settled();
+            }
             Ok(events) => {
+                root_lost.settled();
                 observed.absorb(root, &events);
                 if pending.swap(true, Ordering::AcqRel) {
                     // A delivered-but-unconsumed batch keeps accumulating —
@@ -325,11 +410,28 @@ fn watch_loop(
                 }
             }
             Err(error) => {
-                // `false` is traced inside `report`; the thread is exiting.
-                let _delivered = outbox.report(RuntimeMessage::WatcherUnavailable {
-                    diagnostic: error.to_string(),
-                });
-                return;
+                match root_lost.struck(&error) {
+                    // The lost root is transient: back off in flag-sliced
+                    // sleeps and re-poll — the config drain below stays live
+                    // through the outage window.
+                    RootLossVerdict::Retry(delay) => sleep_for_retry(delay, flag),
+                    RootLossVerdict::Exhausted => {
+                        // `false` is traced inside `report`; the thread is exiting.
+                        let _delivered = outbox.report(RuntimeMessage::WatcherUnavailable {
+                            diagnostic: format!(
+                                "watch root still lost after {ROOT_LOST_RETRY_LIMIT} retries: {error}"
+                            ),
+                        });
+                        return;
+                    }
+                    RootLossVerdict::Fatal => {
+                        // `false` is traced inside `report`; the thread is exiting.
+                        let _delivered = outbox.report(RuntimeMessage::WatcherUnavailable {
+                            diagnostic: error.to_string(),
+                        });
+                        return;
+                    }
+                }
             }
         }
         // Drain config events after the workspace wait returns: a
@@ -834,7 +936,7 @@ fn tick(model: &mut AppModel, scheduler: &Scheduler, state: &mut LoopState) -> b
         // guard so an unsaved draft's media is never swept under it; editor
         // draft files are guarded inside `ops::media_sweep` on the lane.
         if state.sweep_req.is_none() && state.sweep_at.is_some_and(|due| Instant::now() >= due) {
-            let req = model.request(crate::model::PendingKind::Maintenance);
+            let req = model.request(crate::model::PendingKind::Sweep);
             state.sweep_req = Some(req);
             state.sweep_at = Some(Instant::now() + MEDIA_SWEEP_INTERVAL);
             let drafts = if model.draft.text.text().trim().is_empty() {

@@ -1,14 +1,16 @@
 //! Behavior Contract
 //!
-//! Capability: stage DirectPath/StagedTemp inputs with verified digest and discard unpromoted
-//! stage without exposing a full-byte media API.
+//! Capability: stage DirectPath/StagedTemp/Bytes inputs with verified digest and discard
+//! unpromoted stage. `Bytes` is the bounded in-memory lane for hosts that already hold the
+//! payload (clipboard) — it is not a byte-loading API: the byte budget lives at the
+//! producing boundary, and staging never materializes a temp source file for it.
 //!
 //! Scenarios:
 //! - Given a PNG file, when `stage_media(DirectPath)` runs, then `MediaStaged` carries digest/size/mime
 //!   and a file under `.lomo-media-stage`.
 //! - Given `StagedTemp`, when staging completes, then the temp source is consumed.
-//! - Given Rust-owned received bytes materialized to a private temp path, when staging completes,
-//!   then the same media identity/path contract is used without exposing a full-byte media API.
+//! - Given in-memory `Bytes`, when staging completes, then the same media identity/path
+//!   contract is used and nothing is written outside `.lomo-media-stage`.
 //! - Given the suggested destination is occupied by different bytes, when a received destination
 //!   is resolved, then a stable human-name suffix is selected; an existing same digest is reused.
 //! - Given `discard_staged`, when called, then the staged file is removed.
@@ -135,6 +137,71 @@ mod tests {
         let reused = resolve_received_final_relative_path(root.path(), &staged)
             .expect("same digest reuses the human path");
         assert_eq!(reused.as_str(), "media/received.png");
+    }
+
+    /// P-59: bytes the host already holds (clipboard) stage through the same
+    /// verify/dedup/commit pipeline — same digest, same MIME magic check,
+    /// same staged path — and never land a temp source file anywhere outside
+    /// the stage directory itself.
+    #[test]
+    fn stage_bytes_uses_the_same_verified_media_identity() {
+        let root = tempdir().expect("temp");
+        let staged = stage_media(
+            root.path(),
+            MediaSource::Bytes {
+                bytes: PNG_1X1.to_vec(),
+            },
+            "received.png",
+        )
+        .expect("stage in-memory bytes");
+        assert_eq!(staged.size, PNG_1X1.len() as u64);
+        assert_eq!(staged.digest, ContentDigest::of_slice(PNG_1X1));
+        assert!(staged.staging_path.is_file());
+        assert!(
+            staged
+                .staging_path
+                .starts_with(root.path().join(STAGE_DIR_NAME))
+        );
+        assert_eq!(
+            fs::read(&staged.staging_path).expect("staged payload"),
+            PNG_1X1,
+            "the staged bytes are verbatim — identity is content-derived"
+        );
+        // The only tree staging may create is `.lomo-media-stage` — a byte
+        // source materializes no temp file at the caller's expense (P-59).
+        let stray: Vec<_> = fs::read_dir(root.path())
+            .expect("root listing")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("readable root entries")
+            .into_iter()
+            .filter(|entry| entry.file_name() != STAGE_DIR_NAME)
+            .collect();
+        assert!(
+            stray.is_empty(),
+            "in-memory bytes must not land a temp source file outside the stage dir: {stray:?}"
+        );
+
+        // Digest dedup: re-staging the same bytes reuses the staged payload.
+        let second = stage_media(
+            root.path(),
+            MediaSource::Bytes {
+                bytes: PNG_1X1.to_vec(),
+            },
+            "received.png",
+        )
+        .expect("restage same bytes");
+        assert_eq!(staged.staging_path, second.staging_path);
+
+        // Unknown magic fails the same way a path source does.
+        let error = stage_media(
+            root.path(),
+            MediaSource::Bytes {
+                bytes: b"hello".to_vec(),
+            },
+            "x.bin",
+        )
+        .expect_err("unknown bytes");
+        assert_eq!(error.code(), "unsupported_media_magic");
     }
 
     #[test]

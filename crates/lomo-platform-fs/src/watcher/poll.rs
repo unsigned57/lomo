@@ -17,7 +17,7 @@ use std::time::SystemTime;
 use lomo_core::LomoError;
 
 use super::{ChangeKind, DirectoryChangeEvent};
-use crate::error::storage;
+use crate::error::{storage, watch_root_lost};
 
 /// Polling directory change observer.
 pub struct DirectoryWatcher {
@@ -137,7 +137,22 @@ impl DirectoryWatcher {
                 Vec::new()
             });
         }
-        let next = snapshot(&self.root)?;
+        let next = match snapshot(&self.root) {
+            Ok(next) => next,
+            // The root raced away mid-scan (vanished, or replaced by a
+            // non-directory between the `is_dir` probe and the walk) — the
+            // same transient root loss the inotify backend reports after a
+            // failed rebind; the next poll self-heals once a directory is
+            // back (P-58). A scan failure with the root still a directory is
+            // a real walk error and keeps its own code.
+            Err(error) if !self.root.is_dir() => {
+                return Err(watch_root_lost(&format!(
+                    "watch root '{}' is not observable: {error}",
+                    self.root.display()
+                )));
+            }
+            Err(error) => return Err(error),
+        };
         let mut events = Vec::new();
         let mut deleted: Vec<PathBuf> = Vec::new();
         let mut created: Vec<PathBuf> = Vec::new();

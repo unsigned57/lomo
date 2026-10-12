@@ -274,6 +274,45 @@ mod tests {
         );
     }
 
+    /// P-59: clipboard bytes are already materialized — staging them through
+    /// `state_dir` as a temp file is a needless detour the import must not
+    /// take. The probe forbids creating children directly inside `state_dir`
+    /// (where the temp source used to land) while the session's own state
+    /// store — pre-created here — keeps its legitimate durable writes.
+    #[test]
+    fn clipboard_bytes_never_touch_the_state_dir() {
+        use std::os::unix::fs::PermissionsExt;
+        let fixture =
+            super::support::RuntimeFixture::new().expect("fixture and operation must succeed");
+        let state_dir = fixture.runtime.paths.state_dir.clone();
+        let state_layout = lomo_workspace::SessionStateLayout::for_state_dir(&state_dir);
+        for directory in [
+            &state_layout.drafts,
+            &state_layout.capture,
+            &state_layout.exchange,
+            &state_layout.intents,
+            &state_layout.intent_payloads,
+            &state_layout.baselines,
+        ] {
+            std::fs::create_dir_all(directory).expect("session state store");
+        }
+        std::fs::set_permissions(&state_dir, std::fs::Permissions::from_mode(0o555))
+            .expect("read-only state dir");
+        let png = rgba_to_png(1, 1, &[255, 0, 0, 255]).expect("png");
+        let imported = lomo_tui::mutations::import_clipboard_png(&fixture.runtime, &png);
+        std::fs::set_permissions(&state_dir, std::fs::Permissions::from_mode(0o755))
+            .expect("restore state dir");
+        let relative = imported.expect(
+            "clipboard import must stage the in-memory bytes — a state_dir temp write would fail here",
+        );
+        assert_eq!(
+            std::fs::read(fixture.runtime.workspace.join(&relative))
+                .expect("committed workspace bytes"),
+            png,
+            "the import still commits the real payload"
+        );
+    }
+
     #[test]
     fn rgba_buffer_encodes_png_magic() {
         let bytes = [255_u8, 0, 0, 255];

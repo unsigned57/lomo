@@ -6,7 +6,7 @@
 //! derivation, so navigation and drawing never wrap twice.
 use crate::{
     graphics::{ImageState, ReaderImage, TerminalImage},
-    model::{AppModel, BodyState, InputMode, TextAnchor, View},
+    model::{AppModel, BodyState, TextAnchor, View},
     text_layout::{VisualLine, anchor_row, plain_lines, printable, wrap_lines},
 };
 use lomo_core::RelativeWorkspacePath;
@@ -141,7 +141,6 @@ struct Derived<'a> {
     blocks: Vec<ImageBlock<'a>>,
     anchor_abs: usize,
     total: usize,
-    browse: bool,
 }
 
 fn derive(model: &AppModel) -> Option<Derived<'_>> {
@@ -239,7 +238,6 @@ fn derive(model: &AppModel) -> Option<Derived<'_>> {
         blocks,
         anchor_abs,
         total,
-        browse: model.input == InputMode::Browse,
     })
 }
 
@@ -414,12 +412,14 @@ fn materialize(derived: &Derived<'_>, around: usize) -> ReaderPage {
     // The page's top is the window the caller asked for, not the raw anchor —
     // a clamped anchor near the body end keeps a full page (I9 audit).
     let top = around;
+    // Placements are pure layout facts: every in-viewport image block reports
+    // its rect regardless of input mode — overlay exclusion is geometric and
+    // enforced at the buffer write path (`ui::draw_reader`), not here (P-57).
     let pictures = pictures
         .into_iter()
         .filter_map(|(start, image)| {
             let block = image.area();
-            if !derived.browse
-                || start < top
+            if start < top
                 || start + usize::from(block.height) > top + usize::from(derived.area.height)
             {
                 return None;

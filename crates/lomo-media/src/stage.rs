@@ -1,4 +1,7 @@
-//! Stage → verify lifecycle. Paths only — no full media byte APIs.
+//! Stage → verify lifecycle. Path sources plus the bounded in-memory `Bytes`
+//! lane — never a byte-loading API: the byte budget is the producing
+//! boundary's (clipboard), and staging never materializes a temp source file
+//! for a byte payload it already holds.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -15,13 +18,109 @@ use crate::path::suggest_human_relative_path;
 /// Directory name for pending staged media under a media root.
 pub const STAGE_DIR_NAME: &str = ".lomo-media-stage";
 
-/// Source of media bytes for staging (always a filesystem path).
+/// Source of media bytes for staging.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MediaSource {
     /// Rust opens and streams the path directly.
     DirectPath { path: PathBuf },
     /// Kotlin/SAF already copied into a private temp path owned by Rust staging cleanup.
     StagedTemp { path: PathBuf },
+    /// Bytes the host already holds (e.g. a clipboard payload). The byte
+    /// budget lives at the producing boundary — this is a source shape, not
+    /// a byte-loading API, and staging never lands a temp source file for it.
+    Bytes { bytes: Vec<u8> },
+}
+
+impl MediaSource {
+    /// The source's own extension witness for MIME disambiguation — a path's
+    /// extension; a byte source carries none, so the human hint rules there.
+    fn extension_hint(&self) -> Option<&str> {
+        match self {
+            Self::DirectPath { path } | Self::StagedTemp { path } => {
+                path.extension().and_then(|ext| ext.to_str())
+            }
+            Self::Bytes { .. } => None,
+        }
+    }
+
+    /// The magic-detection header — path sources stream the first bytes off
+    /// disk; a byte source slices what it already holds.
+    fn read_header(&self) -> Result<Vec<u8>, LomoError> {
+        match self {
+            Self::DirectPath { path } | Self::StagedTemp { path } => {
+                if !path.is_file() {
+                    return Err(validation(
+                        "media_source_not_file",
+                        "media source path must be an existing regular file",
+                    ));
+                }
+                read_magic_header(path)
+            }
+            Self::Bytes { bytes } => Ok(bytes.get(..bytes.len().min(64)).unwrap_or(&[]).to_vec()),
+        }
+    }
+
+    /// Content digest + size — paths stream the digest; a byte source hashes
+    /// the slice it already holds.
+    fn measure(&self) -> Result<(ContentDigest, u64), LomoError> {
+        match self {
+            Self::DirectPath { path } | Self::StagedTemp { path } => {
+                ContentDigest::stream_from_path(path)
+            }
+            Self::Bytes { bytes } => Ok((
+                ContentDigest::of_slice(bytes),
+                u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+            )),
+        }
+    }
+
+    /// Consumes an owned temp source once staging adopted its bytes —
+    /// `StagedTemp` deletes so hosts cannot double-stage it; the other
+    /// sources own nothing on disk to consume.
+    fn consume(&self) -> Result<(), LomoError> {
+        let Self::StagedTemp { path } = self else {
+            return Ok(());
+        };
+        if path.exists() {
+            fs::remove_file(path).map_err(|error| {
+                storage(
+                    "media_stage_temp_consume_failed",
+                    &format!("failed to consume StagedTemp after digest-dedup stage: {error}"),
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Lands the payload at `temp_path` inside the stage dir, consuming the
+    /// source: a bounded stream for `DirectPath`, move-or-copy-then-consume
+    /// for `StagedTemp`, one write of the held bytes for `Bytes`.
+    fn land(self, temp_path: &Path) -> Result<(), LomoError> {
+        match self {
+            Self::DirectPath { path } => stream_copy(&path, temp_path),
+            Self::StagedTemp { path } => {
+                // Move when possible; fall back to copy+remove.
+                if fs::rename(&path, temp_path).is_err() {
+                    stream_copy(&path, temp_path)?;
+                    if path.exists() {
+                        fs::remove_file(&path).map_err(|error| {
+                            storage(
+                                "media_stage_temp_consume_failed",
+                                &format!("failed to consume StagedTemp after stage copy: {error}"),
+                            )
+                        })?;
+                    }
+                }
+                Ok(())
+            }
+            Self::Bytes { bytes } => fs::write(temp_path, bytes).map_err(|error| {
+                storage(
+                    "media_stage_write_failed",
+                    &format!("failed to write staged bytes: {error}"),
+                )
+            }),
+        }
+    }
 }
 
 /// Result of stage+verify before memo promote.
@@ -39,7 +138,8 @@ pub struct MediaStaged {
     pub suggested_final_relative_path: String,
 }
 
-/// Stages media by streaming digest + magic verify into the stage directory.
+/// Stages media by digest + magic verify into the stage directory — path
+/// sources stream; the `Bytes` lane stages the payload it already holds.
 ///
 /// # Errors
 ///
@@ -49,28 +149,14 @@ pub fn stage_media(
     source: MediaSource,
     human_name_hint: &str,
 ) -> Result<MediaStaged, LomoError> {
-    let (source_path, is_staged_temp) = match source {
-        MediaSource::DirectPath { path } => (path, false),
-        MediaSource::StagedTemp { path } => (path, true),
-    };
-    if !source_path.is_file() {
-        return Err(validation(
-            "media_source_not_file",
-            "media source path must be an existing regular file",
-        ));
-    }
-
-    let header = read_magic_header(&source_path)?;
-    let ext_hint = source_path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .or_else(|| {
-            Path::new(human_name_hint)
-                .extension()
-                .and_then(|ext| ext.to_str())
-        });
+    let ext_hint = source.extension_hint().or_else(|| {
+        Path::new(human_name_hint)
+            .extension()
+            .and_then(|ext| ext.to_str())
+    });
+    let header = source.read_header()?;
     let mime = MediaMime::detect(&header, ext_hint)?;
-    let (digest, size) = ContentDigest::stream_from_path(&source_path)?;
+    let (digest, size) = source.measure()?;
 
     let stage_dir = media_root.join(STAGE_DIR_NAME);
     fs::create_dir_all(&stage_dir).map_err(|error| {
@@ -88,15 +174,10 @@ pub fn stage_media(
     if staging_path.exists() {
         let (existing_digest, existing_size) = ContentDigest::stream_from_path(&staging_path)?;
         if existing_digest == digest && existing_size == size {
-            if is_staged_temp && source_path.exists() {
-                // StagedTemp ownership: consume the temp path so hosts cannot double-stage it.
-                fs::remove_file(&source_path).map_err(|error| {
-                    storage(
-                        "media_stage_temp_consume_failed",
-                        &format!("failed to consume StagedTemp after digest-dedup stage: {error}"),
-                    )
-                })?;
-            }
+            // Digest-dedup: the staged bytes are adopted and the source's own
+            // ownership tail runs — `StagedTemp` is consumed so hosts cannot
+            // double-stage it.
+            source.consume()?;
             return build_staged(digest, size, mime, staging_path, human_name_hint);
         }
         // Replace the mismatched occupant: bytes under a digest-derived name must match the
@@ -121,25 +202,7 @@ pub fn stage_media(
         std::process::id()
     ));
 
-    let staged_result = (|| -> Result<(), LomoError> {
-        if !is_staged_temp {
-            return stream_copy(&source_path, &temp_path);
-        }
-        // Move when possible; fall back to copy+remove.
-        if fs::rename(&source_path, &temp_path).is_err() {
-            stream_copy(&source_path, &temp_path)?;
-            if source_path.exists() {
-                fs::remove_file(&source_path).map_err(|error| {
-                    storage(
-                        "media_stage_temp_consume_failed",
-                        &format!("failed to consume StagedTemp after stage copy: {error}"),
-                    )
-                })?;
-            }
-        }
-        Ok(())
-    })();
-    if let Err(error) = staged_result {
+    if let Err(error) = source.land(&temp_path) {
         drop(fs::remove_file(&temp_path));
         return Err(error);
     }

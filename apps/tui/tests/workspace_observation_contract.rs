@@ -66,6 +66,88 @@ mod tests {
         );
     }
 
+    /// P-58: a lost workspace root is transient, not a first-strike death —
+    /// the host retries `watch_root_lost` with bounded backoff, resets the
+    /// budget once the watch settles, and reports the outage only when the
+    /// retry budget is spent. Every other watcher error stays fatal.
+    #[test]
+    fn watch_root_loss_retries_then_reports_exhaustion() {
+        use lomo_core::{ErrorCategory, LomoError, RetryDisposition};
+        use lomo_tui::host::{ROOT_LOST_RETRY_LIMIT, RootLossRetry, RootLossVerdict};
+
+        let root_lost = || {
+            LomoError::from_platform_boundary(
+                ErrorCategory::Storage,
+                lomo_platform_fs::WATCH_ROOT_LOST_CODE,
+                RetryDisposition::Transient,
+                None,
+                None,
+                "watched root is gone",
+            )
+            .expect("valid boundary fields")
+        };
+
+        // Bounded retries: every consecutive strike inside the budget earns a
+        // backoff that never shrinks, and the strike past the budget is fatal.
+        let mut retry = RootLossRetry::default();
+        let mut delays = Vec::new();
+        for _ in 0..ROOT_LOST_RETRY_LIMIT {
+            match retry.struck(&root_lost()) {
+                RootLossVerdict::Retry(delay) => delays.push(delay),
+                verdict @ (RootLossVerdict::Exhausted | RootLossVerdict::Fatal) => {
+                    panic!("a strike inside the retry budget must back off, got {verdict:?}")
+                }
+            }
+        }
+        assert!(
+            delays
+                .windows(2)
+                .all(|window| matches!(window, [earlier, later] if earlier <= later)),
+            "backoff never shrinks while the root stays lost: {delays:?}"
+        );
+        assert!(
+            delays.iter().all(|delay| !delay.is_zero()),
+            "a retried strike always waits, never spins: {delays:?}"
+        );
+        assert_eq!(
+            retry.struck(&root_lost()),
+            RootLossVerdict::Exhausted,
+            "the strike past the budget reports the outage — never an endless silent retry"
+        );
+
+        // Recovery settles the streak: the next outage starts with a fresh
+        // budget instead of inheriting a nearly-spent one.
+        let mut retry = RootLossRetry::default();
+        assert!(matches!(
+            retry.struck(&root_lost()),
+            RootLossVerdict::Retry(_)
+        ));
+        retry.settled();
+        assert!(
+            matches!(retry.struck(&root_lost()), RootLossVerdict::Retry(_)),
+            "a settled watch must reset the retry budget for the next outage"
+        );
+
+        // Errors that are not the typed root loss stay fatal on first strike —
+        // the budget forgives only the failure class the platform proved
+        // recoverable.
+        let mut retry = RootLossRetry::default();
+        let fatal = LomoError::from_platform_boundary(
+            ErrorCategory::Storage,
+            "inotify_poll_failed",
+            RetryDisposition::AfterUserAction,
+            None,
+            None,
+            "poll failed",
+        )
+        .expect("valid boundary fields");
+        assert_eq!(
+            retry.struck(&fatal),
+            RootLossVerdict::Fatal,
+            "a non-root-loss watcher error must not consume the transient budget"
+        );
+    }
+
     #[test]
     fn watcher_outage_is_explicit_and_focus_keeps_manual_refresh() {
         let mut model = model_with_memos(1, 80, 24).expect("fixture and operation must succeed");
