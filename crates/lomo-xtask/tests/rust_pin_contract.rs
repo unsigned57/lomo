@@ -10,6 +10,8 @@
  * - Given minor and patch pins, when parsed, then channel and MSRV are recorded.
  * - Given a rustc version line, when matched, then only the pinned minor family is accepted.
  * - Given a toolchain toml snippet, when the channel is replaced, then other keys stay intact.
+ * - Given comments or same-named keys in other tables, when rewritten, then only the
+ *   addressed `[toolchain] channel` assignment changes.
  *
  * Observable outcomes:
  * - Parse errors, RustPin fields, version-line matches, and rewritten toml text.
@@ -56,8 +58,71 @@ mod tests {
     #[test]
     fn replace_toml_channel() {
         let text = "[toolchain]\nchannel = \"1.96\"\nprofile = \"minimal\"\n";
-        let next = replace_toml_assignment(text, "channel", "1.97").expect("rewrite");
+        let next =
+            replace_toml_assignment(text, &["toolchain", "channel"], "1.97").expect("rewrite");
         assert!(next.contains("channel = \"1.97\""));
         assert!(next.contains("profile = \"minimal\""));
+    }
+
+    #[test]
+    fn replace_ignores_comment_decoys() {
+        let text = "# channel = \"0.0\"\n[toolchain]\nchannel = \"1.96\"\nprofile = \"minimal\"\n";
+        let next =
+            replace_toml_assignment(text, &["toolchain", "channel"], "1.97").expect("rewrite");
+        assert!(
+            next.lines().any(|line| line == "channel = \"1.97\""),
+            "the real assignment must be rewritten, not the comment: {next}"
+        );
+        assert!(next.contains("# channel = \"0.0\""));
+    }
+
+    #[test]
+    fn replace_ignores_assignments_in_other_tables() {
+        let text = "[decoy]\nchannel = \"0.0\"\n\n[toolchain]\nchannel = \"1.96\"\n";
+        let next =
+            replace_toml_assignment(text, &["toolchain", "channel"], "1.97").expect("rewrite");
+        assert!(
+            next.contains("[toolchain]\nchannel = \"1.97\""),
+            "the decoy must not absorb the rewrite: {next}"
+        );
+    }
+
+    #[test]
+    fn replace_preserves_trailing_comments() {
+        let text = "[toolchain]\nchannel = \"1.96\" # keep me\nprofile = \"minimal\"\n";
+        let next =
+            replace_toml_assignment(text, &["toolchain", "channel"], "1.97").expect("rewrite");
+        assert!(next.contains("# keep me"), "comment dropped: {next}");
+    }
+
+    #[test]
+    fn replace_nested_workspace_rust_version() {
+        let text = "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.package]\nrust-version = \"1.96\"\n";
+        let next = replace_toml_assignment(text, &["workspace", "package", "rust-version"], "1.97")
+            .expect("rewrite");
+        assert!(next.contains("rust-version = \"1.97\""));
+        assert!(next.contains("members = [\"crates/*\"]"));
+    }
+
+    #[test]
+    fn replace_rejects_missing_and_non_string_assignments() {
+        replace_toml_assignment(
+            "[toolchain]\nprofile = \"minimal\"\n",
+            &["toolchain", "channel"],
+            "1.97",
+        )
+        .expect_err("a missing key must not materialize");
+        replace_toml_assignment(
+            "[toolchain]\nchannel = 1.96\n",
+            &["toolchain", "channel"],
+            "1.97",
+        )
+        .expect_err("a non-string value must fail closed");
+        replace_toml_assignment(
+            "[workspace]\nmembers = []\n",
+            &["workspace", "package", "rust-version"],
+            "1.97",
+        )
+        .expect_err("a missing nested table must not materialize");
     }
 }

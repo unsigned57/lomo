@@ -9,6 +9,8 @@
  * Scenarios:
  * - Given the repository tools.toml, when a gated tool is resolved, then its own pin returns.
  * - Given a package with no pin, when resolved, then the lookup errors.
+ * - Given a manifest with a non-string version or nested tables inside [quality],
+ *   when resolved, then the parse fails closed instead of accepting a malformed pin.
  *
  * Observable outcomes:
  * - Resolved version strings and lookup errors.
@@ -46,6 +48,37 @@ mod tests {
             pinned_tool_version(&root, "cargo-not-a-real-tool").is_err(),
             "an unpinned package must fail closed"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn manifest_ignores_rich_tables_and_rejects_malformed_pins() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        // Sibling tables carrying booleans and free-form fields must not disturb the
+        // flat [quality]/[diagnostics] pins.
+        std::fs::write(
+            root.path().join("tools.toml"),
+            "[quality]\ncargo-deny = \"0.19.9\"\n\n\
+             [diagnostics]\ncargo-bloat = \"0.12.1\"\n\n\
+             [ffi.boltffi_cli]\npackage = \"boltffi_cli\"\nrev = \"abc\"\n\
+             required_fix_in_latest_tag = true\n",
+        )?;
+        ensure!(pinned_tool_version(root.path(), "cargo-deny")? == "0.19.9");
+        ensure!(pinned_tool_version(root.path(), "cargo-bloat")? == "0.12.1");
+
+        // A version that is not a string fails closed instead of being coerced.
+        std::fs::write(
+            root.path().join("tools.toml"),
+            "[quality]\ncargo-deny = 0.19\n",
+        )?;
+        ensure!(pinned_tool_version(root.path(), "cargo-deny").is_err());
+
+        // A table nested under [quality] is malformed manifest data, not a pin.
+        std::fs::write(
+            root.path().join("tools.toml"),
+            "[quality]\ncargo-deny = \"0.19.9\"\n[quality.extra]\nnested = \"1.0\"\n",
+        )?;
+        ensure!(pinned_tool_version(root.path(), "cargo-deny").is_err());
         Ok(())
     }
 }

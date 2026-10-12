@@ -6,9 +6,43 @@ use std::{
     process::{Command, Output},
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
+use yaml_rust2::{Yaml, YamlLoader};
 
 use crate::workspace::Workspace;
+
+/// Parses a single-document YAML mapping file; anything else fails closed.
+///
+/// # Errors
+/// Returns an error when the file is unreadable, is not valid YAML, does not hold
+/// exactly one document, or the document is not a mapping.
+pub fn load_yaml_document(path: &Path) -> Result<Yaml> {
+    let source = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let mut documents = YamlLoader::load_from_str(&source)
+        .with_context(|| format!("{} must be valid YAML", path.display()))?;
+    ensure!(
+        documents.len() == 1,
+        "{} must contain one YAML document",
+        path.display()
+    );
+    let document = documents.pop().context("missing YAML document")?;
+    ensure!(
+        document.as_hash().is_some(),
+        "{} must be a mapping",
+        path.display()
+    );
+    Ok(document)
+}
+
+/// Parse `text` as a TOML document whose comments and formatting survive targeted
+/// rewrites (`toml_edit::DocumentMut`).
+///
+/// # Errors
+/// Returns an error naming `origin` when `text` is not valid TOML.
+pub fn load_toml_document(text: &str, origin: &str) -> Result<toml_edit::DocumentMut> {
+    text.parse::<toml_edit::DocumentMut>()
+        .with_context(|| format!("{origin} must be valid TOML"))
+}
 
 /// Write one stderr status line for operator-facing xtask progress (CLI surface).
 pub fn emit_stderr(args: std::fmt::Arguments<'_>) {

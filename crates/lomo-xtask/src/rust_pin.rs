@@ -6,6 +6,7 @@
 use std::{fs, path::Path};
 
 use anyhow::{Context, Result, bail};
+use toml_edit::{Item, Value};
 
 use crate::workspace::Workspace;
 
@@ -150,13 +151,15 @@ fn planned_replacements(
     let toolchain_path = workspace.rust.join("rust-toolchain.toml");
     let toolchain = fs::read_to_string(&toolchain_path)
         .with_context(|| format!("failed to read {}", toolchain_path.display()))?;
-    let toolchain_next = replace_toml_assignment(&toolchain, "channel", &new.channel)?;
+    let toolchain_next =
+        replace_toml_assignment(&toolchain, &["toolchain", "channel"], &new.channel)?;
     out.push((toolchain_path, toolchain, toolchain_next));
 
     let cargo_path = workspace.rust.join("Cargo.toml");
     let cargo = fs::read_to_string(&cargo_path)
         .with_context(|| format!("failed to read {}", cargo_path.display()))?;
-    let cargo_next = replace_toml_assignment(&cargo, "rust-version", &new.msrv)?;
+    let cargo_next =
+        replace_toml_assignment(&cargo, &["workspace", "package", "rust-version"], &new.msrv)?;
     out.push((cargo_path, cargo, cargo_next));
 
     // Human-facing pin lines and CI cache key prefixes use major.minor (msrv).
@@ -166,6 +169,7 @@ fn planned_replacements(
         "AGENTS.md",
         ".github/workflows/android_release.yml",
         ".github/workflows/architecture_checks.yml",
+        ".github/workflows/tui_release.yml",
     ];
     for relative in doc_paths {
         let path = workspace.root.join(relative);
@@ -174,7 +178,7 @@ fn planned_replacements(
         }
         let before = fs::read_to_string(&path)
             .with_context(|| format!("failed to read {}", path.display()))?;
-        let after = replace_pin_mentions(&before, old, new);
+        let after = rewrite_pin_mentions(&before, old, new);
         if after != before {
             out.push((path, before, after));
         }
@@ -183,7 +187,7 @@ fn planned_replacements(
     Ok(out)
 }
 
-fn replace_pin_mentions(text: &str, old: &RustPin, new: &RustPin) -> String {
+fn rewrite_pin_mentions(text: &str, old: &RustPin, new: &RustPin) -> String {
     let mut result = text.to_owned();
     // Cache keys and prose: prefer longer old channel first, then msrv.
     if old.channel != old.msrv {
@@ -193,84 +197,100 @@ fn replace_pin_mentions(text: &str, old: &RustPin, new: &RustPin) -> String {
     result
 }
 
-/// Rewrite `key = "value"` in a TOML snippet; other keys stay intact.
+/// Rewrite the string value at `path` (e.g. `["toolchain", "channel"]`) inside TOML
+/// `text`, preserving every surrounding byte of formatting and comments.
 ///
 /// # Errors
 ///
-/// Returns an error when the key assignment is missing or unterminated.
-pub fn replace_toml_assignment(text: &str, key: &str, value: &str) -> Result<String> {
-    let prefix = format!("{key} = \"");
-    let Some(start) = text.find(&prefix) else {
-        bail!("missing `{key} = \"...\"` assignment");
+/// Returns an error when `text` is not valid TOML or `path` does not resolve to an
+/// existing `key = "..."` string assignment.
+pub fn replace_toml_assignment(text: &str, path: &[&str], new_value: &str) -> Result<String> {
+    let (key, parents) = path
+        .split_last()
+        .context("replace_toml_assignment requires a non-empty path")?;
+    let mut document = crate::util::load_toml_document(text, "TOML document")?;
+    let mut table: &mut dyn toml_edit::TableLike = document.as_table_mut();
+    for segment in parents {
+        table = table
+            .get_mut(segment)
+            .and_then(Item::as_table_like_mut)
+            .with_context(|| format!("missing `[{segment}]` table for `{key}`"))?;
+    }
+    let assignment = table
+        .get_mut(key)
+        .with_context(|| format!("missing `{key} = \"...\"` assignment"))?;
+    let Some(old_value) = assignment.as_value_mut() else {
+        bail!("`{key}` must be a `key = \"...\"` string assignment");
     };
-    let value_start = start + prefix.len();
-    // `find` on an ASCII key prefix yields a UTF-8 char boundary.
-    let (head, rest) = text.split_at(value_start);
-    let Some(end_rel) = rest.find('"') else {
-        bail!("unterminated `{key}` string");
+    let Value::String(_) = old_value else {
+        bail!("`{key}` must be a `key = \"...\"` string assignment");
     };
-    let (_old_value, tail) = rest.split_at(end_rel);
-    let mut out = String::with_capacity(text.len() + value.len());
-    out.push_str(head);
-    out.push_str(value);
-    out.push_str(tail);
-    Ok(out)
+    // Keep the surrounding whitespace/comments (`decor`); drop the stale `repr` so the
+    // new value serializes as a canonical basic string.
+    let decor = old_value.decor().clone();
+    let mut replacement = Value::from(new_value.to_owned());
+    *replacement.decor_mut() = decor;
+    *old_value = replacement;
+    Ok(document.to_string())
 }
 
 fn read_toolchain_channel(path: &Path) -> Result<String> {
     let text =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
-    let mut in_toolchain = false;
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if line.starts_with('[') {
-            in_toolchain = line == "[toolchain]";
-            continue;
-        }
-        if !in_toolchain {
-            continue;
-        }
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-        if key.trim() == "channel" {
-            return Ok(value.trim().trim_matches('"').to_owned());
-        }
-    }
-    bail!("{} is missing [toolchain] channel", path.display())
+    let document = crate::util::load_toml_document(&text, &path.display().to_string())?;
+    document
+        .get("toolchain")
+        .and_then(|toolchain| toolchain.get("channel"))
+        .and_then(Item::as_str)
+        .map(str::to_owned)
+        .with_context(|| format!("{} is missing [toolchain] channel", path.display()))
 }
 
 fn read_workspace_rust_version(path: &Path) -> Result<String> {
     let text =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let document = crate::util::load_toml_document(&text, &path.display().to_string())?;
     // Prefer [workspace.package] rust-version; fall back to first rust-version assignment.
-    let mut in_workspace_package = false;
-    let mut first = None;
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if line.starts_with('[') {
-            in_workspace_package = line == "[workspace.package]";
-            continue;
-        }
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-        if key.trim() != "rust-version" {
-            continue;
-        }
-        let value = value.trim().trim_matches('"').to_owned();
-        if in_workspace_package {
-            return Ok(value);
-        }
-        first.get_or_insert(value);
+    let direct = document
+        .get("workspace")
+        .and_then(|workspace| workspace.get("package"))
+        .and_then(|package| package.get("rust-version"))
+        .and_then(Item::as_str);
+    if let Some(version) = direct {
+        return Ok(version.to_owned());
     }
-    first.context(format!("{} is missing rust-version", path.display()))
+    first_in_entries(document.iter(), "rust-version")
+        .with_context(|| format!("{} is missing rust-version", path.display()))
+}
+
+/// First `key = "..."` string assignment in document order, descending through tables
+/// and arrays of tables. Values nested inside inline tables are invisible, matching
+/// the historical first-matching-line scan.
+fn first_string_assignment(item: &Item, key: &str) -> Option<String> {
+    match item {
+        Item::Table(table) => first_in_entries(table.iter(), key),
+        Item::ArrayOfTables(tables) => tables
+            .iter()
+            .find_map(|table| first_in_entries(table.iter(), key)),
+        Item::None | Item::Value(_) => None,
+    }
+}
+
+fn first_in_entries<'a, I>(entries: I, key: &str) -> Option<String>
+where
+    I: Iterator<Item = (&'a str, &'a Item)>,
+{
+    for (name, child) in entries {
+        if name == key
+            && let Some(value) = child.as_str()
+        {
+            return Some(value.to_owned());
+        }
+        if let Some(found) = first_string_assignment(child, key) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 fn msrv_from_channel(channel: &str) -> Result<String> {

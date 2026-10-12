@@ -5,10 +5,11 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
+use toml_edit::Item;
 
 use crate::{
     rust_pin,
-    util::{repository_command, run, text_output},
+    util::{load_toml_document, repository_command, run, text_output},
     workspace::{NDK_VERSION, Workspace},
 };
 
@@ -232,43 +233,25 @@ fn boltffi_identity_path(workspace: &Workspace) -> PathBuf {
 
 fn boltffi_pin(workspace: &Workspace) -> Result<BoltffiPin> {
     let path = workspace.root.join("tools.toml");
-    let text =
-        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
-    let mut in_section = false;
-    let mut package = None;
-    let mut binary = None;
-    let mut git = None;
-    let mut rev = None;
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if line.starts_with('[') {
-            in_section = line == "[ffi.boltffi_cli]";
-            continue;
-        }
-        if !in_section {
-            continue;
-        }
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-        let key = key.trim();
-        let value = value.trim().trim_matches('"').to_owned();
-        match key {
-            "package" => package = Some(value),
-            "binary" => binary = Some(value),
-            "git" => git = Some(value),
-            "rev" => rev = Some(value),
-            _ => {}
-        }
-    }
+    let document = load_tools_document(&path)?;
+    let table = document
+        .get("ffi")
+        .and_then(|ffi| ffi.get("boltffi_cli"))
+        .and_then(Item::as_table_like)
+        .context("missing [ffi.boltffi_cli] in tools.toml")?;
+    let string_field = |key: &str| -> Result<String> {
+        table
+            .get(key)
+            .with_context(|| format!("ffi.boltffi_cli.{key} missing from tools.toml"))?
+            .as_str()
+            .map(str::to_owned)
+            .with_context(|| format!("ffi.boltffi_cli.{key} must be a string in tools.toml"))
+    };
     Ok(BoltffiPin {
-        package: package.context("ffi.boltffi_cli.package missing from tools.toml")?,
-        binary: binary.context("ffi.boltffi_cli.binary missing from tools.toml")?,
-        git: git.context("ffi.boltffi_cli.git missing from tools.toml")?,
-        rev: rev.context("ffi.boltffi_cli.rev missing from tools.toml")?,
+        package: string_field("package")?,
+        binary: string_field("binary")?,
+        git: string_field("git")?,
+        rev: string_field("rev")?,
     })
 }
 
@@ -425,31 +408,28 @@ fn sdkmanager(workspace: &Workspace) -> Result<PathBuf> {
     bail!("sdkmanager is required to install NDK {NDK_VERSION}")
 }
 
-fn quality_and_diagnostic_tools(root: &Path) -> Result<Vec<Tool>> {
-    let path = root.join("tools.toml");
+fn load_tools_document(path: &Path) -> Result<toml_edit::DocumentMut> {
     let text =
-        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    load_toml_document(&text, &path.display().to_string())
+}
+
+fn quality_and_diagnostic_tools(root: &Path) -> Result<Vec<Tool>> {
+    let document = load_tools_document(&root.join("tools.toml"))?;
     let mut tools = Vec::new();
-    let mut in_simple_section = false;
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
+    for section in ["quality", "diagnostics"] {
+        let Some(table) = document.get(section).and_then(Item::as_table_like) else {
             continue;
+        };
+        for (package, item) in table.iter() {
+            let version = item.as_str().with_context(|| {
+                format!("tools.toml [{section}] `{package}` must be a string version")
+            })?;
+            tools.push(Tool {
+                package: package.to_owned(),
+                version: version.to_owned(),
+            });
         }
-        if line.starts_with('[') {
-            in_simple_section = matches!(line, "[quality]" | "[diagnostics]");
-            continue;
-        }
-        if !in_simple_section {
-            continue;
-        }
-        let (package, version) = line
-            .split_once('=')
-            .with_context(|| format!("invalid tool manifest line: {line}"))?;
-        tools.push(Tool {
-            package: package.trim().to_owned(),
-            version: version.trim().trim_matches('"').to_owned(),
-        });
     }
     if tools.is_empty() {
         bail!("tools.toml contains no quality/diagnostics tools");

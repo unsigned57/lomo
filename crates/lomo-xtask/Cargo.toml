@@ -20,6 +20,10 @@ lomo-feasibility = { path = "../lomo-feasibility" }
 serde_json.workspace = true
 serde.workspace = true
 sha2.workspace = true
+# Format-preserving TOML reads/rewrites for pin sites (tools.toml, rust-toolchain.toml,
+# workspace Cargo.toml). Reuses the version already locked for proc-macro-crate so the
+# deny.toml multiple-versions=deny graph keeps exactly one toml_edit build.
+toml_edit = "=0.25.13"
 tree-sitter = "=0.27.0"
 tree-sitter-kotlin-ng = "=1.1.0"
 yaml-rust2 = { version = "=0.10.4", default-features = false }
