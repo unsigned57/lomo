@@ -57,6 +57,7 @@ class MainReminderClickActionTest : AppFunSpec() {
             val token = "@2026-05-22-17:51x5i15rw"
             action(
                 ReminderMarker(
+                    dueAtLocal = "2026-05-22-17:51",
                     dueAt = LocalDateTime.of(2026, 5, 22, 17, 51),
                     repeatCount = 5,
                     firedCount = 0,

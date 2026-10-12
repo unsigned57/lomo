@@ -520,7 +520,7 @@ private class RecordingStorePort : StorePort {
 
     override fun snoozeReminder(
         opaqueId: String,
-        snoozeDurationMs: Long,
+        interval: com.lomo.domain.model.ReminderInterval,
     ) = error("reminder snooze is not expected")
 
     override fun recoverReminderSnooze() = error("reminder snooze recovery is not expected")
@@ -720,10 +720,13 @@ private fun sampleReminderMarker(
     memoId: String,
 ): com.lomo.domain.model.ReminderMarker =
     com.lomo.domain.model.ReminderMarker(
+        dueAtLocal = "2026-09-04-12:00",
         dueAt = java.time.LocalDateTime.of(2026, 9, 4, 12, 0),
         repeatCount = 1,
         firedCount = 0,
         done = false,
+        intervalMinutes = 10,
+        recurrence = com.lomo.domain.model.Recurrence.NONE,
         reference =
             com.lomo.domain.model.ReminderReference(
                 opaqueId = opaqueId,

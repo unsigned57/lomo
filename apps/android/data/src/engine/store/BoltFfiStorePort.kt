@@ -1,6 +1,9 @@
 package com.lomo.data.engine.store
 
 import com.lomo.data.engine.withEngineFailureConversion
+import com.lomo.data.reminder.toNativeRecurrence
+import com.lomo.data.reminder.toNativeSnoozeInterval
+import com.lomo.domain.model.ReminderInterval
 import com.lomo.nativebridge.MediaPromotePlanDto as BridgePromotePlan
 import com.lomo.nativebridge.MediaStagedDto as BridgeStaged
 import com.lomo.nativebridge.SessionCreateMemoRequest
@@ -163,8 +166,10 @@ internal class BoltFfiStorePort(
 
     override fun snoozeReminder(
         opaqueId: String,
-        snoozeDurationMs: Long,
-    ) = withEngineFailureConversion { session.sessionSnoozeReminder(opaqueId, snoozeDurationMs) }
+        interval: ReminderInterval,
+    ) = withEngineFailureConversion {
+        session.sessionSnoozeReminder(opaqueId, interval.toNativeSnoozeInterval())
+    }
 
     override fun recoverReminderSnooze() =
         withEngineFailureConversion { session.sessionRecoverReminderSnooze() }
@@ -394,12 +399,12 @@ internal class BoltFfiStorePort(
             fingerprintOrdinal = marker.reference.fingerprintOrdinal,
             embeddedId = marker.reference.embeddedId,
             token = marker.token,
-            dueAtLocal = marker.dueAt.format(com.lomo.domain.model.ReminderMarker.TIMESTAMP_FORMAT),
+            dueAtLocal = marker.dueAtLocal,
             repeatCount = marker.repeatCount.toUInt(),
             firedCount = marker.firedCount.toUInt(),
             done = marker.done,
             intervalMinutes = marker.intervalMinutes.toUInt(),
-            recurrenceCode = marker.recurrence.code,
+            recurrence = marker.recurrence.toNativeRecurrence(),
         )
 }
 

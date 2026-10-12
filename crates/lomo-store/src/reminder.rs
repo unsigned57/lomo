@@ -9,20 +9,12 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use jiff::tz::{AmbiguousOffset, TimeZone};
 use lomo_core::{ErrorCategory, InvalidationScope, LomoError, RetryDisposition};
-use lomo_workspace::{ReminderTokenMutation, plan_reminder_token_mutation, reminder_token_facts};
+use lomo_workspace::{
+    ReminderRecurrence, ReminderTokenMutation, plan_reminder_token_mutation, reminder_token_facts,
+};
 use serde::{Deserialize, Serialize};
-
-/// Platform zone transition (Kotlin `ZoneRules` candidate).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ZoneTransition {
-    /// Instant (UTC ms) when the offset changes.
-    pub transition_utc_ms: i64,
-    /// Offset (seconds east of UTC) immediately before the transition.
-    pub offset_before_secs: i32,
-    /// Offset (seconds east of UTC) immediately after the transition.
-    pub offset_after_secs: i32,
-}
 
 /// Number of reminder alarms the rolling window emits per plan.
 ///
@@ -30,20 +22,6 @@ pub struct ZoneTransition {
 /// beyond the window are reported via [`ReminderPlan::dropped_count`] rather than silently
 /// discarded.
 pub const REMINDER_ROLLING_WINDOW: usize = 64;
-
-/// Bounded time-zone context supplied by the platform adapter.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TimeZoneContext {
-    pub zone_id: String,
-    /// Offset in force before the first transition (and when no transitions apply).
-    pub base_offset_secs: i32,
-    /// Transitions sorted ascending by [`ZoneTransition::transition_utc_ms`].
-    pub transitions: Vec<ZoneTransition>,
-    /// Inclusive UTC-ms bound: resolution below this instant has no trustworthy offset.
-    pub coverage_start_utc_ms: i64,
-    /// Inclusive UTC-ms bound: resolution above this instant has no trustworthy offset.
-    pub coverage_end_utc_ms: i64,
-}
 
 /// One reminder occurrence projected from Markdown/scan (typed facts, no regex authority here).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,14 +35,20 @@ pub struct ReminderSessionInput {
     pub fired_count: u32,
     pub done: bool,
     pub interval_minutes: u32,
-    pub recurrence_code: String,
+    /// Owner recurrence vocabulary; serialized as the grammar code so payloads keep the
+    /// string shape while planning compares a closed enum.
+    #[serde(rename = "recurrence_code")]
+    pub recurrence: ReminderRecurrence,
 }
 
 /// Query for a rolling-window reminder plan.
 #[derive(Debug, Clone)]
 pub struct ReminderQuery {
     pub now_utc_ms: i64,
-    pub zone: TimeZoneContext,
+    /// Zone the floating `due_at_local` walls are resolved against. The full IANA database
+    /// entry (not a platform-supplied transition slice) so resolution coverage is the zone's
+    /// entire history, not a bounded window.
+    pub zone: TimeZone,
     pub sessions: Vec<ReminderSessionInput>,
     /// Maximum alarms to emit across all sessions (rolling window).
     pub rolling_window: usize,
@@ -352,7 +336,8 @@ impl SnoozeStore {
 }
 
 fn dir_is_under_lomo(path: &Path) -> bool {
-    path.components().any(|c| c.as_os_str() == ".lomo")
+    path.components()
+        .any(|c| c.as_os_str() == lomo_workspace::LOMO_DIR_NAME)
 }
 
 /// Owner wall clock used to judge snooze-binding liveness when reclaiming expired entries.
@@ -373,61 +358,94 @@ fn wall_now_utc_ms() -> Result<i64, LomoError> {
 /// Resolves floating local wall time (`yyyy-MM-dd-HH:mm`) to a UTC instant.
 ///
 /// Policy:
-/// - **DST gap** → first valid instant after the gap (transition UTC).
+/// - **DST gap** → first valid instant after the gap (the transition instant itself).
 /// - **DST overlap** → earlier (first) instant.
 ///
+/// All civil-calendar and DST mathematics is delegated to jiff's bundled zone database; the
+/// owner layer only parses the strict grammar and applies the ambiguity policy.
+///
 /// # Errors
 ///
-/// Validation when the local wall string is malformed or zone data is unusable.
+/// Validation when the local wall string is malformed or has no valid instant in the zone.
 pub fn resolve_floating_local_to_utc_ms(
     due_at_local: &str,
-    zone: &TimeZoneContext,
+    zone: &TimeZone,
 ) -> Result<i64, LomoError> {
-    let (year, month, day, hour, minute) = parse_ymd_hm(due_at_local)?;
-    let naive_ms = civil_to_epoch_ms(year, month, day, hour, minute);
-    let mut candidates = candidate_offsets(zone);
-    candidates.sort_unstable();
-    candidates.dedup();
+    let wall = parse_ymd_hm(due_at_local)?;
+    match ambiguity_policy(zone, wall) {
+        GapPolicy::Compatible(timestamp) => Ok(timestamp.as_millisecond()),
+        GapPolicy::Reject => Err(reminder_validation(
+            "unresolvable_local_time",
+            "floating local time has no valid instant in zone",
+        )),
+    }
+}
 
-    let mut valid: Vec<i64> = Vec::new();
-    for offset in candidates {
-        let utc = naive_ms.saturating_sub(i64::from(offset).saturating_mul(1_000));
-        if offset_at_utc(zone, utc) == offset {
-            valid.push(utc);
+/// Owner decision for a floating-local wall that does not map to exactly one instant.
+///
+/// `Compatible` resolves under the established reminder policy — a gap clamps to the first
+/// valid instant after it (the transition instant) and a fold selects the earlier instant —
+/// carrying the resolved timestamp. `Reject` means the wall cannot resolve to any instant and
+/// the caller fails closed rather than guessing an offset.
+enum GapPolicy {
+    /// Instant resolved under the compatible reminder policy.
+    Compatible(jiff::Timestamp),
+    /// The wall has no valid instant in this zone.
+    Reject,
+}
+
+/// Maps jiff's ambiguity classification onto the owner [`GapPolicy`]. This adapter is the only
+/// DST-policy surface in the crate; the underlying offset/transition lookup is jiff's.
+fn ambiguity_policy(zone: &TimeZone, wall: jiff::civil::DateTime) -> GapPolicy {
+    let ambiguous = zone.to_ambiguous_timestamp(wall);
+    match ambiguous.offset() {
+        AmbiguousOffset::Gap { after, .. } => {
+            // jiff's `earlier` resolves the wall under the post-gap offset, which lands strictly
+            // before the transition that closes the gap. Walk forward to the record that
+            // actually installs the post-gap offset — its instant is the first valid instant
+            // after the gap. Skipping intervening records matters: tzif files contain
+            // offset-preserving rule records that are not the gap boundary. This also covers
+            // the exact gap-start wall, which the legacy scan excluded through a strict
+            // lower-bound comparison.
+            let Ok(before_gap) = ambiguous.earlier() else {
+                return GapPolicy::Reject;
+            };
+            zone.following(before_gap)
+                .find(|transition| transition.offset() == after)
+                .map_or(GapPolicy::Reject, |transition| {
+                    GapPolicy::Compatible(transition.timestamp())
+                })
+        }
+        // Unambiguous resolves trivially.
+        AmbiguousOffset::Unambiguous { .. } => ambiguous
+            .earlier()
+            .map_or(GapPolicy::Reject, GapPolicy::Compatible),
+        AmbiguousOffset::Fold { .. } => {
+            // Fold → the earlier occurrence. The tzif record pair jiff reports is exact in
+            // the normal case, but zones whose offset regime was skipped mid-history can name
+            // a fold whose earlier "occurrence" has an offset that was never in force
+            // (America/Godthab 2023: permanent -02 was adopted in March, yet the October
+            // record pair still implies {-01,-02}). Verify the earlier instant actually
+            // displays the wall; the only real occurrence is then the later one.
+            if let Ok(timestamp) = ambiguous.earlier()
+                && displays_wall(zone, timestamp, wall)
+            {
+                return GapPolicy::Compatible(timestamp);
+            }
+            match ambiguous.later() {
+                Ok(timestamp) if displays_wall(zone, timestamp, wall) => {
+                    GapPolicy::Compatible(timestamp)
+                }
+                _ => GapPolicy::Reject,
+            }
         }
     }
-    valid.sort_unstable();
-    valid.dedup();
-
-    match valid.as_slice() {
-        [] => first_valid_after_gap(naive_ms, zone),
-        [one] => require_zone_coverage(zone, *one),
-        many => require_zone_coverage(zone, *many.iter().min().unwrap_or(&0)),
-    }
 }
 
-/// Naive epoch-ms reading of a `due_at_local` wall time (components treated as UTC).
-///
-/// This is a coverage-bound estimate for transition-table sizing, not a zone resolution — callers
-/// must still resolve the instant through [`resolve_floating_local_to_utc_ms`].
-///
-/// # Errors
-///
-/// Validation when the wall string is malformed.
-pub fn naive_local_epoch_ms(due_at_local: &str) -> Result<i64, LomoError> {
-    let (year, month, day, hour, minute) = parse_ymd_hm(due_at_local)?;
-    Ok(civil_to_epoch_ms(year, month, day, hour, minute))
-}
-
-/// Rejects instants outside the supplied zone coverage instead of guessing an offset.
-fn require_zone_coverage(zone: &TimeZoneContext, utc_ms: i64) -> Result<i64, LomoError> {
-    if utc_ms < zone.coverage_start_utc_ms || utc_ms > zone.coverage_end_utc_ms {
-        return Err(reminder_validation(
-            "need_zone_context",
-            "reminder instant lies outside the supplied time-zone coverage",
-        ));
-    }
-    Ok(utc_ms)
+/// Whether `ts` displays `wall` under the offset actually in force at `ts` — a round-trip
+/// check that filters out phantom ambiguity occurrences (see the Fold arm above).
+fn displays_wall(zone: &TimeZone, ts: jiff::Timestamp, wall: jiff::civil::DateTime) -> bool {
+    ts.to_zoned(zone.clone()).datetime() == wall
 }
 
 /// Builds a rolling-window reminder plan.
@@ -568,7 +586,7 @@ pub fn apply_reminder_command(
 /// Validation for malformed due-at or zone resolution failure.
 pub fn session_base_trigger_utc_ms(
     session: &ReminderSessionInput,
-    zone: &TimeZoneContext,
+    zone: &TimeZone,
 ) -> Result<i64, LomoError> {
     let base = resolve_floating_local_to_utc_ms(&session.due_at_local, zone)?;
     if session.repeat_count > 1 && session.fired_count > 0 {
@@ -582,7 +600,7 @@ pub fn session_base_trigger_utc_ms(
 
 fn plan_session_triggers(
     session: &ReminderSessionInput,
-    zone: &TimeZoneContext,
+    zone: &TimeZone,
     now_utc_ms: i64,
     workspace_generation: &str,
 ) -> Result<Vec<PlannedAlarm>, LomoError> {
@@ -593,7 +611,7 @@ fn plan_session_triggers(
         || facts.fired_count != session.fired_count
         || facts.done != session.done
         || facts.interval_minutes != session.interval_minutes
-        || facts.recurrence_code != session.recurrence_code
+        || facts.recurrence != session.recurrence
     {
         return Err(reminder_validation(
             "reminder_session_fact_mismatch",
@@ -659,7 +677,7 @@ fn advance_after_fire(session: &ReminderSessionInput) -> Result<ReminderSessionI
         fired_count: facts.fired_count,
         done: facts.done,
         interval_minutes: facts.interval_minutes,
-        recurrence_code: facts.recurrence_code,
+        recurrence: facts.recurrence,
     })
 }
 
@@ -673,52 +691,12 @@ fn ensure_revision(session: &ReminderSessionInput, expected: &str) -> Result<(),
     Ok(())
 }
 
-fn offset_at_utc(zone: &TimeZoneContext, utc_ms: i64) -> i32 {
-    let mut offset = zone.base_offset_secs;
-    for transition in &zone.transitions {
-        if utc_ms >= transition.transition_utc_ms {
-            offset = transition.offset_after_secs;
-        }
-    }
-    offset
-}
-
-fn candidate_offsets(zone: &TimeZoneContext) -> Vec<i32> {
-    let mut out = vec![zone.base_offset_secs];
-    for t in &zone.transitions {
-        out.push(t.offset_before_secs);
-        out.push(t.offset_after_secs);
-    }
-    out
-}
-
-fn first_valid_after_gap(naive_ms: i64, zone: &TimeZoneContext) -> Result<i64, LomoError> {
-    // Prefer the spring-forward transition whose local gap covers the intended wall time.
-    for transition in &zone.transitions {
-        if transition.offset_after_secs <= transition.offset_before_secs {
-            continue; // not a gap (spring forward increases algebraic offset toward UTC for west zones? 
-            // EST -18000 → EDT -14400: offset_after > offset_before. Fall: -14400 → -18000.
-        }
-        // Local time at transition under old offset:
-        let local_before = transition
-            .transition_utc_ms
-            .saturating_add(i64::from(transition.offset_before_secs).saturating_mul(1_000));
-        let local_after = transition
-            .transition_utc_ms
-            .saturating_add(i64::from(transition.offset_after_secs).saturating_mul(1_000));
-        // Gap is (local_before, local_after) in local timeline for spring-forward (local time
-        // jumps forward). Fall-back overlaps have two valid instants handled by the caller.
-        if naive_ms > local_before && naive_ms < local_after {
-            return require_zone_coverage(zone, transition.transition_utc_ms);
-        }
-    }
-    Err(reminder_validation(
-        "unresolvable_local_time",
-        "floating local time has no valid instant in zone context",
-    ))
-}
-
-fn parse_ymd_hm(text: &str) -> Result<(i32, u32, u32, u32, u32), LomoError> {
+/// Strict `yyyy-MM-dd-HH:mm` grammar gate → jiff civil datetime.
+///
+/// The owner grammar owns the shape (width, separators, decimal components). Component ranges,
+/// month lengths, and leap days are validated by jiff's checked [`civil::DateTime`](jiff::civil::DateTime)
+/// constructor — no hand-rolled calendar table remains in this crate.
+fn parse_ymd_hm(text: &str) -> Result<jiff::civil::DateTime, LomoError> {
     let bytes = text.as_bytes();
     if bytes.len() != 16
         || bytes.get(4).copied() != Some(b'-')
@@ -731,61 +709,30 @@ fn parse_ymd_hm(text: &str) -> Result<(i32, u32, u32, u32, u32), LomoError> {
             "due_at_local must be yyyy-MM-dd-HH:mm",
         ));
     }
-    // ASCII digits only after length/separator check — byte indices equal char indices.
-    let year = parse_i32(slice_ascii(bytes, 0, 4)?)?;
-    let month = parse_u32(slice_ascii(bytes, 5, 7)?)?;
-    let day = parse_u32(slice_ascii(bytes, 8, 10)?)?;
-    let hour = parse_u32(slice_ascii(bytes, 11, 13)?)?;
-    let minute = parse_u32(slice_ascii(bytes, 14, 16)?)?;
-    if !(1..=12).contains(&month) || hour > 23 || minute > 59 {
-        return Err(reminder_validation(
+    // Fixed-width grammar keeps byte indices equal to char indices.
+    let year = slice_ascii(bytes, 0, 4)?.parse::<i16>().map_err(|_e| {
+        reminder_validation("invalid_due_at_local", "due_at_local year is not decimal")
+    })?;
+    let component = |start: usize, end: usize| -> Result<i8, LomoError> {
+        slice_ascii(bytes, start, end)?.parse::<i8>().map_err(|_e| {
+            reminder_validation("invalid_due_at_local", "due_at_local is not decimal")
+        })
+    };
+    jiff::civil::DateTime::new(
+        year,
+        component(5, 7)?,
+        component(8, 10)?,
+        component(11, 13)?,
+        component(14, 16)?,
+        0,
+        0,
+    )
+    .map_err(|_e| {
+        reminder_validation(
             "invalid_due_at_local",
             "due_at_local components out of range",
-        ));
-    }
-    let dim = days_in_month(year, month)?;
-    if day == 0 || day > dim {
-        return Err(reminder_validation(
-            "invalid_due_at_local",
-            "due_at_local day out of range",
-        ));
-    }
-    Ok((year, month, day, hour, minute))
-}
-
-fn parse_u32(text: &str) -> Result<u32, LomoError> {
-    text.parse::<u32>()
-        .map_err(|_e| reminder_validation("invalid_due_at_local", "due_at_local is not decimal"))
-}
-
-fn parse_i32(text: &str) -> Result<i32, LomoError> {
-    text.parse::<i32>().map_err(|_e| {
-        reminder_validation("invalid_due_at_local", "due_at_local year is not decimal")
+        )
     })
-}
-
-/// Civil date-time as milliseconds since Unix epoch treating components as UTC (naive).
-fn civil_to_epoch_ms(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> i64 {
-    let days = days_from_civil(year, month, day);
-    let secs = days
-        .saturating_mul(86_400)
-        .saturating_add(i64::from(hour) * 3_600)
-        .saturating_add(i64::from(minute) * 60);
-    secs.saturating_mul(1_000)
-}
-
-/// Howard Hinnant civil-from-days inverse: days since Unix epoch for Y-M-D.
-fn days_from_civil(year: i32, month: u32, day: u32) -> i64 {
-    let mut y = i64::from(year);
-    let m = i64::from(month);
-    let d = i64::from(day);
-    y -= i64::from(m <= 2);
-    let era = if y >= 0 { y } else { y - 399 } / 400;
-    let yoe = y - era * 400;
-    let mp = if m > 2 { m - 3 } else { m + 9 };
-    let doy = (153 * mp + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
 }
 
 fn slice_ascii(bytes: &[u8], start: usize, end: usize) -> Result<&str, LomoError> {
@@ -794,25 +741,6 @@ fn slice_ascii(bytes: &[u8], start: usize, end: usize) -> Result<&str, LomoError
     })?;
     std::str::from_utf8(slice)
         .map_err(|_e| reminder_validation("invalid_due_at_local", "due_at_local slice is not utf8"))
-}
-
-fn days_in_month(year: i32, month: u32) -> Result<u32, LomoError> {
-    Ok(match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if is_leap(year) => 29,
-        2 => 28,
-        _ => {
-            return Err(reminder_validation(
-                "invalid_due_at_local",
-                "month out of range",
-            ));
-        }
-    })
-}
-
-const fn is_leap(year: i32) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
 const fn map_workspace_err(err: LomoError) -> LomoError {

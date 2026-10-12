@@ -125,6 +125,7 @@ mod tests {
             .open_workspace_session(
                 Box::new(PosixBatchHost { executor }),
                 "UTC".to_owned(),
+                "yyyy_MM_dd".to_owned(),
                 workspace.to_string_lossy().into_owned(),
             )
             .test_ok("open session");
@@ -771,7 +772,10 @@ mod tests {
         assert!(!plan.alarms.is_empty());
         let alarm = plan.alarms.first().cloned().test_ok("planned alarm");
         engine
-            .session_snooze_reminder(alarm.opaque_id, 60_000)
+            .session_snooze_reminder(
+                alarm.opaque_id,
+                lomo_native::ReminderSnoozeInterval::OneMinute,
+            )
             .test_ok("snooze through session");
     }
 }

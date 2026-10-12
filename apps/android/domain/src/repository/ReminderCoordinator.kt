@@ -1,11 +1,13 @@
 package com.lomo.domain.repository
 
+import com.lomo.domain.model.ReminderInterval
 import kotlinx.coroutines.flow.StateFlow
 
 interface ReminderCoordinator {
-    val globalIntervalMillis: StateFlow<Long>
+    /** Active snooze interval preference as an owner-vocabulary option. */
+    val globalInterval: StateFlow<ReminderInterval>
 
-    suspend fun setGlobalIntervalMillis(millis: Long)
+    suspend fun setGlobalInterval(interval: ReminderInterval)
 
     suspend fun syncForMemo(memoId: String)
 

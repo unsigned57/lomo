@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::limits::validation;
+use crate::render::ReminderRecurrence;
 use crate::source::{ByteSpan, SourceBytes, SourceFingerprint};
 use crate::types::MemoIdentity;
 
@@ -27,7 +28,10 @@ pub struct ReminderReference {
     pub fired_count: u32,
     pub done: bool,
     pub interval_minutes: u32,
-    pub recurrence_code: String,
+    /// Owner recurrence vocabulary; serialized as the grammar code (`d`/`w`/`""`) so the
+    /// durable `reminders_json` shape is unchanged while readers get a closed enum.
+    #[serde(rename = "recurrence_code")]
+    pub recurrence: ReminderRecurrence,
 }
 
 /// Opaque reminder definition identity bound to memo + token fingerprint + same-fingerprint ordinal.
@@ -47,7 +51,8 @@ pub struct ReminderRef {
     fired_count: u32,
     done: bool,
     interval_minutes: u32,
-    recurrence_code: String,
+    #[serde(rename = "recurrence_code")]
+    recurrence: ReminderRecurrence,
 }
 
 impl ReminderRef {
@@ -94,7 +99,7 @@ impl ReminderRef {
             fired_count: facts.fired_count,
             done: facts.done,
             interval_minutes: facts.interval_minutes,
-            recurrence_code: facts.recurrence_code,
+            recurrence: facts.recurrence,
         })
     }
 
@@ -165,8 +170,8 @@ impl ReminderRef {
     }
 
     #[must_use]
-    pub fn recurrence_code(&self) -> &str {
-        &self.recurrence_code
+    pub const fn recurrence(&self) -> ReminderRecurrence {
+        self.recurrence
     }
 
     /// Reconstructs one exact reminder reference from a serialized boundary value.
@@ -205,7 +210,7 @@ impl ReminderRef {
             || facts.fired_count != reference.fired_count
             || facts.done != reference.done
             || facts.interval_minutes != reference.interval_minutes
-            || facts.recurrence_code != reference.recurrence_code
+            || facts.recurrence != reference.recurrence
         {
             return Err(validation(
                 "invalid_reminder_reference",
@@ -252,7 +257,7 @@ impl ReminderRef {
             fired_count: reference.fired_count,
             done: reference.done,
             interval_minutes: reference.interval_minutes,
-            recurrence_code: reference.recurrence_code,
+            recurrence: reference.recurrence,
         })
     }
 
@@ -286,7 +291,7 @@ impl ReminderRef {
             fired_count: self.fired_count,
             done: self.done,
             interval_minutes: self.interval_minutes,
-            recurrence_code: self.recurrence_code.clone(),
+            recurrence: self.recurrence,
         }
     }
 }
@@ -308,7 +313,7 @@ impl From<&ReminderRef> for ReminderReference {
             fired_count: value.fired_count,
             done: value.done,
             interval_minutes: value.interval_minutes,
-            recurrence_code: value.recurrence_code.clone(),
+            recurrence: value.recurrence,
         }
     }
 }

@@ -2,7 +2,6 @@ package com.lomo.app.feature.memo
 
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.Recurrence
-import com.lomo.domain.model.ReminderMarker
 import com.lomo.domain.repository.ReminderTokenFactory
 import io.kotest.matchers.shouldBe
 import java.time.LocalDate
@@ -92,6 +91,8 @@ class ReminderInsertDialogTokenBuilderTest : AppFunSpec() {
 private class RecordingReminderTokenFactory(
     private val result: String,
 ) : ReminderTokenFactory {
+    override val defaultIntervalMinutes: Int = 10
+
     var lastDueAt: LocalDateTime? = null
     var lastRepeatCount: Int? = null
     var lastIntervalMinutes: Int? = null
@@ -107,8 +108,6 @@ private class RecordingReminderTokenFactory(
         lastRepeatCount = repeatCount
         lastIntervalMinutes = intervalMinutes
         lastRecurrence = recurrence
-        // Timestamp format is display wire for owner, not a second token grammar.
-        dueAt.format(ReminderMarker.TIMESTAMP_FORMAT)
         return result
     }
 

@@ -3,9 +3,10 @@
 //! - Unit under test: `lomo_store::reminder` (DST resolve, plan, catch-up, snooze, commands)
 //! - Owning layer: `lomo-store`
 //! - Priority tier: P0
-//! - Capability: own recurrence/fired/done/next-trigger, floating local wall time with platform
-//!   zone transitions, at-most-one catch-up per session, app-private snooze binding, and
-//!   mark-done/record-fired token mutation planning without rewriting body on snooze.
+//! - Capability: own recurrence/fired/done/next-trigger, floating local wall time resolved
+//!   against the bundled IANA zone database, at-most-one catch-up per session, app-private
+//!   snooze binding, and mark-done/record-fired token mutation planning without rewriting
+//!   body on snooze.
 //!
 //! Scenarios:
 //! - Given a US spring-forward DST gap wall time, when resolved, then the first valid UTC instant
@@ -41,34 +42,22 @@
 mod tests {
     use std::path::PathBuf;
 
+    use jiff::tz::TimeZone;
     use lomo_store::{
         PlannedAlarm, ReminderCommand, ReminderQuery, ReminderSessionInput, SnoozeStore, Store,
-        TimeZoneContext, ZoneTransition, apply_reminder_command, query_reminder_plan,
-        resolve_floating_local_to_utc_ms,
+        apply_reminder_command, query_reminder_plan, resolve_floating_local_to_utc_ms,
     };
     use tempfile::tempdir;
 
-    /// `America/New_York` 2024 spring + fall transitions (platform `ZoneRules` shape) with
-    /// coverage spanning all 2024 instants the scenarios exercise.
-    fn new_york_2024() -> TimeZoneContext {
-        TimeZoneContext {
-            zone_id: "America/New_York".to_owned(),
-            base_offset_secs: -5 * 3600,
-            transitions: vec![
-                ZoneTransition {
-                    transition_utc_ms: 1_710_054_000_000,
-                    offset_before_secs: -5 * 3600,
-                    offset_after_secs: -4 * 3600,
-                },
-                ZoneTransition {
-                    transition_utc_ms: 1_730_613_600_000,
-                    offset_before_secs: -4 * 3600,
-                    offset_after_secs: -5 * 3600,
-                },
-            ],
-            coverage_start_utc_ms: 1_704_067_200_000, // 2024-01-01T00:00Z
-            coverage_end_utc_ms: 1_767_225_600_000,   // 2026-01-01T00:00Z
-        }
+    /// `America/New_York` from the bundled IANA database — resolution coverage is the zone's
+    /// entire history, not a bounded transition window.
+    fn new_york() -> TimeZone {
+        TimeZone::get("America/New_York").expect("bundled tzdb")
+    }
+
+    /// `Australia/Lord_Howe` — a real 30-minute DST step, pinning non-hour transition math.
+    fn lord_howe() -> TimeZone {
+        TimeZone::get("Australia/Lord_Howe").expect("bundled tzdb")
     }
 
     struct SessionSpec {
@@ -94,7 +83,8 @@ mod tests {
             fired_count: spec.fired,
             done: spec.done,
             interval_minutes: spec.interval,
-            recurrence_code: spec.recurrence.to_owned(),
+            recurrence: lomo_workspace::ReminderRecurrence::from_code(spec.recurrence)
+                .expect("spec recurrence code"),
         }
     }
 
@@ -108,7 +98,7 @@ mod tests {
     fn store_handle_reminder_plan_and_commands_delegate() {
         let dir = tempdir().expect("tempdir");
         let store = Store::open(dir.path()).expect("open");
-        let zone = new_york_2024();
+        let zone = new_york();
         let s = session(&SessionSpec {
             opaque: "rem-store",
             token: "@2024-06-01-15:00",
@@ -149,7 +139,7 @@ mod tests {
 
     #[test]
     fn invalid_and_leap_local_times_fail_closed_or_resolve() {
-        let zone = new_york_2024();
+        let zone = new_york();
         for bad in [
             "not-a-date",
             "2024-13-01-09:00",
@@ -178,7 +168,7 @@ mod tests {
 
     #[test]
     fn clear_snooze_and_done_session_skip_plan() {
-        let zone = new_york_2024();
+        let zone = new_york();
         let s = session(&SessionSpec {
             opaque: "rem-clear",
             token: "@2024-06-01-15:00",
@@ -248,22 +238,89 @@ mod tests {
 
     #[test]
     fn dst_gap_resolves_to_first_valid_instant() {
-        let zone = new_york_2024();
+        let zone = new_york();
         let utc = resolve_floating_local_to_utc_ms("2024-03-10-02:30", &zone).expect("gap resolve");
         assert_eq!(utc, 1_710_054_000_000);
     }
 
     #[test]
+    fn dst_gap_start_wall_time_clamps_to_transition() {
+        let zone = new_york();
+        // 02:00 is the first nonexistent local minute: the gap boundary itself must clamp
+        // to the transition instant like every other interior wall time.
+        let utc = resolve_floating_local_to_utc_ms("2024-03-10-02:00", &zone)
+            .expect("gap start resolves to transition instant");
+        assert_eq!(utc, 1_710_054_000_000);
+    }
+
+    #[test]
     fn dst_overlap_chooses_earlier_instant() {
-        let zone = new_york_2024();
+        let zone = new_york();
         let utc =
             resolve_floating_local_to_utc_ms("2024-11-03-01:30", &zone).expect("overlap resolve");
         assert_eq!(utc, 1_730_611_800_000);
     }
 
     #[test]
+    fn dst_gap_edges_straddle_the_transition() {
+        let zone = new_york();
+        // The last valid wall before the gap keeps the pre-gap offset (01:59 EST → 06:59Z).
+        let before = resolve_floating_local_to_utc_ms("2024-03-10-01:59", &zone).expect("pre-gap");
+        assert_eq!(before, 1_710_053_940_000);
+        // The first valid wall after the gap is the transition instant itself (03:00 EDT →
+        // 07:00Z) — the same instant every in-gap wall clamps to.
+        let end = resolve_floating_local_to_utc_ms("2024-03-10-03:00", &zone).expect("gap end");
+        assert_eq!(end, 1_710_054_000_000);
+    }
+
+    #[test]
+    fn dst_fold_boundaries_choose_first_occurrence() {
+        let zone = new_york();
+        // Fold interval [01:00, 02:00) local repeats: both endpoints take the earlier (EDT,
+        // UTC-4) occurrence; 02:00 is unambiguous standard time.
+        let fold_start =
+            resolve_floating_local_to_utc_ms("2024-11-03-01:00", &zone).expect("fold start");
+        assert_eq!(fold_start, 1_730_610_000_000);
+        let fold_last =
+            resolve_floating_local_to_utc_ms("2024-11-03-01:59", &zone).expect("fold last");
+        assert_eq!(fold_last, 1_730_613_540_000);
+        let after_fold =
+            resolve_floating_local_to_utc_ms("2024-11-03-02:00", &zone).expect("after fold");
+        assert_eq!(after_fold, 1_730_617_200_000);
+    }
+
+    #[test]
+    fn skipped_regime_phantom_fold_resolves_to_real_occurrence() {
+        // America/Godthab adopted permanent UTC-02 in March 2023 — the spring step was
+        // skipped — yet the tzif record pair for October still implies a {-01,-02} fold.
+        // The earlier "occurrence" is phantom (its offset was never in force); the wall
+        // resolves to the only instant that actually displays it.
+        let zone = TimeZone::get("America/Godthab").expect("bundled tzdb");
+        let utc = resolve_floating_local_to_utc_ms("2023-10-28-23:30", &zone)
+            .expect("phantom fold resolves");
+        assert_eq!(utc, 1_698_543_000_000);
+    }
+
+    #[test]
+    fn non_hour_dst_gap_clamps_to_transition() {
+        let zone = lord_howe();
+        // Australia/Lord_Howe springs forward 30 minutes: local wall jumps 2024-10-06
+        // 02:00 → 02:30, so the whole half-open interval [02:00, 02:30) is a gap.
+        let gap_start =
+            resolve_floating_local_to_utc_ms("2024-10-06-02:00", &zone).expect("gap start");
+        assert_eq!(gap_start, 1_728_142_200_000);
+        let interior =
+            resolve_floating_local_to_utc_ms("2024-10-06-02:15", &zone).expect("gap interior");
+        assert_eq!(interior, 1_728_142_200_000);
+        let gap_end = resolve_floating_local_to_utc_ms("2024-10-06-02:30", &zone).expect("gap end");
+        assert_eq!(gap_end, 1_728_142_200_000);
+        let before = resolve_floating_local_to_utc_ms("2024-10-06-01:59", &zone).expect("pre-gap");
+        assert_eq!(before, 1_728_142_140_000);
+    }
+
+    #[test]
     fn ordinary_local_time_resolves_with_active_offset() {
-        let zone = new_york_2024();
+        let zone = new_york();
         let utc = resolve_floating_local_to_utc_ms("2024-07-01-12:00", &zone).expect("summer");
         assert_eq!(utc, 1_719_849_600_000);
         let utc = resolve_floating_local_to_utc_ms("2024-01-15-12:00", &zone).expect("winter");
@@ -272,7 +329,7 @@ mod tests {
 
     #[test]
     fn catch_up_storm_prevention_emits_at_most_one_catch_up_per_session() {
-        let zone = new_york_2024();
+        let zone = new_york();
         let s = session(&SessionSpec {
             opaque: "rem-daily",
             token: "@2024-01-01-09:00rd",
@@ -315,7 +372,7 @@ mod tests {
 
     #[test]
     fn multi_fire_missed_emits_one_catch_up_not_all_repeats() {
-        let zone = new_york_2024();
+        let zone = new_york();
         let s = session(&SessionSpec {
             opaque: "rem-multi",
             token: "@2024-01-01-09:00x3i10",
@@ -346,7 +403,7 @@ mod tests {
 
     #[test]
     fn snooze_binds_to_generation_and_definition_id() {
-        let zone = new_york_2024();
+        let zone = new_york();
         let s = session(&SessionSpec {
             opaque: "rem-snooze",
             token: "@2024-06-01-15:00",
@@ -533,7 +590,7 @@ mod tests {
 
     #[test]
     fn future_single_shot_schedules_exact_due_without_catch_up() {
-        let zone = new_york_2024();
+        let zone = new_york();
         let s = session(&SessionSpec {
             opaque: "rem-future",
             token: "@2024-08-01-10:00",
@@ -565,7 +622,7 @@ mod tests {
 
     #[test]
     fn planned_alarms_carry_distinct_occurrence_identities() {
-        let zone = new_york_2024();
+        let zone = new_york();
         let s = session(&SessionSpec {
             opaque: "rem-occ",
             token: "@2024-01-01-09:00x3i10",
@@ -645,7 +702,7 @@ mod tests {
         assert!(file.exists());
         assert_eq!(store.snooze_until("gen-a", "x"), None);
 
-        let zone = new_york_2024();
+        let zone = new_york();
         let s = session(&SessionSpec {
             opaque: "rem-corrupt",
             token: "@2024-06-01-15:00",
@@ -729,22 +786,20 @@ mod tests {
     }
 
     #[test]
-    fn instants_outside_zone_coverage_fail_closed() {
-        let zone = new_york_2024();
-        // 2030 local time resolves beyond the declared 2026 coverage end — refuse rather than
-        // guessing an offset or falling back to the earliest transition.
-        let err = resolve_floating_local_to_utc_ms("2030-06-01-15:00", &zone)
-            .expect_err("out of coverage");
-        assert_eq!(err.code(), "need_zone_context");
-
-        // A local gap inside coverage still resolves to the post-gap transition.
-        let gap = resolve_floating_local_to_utc_ms("2024-03-10-02:30", &zone).expect("gap");
-        assert_eq!(gap, 1_710_054_000_000);
+    fn instants_resolve_across_full_zone_history() {
+        let zone = new_york();
+        // The bundled zone database covers the zone's entire history, so far-future instants
+        // resolve directly instead of demanding a platform coverage window.
+        let far = resolve_floating_local_to_utc_ms("2030-06-01-15:00", &zone).expect("far");
+        assert_eq!(far, 1_906_570_800_000);
+        // Historical instants resolve under the offset in force at that instant.
+        let past = resolve_floating_local_to_utc_ms("1990-01-15-12:00", &zone).expect("past");
+        assert_eq!(past, 632_422_800_000);
     }
 
     #[test]
     fn rolling_window_reports_dropped_alarms() {
-        let zone = new_york_2024();
+        let zone = new_york();
         let spec = |tag: &'static str| SessionSpec {
             opaque: tag,
             token: "@2024-06-01-15:00",

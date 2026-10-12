@@ -1,5 +1,7 @@
 package com.lomo.data.engine.store
 
+import com.lomo.data.reminder.toDomainRecurrence
+
 internal fun com.lomo.nativebridge.StoreMemoSummary.toStoreSummary(): StoreMemoSummary =
     StoreMemoSummary(
         memoId = memoId,
@@ -25,16 +27,17 @@ internal fun com.lomo.nativebridge.StoreMemoSummary.toStoreSummary(): StoreMemoS
 private fun com.lomo.nativebridge.WorkspaceReminderReference.toDomainMarker():
     com.lomo.domain.model.ReminderMarker =
     com.lomo.domain.model.ReminderMarker(
+        dueAtLocal = dueAtLocal,
         dueAt =
             java.time.LocalDateTime.parse(
                 dueAtLocal,
-                com.lomo.domain.model.ReminderMarker.TIMESTAMP_FORMAT,
+                com.lomo.data.reminder.REMINDER_DUE_AT_FORMATTER,
             ),
         repeatCount = repeatCount.toInt(),
         firedCount = firedCount.toInt(),
         done = done,
         intervalMinutes = intervalMinutes.toInt(),
-        recurrence = com.lomo.domain.model.Recurrence.fromCode(recurrenceCode),
+        recurrence = recurrence.toDomainRecurrence(),
         reference =
             com.lomo.domain.model.ReminderReference(
                 opaqueId = opaqueId,

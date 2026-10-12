@@ -264,11 +264,12 @@ interface StoreWritePort {
 
     /**
      * Writes one durable app-private snooze binding scoped to the workspace generation. The caller
-     * supplies a validated duration; the deadline instant is computed on the owner clock.
+     * supplies an owner-vocabulary [ReminderInterval] option; the deadline instant is computed on
+     * the owner clock and durations outside the option set are unrepresentable.
      */
     fun snoozeReminder(
         opaqueId: String,
-        snoozeDurationMs: Long,
+        interval: com.lomo.domain.model.ReminderInterval,
     )
 
     /** Explicitly recovers corrupt durable snooze state (quarantine + fresh store). */

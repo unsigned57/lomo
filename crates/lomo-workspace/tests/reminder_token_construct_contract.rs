@@ -13,6 +13,10 @@
 //!   shapes are rejected.
 //! - Given an active token, when `MarkDone`, then `.done` or recurrence advance is produced and an
 //!   embedded id is present (minted on legacy tokens, preserved on migrated tokens).
+//! - Given a recurring token at a month/year/leap-day boundary, when `MarkDone`, then the due date
+//!   advances by the exact proleptic-Gregorian rule; advance past `9999-12-31` fails closed.
+//! - Given a `due_at_local` with invalid civil date or variable-width fields, when built, then it
+//!   is rejected; boundary-valid dates (`0000`, leap Feb 29, `9999-12-31`) are accepted.
 //! - Given a multi-fire token, when `RecordFired`, then fired count / done / recurrence advance.
 //!
 //! Observable outcomes: exact token strings, parsed embedded ids, and validation failures.
@@ -28,8 +32,8 @@
 )]
 mod tests {
     use lomo_workspace::{
-        ReminderTokenMutation, build_reminder_token, plan_reminder_token_mutation,
-        reminder_token_facts,
+        ReminderRecurrence, ReminderTokenMutation, build_reminder_token,
+        plan_reminder_token_mutation, reminder_token_facts,
     };
 
     const EMBEDDED: &str = "0123456789abcdef";
@@ -40,19 +44,43 @@ mod tests {
 
     #[test]
     fn build_insert_token_matches_strict_grammar() {
-        let token = build_reminder_token("2026-07-20-10:45", 1, 0, false, 10, "", None)
-            .expect("simple insert");
+        let token = build_reminder_token(
+            "2026-07-20-10:45",
+            1,
+            0,
+            false,
+            10,
+            ReminderRecurrence::None,
+            None,
+        )
+        .expect("simple insert");
         assert_eq!(token, "@2026-07-20-10:45");
 
-        let multi = build_reminder_token("2026-07-20-10:45", 3, 0, false, 15, "d", None)
-            .expect("multi insert");
+        let multi = build_reminder_token(
+            "2026-07-20-10:45",
+            3,
+            0,
+            false,
+            15,
+            ReminderRecurrence::Daily,
+            None,
+        )
+        .expect("multi insert");
         assert_eq!(multi, "@2026-07-20-10:45x3i15rd");
     }
 
     #[test]
     fn build_token_embeds_and_validates_durable_id() {
-        let token = build_reminder_token("2026-07-20-10:45", 2, 1, false, 10, "d", Some(EMBEDDED))
-            .expect("embedded insert");
+        let token = build_reminder_token(
+            "2026-07-20-10:45",
+            2,
+            1,
+            false,
+            10,
+            ReminderRecurrence::Daily,
+            Some(EMBEDDED),
+        )
+        .expect("embedded insert");
         assert_eq!(token, "@2026-07-20-10:45x2rd.1#0123456789abcdef");
         assert_eq!(
             reminder_token_facts(&token)
@@ -69,7 +97,16 @@ mod tests {
             "g123456789abcdef",
         ] {
             assert!(
-                build_reminder_token("2026-07-20-10:45", 1, 0, false, 10, "", Some(bad)).is_err(),
+                build_reminder_token(
+                    "2026-07-20-10:45",
+                    1,
+                    0,
+                    false,
+                    10,
+                    ReminderRecurrence::None,
+                    Some(bad)
+                )
+                .is_err(),
                 "embedded id {bad} must be rejected"
             );
         }
@@ -99,6 +136,66 @@ mod tests {
                 .embedded_id
                 .is_some()
         );
+    }
+
+    #[test]
+    fn recurrence_advance_crosses_calendar_boundaries() {
+        // Equivalence pin for the civil-date arithmetic behind `rd`/`rw` advance:
+        // month/year rollovers, proleptic-Gregorian leap rules (incl. century cases).
+        let cases = [
+            ("@2026-01-31-10:45rd", "@2026-02-01-10:45rd"), // month rollover
+            ("@2026-12-31-10:45rd", "@2027-01-01-10:45rd"), // year rollover
+            ("@2024-02-28-10:45rd", "@2024-02-29-10:45rd"), // leap year Feb 29
+            ("@2025-02-28-10:45rd", "@2025-03-01-10:45rd"), // non-leap Feb ends at 28
+            ("@2100-02-28-10:45rd", "@2100-03-01-10:45rd"), // century year is not leap
+            ("@2000-02-28-10:45rd", "@2000-02-29-10:45rd"), // 400-year leap
+            ("@2026-04-30-10:45rw", "@2026-05-07-10:45rw"), // weekly month rollover
+            ("@2026-12-28-10:45rw", "@2027-01-04-10:45rw"), // weekly year rollover
+        ];
+        for (input, expected) in cases {
+            let out = plan_reminder_token_mutation(input, ReminderTokenMutation::MarkDone)
+                .expect("recurrence advance must succeed");
+            assert_eq!(base_of(&out), expected, "case {input}");
+        }
+
+        // Advancing past the representable civil range must fail closed, not wrap
+        // into a non-grammar string.
+        assert!(
+            plan_reminder_token_mutation("@9999-12-31-23:59rd", ReminderTokenMutation::MarkDone)
+                .is_err(),
+            "9999-12-31 + 1d must fail closed"
+        );
+    }
+
+    #[test]
+    fn due_date_gate_accepts_and_rejects_civil_dates_exactly() {
+        for bad in [
+            "2025-02-29-10:45", // Feb 29 in a non-leap year
+            "2100-02-29-10:45", // century non-leap Feb 29
+            "2024-02-30-10:45", // Feb 30 never exists
+            "2026-04-31-10:45", // April has 30 days
+            "2026-13-01-10:45", // month 13
+            "2026-00-10-10:45", // month 0
+            "2026-01-00-10:45", // day 0
+            "2026-01-32-10:45", // day 32
+            "2026-1-01-10:45",  // variable-width month (strict fixed-width grammar)
+        ] {
+            assert!(
+                build_reminder_token(bad, 1, 0, false, 10, ReminderRecurrence::None, None).is_err(),
+                "due_at_local {bad} must be rejected"
+            );
+        }
+        for ok in [
+            "2024-02-29-10:45", // leap Feb 29
+            "2000-02-29-10:45", // 400-year leap Feb 29
+            "0000-01-01-00:00", // year 0000 is a valid proleptic Gregorian date
+            "9999-12-31-23:59", // upper bound of the 4-digit grammar
+        ] {
+            assert!(
+                build_reminder_token(ok, 1, 0, false, 10, ReminderRecurrence::None, None).is_ok(),
+                "due_at_local {ok} must be accepted"
+            );
+        }
     }
 
     #[test]

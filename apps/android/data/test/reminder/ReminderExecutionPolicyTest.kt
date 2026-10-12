@@ -2,6 +2,7 @@ package com.lomo.data.reminder
 
 import com.lomo.data.engine.store.StoreMemoSummary
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.domain.model.Recurrence
 import com.lomo.domain.model.ReminderMarker
 import com.lomo.domain.model.ReminderReference
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
@@ -55,10 +56,13 @@ class ReminderExecutionPolicyTest : DataFunSpec() {
         test("given a projected reminder when alarm identity is resolved then no workspace scan is needed") {
             val reminder =
                 ReminderMarker(
+                    dueAtLocal = "2026-01-01-09:00",
                     dueAt = java.time.LocalDateTime.of(2026, 1, 1, 9, 0),
                     repeatCount = 1,
                     firedCount = 0,
                     done = false,
+                    intervalMinutes = 10,
+                    recurrence = Recurrence.NONE,
                     reference = ReminderReference(
                         opaqueId = "r1",
                         revision = "fp",

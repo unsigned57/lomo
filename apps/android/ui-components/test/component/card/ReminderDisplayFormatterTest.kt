@@ -1,5 +1,6 @@
 package com.lomo.ui.component.card
 
+import com.lomo.domain.model.Recurrence
 import com.lomo.domain.model.ReminderMarker
 import com.lomo.domain.model.ReminderReference
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
@@ -48,10 +49,13 @@ class ReminderDisplayFormatterTest : UiComponentsFunSpec() {
         firedCount: Int,
         done: Boolean,
     ) = ReminderMarker(
+        dueAtLocal = dueAt.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd-HH:mm")),
         dueAt = dueAt,
         repeatCount = repeatCount,
         firedCount = firedCount,
         done = done,
+        intervalMinutes = 10,
+        recurrence = Recurrence.NONE,
         reference = ReminderReference(
             opaqueId = "r1",
             revision = "a".repeat(64),

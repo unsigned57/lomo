@@ -107,7 +107,7 @@ private class FakeStorePort : StorePort {
 
     override fun snoozeReminder(
         opaqueId: String,
-        snoozeDurationMs: Long,
+        interval: com.lomo.domain.model.ReminderInterval,
     ) = error("reminder snooze is not expected")
 
     override fun recoverReminderSnooze() = error("reminder snooze recovery is not expected")

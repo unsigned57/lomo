@@ -55,5 +55,5 @@ private fun WorkspaceReminderReferenceSnapshot.toBridge(): com.lomo.nativebridge
         firedCount = firedCount,
         done = done,
         intervalMinutes = intervalMinutes,
-        recurrenceCode = recurrenceCode,
+        recurrence = recurrence,
     )

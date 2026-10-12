@@ -1,6 +1,7 @@
 package com.lomo.data.testing.fakes
 
 import com.lomo.data.reminder.MemoMutationReminderScheduler
+import com.lomo.domain.model.ReminderInterval
 import com.lomo.domain.repository.ReminderCoordinator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -11,14 +12,14 @@ import kotlinx.coroutines.flow.StateFlow
  * scheduling without a real AlarmManager.
  */
 class FakeReminderCoordinator : ReminderCoordinator, MemoMutationReminderScheduler {
-    override val globalIntervalMillis: StateFlow<Long> = MutableStateFlow(60_000L)
+    override val globalInterval: StateFlow<ReminderInterval> = MutableStateFlow(ReminderInterval.ONE_MINUTE)
 
     val syncForMemoCalls = mutableListOf<Pair<String, String>>()
     val cancelForMemoCalls = mutableListOf<Pair<String, Set<String>>>()
     var rebuildAllCount = 0
         private set
 
-    override suspend fun setGlobalIntervalMillis(millis: Long) = Unit
+    override suspend fun setGlobalInterval(interval: ReminderInterval) = Unit
 
     override suspend fun syncForMemo(memoId: String) {
         syncForMemoCalls += memoId to ""

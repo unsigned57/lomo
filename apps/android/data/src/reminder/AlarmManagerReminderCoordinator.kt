@@ -1,10 +1,8 @@
 package com.lomo.data.reminder
 
 import android.content.Context
-import android.content.SharedPreferences
-import androidx.core.content.edit
 import com.lomo.domain.repository.ReminderCoordinator
-import com.lomo.domain.model.ReminderIntervalDefaults
+import com.lomo.domain.model.ReminderInterval
 import com.lomo.domain.repository.MarkdownReminderRepository
 import com.lomo.domain.repository.MemoMutationRepository
 import com.lomo.domain.repository.MemoQueryRepository
@@ -14,17 +12,16 @@ import com.lomo.data.engine.store.StoreMemoQuery
 import com.lomo.data.engine.store.StorePageCursor
 import com.lomo.data.engine.store.StorePort
 import com.lomo.data.engine.store.StoreMemoSummary
+import com.lomo.data.local.datastore.LomoReminderPreferencesStore
 import com.lomo.domain.model.EngineCommandFailureException
 import com.lomo.domain.repository.EngineReadinessRepository
 
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import timber.log.Timber
-
-
-private const val PREFS_NAME = "lomo_reminder_prefs"
-private const val KEY_INTERVAL_MILLIS = "reminder_interval_millis"
 
 internal fun forEachStoreMemoPage(
     pageSize: Int,
@@ -77,29 +74,26 @@ interface MemoMutationReminderScheduler {
  *   ([ReminderExecutionLedger]); no process-local map decides which PendingIntents exist.
  */
 class AlarmManagerReminderScheduler(
-    private val context: Context,
+    context: Context,
     private val storePort: StorePort,
     private val readiness: EngineReadinessRepository,
+    private val reminderPreferences: LomoReminderPreferencesStore,
+    appScope: CoroutineScope,
     private val schedulePort: AlarmSchedulePort = AndroidAlarmSchedulePort(context),
     private val rollingWindow: ReminderRollingWindowScheduler =
         ReminderRollingWindowScheduler(schedulePort, ReminderExecutionLedger(context)),
 ) : MemoMutationReminderScheduler {
-    private val prefs: SharedPreferences =
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private val _globalIntervalMillis =
-        MutableStateFlow(
-            prefs.getLong(KEY_INTERVAL_MILLIS, ReminderIntervalDefaults.DEFAULT_MILLIS),
+    val globalInterval: StateFlow<ReminderInterval> =
+        reminderPreferences.reminderInterval.stateIn(
+            scope = appScope,
+            started = SharingStarted.Eagerly,
+            initialValue = ReminderInterval.DEFAULT,
         )
-    val globalIntervalMillis: StateFlow<Long> = _globalIntervalMillis.asStateFlow()
 
     fun exactAlarmCapability(): ExactAlarmCapability = schedulePort.exactAlarmCapability()
 
-    fun setGlobalIntervalMillis(millis: Long) {
-        require(millis in ReminderIntervalDefaults.SUPPORTED_MILLIS) {
-            "Unsupported snooze interval: $millis"
-        }
-        prefs.edit { putLong(KEY_INTERVAL_MILLIS, millis) }
-        _globalIntervalMillis.value = millis
+    suspend fun setGlobalInterval(interval: ReminderInterval) {
+        reminderPreferences.updateReminderInterval(interval)
     }
 
     override suspend fun syncForMemo(memoId: String) {
@@ -128,7 +122,8 @@ class AlarmManagerReminderScheduler(
         memoId: String,
         reminderId: String,
     ) {
-        withSnoozeRecovery { storePort.snoozeReminder(reminderId, _globalIntervalMillis.value) }
+        val interval = reminderPreferences.reminderInterval.first()
+        withSnoozeRecovery { storePort.snoozeReminder(reminderId, interval) }
         syncForMemo(memoId)
     }
 
@@ -219,10 +214,10 @@ class AlarmManagerReminderCoordinator(
     private val memoMutationRepository: MemoMutationRepository,
     private val reminderTokenFactory: ReminderTokenFactory,
 ) : ReminderCoordinator {
-        override val globalIntervalMillis: StateFlow<Long> = scheduler.globalIntervalMillis
+        override val globalInterval: StateFlow<ReminderInterval> = scheduler.globalInterval
 
-        override suspend fun setGlobalIntervalMillis(millis: Long) {
-            scheduler.setGlobalIntervalMillis(millis)
+        override suspend fun setGlobalInterval(interval: ReminderInterval) {
+            scheduler.setGlobalInterval(interval)
         }
 
         override suspend fun syncForMemo(memoId: String) {

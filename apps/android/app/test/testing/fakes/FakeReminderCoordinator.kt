@@ -1,18 +1,19 @@
 package com.lomo.app.testing.fakes
 
+import com.lomo.domain.model.ReminderInterval
 import com.lomo.domain.repository.ReminderCoordinator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 class FakeReminderCoordinator : ReminderCoordinator {
-    override val globalIntervalMillis: StateFlow<Long> = MutableStateFlow(60000L)
+    override val globalInterval: StateFlow<ReminderInterval> = MutableStateFlow(ReminderInterval.ONE_MINUTE)
 
     var lastMarkedDoneMemoId: String? = null
     var lastMarkedDoneTokenRaw: String? = null
     var markDoneCalledCount = 0
     var markDoneFailure: Throwable? = null
 
-    override suspend fun setGlobalIntervalMillis(millis: Long) = Unit
+    override suspend fun setGlobalInterval(interval: ReminderInterval) = Unit
 
     override suspend fun syncForMemo(memoId: String) = Unit
 

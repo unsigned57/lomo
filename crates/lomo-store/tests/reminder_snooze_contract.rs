@@ -10,22 +10,17 @@
     reason = "adversarial probes fail closed with panics on missing facts"
 )]
 mod tests {
+    use jiff::tz::TimeZone;
     use lomo_store::{
-        ReminderCommand, ReminderQuery, ReminderSessionInput, SnoozeStore, TimeZoneContext,
-        apply_reminder_command, query_reminder_plan,
+        ReminderCommand, ReminderQuery, ReminderSessionInput, SnoozeStore, apply_reminder_command,
+        query_reminder_plan,
     };
     use tempfile::tempdir;
 
     const GEN: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-    fn utc_zone() -> TimeZoneContext {
-        TimeZoneContext {
-            zone_id: "UTC".to_owned(),
-            base_offset_secs: 0,
-            transitions: Vec::new(),
-            coverage_start_utc_ms: 0,
-            coverage_end_utc_ms: i64::MAX / 2,
-        }
+    fn utc_zone() -> TimeZone {
+        TimeZone::UTC
     }
 
     fn session(
@@ -45,7 +40,7 @@ mod tests {
             fired_count: fired,
             done,
             interval_minutes: 10,
-            recurrence_code: String::new(),
+            recurrence: lomo_workspace::ReminderRecurrence::None,
         }
     }
 

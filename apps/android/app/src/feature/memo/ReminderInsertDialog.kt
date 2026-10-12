@@ -79,7 +79,7 @@ internal fun ReminderInsertDialog(
         )
     var repeatCount by remember { mutableIntStateOf(REMINDER_REPEAT_MIN) }
     var recurrence by remember { mutableStateOf(Recurrence.NONE) }
-    var intervalMinutes by remember { mutableIntStateOf(10) }
+    var intervalMinutes by remember { mutableIntStateOf(tokenFactory.defaultIntervalMinutes) }
 
     ExpressiveSteppedPickerDialog(
         title = stringResource(R.string.reminder_dialog_title),
