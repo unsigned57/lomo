@@ -229,7 +229,7 @@ impl<S: S3ObjectSource> S3Adapter<S> {
     fn multipart_dir(&self) -> Option<PathBuf> {
         self.durable_workspace_root
             .as_ref()
-            .map(|root| root.join(".lomo").join("sync").join("v1").join("multipart"))
+            .map(|root| crate::durable::SyncPaths::for_workspace(root).multipart)
     }
 
     fn durable_session_path(dir: &Path, sync_path: &str) -> PathBuf {
@@ -1096,10 +1096,13 @@ fn strip_quotes(token: &str) -> &str {
 }
 
 /// Wall-clock epoch milliseconds for durable multipart session expiry bookkeeping.
+///
+/// Clock-before-epoch fails closed: `u64::MAX` makes every recorded session look expired
+/// (`saturating_sub` ≥ TTL → abort + restart) instead of "just created" (0 → resumable).
 fn now_epoch_ms() -> u64 {
     let millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_millis());
+        .map_or(u128::MAX, |duration| duration.as_millis());
     u64::try_from(millis).unwrap_or(u64::MAX)
 }
 

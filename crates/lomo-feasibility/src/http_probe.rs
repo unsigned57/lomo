@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::Duration;
 
+use aws_lc_rs::hmac;
 use rcgen::{CertificateParams, KeyPair};
 use reqwest::Certificate;
 use reqwest::blocking::Client;
@@ -642,12 +643,18 @@ fn verify_aws_published_sigv4_test_vector() -> Result<(), HttpProbeError> {
     let signed_headers = "host;range;x-amz-content-sha256;x-amz-date";
     let canonical_request =
         format!("GET\n/test.txt\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}");
-    let canonical_hash = hex_sha256(canonical_request.as_bytes());
+    let canonical_hash = format!("{:x}", Sha256::digest(canonical_request.as_bytes()));
     let credential_scope = format!("{date_stamp}/{region}/{service}/aws4_request");
     let string_to_sign =
         format!("AWS4-HMAC-SHA256\n{amz_date}\n{credential_scope}\n{canonical_hash}");
     let signing_key = signing_key_for(secret, date_stamp, region, service);
-    let signature = hex_encode(hmac_sha256(&signing_key, string_to_sign.as_bytes()));
+    let signature = data_encoding::HEXLOWER.encode(
+        hmac::sign(
+            &hmac::Key::new(hmac::HMAC_SHA256, signing_key.as_ref()),
+            string_to_sign.as_bytes(),
+        )
+        .as_ref(),
+    );
     if signature != EXPECTED_SIGNATURE {
         return Err(HttpProbeError::Unexpected {
             detail: format!(
@@ -1220,75 +1227,39 @@ fn sign_s3_get_with_keys(
     let signed_headers = "host;x-amz-content-sha256;x-amz-date";
     let canonical_request =
         format!("GET\n{path}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}");
-    let canonical_hash = hex_sha256(canonical_request.as_bytes());
+    let canonical_hash = format!("{:x}", Sha256::digest(canonical_request.as_bytes()));
     let string_to_sign =
         format!("AWS4-HMAC-SHA256\n{amz_date}\n{credential_scope}\n{canonical_hash}");
     let signing_key = signing_key_for(secret_key, date_stamp, region, service);
-    let signature = hex_encode(hmac_sha256(&signing_key, string_to_sign.as_bytes()));
+    let signature = data_encoding::HEXLOWER.encode(
+        hmac::sign(
+            &hmac::Key::new(hmac::HMAC_SHA256, signing_key.as_ref()),
+            string_to_sign.as_bytes(),
+        )
+        .as_ref(),
+    );
     format!(
         "AWS4-HMAC-SHA256 Credential={access_key}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}"
     )
 }
 
-fn signing_key_for(secret_key: &str, date_stamp: &str, region: &str, service: &str) -> [u8; 32] {
-    let k_date = hmac_sha256(
-        format!("AWS4{secret_key}").as_bytes(),
+fn signing_key_for(secret_key: &str, date_stamp: &str, region: &str, service: &str) -> hmac::Tag {
+    let k_date = hmac::sign(
+        &hmac::Key::new(hmac::HMAC_SHA256, format!("AWS4{secret_key}").as_bytes()),
         date_stamp.as_bytes(),
     );
-    let k_region = hmac_sha256(&k_date, region.as_bytes());
-    let k_service = hmac_sha256(&k_region, service.as_bytes());
-    hmac_sha256(&k_service, b"aws4_request")
-}
-
-fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
-    const BLOCK: usize = 64;
-    let mut key_block = [0_u8; BLOCK];
-    if key.len() > BLOCK {
-        let digested = Sha256::digest(key);
-        if let Some(dst) = key_block.get_mut(..32) {
-            dst.copy_from_slice(&digested);
-        }
-    } else if let Some(dst) = key_block.get_mut(..key.len()) {
-        dst.copy_from_slice(key);
-    }
-    let mut ipad = [0x36_u8; BLOCK];
-    let mut opad = [0x5c_u8; BLOCK];
-    for index in 0..BLOCK {
-        if let (Some(i), Some(k)) = (ipad.get_mut(index), key_block.get(index)) {
-            *i ^= *k;
-        }
-        if let (Some(o), Some(k)) = (opad.get_mut(index), key_block.get(index)) {
-            *o ^= *k;
-        }
-    }
-    let mut inner = Sha256::new();
-    inner.update(ipad);
-    inner.update(message);
-    let inner_hash = inner.finalize();
-    let mut outer = Sha256::new();
-    outer.update(opad);
-    outer.update(inner_hash);
-    let digest = outer.finalize();
-    let mut out = [0_u8; 32];
-    out.copy_from_slice(&digest);
-    out
-}
-
-fn hex_sha256(bytes: &[u8]) -> String {
-    hex_encode(Sha256::digest(bytes))
-}
-
-fn hex_encode(bytes: impl AsRef<[u8]>) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let bytes = bytes.as_ref();
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        let high = HEX.get(usize::from(byte >> 4)).copied().unwrap_or(b'?');
-        let low = HEX.get(usize::from(byte & 0x0f)).copied().unwrap_or(b'?');
-        out.push(char::from(high));
-        out.push(char::from(low));
-    }
-    out
+    let k_region = hmac::sign(
+        &hmac::Key::new(hmac::HMAC_SHA256, k_date.as_ref()),
+        region.as_bytes(),
+    );
+    let k_service = hmac::sign(
+        &hmac::Key::new(hmac::HMAC_SHA256, k_region.as_ref()),
+        service.as_bytes(),
+    );
+    hmac::sign(
+        &hmac::Key::new(hmac::HMAC_SHA256, k_service.as_ref()),
+        b"aws4_request",
+    )
 }
 
 fn object_exists() -> bool {

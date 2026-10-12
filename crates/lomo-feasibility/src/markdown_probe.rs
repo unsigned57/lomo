@@ -4,9 +4,8 @@ use std::fs;
 use std::path::Path;
 
 use pulldown_cmark::{Event, Options, Parser};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
-
-use crate::corpus::hex_digest;
 
 /// Failures from the Markdown feasibility probe.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
@@ -103,7 +102,7 @@ pub fn probe_markdown_text(text: &str, byte_length: usize) -> MarkdownProbeRepor
         heading_count,
         link_count,
         image_count,
-        content_sha256: hex_digest(text.as_bytes()),
+        content_sha256: format!("{:x}", Sha256::digest(text.as_bytes())),
         first_event_offset,
     }
 }
@@ -117,5 +116,6 @@ pub fn bytes_stable_after_parse(bytes: &[u8]) -> bool {
         return false;
     };
     let report = probe_markdown_text(text, bytes.len());
-    report.byte_length == bytes.len() && report.content_sha256 == hex_digest(bytes)
+    report.byte_length == bytes.len()
+        && report.content_sha256 == format!("{:x}", Sha256::digest(bytes))
 }

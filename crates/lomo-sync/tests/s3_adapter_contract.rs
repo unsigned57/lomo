@@ -78,11 +78,12 @@ mod tests {
         MAX_S3_SNAPSHOT_ENTRIES, MapS3ObjectSource, PathPublishStatus, PreparedRemoteBatch,
         ProviderNeutralIntent, RcloneCryptConfig, RcloneFilenameEncoding, RcloneFilenameEncryption,
         RcloneKeyMaterial, RemoteDigestFact, RemoteSyncPort, S3AddressingStyle, S3Credentials,
-        S3Endpoint, S3ObjectSource, S3WorkspaceFileObjectSource, SessionKind, SnapshotCompleteness,
-        SyncIdentityFence, SyncPath, SyncSession, TombstoneSet, VerifyExpectation,
-        aws_published_sigv4_example_matches, connect_map_s3_source, connect_workspace_s3,
-        decrypt_filename_path, decrypt_payload, encrypt_filename_path, encrypt_payload,
-        error_category, map_s3_http_status, plan_intents, run_sync_cycle_streaming,
+        S3Endpoint, S3ObjectSource, S3Transport, S3WorkspaceFileObjectSource, SessionKind,
+        SnapshotCompleteness, SyncIdentityFence, SyncPath, SyncSession, TombstoneSet,
+        VerifyExpectation, aws_published_sigv4_example_matches, connect_map_s3_source,
+        connect_workspace_s3, decrypt_filename_path, decrypt_payload, encrypt_filename_path,
+        encrypt_payload, error_category, map_s3_http_status, plan_intents,
+        run_sync_cycle_streaming,
     };
     use lomo_workspace::{RemoteDatasetId, RemoteIdentityDigest, WorkspaceGenerationId};
     use sha2::{Digest, Sha256};
@@ -100,6 +101,10 @@ mod tests {
         redirect_off_origin: bool,
         inject_doctype_list: bool,
         list_fail: bool,
+        /// When set, `ListObjectsV2` serves this exact body (entity/CDATA/malformed contracts).
+        list_body_override: Option<String>,
+        /// When set, `CreateMultipartUpload` serves this exact body (`UploadId` entity contract).
+        multipart_init_body_override: Option<String>,
         /// Max keys returned per `ListObjectsV2` page (for pagination).
         list_page_size: usize,
         /// After this many successful `UploadPart` responses, subsequent parts return 500.
@@ -325,6 +330,7 @@ mod tests {
                 wire_log,
                 multipart_id_seq,
                 &key,
+                &fault,
             );
         }
         if method == "PUT" && query.contains("partNumber=") && query.contains("uploadId=") {
@@ -372,6 +378,14 @@ mod tests {
     ) -> std::io::Result<()> {
         if fault.list_fail {
             return write_status(stream, 500, b"list-fail", "");
+        }
+        if let Some(body) = &fault.list_body_override {
+            return write_status(
+                stream,
+                200,
+                body.as_bytes(),
+                "Content-Type: application/xml\r\n",
+            );
         }
         if fault.inject_doctype_list {
             let body = b"<!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file:///etc/passwd\">]><ListBucketResult></ListBucketResult>";
@@ -531,6 +545,7 @@ mod tests {
         wire_log: &Mutex<Vec<MultipartWireEvent>>,
         multipart_id_seq: &std::sync::atomic::AtomicUsize,
         key: &str,
+        fault: &FaultConfig,
     ) -> std::io::Result<()> {
         let seq = multipart_id_seq.fetch_add(1, Ordering::SeqCst);
         let upload_id = format!(
@@ -553,8 +568,13 @@ mod tests {
                 key: key.to_owned(),
             });
         }
-        let body = format!(
-            r#"<?xml version="1.0"?><InitiateMultipartUploadResult><Bucket>bucket</Bucket><Key>{key}</Key><UploadId>{upload_id}</UploadId></InitiateMultipartUploadResult>"#
+        let body = fault.multipart_init_body_override.as_ref().map_or_else(
+            || {
+                format!(
+                    r#"<?xml version="1.0"?><InitiateMultipartUploadResult><Bucket>bucket</Bucket><Key>{key}</Key><UploadId>{upload_id}</UploadId></InitiateMultipartUploadResult>"#
+                )
+            },
+            Clone::clone,
         );
         write_status(
             stream,
@@ -1017,6 +1037,71 @@ mod tests {
             aws_published_sigv4_example_matches(),
             "SigV4 signer must match the AWS published S3 example vector"
         );
+    }
+
+    /// The `x-amz-date` wire token is minted from the wall clock: pin the strict
+    /// `YYYYMMDDTHHMMSSZ` grammar and that it resolves to the actual signing instant.
+    #[test]
+    fn signed_request_emits_strict_live_amz_date() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let (tx, rx) = std::sync::mpsc::channel::<HashMap<String, String>>();
+        let server = thread::spawn(move || {
+            let Ok((mut stream, _peer)) = listener.accept() else {
+                return;
+            };
+            let Ok(raw) = read_request(&mut stream) else {
+                return;
+            };
+            let (_method, _path, headers, _body) = parse_http_request(&raw);
+            let _sent = tx.send(headers);
+            let _written = write_status(&mut stream, 200, b"", "ETag: \"pin\"\r\n");
+        });
+
+        let endpoint = S3Endpoint::parse(
+            &format!("http://{addr}/"),
+            "bucket",
+            "lomo",
+            "us-east-1",
+            S3AddressingStyle::PathStyle,
+        )
+        .expect("endpoint");
+        let credentials = S3Credentials::new("AKIAEXAMPLE", "secret").expect("credentials");
+        let temp = tempdir().expect("tempdir");
+        let transport = S3Transport::new(
+            endpoint,
+            credentials,
+            temp.path().to_path_buf(),
+            Duration::from_secs(5),
+        )
+        .expect("transport");
+        let _etag = transport.head("a.md").expect("head");
+
+        let headers = rx.recv_timeout(Duration::from_secs(5)).expect("headers");
+        server.join().expect("join");
+        let amz = headers.get("x-amz-date").expect("x-amz-date header");
+
+        // Strict fixed-width grammar: YYYYMMDDTHHMMSSZ (16 bytes).
+        let bytes = amz.as_bytes();
+        assert_eq!(bytes.len(), 16, "x-amz-date width: {amz}");
+        assert!(
+            bytes[0..8].iter().all(u8::is_ascii_digit)
+                && bytes[8] == b'T'
+                && bytes[9..15].iter().all(u8::is_ascii_digit)
+                && bytes[15] == b'Z',
+            "x-amz-date grammar: {amz}"
+        );
+
+        // Freshness pin: parses as a real UTC instant inside the test window.
+        let civil = jiff::civil::DateTime::strptime("%Y%m%dT%H%M%SZ", amz.as_str())
+            .expect("x-amz-date must parse as a UTC civil datetime");
+        let sent = civil
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .expect("UTC is unambiguous")
+            .timestamp()
+            .as_second();
+        let skew = (jiff::Timestamp::now().as_second() - sent).abs();
+        assert!(skew <= 120, "x-amz-date {amz} skewed {skew}s from now");
     }
 
     #[test]
@@ -2744,5 +2829,344 @@ mod tests {
             i += 2;
         }
         out
+    }
+
+    // ------------------------------------------------------------------
+    // B-14 P-50: quick-xml parser contracts (entity / CDATA / malformed).
+    // ------------------------------------------------------------------
+
+    /// Given a `ListObjectsV2` body whose `Key` carries a predefined XML entity, when the page is
+    /// parsed, then the object key is the decoded text (`a&amp;b` → `a&b`) — conformant parser
+    /// semantics, not the raw markup substring.
+    #[test]
+    fn list_objects_v2_decodes_predefined_entities_in_key() {
+        let server = FaultServer::start();
+        server.set_faults(FaultConfig {
+            list_page_size: 1000,
+            list_body_override: Some(String::from(
+                r#"<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>lomo/memo/a&amp;b.md</Key><ETag>"e1"</ETag><Size>3</Size></Contents></ListBucketResult>"#,
+            )),
+            ..FaultConfig::default()
+        });
+        let endpoint = S3Endpoint::parse(
+            &server.base_url(),
+            "bucket",
+            "lomo",
+            "us-east-1",
+            S3AddressingStyle::PathStyle,
+        )
+        .expect("endpoint");
+        let credentials = S3Credentials::new("test-access", "test-secret").expect("credentials");
+        let temp = tempdir().expect("tempdir");
+        let transport = S3Transport::new(
+            endpoint,
+            credentials,
+            temp.path().to_path_buf(),
+            Duration::from_secs(5),
+        )
+        .expect("transport");
+        let page = transport.list_page(None, 1000).expect("list page");
+        assert_eq!(page.objects.len(), 1, "objects: {:?}", page.objects);
+        assert_eq!(
+            page.objects[0].key, "lomo/memo/a&b.md",
+            "predefined entity must decode to text content"
+        );
+    }
+
+    /// CDATA inside `Key` is real text content and must surface as the object key.
+    #[test]
+    fn list_objects_v2_decodes_cdata_in_key() {
+        let server = FaultServer::start();
+        server.set_faults(FaultConfig {
+            list_page_size: 1000,
+            list_body_override: Some(String::from(
+                r#"<?xml version="1.0"?><ListBucketResult><Contents><Key><![CDATA[lomo/memo/c.md]]></Key><ETag>"e2"</ETag><Size>4</Size></Contents></ListBucketResult>"#,
+            )),
+            ..FaultConfig::default()
+        });
+        let endpoint = S3Endpoint::parse(
+            &server.base_url(),
+            "bucket",
+            "lomo",
+            "us-east-1",
+            S3AddressingStyle::PathStyle,
+        )
+        .expect("endpoint");
+        let credentials = S3Credentials::new("test-access", "test-secret").expect("credentials");
+        let temp = tempdir().expect("tempdir");
+        let transport = S3Transport::new(
+            endpoint,
+            credentials,
+            temp.path().to_path_buf(),
+            Duration::from_secs(5),
+        )
+        .expect("transport");
+        let page = transport.list_page(None, 1000).expect("list page");
+        assert_eq!(
+            page.objects[0].key, "lomo/memo/c.md",
+            "CDATA content must decode to text content"
+        );
+    }
+
+    /// An unclosed element is malformed XML: the parser must fail closed rather than silently
+    /// treating the truncated prefix as a complete page.
+    #[test]
+    fn list_objects_v2_unclosed_element_fails_closed() {
+        let server = FaultServer::start();
+        server.set_faults(FaultConfig {
+            list_page_size: 1000,
+            list_body_override: Some(String::from(
+                r#"<?xml version="1.0"?><ListBucketResult><Contents><Key>lomo/x.md</Key>"#,
+            )),
+            ..FaultConfig::default()
+        });
+        let endpoint = S3Endpoint::parse(
+            &server.base_url(),
+            "bucket",
+            "lomo",
+            "us-east-1",
+            S3AddressingStyle::PathStyle,
+        )
+        .expect("endpoint");
+        let credentials = S3Credentials::new("test-access", "test-secret").expect("credentials");
+        let temp = tempdir().expect("tempdir");
+        let transport = S3Transport::new(
+            endpoint,
+            credentials,
+            temp.path().to_path_buf(),
+            Duration::from_secs(5),
+        )
+        .expect("transport");
+        let error = transport
+            .list_page(None, 1000)
+            .expect_err("truncated XML must fail closed");
+        assert_eq!(
+            error.code(),
+            "s3_list_xml_malformed",
+            "unexpected code: {error:?}"
+        );
+    }
+
+    /// `CreateMultipartUpload` `UploadId` entity references decode to text content.
+    #[test]
+    fn multipart_init_upload_id_decodes_entities() {
+        let server = FaultServer::start();
+        server.set_faults(FaultConfig {
+            list_page_size: 1000,
+            multipart_init_body_override: Some(String::from(
+                r#"<?xml version="1.0"?><InitiateMultipartUploadResult><UploadId>u&amp;1</UploadId></InitiateMultipartUploadResult>"#,
+            )),
+            ..FaultConfig::default()
+        });
+        let endpoint = S3Endpoint::parse(
+            &server.base_url(),
+            "bucket",
+            "lomo",
+            "us-east-1",
+            S3AddressingStyle::PathStyle,
+        )
+        .expect("endpoint");
+        let credentials = S3Credentials::new("test-access", "test-secret").expect("credentials");
+        let temp = tempdir().expect("tempdir");
+        let transport = S3Transport::new(
+            endpoint,
+            credentials,
+            temp.path().to_path_buf(),
+            Duration::from_secs(5),
+        )
+        .expect("transport");
+        let upload_id = transport
+            .create_multipart_upload("memo/x.md")
+            .expect("create multipart");
+        assert_eq!(upload_id, "u&1");
+    }
+
+    /// Temp staging filenames must be unique per call — a shared path would let concurrent GET
+    /// bodies overwrite each other silently.
+    #[test]
+    fn get_to_temp_paths_are_unique_per_call() {
+        let server = FaultServer::start();
+        server.put_object("lomo/memo/one.md", b"one");
+        server.put_object("lomo/memo/two.md", b"two");
+        let endpoint = S3Endpoint::parse(
+            &server.base_url(),
+            "bucket",
+            "lomo",
+            "us-east-1",
+            S3AddressingStyle::PathStyle,
+        )
+        .expect("endpoint");
+        let credentials = S3Credentials::new("test-access", "test-secret").expect("credentials");
+        let temp = tempdir().expect("tempdir");
+        let transport = S3Transport::new(
+            endpoint,
+            credentials,
+            temp.path().to_path_buf(),
+            Duration::from_secs(5),
+        )
+        .expect("transport");
+        let first = transport.get_to_temp("lomo/memo/one.md").expect("get one");
+        let second = transport.get_to_temp("lomo/memo/two.md").expect("get two");
+        assert_ne!(
+            first.0, second.0,
+            "temp staging paths must be unique per call"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // B-14 P-48: aws-lc-rs HMAC boundary-key oracle pins.
+    // ------------------------------------------------------------------
+
+    /// HMAC-SHA256 boundary keys must run through the same `SigV4` chain: an empty secret and a
+    /// secret longer than the 64-byte HMAC block exercise the library's key-normalization paths.
+    /// The oracle recomputes the expected signature from the captured wire headers via aws-lc-rs;
+    /// primitive correctness itself is pinned by the AWS official golden above.
+    #[test]
+    fn signed_request_verifies_signature_for_boundary_secrets() {
+        for secret in [
+            "",
+            "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+            let addr = listener.local_addr().expect("addr");
+            let (tx, rx) = std::sync::mpsc::channel::<HashMap<String, String>>();
+            let server = thread::spawn(move || {
+                let Ok((mut stream, _peer)) = listener.accept() else {
+                    return;
+                };
+                let Ok(raw) = read_request(&mut stream) else {
+                    return;
+                };
+                let (_method, _path, headers, _body) = parse_http_request(&raw);
+                let _sent = tx.send(headers);
+                let _written = write_status(&mut stream, 200, b"", "ETag: \"pin\"\r\n");
+            });
+            let endpoint = S3Endpoint::parse(
+                &format!("http://{addr}/"),
+                "bucket",
+                "lomo",
+                "us-east-1",
+                S3AddressingStyle::PathStyle,
+            )
+            .expect("endpoint");
+            let credentials = S3Credentials::new("AKIAEXAMPLE", secret).expect("credentials");
+            let temp = tempdir().expect("tempdir");
+            let transport = S3Transport::new(
+                endpoint,
+                credentials,
+                temp.path().to_path_buf(),
+                Duration::from_secs(5),
+            )
+            .expect("transport")
+            .with_fixed_amz_date("20240102T030405Z");
+            let _etag = transport.head("lomo/a.md").expect("head");
+            let headers = rx.recv_timeout(Duration::from_secs(5)).expect("headers");
+            server.join().expect("join");
+            let authorization = headers.get("authorization").expect("authorization header");
+            let signature = authorization
+                .rsplit("Signature=")
+                .next()
+                .expect("authorization carries Signature=");
+            assert_eq!(
+                signature.len(),
+                64,
+                "signature must be 32 bytes as hex: {authorization}"
+            );
+            let expected = expected_sigv4_signature(
+                headers.get("host").expect("host header"),
+                headers.get("x-amz-date").expect("x-amz-date header"),
+                headers
+                    .get("x-amz-content-sha256")
+                    .expect("x-amz-content-sha256 header"),
+                secret,
+            );
+            assert_eq!(
+                signature, expected,
+                "boundary-secret signature must equal the recomputed SigV4: {authorization}"
+            );
+        }
+    }
+
+    /// Test-side `SigV4` oracle for a signed `HEAD /bucket/lomo/a.md` with an empty query: rebuilds
+    /// the canonical request from the captured wire headers and derives the signing key through
+    /// the same aws-lc-rs HMAC surface the production signer delegates to.
+    fn expected_sigv4_signature(
+        host: &str,
+        amz_date: &str,
+        payload_hash: &str,
+        secret: &str,
+    ) -> String {
+        let canonical_headers =
+            format!("host:{host}\nx-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n");
+        let canonical_request = format!(
+            "HEAD\n/bucket/lomo/a.md\n\n{canonical_headers}\nhost;x-amz-content-sha256;x-amz-date\n{payload_hash}"
+        );
+        let canonical_hash = format!("{:x}", Sha256::digest(canonical_request.as_bytes()));
+        let date_stamp = amz_date.get(..8).unwrap_or("");
+        let string_to_sign = format!(
+            "AWS4-HMAC-SHA256\n{amz_date}\n{date_stamp}/us-east-1/s3/aws4_request\n{canonical_hash}"
+        );
+        let chain = |key: &[u8], msg: &[u8]| -> aws_lc_rs::hmac::Tag {
+            let key = aws_lc_rs::hmac::Key::new(aws_lc_rs::hmac::HMAC_SHA256, key);
+            aws_lc_rs::hmac::sign(&key, msg)
+        };
+        let k_date = chain(format!("AWS4{secret}").as_bytes(), date_stamp.as_bytes());
+        let k_region = chain(k_date.as_ref(), b"us-east-1");
+        let k_service = chain(k_region.as_ref(), b"s3");
+        let signing = chain(k_service.as_ref(), b"aws4_request");
+        let signature = chain(signing.as_ref(), string_to_sign.as_bytes());
+        data_encoding::HEXLOWER.encode(signature.as_ref())
+    }
+
+    // ------------------------------------------------------------------
+    // B-14 P-51: data-encoding strict codec contracts.
+    // ------------------------------------------------------------------
+
+    /// A base32hex segment whose bit length cannot encode a whole byte count is a codec error
+    /// (`rclone_base32_invalid`), not a downstream shape error (`rclone_filename_malformed`).
+    #[test]
+    fn rclone_base32_rejects_undecodable_bit_length() {
+        let material =
+            RcloneKeyMaterial::derive("fixture-test-password", "fixture-test-salt").expect("key");
+        let config = RcloneCryptConfig::default();
+        let error = decrypt_filename_path("0", &material, &config)
+            .expect_err("single 5-bit symbol is not decodable");
+        assert_eq!(
+            error.code(),
+            "rclone_base32_invalid",
+            "unexpected code: {error:?}"
+        );
+    }
+
+    /// Explicit `=` padding is not part of the rclone base32hex NOPAD wire surface: the codec
+    /// rejects it before any filename-shape check runs.
+    #[test]
+    fn rclone_base32_rejects_explicit_padding() {
+        let material =
+            RcloneKeyMaterial::derive("fixture-test-password", "fixture-test-salt").expect("key");
+        let config = RcloneCryptConfig::default();
+        let error = decrypt_filename_path("abc=", &material, &config)
+            .expect_err("padded base32hex must be rejected");
+        assert_eq!(
+            error.code(),
+            "rclone_base32_invalid",
+            "unexpected code: {error:?}"
+        );
+    }
+
+    /// Upstream rclone emits lowercase base32hex only; uppercase on the wire is a codec error,
+    /// matching the strict decode surface (fail closed, never guess alphabet case).
+    #[test]
+    fn rclone_base32_rejects_uppercase_wire_input() {
+        let material =
+            RcloneKeyMaterial::derive("fixture-test-password", "fixture-test-salt").expect("key");
+        let config = RcloneCryptConfig::default();
+        let error = decrypt_filename_path("7O3CHLDPOJHCBJ6RPGP3N45FI8", &material, &config)
+            .expect_err("uppercase base32hex must be rejected");
+        assert_eq!(
+            error.code(),
+            "rclone_base32_invalid",
+            "unexpected code: {error:?}"
+        );
     }
 }

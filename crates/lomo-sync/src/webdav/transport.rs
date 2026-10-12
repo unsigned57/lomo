@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use reqwest::blocking::{Client, Response};
-use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderName, HeaderValue};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::redirect::Policy;
 use reqwest::{Method, StatusCode, Url};
 use sha2::{Digest, Sha256};
@@ -105,7 +105,10 @@ impl WebDavTransport {
         let response = self
             .client
             .request(method, url.clone())
-            .header(AUTHORIZATION, self.basic_auth_value())
+            .basic_auth(
+                self.credentials.username(),
+                Some(self.credentials.password()),
+            )
             .header("Depth", depth.to_string())
             .header("Content-Type", "application/xml; charset=utf-8")
             .body(PROPFIND_BODY)
@@ -127,7 +130,10 @@ impl WebDavTransport {
         let mut response = self
             .client
             .get(url.clone())
-            .header(AUTHORIZATION, self.basic_auth_value())
+            .basic_auth(
+                self.credentials.username(),
+                Some(self.credentials.password()),
+            )
             .header("Accept-Encoding", "identity")
             .send()
             .map_err(|error| transport_err(&error))?;
@@ -144,7 +150,9 @@ impl WebDavTransport {
             ));
         }
         let temp_path = self.temp_path("get");
-        let mut file = std::fs::File::create(&temp_path).map_err(|error| {
+        // `create_new` (O_EXCL) makes the unique-name contract OS-enforced: an existing
+        // file fails loudly instead of silently truncating an in-flight sibling download.
+        let mut file = std::fs::File::create_new(&temp_path).map_err(|error| {
             storage(
                 "webdav_temp_create_failed",
                 &format!("failed to create webdav temp file: {error}"),
@@ -196,7 +204,10 @@ impl WebDavTransport {
         let mut builder = self
             .client
             .put(url.clone())
-            .header(AUTHORIZATION, self.basic_auth_value())
+            .basic_auth(
+                self.credentials.username(),
+                Some(self.credentials.password()),
+            )
             .header("Content-Type", "application/octet-stream")
             .body(body);
         if let Some(token) = if_match {
@@ -217,10 +228,10 @@ impl WebDavTransport {
     ///
     /// Network / HTTP / conflict errors.
     pub fn delete(&self, url: &Url, if_match: Option<&str>) -> Result<(), LomoError> {
-        let mut builder = self
-            .client
-            .delete(url.clone())
-            .header(AUTHORIZATION, self.basic_auth_value());
+        let mut builder = self.client.delete(url.clone()).basic_auth(
+            self.credentials.username(),
+            Some(self.credentials.password()),
+        );
         if let Some(token) = if_match {
             builder = builder.header("If-Match", token);
         }
@@ -253,7 +264,10 @@ impl WebDavTransport {
         let response = self
             .client
             .request(method, url.clone())
-            .header(AUTHORIZATION, self.basic_auth_value())
+            .basic_auth(
+                self.credentials.username(),
+                Some(self.credentials.password()),
+            )
             .send()
             .map_err(|error| transport_err(&error))?;
         let status = response.status();
@@ -279,7 +293,10 @@ impl WebDavTransport {
         let options = self
             .client
             .request(Method::OPTIONS, root.clone())
-            .header(AUTHORIZATION, self.basic_auth_value())
+            .basic_auth(
+                self.credentials.username(),
+                Some(self.credentials.password()),
+            )
             .send()
             .map_err(|error| transport_err(&error))?;
         let options_status = options.status().as_u16();
@@ -316,29 +333,8 @@ impl WebDavTransport {
         Ok(caps)
     }
 
-    fn basic_auth_value(&self) -> HeaderValue {
-        let mut raw = Vec::with_capacity(
-            self.credentials
-                .username()
-                .len()
-                .saturating_add(self.credentials.password().len())
-                .saturating_add(1),
-        );
-        raw.extend_from_slice(self.credentials.username().as_bytes());
-        raw.push(b':');
-        raw.extend_from_slice(self.credentials.password().as_bytes());
-        let encoded = base64_encode(&raw);
-        raw.fill(0);
-        let value = format!("Basic {encoded}");
-        HeaderValue::from_str(&value).unwrap_or_else(|_| HeaderValue::from_static("Basic"))
-    }
-
     fn temp_path(&self, prefix: &str) -> PathBuf {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |duration| duration.as_nanos());
-        self.temp_dir
-            .join(format!("lomo-webdav-{prefix}-{nanos}.part"))
+        crate::temp_path::staging_path(&self.temp_dir, "webdav", prefix)
     }
 }
 
@@ -374,36 +370,6 @@ impl<W: Write> Write for LimitedWriter<'_, W> {
     fn flush(&mut self) -> std::io::Result<()> {
         self.inner.flush()
     }
-}
-
-fn base64_encode(input: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(input.len().div_ceil(3).saturating_mul(4));
-    let mut index = 0;
-    while index < input.len() {
-        let remaining = input.len() - index;
-        let b0 = input.get(index).copied().unwrap_or(0);
-        let b1 = input.get(index + 1).copied().unwrap_or(0);
-        let b2 = input.get(index + 2).copied().unwrap_or(0);
-        let i0 = usize::from(b0 >> 2);
-        let i1 = usize::from(((b0 & 0x03) << 4) | (b1 >> 4));
-        let i2 = usize::from(((b1 & 0x0f) << 2) | (b2 >> 6));
-        let i3 = usize::from(b2 & 0x3f);
-        out.push(char::from(TABLE.get(i0).copied().unwrap_or(b'A')));
-        out.push(char::from(TABLE.get(i1).copied().unwrap_or(b'A')));
-        if remaining > 1 {
-            out.push(char::from(TABLE.get(i2).copied().unwrap_or(b'A')));
-        } else {
-            out.push('=');
-        }
-        if remaining > 2 {
-            out.push(char::from(TABLE.get(i3).copied().unwrap_or(b'A')));
-        } else {
-            out.push('=');
-        }
-        index = index.saturating_add(3);
-    }
-    out
 }
 
 fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {

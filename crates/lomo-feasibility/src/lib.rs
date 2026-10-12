@@ -14,9 +14,7 @@ mod redaction;
 mod report;
 mod sqlite_probe;
 
-pub use corpus::{
-    CorpusFileEntryV1, CorpusManifestV1, CorpusWorkloadV1, LogicalAttachmentEntryV1, hex_digest,
-};
+pub use corpus::{CorpusFileEntryV1, CorpusManifestV1, CorpusWorkloadV1, LogicalAttachmentEntryV1};
 pub use exit_code::FeasibilityExitCode;
 pub use generate::{
     CAPACITY_ATTACHMENT_LOGICAL_BYTES, CAPACITY_MEMO_COUNT, CAPACITY_REMOTE_CHANGES,

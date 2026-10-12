@@ -94,6 +94,8 @@ mod tests {
         options_no_move: bool,
         redirect_off_origin: bool,
         oversized_multistatus_pad: usize,
+        /// When set, collection `PROPFIND` serves this exact body (entity/CDATA/malformed contracts).
+        multistatus_body_override: Option<String>,
         /// When true, PUT to nested keys requires prior MKCOL parent collections (real-server shape).
         require_parent_collections: bool,
     }
@@ -105,6 +107,7 @@ mod tests {
         collections: Arc<Mutex<BTreeSet<String>>>,
         faults: Arc<Mutex<FaultConfig>>,
         mkcol_calls: Arc<Mutex<Vec<String>>>,
+        auth_headers: Arc<Mutex<Vec<String>>>,
         join: Option<thread::JoinHandle<()>>,
     }
 
@@ -118,11 +121,13 @@ mod tests {
             let collections = Arc::new(Mutex::new(BTreeSet::from([String::new()])));
             let faults = Arc::new(Mutex::new(FaultConfig::default()));
             let mkcol_calls = Arc::new(Mutex::new(Vec::new()));
+            let auth_headers = Arc::new(Mutex::new(Vec::new()));
             let shutdown_t = Arc::clone(&shutdown);
             let store_t = Arc::clone(&store);
             let collections_t = Arc::clone(&collections);
             let faults_t = Arc::clone(&faults);
             let mkcol_t = Arc::clone(&mkcol_calls);
+            let auth_t = Arc::clone(&auth_headers);
             let join = thread::spawn(move || {
                 while !shutdown_t.load(Ordering::SeqCst) {
                     match listener.accept() {
@@ -133,6 +138,7 @@ mod tests {
                                 Arc::clone(&collections_t),
                                 Arc::clone(&faults_t),
                                 Arc::clone(&mkcol_t),
+                                Arc::clone(&auth_t),
                             );
                         }
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -149,6 +155,7 @@ mod tests {
                 collections,
                 faults,
                 mkcol_calls,
+                auth_headers,
                 join: Some(join),
             }
         }
@@ -194,6 +201,10 @@ mod tests {
         fn mkcol_paths(&self) -> Vec<String> {
             self.mkcol_calls.lock().expect("mkcol").clone()
         }
+
+        fn authorization_headers(&self) -> Vec<String> {
+            self.auth_headers.lock().expect("auth").clone()
+        }
     }
 
     fn ensure_parents_recorded(collections: &Mutex<BTreeSet<String>>, key: &str) {
@@ -237,10 +248,17 @@ mod tests {
         collections_t: Arc<Mutex<BTreeSet<String>>>,
         faults_t: Arc<Mutex<FaultConfig>>,
         mkcol_t: Arc<Mutex<Vec<String>>>,
+        auth_t: Arc<Mutex<Vec<String>>>,
     ) {
         let _worker = thread::spawn(move || {
-            let _handled: std::io::Result<()> =
-                handle_client(stream, &store_t, &collections_t, &faults_t, &mkcol_t);
+            let _handled: std::io::Result<()> = handle_client(
+                stream,
+                &store_t,
+                &collections_t,
+                &faults_t,
+                &mkcol_t,
+                &auth_t,
+            );
         });
     }
 
@@ -250,6 +268,7 @@ mod tests {
         collections: &Mutex<BTreeSet<String>>,
         faults: &Mutex<FaultConfig>,
         mkcol_calls: &Mutex<Vec<String>>,
+        auth_headers: &Mutex<Vec<String>>,
     ) -> std::io::Result<()> {
         stream.set_read_timeout(Some(Duration::from_secs(2)))?;
         stream.set_write_timeout(Some(Duration::from_secs(2)))?;
@@ -258,6 +277,9 @@ mod tests {
             return Ok(());
         }
         let (method, path, headers, body) = parse_http_request(&request);
+        if let Some(value) = headers.get("authorization") {
+            auth_headers.lock().expect("auth").push(value.clone());
+        }
         let fault = faults.lock().expect("faults").clone();
         if fault.redirect_off_origin {
             stream.write_all(
@@ -481,6 +503,9 @@ mod tests {
         store: &Mutex<HashMap<String, StoredObject>>,
         fault: &FaultConfig,
     ) -> String {
+        if let Some(body) = &fault.multistatus_body_override {
+            return body.clone();
+        }
         if fault.oversized_multistatus_pad > 0 {
             let pad = "x".repeat(fault.oversized_multistatus_pad);
             return format!(
@@ -1304,6 +1329,21 @@ mod tests {
     }
 
     #[test]
+    fn basic_auth_header_wire_format_matches_rfc7617() {
+        let server = FaultServer::start();
+        let (_dir, adapter) = adapter_with(&server, MapObjectSource::default());
+        adapter.preflight().expect("preflight");
+        let sent = server.authorization_headers();
+        // adapter_with uses user/secret-pass → RFC 4648 base64("user:secret-pass").
+        assert!(!sent.is_empty(), "preflight must send Authorization");
+        assert!(
+            sent.iter()
+                .all(|value| value == "Basic dXNlcjpzZWNyZXQtcGFzcw=="),
+            "every request must carry `Basic base64(user:pass)` verbatim, got {sent:?}"
+        );
+    }
+
+    #[test]
     fn percent_encoded_slash_in_href_segment_is_path_collision_fail_closed() {
         let server = FaultServer::start();
         server.set_faults(FaultConfig {
@@ -1643,5 +1683,70 @@ mod tests {
                 .expect("stream cycle incomplete");
         assert_eq!(result.plan.ensure_absent_count(), 0);
         assert_eq!(result.plan.completeness, SnapshotCompleteness::Incomplete);
+    }
+
+    // ------------------------------------------------------------------
+    // B-14 P-50: quick-xml multistatus contracts (entity / CDATA / malformed).
+    // ------------------------------------------------------------------
+
+    /// Given a multistatus `href` carrying a predefined entity, when the snapshot is parsed, then
+    /// the entry path is the decoded text (`a&amp;b` → `a&b`).
+    #[test]
+    fn multistatus_decodes_predefined_entities_in_href() {
+        let server = FaultServer::start();
+        server.set_faults(FaultConfig {
+            multistatus_body_override: Some(String::from(
+                r#"<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"><d:response><d:href>/dav/memo/a&amp;b.md</d:href><d:propstat><d:prop><d:getetag>"e1"</d:getetag><d:getcontentlength>3</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>"#,
+            )),
+            ..FaultConfig::default()
+        });
+        let (_dir, adapter) = adapter_with(&server, MapObjectSource::default());
+        let snap = adapter.list_remote().expect("list");
+        assert_eq!(
+            snap.entries[0].path.as_str(),
+            "memo/a&b.md",
+            "predefined entity must decode to text content: {:?}",
+            snap.entries
+        );
+    }
+
+    /// CDATA inside `href` is real text content and must surface as the entry path.
+    #[test]
+    fn multistatus_decodes_cdata_in_href() {
+        let server = FaultServer::start();
+        server.set_faults(FaultConfig {
+            multistatus_body_override: Some(String::from(
+                r#"<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"><d:response><d:href><![CDATA[/dav/memo/c.md]]></d:href><d:propstat><d:prop><d:getetag>"e2"</d:getetag><d:getcontentlength>4</d:getcontentlength></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>"#,
+            )),
+            ..FaultConfig::default()
+        });
+        let (_dir, adapter) = adapter_with(&server, MapObjectSource::default());
+        let snap = adapter.list_remote().expect("list");
+        assert_eq!(
+            snap.entries[0].path.as_str(),
+            "memo/c.md",
+            "CDATA content must decode to text content: {:?}",
+            snap.entries
+        );
+    }
+
+    /// An unclosed `response` element is malformed XML: the snapshot must fail closed
+    /// (Incomplete) rather than treating the truncated prefix as a complete listing.
+    #[test]
+    fn multistatus_unclosed_element_marks_incomplete() {
+        let server = FaultServer::start();
+        server.set_faults(FaultConfig {
+            multistatus_body_override: Some(String::from(
+                r#"<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"><d:response><d:href>/dav/memo/x.md</d:href>"#,
+            )),
+            ..FaultConfig::default()
+        });
+        let (_dir, adapter) = adapter_with(&server, MapObjectSource::default());
+        let snap = adapter.list_remote().expect("list");
+        assert_eq!(
+            snap.completeness,
+            SnapshotCompleteness::Incomplete,
+            "truncated multistatus must fail closed as Incomplete"
+        );
     }
 }

@@ -191,7 +191,7 @@ pub fn encrypt_filename_path(
             RcloneFilenameEncryption::Standard => {
                 let padded = pkcs7_pad(segment.as_bytes(), AES_BLOCK);
                 let encrypted = eme_encrypt(&material.name_key, &material.name_tweak, &padded)?;
-                Ok(encode_filename(&encrypted, config.filename_encoding))
+                encode_filename(&encrypted, config.filename_encoding)
             }
             RcloneFilenameEncryption::Obfuscate => {
                 Ok(obfuscate_segment(segment, &material.name_key))
@@ -472,172 +472,53 @@ fn normalized_suffix(value: &str) -> String {
     }
 }
 
-fn encode_filename(input: &[u8], encoding: RcloneFilenameEncoding) -> String {
-    match encoding {
-        // Stage-5 product bound: host-proven surface is base32 only. Base32768 is typed for cutover
+/// rclone crypt filename alphabet: lowercase base32hex `0123456789abcdefghijklmnopqrstuv` without
+/// padding (RFC 4648 base32hex letters are uppercase — rclone deliberately diverges to lowercase).
+fn rclone_base32hex_nopad() -> Result<data_encoding::Encoding, LomoError> {
+    let mut spec = data_encoding::Specification::new();
+    spec.symbols.push_str("0123456789abcdefghijklmnopqrstuv");
+    spec.encoding().map_err(|_error| {
+        validation(
+            "rclone_base32_spec",
+            "rclone base32hex codec specification is invalid",
+        )
+    })
+}
+
+fn encode_filename(input: &[u8], encoding: RcloneFilenameEncoding) -> Result<String, LomoError> {
+    let encoded = match encoding {
+        // Stage-5 product bound: host-proven rclone surface is base32 only. Base32768 is typed for cutover
         // parity with Kotlin settings but deliberately reuses base32hex here — not a residual OPEN
         // claiming real rclone base32768 alphabet goldens.
         RcloneFilenameEncoding::Base32 | RcloneFilenameEncoding::Base32768 => {
-            base32_hex_encode(input)
+            rclone_base32hex_nopad()?.encode(input)
         }
-        RcloneFilenameEncoding::Base64 => base64_url_encode(input),
-    }
+        RcloneFilenameEncoding::Base64 => data_encoding::BASE64URL_NOPAD.encode(input),
+    };
+    Ok(encoded)
 }
 
 fn decode_filename(input: &str, encoding: RcloneFilenameEncoding) -> Result<Vec<u8>, LomoError> {
     match encoding {
         RcloneFilenameEncoding::Base32 | RcloneFilenameEncoding::Base32768 => {
-            base32_hex_decode(input)
+            rclone_base32hex_nopad()?
+                .decode(input.as_bytes())
+                .map_err(|_error| {
+                    validation(
+                        "rclone_base32_invalid",
+                        "encrypted rclone filename is not valid base32hex",
+                    )
+                })
         }
-        RcloneFilenameEncoding::Base64 => base64_url_decode(input),
-    }
-}
-
-fn base32_hex_encode(input: &[u8]) -> String {
-    const ALPHABET: &[u8; 32] = b"0123456789abcdefghijklmnopqrstuv";
-    if input.is_empty() {
-        return String::new();
-    }
-    let mut out = String::new();
-    let mut buffer: u32 = 0;
-    let mut bits: u32 = 0;
-    for byte in input {
-        buffer = (buffer << 8) | u32::from(*byte);
-        bits += 8;
-        while bits >= 5 {
-            bits -= 5;
-            let idx = ((buffer >> bits) & 0x1f) as usize;
-            if let Some(ch) = ALPHABET.get(idx) {
-                out.push(char::from(*ch));
-            }
-        }
-    }
-    if bits > 0 {
-        let idx = ((buffer << (5 - bits)) & 0x1f) as usize;
-        if let Some(ch) = ALPHABET.get(idx) {
-            out.push(char::from(*ch));
-        }
-    }
-    out
-}
-
-fn base32_hex_decode(input: &str) -> Result<Vec<u8>, LomoError> {
-    if input.ends_with('=') {
-        return Err(validation(
-            "rclone_base32_padding",
-            "encrypted rclone filename is not valid base32hex",
-        ));
-    }
-    if input.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut out = Vec::new();
-    let mut buffer: u32 = 0;
-    let mut bits: u32 = 0;
-    for ch in input.chars() {
-        let value = match ch {
-            '0'..='9' => u32::from(ch as u8 - b'0'),
-            'a'..='v' => u32::from(ch as u8 - b'a' + 10),
-            'A'..='V' => u32::from(ch as u8 - b'A' + 10),
-            _ => {
-                return Err(validation(
-                    "rclone_base32_invalid",
-                    "encrypted rclone filename is not valid base32hex",
-                ));
-            }
-        };
-        buffer = (buffer << 5) | value;
-        bits += 5;
-        if bits >= 8 {
-            bits -= 8;
-            out.push(((buffer >> bits) & 0xff) as u8);
-            buffer &= (1 << bits) - 1;
-        }
-    }
-    Ok(out)
-}
-
-fn base64_url_encode(input: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut out = String::with_capacity(input.len().div_ceil(3).saturating_mul(4));
-    let mut index = 0;
-    while index < input.len() {
-        let remaining = input.len() - index;
-        let b0 = input.get(index).copied().unwrap_or(0);
-        let b1 = if remaining > 1 {
-            input.get(index + 1).copied().unwrap_or(0)
-        } else {
-            0
-        };
-        let b2 = if remaining > 2 {
-            input.get(index + 2).copied().unwrap_or(0)
-        } else {
-            0
-        };
-        if let Some(ch) = TABLE.get(usize::from(b0 >> 2)) {
-            out.push(char::from(*ch));
-        }
-        if let Some(ch) = TABLE.get(usize::from(((b0 & 0x03) << 4) | (b1 >> 4))) {
-            out.push(char::from(*ch));
-        }
-        if remaining > 1
-            && let Some(ch) = TABLE.get(usize::from(((b1 & 0x0f) << 2) | (b2 >> 6)))
-        {
-            out.push(char::from(*ch));
-        }
-        if remaining > 2
-            && let Some(ch) = TABLE.get(usize::from(b2 & 0x3f))
-        {
-            out.push(char::from(*ch));
-        }
-        index += 3;
-    }
-    out
-}
-
-fn base64_url_decode(input: &str) -> Result<Vec<u8>, LomoError> {
-    if input.ends_with('=') {
-        return Err(validation(
-            "rclone_base64_padding",
-            "encrypted rclone filename is not valid base64url",
-        ));
-    }
-    let pad = (4 - (input.len() % 4)) % 4;
-    let mut padded = input.to_owned();
-    padded.extend(std::iter::repeat_n('=', pad));
-    let standard = padded.replace('-', "+").replace('_', "/");
-    let mut out = Vec::new();
-    let bytes = standard.as_bytes();
-    let mut index = 0;
-    while index + 3 < bytes.len() {
-        let decode_val = |b: u8| -> Result<u8, LomoError> {
-            match b {
-                b'A'..=b'Z' => Ok(b - b'A'),
-                b'a'..=b'z' => Ok(b - b'a' + 26),
-                b'0'..=b'9' => Ok(b - b'0' + 52),
-                b'+' => Ok(62),
-                b'/' => Ok(63),
-                b'=' => Ok(0),
-                _ => Err(validation(
+        RcloneFilenameEncoding::Base64 => data_encoding::BASE64URL_NOPAD
+            .decode(input.as_bytes())
+            .map_err(|_error| {
+                validation(
                     "rclone_base64_invalid",
                     "encrypted rclone filename is not valid base64url",
-                )),
-            }
-        };
-        let a = decode_val(*bytes.get(index).unwrap_or(&0))?;
-        let b = decode_val(*bytes.get(index + 1).unwrap_or(&0))?;
-        let c = decode_val(*bytes.get(index + 2).unwrap_or(&0))?;
-        let d = decode_val(*bytes.get(index + 3).unwrap_or(&0))?;
-        out.push((a << 2) | (b >> 4));
-        if *bytes.get(index + 2).unwrap_or(&b'=') != b'=' {
-            out.push((b << 4) | (c >> 2));
-        }
-        if *bytes.get(index + 3).unwrap_or(&b'=') != b'=' {
-            out.push((c << 6) | d);
-        }
-        index += 4;
+                )
+            }),
     }
-    Ok(out)
 }
 
 fn pkcs7_pad(input: &[u8], block: usize) -> Vec<u8> {

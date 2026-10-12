@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::corpus::{
-    CorpusFileEntryV1, CorpusManifestV1, CorpusWorkloadV1, LogicalAttachmentEntryV1, hex_digest,
+    CorpusFileEntryV1, CorpusManifestV1, CorpusWorkloadV1, LogicalAttachmentEntryV1,
 };
 use crate::report::ReportValidationError;
 
@@ -264,14 +264,14 @@ fn push_material_or_logical(
         write_relative(&request.output_dir, &relative, bytes)?;
         files.push(CorpusFileEntryV1 {
             relative_path: relative,
-            sha256: hex_digest(bytes),
+            sha256: format!("{:x}", Sha256::digest(bytes)),
             byte_length: bytes.len() as u64,
         });
     } else {
         logical_attachments.push(LogicalAttachmentEntryV1 {
             identity,
             logical_bytes: bytes.len() as u64,
-            sha256: hex_digest(bytes),
+            sha256: format!("{:x}", Sha256::digest(bytes)),
         });
     }
     Ok(())
@@ -307,7 +307,7 @@ fn append_quick_media(
     write_relative(&request.output_dir, &relative, &bytes)?;
     files.push(CorpusFileEntryV1 {
         relative_path: relative,
-        sha256: hex_digest(&bytes),
+        sha256: format!("{:x}", Sha256::digest(&bytes)),
         byte_length: bytes.len() as u64,
     });
     Ok(())
@@ -328,7 +328,7 @@ fn append_git_scenarios(
     claim_identity(identities, "git:scenarios")?;
     files.push(CorpusFileEntryV1 {
         relative_path: relative,
-        sha256: hex_digest(&bytes),
+        sha256: format!("{:x}", Sha256::digest(&bytes)),
         byte_length: bytes.len() as u64,
     });
     Ok(())
@@ -367,7 +367,7 @@ fn append_golden_fixtures(
             write_relative(output_dir, &out_relative, &bytes)?;
             files.push(CorpusFileEntryV1 {
                 relative_path: out_relative,
-                sha256: hex_digest(&bytes),
+                sha256: format!("{:x}", Sha256::digest(&bytes)),
                 byte_length: bytes.len() as u64,
             });
         }
@@ -512,7 +512,7 @@ fn stream_digest_full(seed: u64, logical_bytes: u64) -> String {
         hasher.update(block.get(..chunk).unwrap_or(&[]));
         remaining -= chunk as u64;
     }
-    hex_digest(&hasher.finalize())
+    format!("{:x}", hasher.finalize())
 }
 
 fn stream_digest_commitment(seed: u64, logical_bytes: u64) -> String {
@@ -525,7 +525,7 @@ fn stream_digest_commitment(seed: u64, logical_bytes: u64) -> String {
     for _ in 0..64 {
         hasher.update(rng.next_u64().to_le_bytes());
     }
-    hex_digest(&hasher.finalize())
+    format!("{:x}", hasher.finalize())
 }
 
 fn io_error(error: impl std::fmt::Display) -> GenerateError {

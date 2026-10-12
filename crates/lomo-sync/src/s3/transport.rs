@@ -141,7 +141,9 @@ impl S3Transport {
             ));
         }
         let temp_path = self.temp_path("get");
-        let mut file = std::fs::File::create(&temp_path).map_err(|error| {
+        // `create_new` (O_EXCL) makes the unique-name contract OS-enforced: an existing
+        // file fails loudly instead of silently truncating an in-flight sibling download.
+        let mut file = std::fs::File::create_new(&temp_path).map_err(|error| {
             storage(
                 "s3_temp_create_failed",
                 &format!("failed to create s3 temp file: {error}"),
@@ -244,7 +246,19 @@ impl S3Transport {
                 "s3 CreateMultipartUpload body must be UTF-8",
             )
         })?;
-        extract_xml_local_text(text, "UploadId").ok_or_else(|| {
+        let upload_id = crate::xml::parse_document(
+            text,
+            "s3_multipart_init_xml_malformed",
+            "s3 CreateMultipartUpload body is malformed XML",
+            "s3_xml_entities_forbidden",
+            "s3 CreateMultipartUpload must not declare DTD or entities",
+        )?
+        .and_then(|root| {
+            root.find_first("UploadId", false)
+                .map(|element| element.trimmed_text().to_owned())
+        })
+        .filter(|value| !value.is_empty());
+        upload_id.ok_or_else(|| {
             validation(
                 "s3_multipart_upload_id_missing",
                 "s3 CreateMultipartUpload response is missing UploadId",
@@ -308,7 +322,9 @@ impl S3Transport {
             xml.push_str("<Part><PartNumber>");
             xml.push_str(&number.to_string());
             xml.push_str("</PartNumber><ETag>");
-            xml.push_str(etag);
+            // Server-supplied ETags are escaped — a `<`/`&` in a hostile header must not
+            // corrupt or inject into the request body.
+            xml.push_str(&quick_xml::escape::escape(etag));
             xml.push_str("</ETag></Part>");
         }
         xml.push_str("</CompleteMultipartUpload>");
@@ -354,7 +370,7 @@ impl S3Transport {
         } else {
             EMPTY_PAYLOAD_SHA256.to_owned()
         };
-        let amz_date = self.amz_date_now();
+        let amz_date = self.amz_date_now()?;
         let signed = sigv4::sign_request(
             method.as_str(),
             url,
@@ -381,46 +397,44 @@ impl S3Transport {
         builder.send().map_err(|error| transport_err(&error))
     }
 
-    fn amz_date_now(&self) -> String {
+    fn amz_date_now(&self) -> Result<String, LomoError> {
         if let Some(fixed) = &self.fixed_amz_date {
-            return fixed.clone();
+            return Ok(fixed.clone());
         }
         let secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
-        // UTC formatting without chrono: fixed width YYYYMMDDTHHMMSSZ via simple epoch math
-        // is incomplete for leap years; use libc-free approximation via format of known epoch
-        // path is fine for production: reqwest servers accept current time. For portability we
-        // use a minimal UTC formatter.
-        format_amz_date(secs)
+            .map_err(|_error| {
+                validation(
+                    "s3_clock_before_epoch",
+                    "s3 system clock precedes the unix epoch",
+                )
+            })?
+            .as_secs();
+        amz_date_for_unix_secs(secs)
     }
 
     fn temp_path(&self, prefix: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |duration| duration.as_nanos());
-        self.temp_dir.join(format!("lomo-s3-{prefix}-{nanos}.part"))
+        crate::temp_path::staging_path(&self.temp_dir, "s3", prefix)
     }
 }
 
-fn format_amz_date(unix_secs: u64) -> String {
-    // Algorithm from civil_from_days (Howard Hinnant) for UTC.
-    let days = i64::try_from(unix_secs / 86_400).unwrap_or(i64::MAX);
-    let time = unix_secs % 86_400;
-    let z = days + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = u64::try_from(z - era * 146_097).unwrap_or(0);
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let y = i64::try_from(yoe).unwrap_or(0) + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    let hour = time / 3600;
-    let min = (time % 3600) / 60;
-    let sec = time % 60;
-    format!("{y:04}{m:02}{d:02}T{hour:02}{min:02}{sec:02}Z")
+/// Formats the signing instant as a UTC `YYYYMMDDTHHMMSSZ` token via jiff's checked
+/// timestamp conversion; an out-of-range clock fails closed instead of producing a
+/// silently wrong signature date.
+fn amz_date_for_unix_secs(unix_secs: u64) -> Result<String, LomoError> {
+    let secs = i64::try_from(unix_secs).map_err(|_error| {
+        validation(
+            "s3_clock_out_of_range",
+            "s3 system clock exceeds the unix timestamp range",
+        )
+    })?;
+    let timestamp = jiff::Timestamp::from_second(secs).map_err(|_error| {
+        validation(
+            "s3_clock_out_of_range",
+            "s3 system clock exceeds the unix timestamp range",
+        )
+    })?;
+    Ok(timestamp.strftime("%Y%m%dT%H%M%SZ").to_string())
 }
 
 struct LimitedWriter<'a, W: Write> {
@@ -542,47 +556,4 @@ fn redacted_transport_detail(error: &reqwest::Error) -> String {
         }
     }
     detail
-}
-
-fn extract_xml_local_text(xml: &str, local: &str) -> Option<String> {
-    let open_plain = format!("<{local}>");
-    let close_plain = format!("</{local}>");
-    if let Some(start) = xml.find(&open_plain) {
-        let content_start = start + open_plain.len();
-        if let Some(tail) = xml.get(content_start..)
-            && let Some(end_rel) = tail.find(&close_plain)
-            && let Some(content) = xml.get(content_start..content_start + end_rel)
-        {
-            return Some(content.trim().to_owned());
-        }
-    }
-    // Namespaced form: <ns:UploadId>...
-    let needle = format!(":{local}>");
-    let mut search_from = 0_usize;
-    while let Some(rel) = xml.get(search_from..)?.find(&needle) {
-        let abs = search_from + rel;
-        let after_gt = abs + needle.len();
-        let close = "</";
-        let Some(tail) = xml.get(after_gt..) else {
-            break;
-        };
-        if let Some(close_rel) = tail.find(close) {
-            let close_abs = after_gt + close_rel;
-            let Some(close_region) = xml.get(close_abs..) else {
-                break;
-            };
-            let namespaced_close = format!(":{local}>");
-            let plain_close = format!("</{local}>");
-            if (close_region.contains(&namespaced_close) || close_region.starts_with(&plain_close))
-                && let Some(content) = xml.get(after_gt..close_abs)
-            {
-                let trimmed = content.trim();
-                if !trimmed.is_empty() && !trimmed.contains('<') {
-                    return Some(trimmed.to_owned());
-                }
-            }
-        }
-        search_from = abs + 1;
-    }
-    None
 }

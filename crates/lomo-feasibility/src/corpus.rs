@@ -119,23 +119,8 @@ impl CorpusManifestV1 {
     /// Returns [`ReportValidationError`] when canonicalization fails.
     pub fn canonical_digest(&self) -> Result<String, ReportValidationError> {
         let bytes = self.to_canonical_json()?;
-        Ok(hex_digest(&bytes))
+        Ok(format!("{:x}", Sha256::digest(&bytes)))
     }
-}
-
-/// Hex-encode a SHA-256 digest of `bytes`.
-#[must_use]
-pub fn hex_digest(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let digest = Sha256::digest(bytes);
-    let mut out = String::with_capacity(64);
-    for byte in digest {
-        let high = HEX.get((byte >> 4) as usize).copied().unwrap_or(b'?');
-        let low = HEX.get((byte & 0x0f) as usize).copied().unwrap_or(b'?');
-        out.push(char::from(high));
-        out.push(char::from(low));
-    }
-    out
 }
 
 fn is_hex_sha256(value: &str) -> bool {
