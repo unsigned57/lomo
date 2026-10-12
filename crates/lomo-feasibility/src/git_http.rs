@@ -10,6 +10,9 @@ use std::thread;
 use std::time::Duration;
 use std::{fs, io};
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
+
 use crate::git_probe::GitProbeError;
 use git2::{
     CertificateCheckStatus, Cred, ErrorClass, ErrorCode, FetchOptions, PushOptions,
@@ -944,10 +947,10 @@ fn authorized(headers: &str, username: &str, password: &str) -> bool {
     else {
         return false;
     };
-    let Ok(bytes) = base64_decode(encoded.trim()) else {
+    // Strict RFC 4648: non-canonical input (bad alphabet, missing padding) fails closed.
+    let Ok(bytes) = STANDARD.decode(encoded.trim()) else {
         return false;
     };
-    // base64_decode now returns Base64Error; keep early-return style.
     let Ok(decoded) = String::from_utf8(bytes) else {
         return false;
     };
@@ -1089,40 +1092,4 @@ fn git_http_backend_path() -> Option<PathBuf> {
     }
     let fallback = PathBuf::from("/usr/lib/git-core/git-http-backend");
     fallback.is_file().then_some(fallback)
-}
-
-#[derive(Debug)]
-enum Base64Error {
-    InvalidCharacter,
-}
-
-fn base64_decode(input: &str) -> Result<Vec<u8>, Base64Error> {
-    // Minimal base64 decoder for Basic auth (fixture only).
-    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut values = Vec::new();
-    for byte in input.bytes() {
-        if byte == b'=' {
-            break;
-        }
-        let Some(index) = TABLE.iter().position(|&item| item == byte) else {
-            return Err(Base64Error::InvalidCharacter);
-        };
-        values.push(u8::try_from(index).map_err(|_overflow| Base64Error::InvalidCharacter)?);
-    }
-    let mut out = Vec::new();
-    for chunk in values.chunks(4) {
-        let a = u32::from(chunk.first().copied().unwrap_or(0));
-        let b = u32::from(chunk.get(1).copied().unwrap_or(0));
-        let c = u32::from(chunk.get(2).copied().unwrap_or(0));
-        let d = u32::from(chunk.get(3).copied().unwrap_or(0));
-        let triple = (a << 18) | (b << 12) | (c << 6) | d;
-        out.push(u8::try_from((triple >> 16) & 0xff).unwrap_or(0));
-        if chunk.len() > 2 {
-            out.push(u8::try_from((triple >> 8) & 0xff).unwrap_or(0));
-        }
-        if chunk.len() > 3 {
-            out.push(u8::try_from(triple & 0xff).unwrap_or(0));
-        }
-    }
-    Ok(out)
 }

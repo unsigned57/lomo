@@ -54,6 +54,14 @@ reqwest.workspace = true
 rustls.workspace = true
 rcgen.workspace = true
 git2.workspace = true
+# RFC 4648 codec for the smart-HTTP fixture Basic-auth gate (replaces hand-rolled decoder).
+# 0.22.1 matches the version reqwest/pem already pin; 0.23.x would dual-version the graph
+# and trip deny.toml multiple-versions=deny.
+base64 = { version = "=0.22.1", default-features = false, features = ["alloc"] }
+# SigV4 probe HMAC-SHA256 (P-48): single audited MAC implementation (aws-lc-rs already linked via rustls).
+aws-lc-rs.workspace = true
+# Hex codec for the SigV4 probe signature (legacy scattered-hex convergence; portable capability only).
+data-encoding.workspace = true
 
 [lints]
 workspace = true
