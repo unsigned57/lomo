@@ -52,14 +52,17 @@ pub enum DocumentPatchCommand {
 }
 
 /// Planned patch: exact replacement of one target span, with byte-stable prefix/suffix.
+///
+/// The result is held as a validated [`SourceBytes`]: the plan's UTF-8 and fingerprint
+/// work is done once at planning time, so downstream consumers (identity transition,
+/// durable writes) reuse the same source value instead of re-checking raw bytes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DocumentPatchPlan {
     path: WorkspaceRelativePath,
     expected_fingerprint: SourceFingerprint,
     target_span: ByteSpan,
     replacement: Vec<u8>,
-    result_bytes: Vec<u8>,
-    result_fingerprint: SourceFingerprint,
+    result_source: SourceBytes,
 }
 
 impl DocumentPatchPlan {
@@ -85,12 +88,19 @@ impl DocumentPatchPlan {
 
     #[must_use]
     pub fn result_bytes(&self) -> &[u8] {
-        &self.result_bytes
+        self.result_source.as_bytes()
+    }
+
+    /// The already-validated result source — fingerprint and line state computed once
+    /// at planning time.
+    #[must_use]
+    pub const fn result_source(&self) -> &SourceBytes {
+        &self.result_source
     }
 
     #[must_use]
     pub const fn result_fingerprint(&self) -> &SourceFingerprint {
-        &self.result_fingerprint
+        self.result_source.fingerprint()
     }
 
     /// Prefix bytes that must remain identical.
@@ -406,20 +416,14 @@ fn finish_plan(
     result_bytes.extend_from_slice(&replacement);
     result_bytes.extend_from_slice(suffix);
     // Result must remain valid UTF-8 (source is UTF-8; replacement is UTF-8).
-    if std::str::from_utf8(&result_bytes).is_err() {
-        return Err(validation(
-            "patch_not_utf8",
-            "patch result must remain valid UTF-8",
-        ));
-    }
-    let result_fingerprint = SourceFingerprint::of_bytes(&result_bytes);
+    let result_source = SourceBytes::try_from_bytes(result_bytes)
+        .map_err(|_error| validation("patch_not_utf8", "patch result must remain valid UTF-8"))?;
     Ok(DocumentPatchPlan {
         path: path.clone(),
         expected_fingerprint: expected.clone(),
         target_span,
         replacement,
-        result_bytes,
-        result_fingerprint,
+        result_source,
     })
 }
 

@@ -95,7 +95,8 @@ mod tests {
                 &doc,
                 &patch,
             )
-            .test_ok("transition");
+            .test_ok("transition")
+            .map;
         assert_eq!(changed.memo_ids(), vec![id("random-a"), id("random-c")]);
         assert_eq!(
             changed
@@ -153,7 +154,8 @@ mod tests {
                 &doc,
                 &patch,
             )
-            .test_ok("deleted");
+            .test_ok("deleted")
+            .map;
         let remaining = document(std::str::from_utf8(patch.result_bytes()).test_ok("utf8"));
         let append = plan_document_patch(
             &remaining,
@@ -172,7 +174,8 @@ mod tests {
                 &remaining,
                 &append,
             )
-            .test_ok("restored");
+            .test_ok("restored")
+            .map;
         assert_eq!(restored.memo_ids(), vec![id("keep-a"), id("retired-b")]);
         assert!(!restored.retired_ids().contains(&id("retired-b")));
         restored
@@ -196,12 +199,14 @@ mod tests {
         let change = MemoIdentityChange::Append(id("fresh-random-id"));
         let changed = map
             .apply_patch(operation("create"), change.clone(), &doc, &patch)
-            .test_ok("first operation");
+            .test_ok("first operation")
+            .map;
         let bytes = changed.encode().test_ok("durable record");
         let restored = MemoIdentityMap::decode(&bytes).test_ok("rebuild without SQLite");
         let replayed = restored
             .apply_patch(operation("create"), change, &doc, &patch)
-            .test_ok("idempotent retry");
+            .test_ok("idempotent retry")
+            .map;
         assert_eq!(replayed, restored);
         assert_eq!(replayed.memo_ids(), vec![id("fresh-random-id")]);
         assert_eq!(replayed.operations().len(), 2);
@@ -433,6 +438,99 @@ mod tests {
         }
     }
 
+    /// A memo-level patch bills fingerprinting at block granularity: the result block
+    /// the span touches is re-hashed, sibling blocks carry their previous
+    /// `block_fingerprint` because their bytes are patch-invariant, and a removal pays
+    /// zero refingerprints. The outcome's document is the same parse the transition
+    /// was proven against — the caller never re-parses result bytes.
+    #[test]
+    fn single_memo_patch_refingerprints_only_the_touched_block() {
+        let raw = "- 09:00:00\nfirst\n- 10:00:00\nsecond\n- 11:00:00\nthird\n";
+        let (doc, map) = initialize(raw, &["a", "b", "c"]);
+        let target = map
+            .locator(&id("b"))
+            .test_ok("middle locator")
+            .resolve(WorkspaceRootId::Notes, &path(), &doc)
+            .test_ok("middle memo");
+        let sibling_before = map
+            .bindings()
+            .iter()
+            .find(|binding| binding.memo_id() == &id("a"))
+            .test_ok("sibling binding")
+            .block_fingerprint()
+            .clone();
+
+        let update = plan_document_patch(
+            &doc,
+            &DocumentPatchCommand::Replace {
+                path: path(),
+                expected_fingerprint: doc.source().fingerprint().clone(),
+                identity: target.identity().clone(),
+                content: "second rewritten".to_owned(),
+            },
+        )
+        .test_ok("replace middle block");
+        let outcome = map
+            .apply_patch(
+                operation("update-b"),
+                MemoIdentityChange::Update(id("b")),
+                &doc,
+                &update,
+            )
+            .test_ok("update outcome");
+
+        assert_eq!(
+            outcome.refingerprinted_blocks, 1,
+            "only the block the patch span touches pays a fresh fingerprint"
+        );
+        assert_eq!(
+            outcome.document.source().fingerprint(),
+            update.result_fingerprint(),
+            "the handed-back document is the result parse the transition was proven against"
+        );
+        let sibling = outcome
+            .map
+            .bindings()
+            .iter()
+            .find(|binding| binding.memo_id() == &id("a"))
+            .test_ok("sibling after update");
+        assert_eq!(
+            sibling.block_fingerprint(),
+            &sibling_before,
+            "byte-identical sibling carries its previous block fingerprint"
+        );
+        assert_eq!(
+            sibling.locator().fingerprint(),
+            update.result_fingerprint(),
+            "the sibling locator still advances to the new document version"
+        );
+
+        // Deleting a block hashes nothing: every surviving sibling carries its
+        // fingerprint across the removal span.
+        let removal = plan_document_patch(
+            &doc,
+            &DocumentPatchCommand::Remove {
+                path: path(),
+                expected_fingerprint: doc.source().fingerprint().clone(),
+                identity: target.identity().clone(),
+            },
+        )
+        .test_ok("remove middle block");
+        let removed = map
+            .apply_patch(
+                operation("delete-b"),
+                MemoIdentityChange::Remove(id("b")),
+                &doc,
+                &removal,
+            )
+            .test_ok("delete outcome");
+        assert_eq!(
+            removed.refingerprinted_blocks, 0,
+            "a removal recomputes no block fingerprint"
+        );
+        assert_eq!(removed.map.memo_ids(), vec![id("a"), id("c")]);
+    }
+
     #[test]
     fn updates_preserve_all_ids_and_reject_another_memos_patch() {
         let (doc, map) = initialize("- 09:00:00\nfirst\n- 10:00:00\nsecond\n", &["a", "b"]);
@@ -463,7 +561,8 @@ mod tests {
                 &doc,
                 &patch,
             )
-            .test_ok("update");
+            .test_ok("update")
+            .map;
         assert_eq!(updated.memo_ids(), vec![id("a"), id("b")]);
         assert_eq!(
             updated.locator(&id("b")).test_ok("sibling").fingerprint(),
