@@ -103,6 +103,7 @@ class PlatformBatchRunnerTest : DataFunSpec() {
                                     )
                                 },
                             currentTimeMillis = { 1_000L },
+                            readExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(),
                         ),
                 )
 
@@ -166,6 +167,7 @@ class PlatformBatchRunnerTest : DataFunSpec() {
                                     )
                                 },
                             currentTimeMillis = { 1_000L },
+                            readExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(),
                         ),
                 )
 
@@ -262,6 +264,7 @@ private fun waitingRunner(
             AndroidPlatformActionExecutor(
                 access = PlatformActionAccess { error("no platform action expected") },
                 currentTimeMillis = { 0L },
+                readExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(),
             ),
         nowMillis = clock::nowMillis,
         sleepMillis = clock::sleep,

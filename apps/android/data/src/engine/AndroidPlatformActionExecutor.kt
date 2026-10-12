@@ -8,7 +8,7 @@ import com.lomo.nativebridge.PlatformActionBatch
 import com.lomo.nativebridge.PlatformBatchResult
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
-import java.util.concurrent.Executors
+import java.util.concurrent.ExecutorService
 
 internal fun interface PlatformActionAccess {
     /** Executes and independently verifies one Rust-authored Android capability action. */
@@ -18,6 +18,11 @@ internal fun interface PlatformActionAccess {
 internal class AndroidPlatformActionExecutor(
     private val access: PlatformActionAccess,
     private val currentTimeMillis: () -> Long,
+    /**
+     * Shared read lane owned by the dependency graph. Independent-read batches submit to this
+     * instance instead of building and tearing down a pool per call; the owner decides shutdown.
+     */
+    private val readExecutor: ExecutorService,
 ) {
     fun execute(batch: PlatformActionBatch): PlatformBatchResult {
         require(batch.schemaVersion == PLATFORM_SCHEMA_VERSION) {
@@ -66,31 +71,26 @@ internal class AndroidPlatformActionExecutor(
     }
 
     private fun executeIndependentReads(actions: List<PlatformAction>): List<ActionResult> {
-        val executor = Executors.newFixedThreadPool(minOf(actions.size, MAX_PARALLEL_READS))
-        return try {
-            val futures =
-                executor.invokeAll(
-                    actions.map { action ->
-                        Callable {
-                            ActionResult(
-                                actionId = action.actionId(),
-                                outcome = access.execute(action),
-                            )
-                        }
-                    },
-                )
-            val ordered =
-                futures.map { future ->
-                    try {
-                        future.get()
-                    } catch (failure: ExecutionException) {
-                        throw failure.cause ?: failure
+        val futures =
+            readExecutor.invokeAll(
+                actions.map { action ->
+                    Callable {
+                        ActionResult(
+                            actionId = action.actionId(),
+                            outcome = access.execute(action),
+                        )
                     }
+                },
+            )
+        val ordered =
+            futures.map { future ->
+                try {
+                    future.get()
+                } catch (failure: ExecutionException) {
+                    throw failure.cause ?: failure
                 }
-            ordered.takeThroughFirstFailure()
-        } finally {
-            executor.shutdownNow()
-        }
+            }
+        return ordered.takeThroughFirstFailure()
     }
 }
 
@@ -115,6 +115,7 @@ private fun PlatformAction.actionId(): String =
         is PlatformAction.ListChildren -> actionId
         is PlatformAction.EnsureDirectory -> actionId
         is PlatformAction.ReadToExchange -> actionId
+        is PlatformAction.Read -> actionId
         is PlatformAction.WriteFromExchange -> actionId
         is PlatformAction.ArtifactWrite -> actionId
         is PlatformAction.Move -> actionId
@@ -123,4 +124,6 @@ private fun PlatformAction.actionId(): String =
 
 private const val PLATFORM_SCHEMA_VERSION = 1u
 private const val MAX_PLATFORM_ACTIONS = 64
-private const val MAX_PARALLEL_READS = 8
+
+/** Upper bound of concurrent independent reads per batch; also the shared lane's thread count. */
+internal const val MAX_PARALLEL_READS = 8

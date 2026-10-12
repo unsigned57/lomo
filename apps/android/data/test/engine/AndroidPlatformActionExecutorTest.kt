@@ -20,16 +20,26 @@ package com.lomo.data.engine
  *   their verified results remain in Rust-authored action order.
  * - Given one independent read fails, when the concurrent batch completes, then the submitted
  *   result stops at that failure as the longest verified ordered prefix.
+ * - Given consecutive independent read batches, when execution runs, then every read is submitted
+ *   to the one injected executor service, which stays open between batches instead of being
+ *   rebuilt and torn down per call.
  *
  * Observable outcomes:
- * - Ordered accessed action ids and PlatformBatchResult identity/outcomes.
+ * - Ordered accessed action ids, worker thread identity, injected-executor submission count, and
+ *   PlatformBatchResult identity/outcomes.
  *
  * TDD proof:
  * - RED: compilation fails before implementation because AndroidPlatformActionExecutor and
  *   PlatformActionAccess do not exist.
+ * - RED on 2026-10-09 (P-42): the three-argument constructor accepting the shared read executor
+ *   does not exist yet, so the shared-lane scenario cannot compile against the per-call
+ *   `Executors.newFixedThreadPool` implementation.
  *
  * Excludes:
  * - ContentResolver mechanics, exchange file streaming, Rust job advancement, and UI behavior.
+ *
+ * Production scope: apps/android/data/src/engine/AndroidPlatformActionExecutor.kt
+ * Production scope: apps/android/data/src/di/EngineModule.kt
  *
  * Test Change Justification:
  * - Reason category: platform protocol contract change.
@@ -37,6 +47,15 @@ package com.lomo.data.engine
  * - Why old assertion is no longer correct: current platform metadata requires a handle for stable follow-up reads.
  * - Coverage preserved by: the existing batch ordering, failure-prefix, and deadline scenarios are unchanged.
  * - Why this is not fitting the test to the implementation: assertions still target ordered public batch results.
+ * - Reason category: executor lifecycle ownership change (P-42).
+ * - Old behavior/assertion being replaced: construction sites passed only access+clock because the
+ *   executor built its own pool per independent-read call.
+ * - Why old assertion is no longer correct: the read lane is a shared ExecutorService injected by
+ *   the owner, so construction sites must supply it.
+ * - Coverage preserved by: the same scenarios now run against the injected lane; the new scenario
+ *   pins that two consecutive batches share it and that it is not shut down per call.
+ * - Why this is not fitting the test to the implementation: the shared-lane assertion describes
+ *   the required lifecycle contract (DI-owned pool), not the current per-call internals.
  */
 
 import com.lomo.data.testing.DataFunSpec
@@ -72,7 +91,12 @@ class AndroidPlatformActionExecutorTest : DataFunSpec() {
                 accessed += action.actionId()
                 ActionOutcome.Applied(action.output())
             }
-            val executor = AndroidPlatformActionExecutor(access) { 1_000L }
+            val executor =
+                AndroidPlatformActionExecutor(
+                    access = access,
+                    currentTimeMillis = { 1_000L },
+                    readExecutor = Executors.newSingleThreadExecutor(),
+                )
 
             val result = executor.execute(batch(actions = allActions(), deadline = 2_000uL))
 
@@ -94,7 +118,12 @@ class AndroidPlatformActionExecutorTest : DataFunSpec() {
                     ActionOutcome.AlreadySatisfied(action.output())
                 }
             }
-            val executor = AndroidPlatformActionExecutor(access) { 1_000L }
+            val executor =
+                AndroidPlatformActionExecutor(
+                    access = access,
+                    currentTimeMillis = { 1_000L },
+                    readExecutor = Executors.newSingleThreadExecutor(),
+                )
 
             val result = executor.execute(batch(actions = allActions(), deadline = 2_000uL))
 
@@ -113,6 +142,7 @@ class AndroidPlatformActionExecutorTest : DataFunSpec() {
                         ActionOutcome.Applied(it.output())
                     },
                     currentTimeMillis = { 2_001L },
+                    readExecutor = Executors.newSingleThreadExecutor(),
                 )
 
             val result = executor.execute(batch(actions = allActions(), deadline = 2_000uL))
@@ -133,6 +163,7 @@ class AndroidPlatformActionExecutorTest : DataFunSpec() {
                         ActionOutcome.Applied(it.output())
                     },
                     currentTimeMillis = { 1_000L },
+                    readExecutor = Executors.newSingleThreadExecutor(),
                 )
 
             shouldThrow<IllegalArgumentException> {
@@ -155,7 +186,12 @@ class AndroidPlatformActionExecutorTest : DataFunSpec() {
                     check(release.await(2, TimeUnit.SECONDS)) { "read release timed out" }
                     ActionOutcome.Applied(action.output())
                 }
-            val executor = AndroidPlatformActionExecutor(access) { 1_000L }
+            val executor =
+                AndroidPlatformActionExecutor(
+                    access = access,
+                    currentTimeMillis = { 1_000L },
+                    readExecutor = Executors.newFixedThreadPool(2),
+                )
             val caller = Executors.newSingleThreadExecutor()
             val reads =
                 listOf(
@@ -198,6 +234,7 @@ class AndroidPlatformActionExecutorTest : DataFunSpec() {
                             }
                         },
                     currentTimeMillis = { 1_000L },
+                    readExecutor = Executors.newFixedThreadPool(2),
                 )
 
             val result = executor.execute(batch(actions = reads, deadline = 2_000uL))
@@ -205,7 +242,65 @@ class AndroidPlatformActionExecutorTest : DataFunSpec() {
             result.actionResults.map { it.actionId } shouldContainExactly listOf("read-1", "read-2")
             result.actionResults.last().outcome shouldBe ActionOutcome.Failed(FAILURE)
         }
+
+        test("given consecutive independent read batches when executed then every read runs on the one injected executor") {
+            val laneNames = Collections.synchronizedList(mutableListOf<String>())
+            val access =
+                PlatformActionAccess { action ->
+                    laneNames += Thread.currentThread().name
+                    ActionOutcome.Applied(action.output())
+                }
+            val readExecutor = RecordingReadExecutor()
+            try {
+                val executor =
+                    AndroidPlatformActionExecutor(
+                        access = access,
+                        currentTimeMillis = { 1_000L },
+                        readExecutor = readExecutor,
+                    )
+
+                executor.execute(batch(reads("read-1", "read-2"), deadline = 2_000uL))
+                executor.execute(batch(reads("read-3", "read-4", "read-5"), deadline = 2_000uL))
+
+                readExecutor.submittedTaskCount.get() shouldBe 5
+                laneNames.toSet() shouldBe setOf("contract-read-lane")
+                readExecutor.isShutdown shouldBe false
+                readExecutor.isTerminated shouldBe false
+            } finally {
+                readExecutor.shutdownNow()
+            }
+        }
     }
+}
+
+/**
+ * ExecutorService that records submissions so tests can prove every independent read lands on the
+ * single injected lane instead of a pool rebuilt per batch.
+ */
+private class RecordingReadExecutor : java.util.concurrent.AbstractExecutorService() {
+    private val delegate =
+        Executors.newFixedThreadPool(MAX_PARALLEL_READS) { runnable ->
+            Thread(runnable, "contract-read-lane")
+        }
+    val submittedTaskCount = java.util.concurrent.atomic.AtomicInteger()
+
+    override fun execute(command: Runnable) {
+        submittedTaskCount.incrementAndGet()
+        delegate.execute(command)
+    }
+
+    override fun shutdown() = delegate.shutdown()
+
+    override fun shutdownNow(): List<Runnable> = delegate.shutdownNow()
+
+    override fun isShutdown(): Boolean = delegate.isShutdown
+
+    override fun isTerminated(): Boolean = delegate.isTerminated
+
+    override fun awaitTermination(
+        timeout: Long,
+        unit: TimeUnit,
+    ): Boolean = delegate.awaitTermination(timeout, unit)
 }
 
 private val VERIFIED_EVIDENCE =
@@ -289,12 +384,16 @@ private fun readAction(
         expectedSource = ExpectedFingerprint.Absent,
     )
 
+private fun reads(vararg actionIds: String): List<PlatformAction.ReadToExchange> =
+    actionIds.map { actionId -> readAction(actionId, "$actionId.md", "exchange-$actionId") }
+
 private fun PlatformAction.actionId(): String =
     when (this) {
         is PlatformAction.Stat -> actionId
         is PlatformAction.ListChildren -> actionId
         is PlatformAction.EnsureDirectory -> actionId
         is PlatformAction.ReadToExchange -> actionId
+        is PlatformAction.Read -> actionId
         is PlatformAction.WriteFromExchange -> actionId
         is PlatformAction.ArtifactWrite -> actionId
         is PlatformAction.Move -> actionId
@@ -328,6 +427,21 @@ private fun PlatformAction.output(): PlatformActionOutput {
             PlatformActionOutput.ReadToExchange(
                 sourceMetadata = metadata(WorkspaceTarget.Relative(path), DocumentKind.FILE),
                 artifact = ExchangeArtifact(exchangeToken, 12uL, "a".repeat(64)),
+            )
+        is PlatformAction.Read ->
+            PlatformActionOutput.Read(
+                sourceMetadata =
+                    metadata(
+                        WorkspaceTarget.Relative(path),
+                        DocumentKind.FILE,
+                        evidence =
+                            ActionEvidence(
+                                length = 0uL,
+                                digest = ContentDigest.Verified("a".repeat(64)),
+                                fingerprint = "fixture-fingerprint",
+                            ),
+                    ),
+                bytes = byteArrayOf(),
             )
         is PlatformAction.WriteFromExchange ->
             PlatformActionOutput.WriteComplete(
