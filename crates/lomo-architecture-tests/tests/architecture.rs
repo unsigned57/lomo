@@ -623,6 +623,17 @@ mod tests {
     }
 
     #[test]
+    fn boltffi_cli_and_runtime_revisions_cannot_drift() {
+        // R-05: tools.toml `[ffi.boltffi_cli]` installs the BoltFFI CLI and
+        // Cargo.toml `workspace.dependencies.boltffi_core` compiles the runtime —
+        // two writes of one (git, rev) pin. A one-sided bump passes the bindings
+        // digest (it only triggers a rebuild) but splits the CLI from the ABI.
+        let violations = policy::boltffi_pin_violations(&read("tools.toml"), &read("Cargo.toml"))
+            .expect("BoltFFI pin manifests must parse");
+        assert!(violations.is_empty(), "{violations:#?}");
+    }
+
+    #[test]
     fn host_dependency_closure_is_free_from_android_and_jni() {
         const HOST_PACKAGES: &[&str] = &[
             "lomo-application",

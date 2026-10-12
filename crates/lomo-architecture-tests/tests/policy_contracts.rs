@@ -444,6 +444,84 @@ rusqlite = ["database"]
         }
     }
 
+    fn boltffi_tools_fixture(git: &str, rev: &str) -> String {
+        format!(
+            "[ffi.boltffi_cli]\npackage = \"boltffi_cli\"\nbinary = \"boltffi\"\ngit = \"{git}\"\nrev = \"{rev}\"\n"
+        )
+    }
+
+    fn boltffi_manifest_fixture(git: &str, rev: &str) -> String {
+        format!(
+            "[workspace.dependencies]\nboltffi_core = {{ package = \"boltffi_core\", git = \"{git}\", rev = \"{rev}\", default-features = false }}\n"
+        )
+    }
+
+    const BOLTFFI_GIT: &str = "https://github.com/boltffi/boltffi";
+
+    // Behavior Contract: the CLI install pin and the runtime dependency pin are two
+    // writes of one (git, rev) commit (R-05); equal pairs pass, any one-sided drift
+    // is a violation, and a manifest that cannot prove its pin fails closed.
+    #[test]
+    fn boltffi_pin_parity_holds_both_writes_to_one_commit() {
+        let tools = boltffi_tools_fixture(BOLTFFI_GIT, "aaa111");
+        let manifest = boltffi_manifest_fixture(BOLTFFI_GIT, "aaa111");
+        let violations = checked(policy::boltffi_pin_violations(&tools, &manifest));
+        assert!(violations.is_empty(), "{violations:#?}");
+
+        for drifted in [
+            // A rev bump on either side alone is an ABI split.
+            boltffi_manifest_fixture(BOLTFFI_GIT, "bbb222"),
+            // An identical rev under a different remote is still a split.
+            boltffi_manifest_fixture("https://example.com/fork/boltffi", "aaa111"),
+        ] {
+            let violations = checked(policy::boltffi_pin_violations(&tools, &drifted));
+            assert_eq!(violations.len(), 1, "{drifted}");
+            assert_eq!(
+                violations.first().map(|violation| violation.rule),
+                Some("boltffi-pin-parity")
+            );
+        }
+        let drifted_tools = boltffi_tools_fixture(BOLTFFI_GIT, "ccc333");
+        let violations = checked(policy::boltffi_pin_violations(&drifted_tools, &manifest));
+        assert_eq!(violations.len(), 1);
+    }
+
+    #[test]
+    fn boltffi_pin_parity_fails_closed_when_a_pin_cannot_be_proven() {
+        let tools = boltffi_tools_fixture(BOLTFFI_GIT, "aaa111");
+        let manifest = boltffi_manifest_fixture(BOLTFFI_GIT, "aaa111");
+        for (tools_source, manifest_source) in [
+            ("[ffi.boltffi_cli\n", manifest.as_str()),
+            ("[quality]\ncargo-deny = \"1\"\n", manifest.as_str()),
+            (
+                "[ffi.boltffi_cli]\ngit = \"https://github.com/boltffi/boltffi\"\n",
+                manifest.as_str(),
+            ),
+            (tools.as_str(), "[workspace.dependencies]\n"),
+            (
+                tools.as_str(),
+                "[workspace.dependencies]\nboltffi_core = \"0.30.1\"\n",
+            ),
+            (
+                tools.as_str(),
+                "[workspace.dependencies]\nboltffi_core = { git = \"https://github.com/boltffi/boltffi\" }\n",
+            ),
+            (
+                tools.as_str(),
+                "[workspace.dependencies]\nboltffi_core = { rev = \"aaa111\" }\n",
+            ),
+        ] {
+            assert!(
+                !rejected(policy::boltffi_pin_violations(
+                    tools_source,
+                    manifest_source
+                ))
+                .is_empty(),
+                "{tools_source} | {manifest_source}"
+            );
+        }
+    }
+
     fn source_rules(source: &str) -> Vec<Violation> {
         checked(policy::rust_source_violations(
             "crates/lomo-core/src/fixture.rs",

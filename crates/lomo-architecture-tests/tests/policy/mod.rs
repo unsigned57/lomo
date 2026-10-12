@@ -9,6 +9,7 @@ mod kotlin;
 mod rust_graph;
 mod rust_invariants;
 mod rust_source;
+mod tool_pins;
 
 pub use authority::kotlin_authority_violations;
 pub use config::detekt_config_violations;
@@ -18,6 +19,7 @@ pub use kotlin::{internal_module_dependencies, kotlin_dependency_violations};
 pub use rust_graph::{rust_dependency_violations, rust_manifest_violations};
 pub use rust_invariants::rust_invariant_violations;
 pub use rust_source::rust_source_violations;
+pub use tool_pins::boltffi_pin_violations;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Violation {
