@@ -96,6 +96,7 @@ mod tests {
             .open_workspace_session(
                 Box::new(PosixBatchHost { executor }),
                 "UTC".to_owned(),
+                "yyyy_MM_dd".to_owned(),
                 ws.to_string_lossy().into_owned(),
             )
             .test_ok("open session");

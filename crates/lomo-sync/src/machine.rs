@@ -2341,7 +2341,7 @@ pub fn connect_sync_remote_port(
                     "webdav endpoint_url and username are required",
                 ));
             }
-            let temp_dir = paths.root.join("tmp");
+            let temp_dir = paths.tmp.clone();
             std::fs::create_dir_all(&temp_dir).map_err(|err| {
                 crate::error::storage(
                     "webdav_temp_dir",
@@ -2379,7 +2379,7 @@ pub fn connect_sync_remote_port(
                     "s3 endpoint_url, access_key_id, bucket, and region are required",
                 ));
             }
-            let temp_dir = paths.root.join("tmp");
+            let temp_dir = paths.tmp.clone();
             std::fs::create_dir_all(&temp_dir).map_err(|err| {
                 crate::error::storage(
                     "s3_temp_dir",

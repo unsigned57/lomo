@@ -6,11 +6,13 @@ use std::path::Path;
 use lomo_core::{LomoError, RelativeWorkspacePath};
 use lomo_store::{ScannedHistoryProjection, ScannedPinProjection};
 use lomo_workspace::{
-    HistoryHead, HistoryRevisionV2, HistoryTombstone, LomoLayoutVersion, LomoPaths, LomoRecord,
-    LomoRecordKind, MemoId, RevisionId, StateHead, StateRevisionV2, decode_record,
+    HistoryHead, HistoryRevisionV2, HistoryTombstone, LomoLayoutVersion, LomoRecord,
+    LomoRecordKind, MemoId, RevisionId, StateHead, StateRevisionV2, WorkspaceLayout, decode_record,
     history_revision_path, history_tombstone_path, state_head_path,
 };
 use serde::de::DeserializeOwned;
+
+use lomo_workspace::layout::relative as lomo_rel;
 
 use crate::{
     error::corruption,
@@ -18,8 +20,8 @@ use crate::{
     workspace_io::{FileSnapshot, WorkspaceIo},
 };
 
-fn layout_paths() -> LomoPaths {
-    LomoPaths::for_workspace_with_layout(Path::new(""), LomoLayoutVersion::V2)
+fn layout_paths() -> WorkspaceLayout {
+    WorkspaceLayout::for_workspace_with_layout(Path::new(""), LomoLayoutVersion::V2)
 }
 
 fn relative(path: &Path) -> Result<RelativeWorkspacePath, LomoError> {
@@ -64,7 +66,7 @@ impl HistoryGraph {
         record: &LomoRecord,
     ) -> Result<Vec<RevisionId>, LomoError> {
         let location = path.as_str();
-        if let Some(name) = location.strip_prefix(".lomo/history/v2/heads/") {
+        if let Some(name) = location.strip_prefix(lomo_rel::HISTORY_V2_HEADS_PREFIX) {
             // A head file's canonical address is part of its claim: the
             // envelope must read `head:<stem>` and the decoded body must name
             // `<stem>` — the same agreement `history_tip` proves when it
@@ -97,7 +99,7 @@ impl HistoryGraph {
             }
             MemoId::parse(&head.memo_id)?;
             self.heads.insert(head.memo_id, head.head_revision_id);
-        } else if let Some(name) = location.strip_prefix(".lomo/history/v2/objects/") {
+        } else if let Some(name) = location.strip_prefix(lomo_rel::HISTORY_V2_OBJECTS_PREFIX) {
             let Some(stem) = name.strip_suffix(".rec") else {
                 return Err(corruption(
                     "unsupported_history_layout",
@@ -126,7 +128,7 @@ impl HistoryGraph {
             self.revisions
                 .insert(revision.revision_id.clone(), revision);
             return Ok(parent_ids);
-        } else if let Some(name) = location.strip_prefix(".lomo/history/v2/tombstones/") {
+        } else if let Some(name) = location.strip_prefix(lomo_rel::HISTORY_V2_TOMBSTONES_PREFIX) {
             let Some(stem) = name.strip_suffix(".rec") else {
                 return Err(corruption(
                     "unsupported_history_layout",
@@ -539,11 +541,11 @@ pub fn pins(
     let mut heads = BTreeMap::new();
     let mut absorbed_head_paths = Vec::new();
     for path in paths {
-        if path.as_str().starts_with(".lomo/state/v2/objects/") {
+        if path.as_str().starts_with(lomo_rel::STATE_V2_OBJECTS_PREFIX) {
             continue;
         }
         let record = decode_record(&io.require(path)?.bytes)?;
-        if path.as_str().starts_with(".lomo/state/v2/heads/") {
+        if path.as_str().starts_with(lomo_rel::STATE_V2_HEADS_PREFIX) {
             let (id, head) = decode_state_head(&record)?;
             let current = state_tip(io, &id)?.ok_or_else(|| {
                 corruption(

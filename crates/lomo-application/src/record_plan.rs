@@ -2,10 +2,10 @@
 
 use lomo_core::{LomoError, OperationId, RelativeWorkspacePath};
 use lomo_workspace::{
-    HistoryHead, HistoryRevisionV2, HistorySnapshotV1, LomoLayoutVersion, LomoPaths, LomoPayload,
+    HistoryHead, HistoryRevisionV2, HistorySnapshotV1, LomoLayoutVersion, LomoPayload,
     LomoRecordKind, MemoId, RevisionId, SourceFingerprint, StateHead, StateRevisionCreate,
-    StateRevisionV2, encode_record, history_head_path, history_revision_path, state_head_path,
-    state_revision_path,
+    StateRevisionV2, WorkspaceLayout, encode_record, history_head_path, history_revision_path,
+    state_head_path, state_revision_path,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::path::Path;
@@ -23,7 +23,7 @@ struct LayoutHeadBody {
 }
 
 pub fn validate_workspace_layout(io: &WorkspaceIo<'_>) -> Result<(), LomoError> {
-    let path = RelativeWorkspacePath::parse(".lomo/layout_head.rec")?;
+    let path = RelativeWorkspacePath::parse(lomo_workspace::layout::relative::LAYOUT_HEAD)?;
     let Some(snapshot) = io.read(&path)? else {
         return Ok(());
     };
@@ -62,8 +62,8 @@ pub struct RevisionTip<T> {
     pub revision: T,
 }
 
-fn paths() -> LomoPaths {
-    LomoPaths::for_workspace_with_layout(Path::new(""), LomoLayoutVersion::V2)
+fn paths() -> WorkspaceLayout {
+    WorkspaceLayout::for_workspace_with_layout(Path::new(""), LomoLayoutVersion::V2)
 }
 
 fn relative(path: &Path) -> Result<RelativeWorkspacePath, LomoError> {

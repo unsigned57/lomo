@@ -38,13 +38,13 @@ mod tests {
 
     use super::support::{indexed_store, seed_memo};
     use lomo_store::{
-        LomoPaths, LomoPayload, LomoRecordKind, MemoCommandKind, OperationIntent, OperationStatus,
-        Store, cleanup_expired_operations, read_record, write_record_atomic,
+        LomoPayload, LomoRecordKind, MemoCommandKind, OperationIntent, OperationStatus, Store,
+        WorkspaceLayout, cleanup_expired_operations, read_record, write_record_atomic,
     };
     use tempfile::tempdir;
 
     fn write_operation(root: &std::path::Path, operation_id: &str, status: OperationStatus) {
-        let paths = LomoPaths::for_workspace(root);
+        let paths = WorkspaceLayout::for_workspace(root);
         paths.ensure_layout().expect("layout");
         let intent = OperationIntent {
             operation_id: operation_id.to_owned(),
@@ -85,7 +85,7 @@ mod tests {
         seed_memo(root.path(), "journal-memo", "journal lifecycle", &[]);
         let direct = indexed_store(root.path());
         write_operation(root.path(), "operation-expired", OperationStatus::Committed);
-        let operation_path = LomoPaths::for_workspace(root.path())
+        let operation_path = WorkspaceLayout::for_workspace(root.path())
             .operations
             .join("operation-expired.rec");
         assert!(operation_path.is_file(), "seed must leave a replay guard");
@@ -113,7 +113,7 @@ mod tests {
             "operation-incomplete",
             OperationStatus::IntentAppended,
         );
-        let operation_path = LomoPaths::for_workspace(root.path())
+        let operation_path = WorkspaceLayout::for_workspace(root.path())
             .operations
             .join("operation-incomplete.rec");
         File::open(&operation_path)

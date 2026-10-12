@@ -1,11 +1,13 @@
 //! Canonical media relative-path validation via workspace path policy.
 
 use lomo_core::LomoError;
-use lomo_workspace::WorkspaceRelativePath;
+use lomo_workspace::{LOMO_DIR_NAME, LOMO_SQLITE_ROOT_NAME, WorkspaceRelativePath};
 use serde::{Deserialize, Serialize};
 
 use crate::error::validation;
 use crate::identity::MediaMime;
+use crate::orphan::MEDIA_TRASH_DIR_NAME;
+use crate::stage::STAGE_DIR_NAME;
 
 /// Media relative path: thin newtype over [`WorkspaceRelativePath`].
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -23,10 +25,10 @@ impl MediaRelativePath {
         let first = raw.split('/').next().unwrap_or("");
         if matches!(
             first,
-            ".lomo" | ".lomo-sqlite" | ".lomo-media-trash" | ".lomo-media-stage"
+            LOMO_DIR_NAME | LOMO_SQLITE_ROOT_NAME | MEDIA_TRASH_DIR_NAME | STAGE_DIR_NAME
         ) {
             // Staging/trash roots are owned paths; only forbid .lomo and sqlite as media targets.
-            if matches!(first, ".lomo" | ".lomo-sqlite") {
+            if matches!(first, LOMO_DIR_NAME | LOMO_SQLITE_ROOT_NAME) {
                 return Err(validation(
                     "invalid_media_path_root",
                     "media path must not target .lomo or .lomo-sqlite control directories",

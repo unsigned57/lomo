@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 // Re-export codec surface so existing `lomo_store::…` call sites keep compiling.
 pub use lomo_workspace::{
-    LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoLayoutVersion, LomoPaths, LomoPayload, LomoRecord,
-    LomoRecordKind, decode_record, encode_record, isolate_corrupt_record, read_record,
+    LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoLayoutVersion, LomoPayload, LomoRecord, LomoRecordKind,
+    WorkspaceLayout, decode_record, encode_record, isolate_corrupt_record, read_record,
     write_record_atomic,
 };
 

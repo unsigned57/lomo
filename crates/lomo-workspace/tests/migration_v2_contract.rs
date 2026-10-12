@@ -6,7 +6,7 @@
 //!
 //! Scenarios:
 //! - Given v1 history/state records, when migration runs, then v2 objects+heads exist, layout head
-//!   is V2, and runtime `LomoPaths` points at v2.
+//!   is V2, and runtime `WorkspaceLayout` points at v2.
 //! - Given crash injection at each matrix point (`AfterStagingBeforeValidate`,
 //!   `AfterValidateBeforeHeadSwitch`, `AfterHeadSwitchBeforeRetire`), when migration aborts, then
 //!   user Markdown/media are untouched; before head switch layout stays V1; after head switch layout
@@ -27,8 +27,8 @@ mod tests {
     use super::support::ResultTestExt;
     use lomo_core::ErrorCategory;
     use lomo_workspace::{
-        LomoLayoutVersion, LomoPaths, LomoPayload, LomoRecordKind, MigrationAction,
-        MigrationCrashPoint, all_migration_actions, migrate_history_state_v1_to_v2,
+        LomoLayoutVersion, LomoPayload, LomoRecordKind, MigrationAction, MigrationCrashPoint,
+        WorkspaceLayout, all_migration_actions, migrate_history_state_v1_to_v2,
         migrate_history_state_v1_to_v2_with_crash, write_record_atomic, write_v1_history_for_test,
         write_v1_state_for_test,
     };
@@ -68,9 +68,10 @@ mod tests {
         write_v1_history_for_test(dir.path(), "memo-a", 2, "hello2", "fp2").test_ok("h2");
         write_v1_state_for_test(dir.path(), "memo-a", true, false).test_ok("state");
 
-        let v1_paths = LomoPaths::for_workspace_with_layout(dir.path(), LomoLayoutVersion::V1);
+        let v1_paths =
+            WorkspaceLayout::for_workspace_with_layout(dir.path(), LomoLayoutVersion::V1);
         assert_eq!(
-            LomoPaths::for_workspace(dir.path()).layout,
+            WorkspaceLayout::for_workspace(dir.path()).layout,
             LomoLayoutVersion::V1
         );
 
@@ -79,11 +80,15 @@ mod tests {
         assert_eq!(result.history_revisions_written, 2);
         assert_eq!(result.state_revisions_written, 1);
 
-        let paths = LomoPaths::for_workspace(dir.path());
+        let paths = WorkspaceLayout::for_workspace(dir.path());
         assert_eq!(paths.layout, LomoLayoutVersion::V2);
         assert!(paths.history.ends_with("history/v2"));
         assert!(paths.state.ends_with("state/v2"));
-        assert!(LomoPaths::layout_head_path(dir.path()).is_file());
+        assert!(
+            WorkspaceLayout::for_workspace(dir.path())
+                .layout_head
+                .is_file()
+        );
 
         // Heads exist under v2.
         assert!(paths.history.join("heads").join("memo-a.rec").is_file());
@@ -130,10 +135,14 @@ mod tests {
 
         // Layout head not switched → still V1.
         assert_eq!(
-            LomoPaths::for_workspace(dir.path()).layout,
+            WorkspaceLayout::for_workspace(dir.path()).layout,
             LomoLayoutVersion::V1
         );
-        assert!(!LomoPaths::layout_head_path(dir.path()).exists());
+        assert!(
+            !WorkspaceLayout::for_workspace(dir.path())
+                .layout_head
+                .exists()
+        );
         assert_eq!(fs::read(&user_md).test_ok("after"), user_before);
 
         // Recovery re-run succeeds and is idempotent.
@@ -159,10 +168,14 @@ mod tests {
         .test_err("crash");
         assert_eq!(err.code(), "migration_injected_crash");
         assert_eq!(
-            LomoPaths::for_workspace(dir.path()).layout,
+            WorkspaceLayout::for_workspace(dir.path()).layout,
             LomoLayoutVersion::V1
         );
-        assert!(!LomoPaths::layout_head_path(dir.path()).exists());
+        assert!(
+            !WorkspaceLayout::for_workspace(dir.path())
+                .layout_head
+                .exists()
+        );
         assert_eq!(fs::read(&user_md).test_ok("after crash"), user_before);
 
         // Recovery: re-run without injection completes and is idempotent.
@@ -188,7 +201,8 @@ mod tests {
 
         write_v1_history_for_test(dir.path(), "memo-d", 1, "body-d", "fp-d").test_ok("h");
         write_v1_state_for_test(dir.path(), "memo-d", true, false).test_ok("s");
-        let v1_paths = LomoPaths::for_workspace_with_layout(dir.path(), LomoLayoutVersion::V1);
+        let v1_paths =
+            WorkspaceLayout::for_workspace_with_layout(dir.path(), LomoLayoutVersion::V1);
 
         let err = migrate_history_state_v1_to_v2_with_crash(
             dir.path(),
@@ -200,10 +214,14 @@ mod tests {
 
         // Layout head already switched → V2 is authoritative.
         assert_eq!(
-            LomoPaths::for_workspace(dir.path()).layout,
+            WorkspaceLayout::for_workspace(dir.path()).layout,
             LomoLayoutVersion::V2
         );
-        assert!(LomoPaths::layout_head_path(dir.path()).is_file());
+        assert!(
+            WorkspaceLayout::for_workspace(dir.path())
+                .layout_head
+                .is_file()
+        );
         // User Markdown/media untouched.
         assert_eq!(fs::read(&user_md).test_ok("user after crash"), user_before);
         assert_eq!(
@@ -256,7 +274,7 @@ mod tests {
         let dir = tempdir().test_ok("tempdir");
         let user_md = dir.path().join("user.md");
         fs::write(&user_md, "safe\n").test_ok("user");
-        let paths = LomoPaths::for_workspace_with_layout(dir.path(), LomoLayoutVersion::V1);
+        let paths = WorkspaceLayout::for_workspace_with_layout(dir.path(), LomoLayoutVersion::V1);
         paths.ensure_layout().test_ok("layout");
         // Valid framed record but wrong payload shape for history body.
         write_record_atomic(
@@ -273,7 +291,7 @@ mod tests {
         assert_eq!(err.category(), ErrorCategory::Corruption);
         assert_eq!(err.code(), "migration_v1_history_payload_invalid");
         assert_eq!(
-            LomoPaths::for_workspace(dir.path()).layout,
+            WorkspaceLayout::for_workspace(dir.path()).layout,
             LomoLayoutVersion::V1
         );
         assert_eq!(fs::read(&user_md).test_ok("user"), b"safe\n");

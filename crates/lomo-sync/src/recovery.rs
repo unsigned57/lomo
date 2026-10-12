@@ -515,7 +515,7 @@ pub fn write_diagnostic_export(
     export: &SyncDiagnosticExport,
 ) -> Result<std::path::PathBuf, LomoError> {
     paths.ensure_layout()?;
-    let dir = paths.root.join("diagnostics");
+    let dir = paths.diagnostics.clone();
     fs::create_dir_all(&dir).map_err(|err| {
         storage(
             "diagnostic_dir_failed",
@@ -582,10 +582,19 @@ pub fn reset_sync_control_tree(paths: &SyncPaths) -> Result<(), LomoError> {
             })?;
         }
     }
-    // Leave conflict artifacts; they are not user files but may be large — best-effort remove.
-    if paths.conflict_artifacts.exists() {
-        // behavior-contract: silent-result-ok: artifact tree cleanup is best-effort on identity reset.
-        drop(fs::remove_dir_all(&paths.conflict_artifacts));
+    // Directory trees (conflict artifacts, durable multipart sessions, the app-private git
+    // mirror, transient exchange temp) are not user files but may be large — best-effort
+    // remove. The git mirror must go: its config embeds the endpoint that just changed.
+    for dir in [
+        &paths.conflict_artifacts,
+        &paths.git_mirror,
+        &paths.multipart,
+        &paths.tmp,
+    ] {
+        if dir.exists() {
+            // behavior-contract: silent-result-ok: control-tree dir cleanup is best-effort on identity reset.
+            drop(fs::remove_dir_all(dir));
+        }
     }
     Ok(())
 }

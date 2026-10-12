@@ -5,18 +5,16 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use lomo_core::{
-    ActionEvidence, ActionId, ActionOutcome, BatchId, DocumentMetadata, ExpectedFingerprint, JobId,
-    LomoError, PlatformAction, PlatformActionBatch, PlatformActionExecutor, PlatformActionOutput,
-    RelativeWorkspacePath, StagedArtifactSource, WriteMode,
-};
-use lomo_workspace::SourceFingerprint;
-
 use crate::{
     config::WorkspaceSessionConfig,
     csprng::generate_hex_token,
     error::{corruption, storage, validation},
-    exchange_io::{read_artifact_content, stage_content},
+    exchange_io::stage_content,
+};
+use lomo_core::{
+    ActionEvidence, ActionId, ActionOutcome, BatchId, DocumentMetadata, ExpectedFingerprint, JobId,
+    LomoError, PlatformAction, PlatformActionBatch, PlatformActionExecutor, PlatformActionOutput,
+    RelativeWorkspacePath, StagedArtifactSource, WriteMode,
 };
 
 pub struct FileSnapshot {
@@ -55,44 +53,35 @@ impl WorkspaceIo<'_> {
         }
     }
 
+    /// Direct source read: the executor's verified evidence attests the returned bytes, so a
+    /// logical read is one streaming pass — no exchange artifact, no re-read, no baseline write.
     pub fn read(&self, path: &RelativeWorkspacePath) -> Result<Option<FileSnapshot>, LomoError> {
         let nonce = generate_hex_token(16)?;
-        let action = PlatformAction::read_to_exchange(
+        let action = PlatformAction::read(
             ActionId::parse(&format!("read-{nonce}"))?,
             self.config.capability.clone(),
             path.clone(),
-            &format!("exchange-{nonce}"),
             ExpectedFingerprint::absent(),
-        )?;
+        );
         let output = match self.execute(action) {
             Ok(output) => output,
             Err(error) if error.code() == "document_not_found" => return Ok(None),
             Err(error) => return Err(error),
         };
-        let PlatformActionOutput::ReadToExchange {
+        let PlatformActionOutput::Read {
             source_metadata,
-            artifact,
+            bytes,
         } = output
         else {
             return Err(corruption(
                 "invalid_read_output",
-                "expected a verified source artifact",
+                "expected verified source bytes",
             ));
         };
-        let bytes = read_artifact_content(&self.config.exchange_dir, &artifact)?;
-        let evidence = source_metadata.evidence().clone();
-        if evidence
-            .verified_digest()
-            .is_none_or(|digest| SourceFingerprint::of_bytes(&bytes).as_str() != digest.as_str())
-            || artifact.length() != evidence.length()
-        {
-            return Err(corruption(
-                "source_evidence_mismatch",
-                "source and exchange evidence disagree",
-            ));
-        }
-        crate::private_io::remember_baseline(&self.config.state_dir, &bytes)?;
-        Ok(Some(FileSnapshot { bytes, evidence }))
+        Ok(Some(FileSnapshot {
+            bytes,
+            evidence: source_metadata.evidence().clone(),
+        }))
     }
 
     /// Metadata-only observation for artifact plans: recovery and satisfaction checks never
@@ -200,14 +189,22 @@ impl WorkspaceIo<'_> {
                 "write receipt differs from staged bytes",
             ));
         }
-        let after = self.require(path)?;
-        if after.bytes != bytes {
-            return Err(crate::error::conflict(
-                "write_postcondition_mismatch",
-                "read-back differs from committed bytes",
-            ));
+        // The verified receipt already pins target digest and length to the staged artifact;
+        // a byte-level read-back would only restate it. Committed bytes are the editing
+        // baseline future conflicts may cite — retain them as the CAS baseline at the
+        // commit boundary instead of baselining every read. Internal record writes are
+        // categorically excluded: they produce baselines no fingerprint can cite.
+        if baseline_worthy(path) {
+            crate::private_io::remember_baseline(
+                &lomo_workspace::SessionStateLayout::for_state_dir(&self.config.state_dir)
+                    .baselines,
+                bytes,
+            )?;
         }
-        Ok(after)
+        Ok(FileSnapshot {
+            bytes: bytes.to_vec(),
+            evidence: metadata.evidence().clone(),
+        })
     }
 
     pub fn delete(
@@ -228,6 +225,7 @@ impl WorkspaceIo<'_> {
             | PlatformActionOutput::Listed { .. }
             | PlatformActionOutput::DirectoryReady { .. }
             | PlatformActionOutput::ReadToExchange { .. }
+            | PlatformActionOutput::Read { .. }
             | PlatformActionOutput::WriteComplete { .. }
             | PlatformActionOutput::MoveComplete { .. } => Err(corruption(
                 "invalid_delete_output",
@@ -235,6 +233,20 @@ impl WorkspaceIo<'_> {
             )),
         }
     }
+}
+
+/// Whether committed bytes at `path` can ever serve as a conflict baseline. The
+/// eviction keep-set is live `memo.file_fingerprint`s ∪ retained draft evidence —
+/// both face workspace *documents*. Every internal target `write` can carry —
+/// the `.lomo` record store and the media delete-intent journal — is
+/// unreferenceable by construction, so baselining one is write-time garbage that
+/// `evict_stale_baselines` later unlinks and fsyncs one blob at a time on every
+/// open.
+fn baseline_worthy(path: &RelativeWorkspacePath) -> bool {
+    !matches!(
+        path.as_str().split('/').next(),
+        Some(lomo_workspace::LOMO_DIR_NAME | lomo_media::MEDIA_DELETE_INTENT_DIR_NAME)
+    )
 }
 
 pub fn epoch_millis() -> Result<i64, LomoError> {

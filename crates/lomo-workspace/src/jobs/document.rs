@@ -15,8 +15,7 @@ use sha2::{Digest, Sha256};
 
 use crate::limits::{conflict, validation};
 use crate::lomo_record::{
-    HistorySnapshotV1, LomoPayload, LomoRecordKind, encode_record, hex_encode,
-    history_record_filename,
+    HistorySnapshotV1, LomoPayload, LomoRecordKind, encode_record, history_record_filename,
 };
 use crate::parse::parse_workspace_document;
 use crate::patch::{DocumentPatchCommand, plan_document_patch};
@@ -791,7 +790,7 @@ fn prepare_history_actions(
             ));
         }
     };
-    let content_digest = hex_encode(&Sha256::digest(content.as_bytes()));
+    let content_digest = format!("{:x}", Sha256::digest(content.as_bytes()));
     let body = HistorySnapshotV1 {
         memo_id: affected.identity.clone(),
         revision: history.revision,
@@ -818,13 +817,19 @@ fn prepare_history_actions(
     );
     let (length, digest) = write_exchange_bytes(ctx.exchange_root, &token, &bytes)?;
     let artifact = ExchangeArtifact::new(&token, length, Sha256Digest::parse(&digest)?)?;
-    let path = format!(".lomo/history/v1/{}", history_record_filename(&record_id));
+    let path = format!(
+        "{}/{}",
+        crate::layout::relative::HISTORY_V1,
+        history_record_filename(&record_id)
+    );
     let target = to_core_path(&WorkspaceRelativePath::parse(&path)?)?;
     state.history_token = Some(token);
     state.history_path = Some(path);
     state.history_length = Some(length);
     state.history_digest = Some(digest);
-    let history_directory = to_core_path(&WorkspaceRelativePath::parse(".lomo/history/v1")?)?;
+    let history_directory = to_core_path(&WorkspaceRelativePath::parse(
+        crate::layout::relative::HISTORY_V1,
+    )?)?;
     Ok(vec![
         PlatformAction::ensure_directory(
             ctx.next_action_id("doc-history-dir")?,

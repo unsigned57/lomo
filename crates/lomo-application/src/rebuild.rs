@@ -17,6 +17,8 @@ use lomo_workspace::{
     parse_workspace_document, trash_record_relative_path,
 };
 
+use lomo_workspace::layout::relative as lomo_rel;
+
 use crate::{
     calendar::memo_chronology,
     config::WorkspaceSessionConfig,
@@ -39,8 +41,6 @@ pub(crate) struct ProjectionInventory {
     /// the post-write tokens of files the scan itself wrote — the committed snapshot must
     /// describe the filesystem at scan completion, not at list time.
     listing_rows: Vec<ScannedListingRow>,
-    /// Digest of `listing_rows`, in the same formula the store's committed-row digest uses.
-    listing_digest: String,
     /// Durable purge tombstone identities discovered with the trash scan.
     purged_ids: BTreeSet<String>,
 }
@@ -161,12 +161,6 @@ impl ProjectionInventory {
         &self.listing_rows
     }
 
-    /// Digest of `listing_rows`, identical to the `workspace_listing_digest` a commit of
-    /// these rows recomputes.
-    pub(crate) fn listing_digest(&self) -> &str {
-        &self.listing_digest
-    }
-
     /// Returns a non-rewriting rebuild result when the live projection already matches this scan.
     ///
     /// The gate compares the predicted committed row image — lane-aware `memo` rows and
@@ -193,6 +187,7 @@ impl ProjectionInventory {
 pub(crate) struct ScanEvidence {
     enumeration: ScanEnumeration,
     listing: Vec<DocumentMetadata>,
+    skipped_sync_subtrees: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -202,18 +197,30 @@ enum ScanEnumeration {
 }
 
 impl ScanEvidence {
-    const fn complete(listing: Vec<DocumentMetadata>) -> Self {
+    const fn complete(listing: Vec<DocumentMetadata>, skipped_sync_subtrees: u64) -> Self {
         Self {
             enumeration: ScanEnumeration::Complete,
             listing,
+            skipped_sync_subtrees,
         }
     }
 
-    const fn incomplete(error: LomoError, listing: Vec<DocumentMetadata>) -> Self {
+    const fn incomplete(
+        error: LomoError,
+        listing: Vec<DocumentMetadata>,
+        skipped_sync_subtrees: u64,
+    ) -> Self {
         Self {
             enumeration: ScanEnumeration::Incomplete(error),
             listing,
+            skipped_sync_subtrees,
         }
+    }
+
+    /// `.lomo/sync` subtrees the enumeration excluded — the sync carrier is never
+    /// reconciled as workspace content.
+    pub(crate) const fn skipped_sync_subtrees(&self) -> u64 {
+        self.skipped_sync_subtrees
     }
 
     /// Listing admitted for reconcile, materialize, or digest persist.
@@ -322,10 +329,12 @@ pub(crate) fn refresh_listing_tokens(
     let mut parents: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for path in written {
         let rel = path.as_str().to_owned();
-        if rel == ".git"
+        if rel == lomo_workspace::GIT_ROOT_NAME
             || rel.starts_with(".git/")
-            || rel == ".lomo/local"
-            || rel.starts_with(".lomo/local/")
+            || rel == lomo_rel::LOCAL
+            || rel.starts_with(lomo_rel::LOCAL_PREFIX)
+            || rel == lomo_rel::SYNC
+            || rel.starts_with(lomo_rel::SYNC_PREFIX)
         {
             continue;
         }
@@ -380,15 +389,15 @@ pub(crate) fn scan_projection_inventory_from_listing(
     let mut written_paths = Vec::new();
     for path in all_files {
         let path_str = path.as_str();
-        if has_extension(path_str, "md") && !path_str.starts_with(".lomo/") {
+        if has_extension(path_str, "md") && !path_str.starts_with(lomo_rel::ROOT_PREFIX) {
             markdown_files.push(path);
-        } else if path_str.starts_with(".lomo/history/") && has_extension(path_str, "rec") {
+        } else if path_str.starts_with(lomo_rel::HISTORY_PREFIX) && has_extension(path_str, "rec") {
             history_files.push(path);
-        } else if path_str.starts_with(".lomo/state/") && has_extension(path_str, "rec") {
+        } else if path_str.starts_with(lomo_rel::STATE_PREFIX) && has_extension(path_str, "rec") {
             state_files.push(path);
-        } else if path_str.starts_with(".lomo/trash/") && has_extension(path_str, "rec") {
+        } else if path_str.starts_with(lomo_rel::TRASH_PREFIX) && has_extension(path_str, "rec") {
             trash_files.push(path);
-        } else if path_str.starts_with(".lomo/purged/") && has_extension(path_str, "rec") {
+        } else if path_str.starts_with(lomo_rel::PURGED_PREFIX) && has_extension(path_str, "rec") {
             purge_files.push(path);
         }
     }
@@ -428,7 +437,6 @@ pub(crate) fn scan_projection_inventory_from_listing(
     for path in &pin_scan.absorbed_head_paths {
         listing_tokens.remove(path.as_str());
     }
-    let listing_digest = listing_token_digest(&listing_tokens);
     let listing_rows = listing_tokens
         .into_iter()
         .map(|(path, digest)| ScannedListingRow { path, digest })
@@ -440,7 +448,6 @@ pub(crate) fn scan_projection_inventory_from_listing(
         pins: pin_scan.pins,
         pin_attested_ids: pin_scan.attested_ids,
         listing_rows,
-        listing_digest,
         purged_ids,
     })
 }
@@ -734,7 +741,7 @@ pub(crate) enum ListingPage {
 /// A `Failed` action outcome becomes [`ListingPage::Rejected`] so the workspace-wide walk can
 /// degrade to incomplete evidence while callers that need a certified single directory treat it
 /// as an error.
-fn list_target_pages(
+pub(crate) fn list_target_pages(
     config: &WorkspaceSessionConfig,
     executor: &Arc<dyn PlatformActionExecutor>,
     target: &WorkspaceTarget,
@@ -783,6 +790,7 @@ fn list_target_pages(
             PlatformActionOutput::Stat { .. }
             | PlatformActionOutput::DirectoryReady { .. }
             | PlatformActionOutput::ReadToExchange { .. }
+            | PlatformActionOutput::Read { .. }
             | PlatformActionOutput::WriteComplete { .. }
             | PlatformActionOutput::MoveComplete { .. }
             | PlatformActionOutput::DeleteComplete { .. } => {
@@ -835,18 +843,31 @@ fn list_recursive(
 ) -> Result<ScanEvidence, LomoError> {
     let mut files = Vec::new();
     let mut dirs_to_visit = vec![WorkspaceTarget::Root];
+    let mut skipped_sync_subtrees = 0u64;
 
     while let Some(target) = dirs_to_visit.pop() {
         let items = match list_target_pages(config, executor, &target)? {
             ListingPage::Items(items) => items,
             ListingPage::Rejected(error) => {
-                return Ok(ScanEvidence::incomplete(error, files));
+                return Ok(ScanEvidence::incomplete(
+                    error,
+                    files,
+                    skipped_sync_subtrees,
+                ));
             }
         };
         for item in &items {
-            if matches!(item.target(), WorkspaceTarget::Relative(path) if matches!(path.as_str(), ".git" | ".lomo/local"))
-            {
-                continue;
+            if let WorkspaceTarget::Relative(path) = item.target() {
+                match path.as_str() {
+                    lomo_workspace::GIT_ROOT_NAME | lomo_rel::LOCAL => continue,
+                    // The sync control tree is a carrier, not workspace content: it never
+                    // enters the admitted listing and its churn can never wake a reconcile.
+                    lomo_rel::SYNC => {
+                        skipped_sync_subtrees += 1;
+                        continue;
+                    }
+                    _ => {}
+                }
             }
             match item.kind() {
                 DocumentKind::File => {
@@ -859,7 +880,7 @@ fn list_recursive(
         }
     }
 
-    Ok(ScanEvidence::complete(files))
+    Ok(ScanEvidence::complete(files, skipped_sync_subtrees))
 }
 
 /// Reads a workspace file via platform action and returns its byte contents.

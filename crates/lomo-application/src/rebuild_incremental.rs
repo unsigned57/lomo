@@ -37,14 +37,16 @@ use crate::{
     workspace_io::WorkspaceIo,
 };
 
-const HISTORY_HEADS: &str = ".lomo/history/v2/heads/";
-const HISTORY_OBJECTS: &str = ".lomo/history/v2/objects/";
-const HISTORY_TOMBSTONES: &str = ".lomo/history/v2/tombstones/";
-const STATE_HEADS: &str = ".lomo/state/v2/heads/";
-const STATE_OBJECTS: &str = ".lomo/state/v2/objects/";
-const TRASH_RECORDS: &str = ".lomo/trash/v1/";
-const PURGE_RECORDS: &str = ".lomo/purged/v1/";
-const IDENTITY_RECORDS: &str = ".lomo/identity/v1/";
+use lomo_workspace::layout::relative as lomo_rel;
+
+const HISTORY_HEADS: &str = lomo_rel::HISTORY_V2_HEADS_PREFIX;
+const HISTORY_OBJECTS: &str = lomo_rel::HISTORY_V2_OBJECTS_PREFIX;
+const HISTORY_TOMBSTONES: &str = lomo_rel::HISTORY_V2_TOMBSTONES_PREFIX;
+const STATE_HEADS: &str = lomo_rel::STATE_V2_HEADS_PREFIX;
+const STATE_OBJECTS: &str = lomo_rel::STATE_V2_OBJECTS_PREFIX;
+const TRASH_RECORDS: &str = lomo_rel::TRASH_V1_PREFIX;
+const PURGE_RECORDS: &str = lomo_rel::PURGED_V1_PREFIX;
+const IDENTITY_RECORDS: &str = lomo_rel::IDENTITY_V1_PREFIX;
 
 /// One reconcile attempt over the current listing against the committed `file_listing` snapshot.
 ///
@@ -257,7 +259,7 @@ struct PathScope {
 impl PathScope {
     /// Assigns a scope to a path that is present now and changed or added versus the snapshot.
     fn classify_present(&mut self, path: &str) {
-        if !path.starts_with(".lomo/") {
+        if !path.starts_with(lomo_rel::ROOT_PREFIX) {
             if has_extension(path, "md") {
                 self.docs_changed.insert(path.to_owned());
             }
@@ -294,7 +296,7 @@ impl PathScope {
     /// memo ids, and trash/purge stems hash back to their canonical names. Anything without a
     /// proof is unclassifiable.
     fn classify_removed(&mut self, path: &str) {
-        if !path.starts_with(".lomo/") {
+        if !path.starts_with(lomo_rel::ROOT_PREFIX) {
             if has_extension(path, "md") {
                 self.docs_removed.insert(path.to_owned());
             }
@@ -511,7 +513,7 @@ impl Gather<'_> {
             return Ok(());
         };
         if self.current.contains_key(&source_path)
-            && !source_path.starts_with(".lomo/")
+            && !source_path.starts_with(lomo_rel::ROOT_PREFIX)
             && has_extension(&source_path, "md")
         {
             self.scope.docs_changed.insert(source_path);

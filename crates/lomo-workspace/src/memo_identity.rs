@@ -8,7 +8,7 @@ use lomo_core::{LomoError, OperationId};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ByteSpan, DocumentPatchPlan, LomoPayload, LomoRecordKind, MemoId, MemoLocator, SourceBytes,
+    ByteSpan, DocumentPatchPlan, LomoPayload, LomoRecordKind, MemoId, MemoLocator,
     SourceFingerprint, WorkspaceDocument, WorkspaceRelativePath, WorkspaceRootId, decode_record,
     encode_record, parse_workspace_document,
 };
@@ -36,6 +36,31 @@ impl MemoBinding {
     pub const fn locator(&self) -> &MemoLocator {
         &self.locator
     }
+
+    /// Fingerprint of the block bytes this binding last observed — carried across a
+    /// patch when the block's bytes provably did not change.
+    #[must_use]
+    pub const fn block_fingerprint(&self) -> &SourceFingerprint {
+        &self.block_fingerprint
+    }
+}
+
+/// The durable identity authority advanced by one proven patch plus the document
+/// projection the transition was proven against.
+///
+/// `document` is the same parse that verified the transition's block accounting — the
+/// caller publishes it instead of re-parsing result bytes. `refingerprinted_blocks`
+/// counts the result blocks whose content was actually re-hashed: the patch target
+/// and any block the patched span straddles. Sibling blocks hold byte-identical
+/// content, so a single-memo patch never pays a whole-document refingerprint.
+#[derive(Clone, Debug)]
+pub struct IdentityPatchOutcome {
+    /// The identity map advanced by the proven transition.
+    pub map: MemoIdentityMap,
+    /// The parsed post-patch document.
+    pub document: WorkspaceDocument,
+    /// Result blocks whose `block_fingerprint` was recomputed this transition.
+    pub refingerprinted_blocks: usize,
 }
 
 /// Ambiguity is a durable state, not an excuse to assign old IDs by ordering or similarity.
@@ -222,6 +247,11 @@ impl MemoIdentityMap {
 
     /// Carries IDs through one proven local patch, preserving siblings and reserving removed IDs.
     ///
+    /// Returns the post-patch document projection the transition was proven against — the
+    /// same parse that verified block accounting — together with how many result blocks
+    /// paid a fresh `block_fingerprint`. Sibling blocks hold byte-identical content, so a
+    /// single-memo patch bills only the blocks the patched span touches.
+    ///
     /// # Errors
     /// Rejects stale maps, unresolved identities, ID reuse, mismatched retries and patches that
     /// change a different block or create an unexpected number of document blocks.
@@ -231,7 +261,7 @@ impl MemoIdentityMap {
         change: MemoIdentityChange,
         before: &WorkspaceDocument,
         patch: &DocumentPatchPlan,
-    ) -> Result<Self, LomoError> {
+    ) -> Result<IdentityPatchOutcome, LomoError> {
         let operation = MemoIdentityOperation {
             operation_id,
             before: Some(before.source().fingerprint().clone()),
@@ -239,7 +269,20 @@ impl MemoIdentityMap {
             transition: IdentityTransition::Patch(change.clone()),
         };
         if self.is_replay(&operation)? {
-            return Ok(self.clone());
+            // The transition was already consumed: the map is the outcome. The document
+            // handed back must still be the post-patch one — `before` already is when the
+            // file carries the committed bytes; otherwise re-derive it from the plan's
+            // validated result source rather than accepting the stale projection.
+            let document = if before.source().fingerprint() == patch.result_fingerprint() {
+                before.clone()
+            } else {
+                self.parse_result(patch)?
+            };
+            return Ok(IdentityPatchOutcome {
+                map: self.clone(),
+                document,
+                refingerprinted_blocks: 0,
+            });
         }
         self.require_complete(before)?;
         if patch.path() != &self.path || patch.expected_fingerprint() != &self.fingerprint {
@@ -251,8 +294,9 @@ impl MemoIdentityMap {
         let mut ids = self.memo_ids();
         self.transition_ids(&change, before, patch, &mut ids)?;
         let after = self.parse_result(patch)?;
+        let (bindings, refingerprinted_blocks) = self.rebind_patched(&after, &ids, patch)?;
         let mut next = self.clone();
-        next.bindings = bind_all(self.root_id, &self.path, &after, &ids)?;
+        next.bindings = bindings;
         match change {
             MemoIdentityChange::Append(id) => {
                 next.allocated_ids.insert(id);
@@ -268,19 +312,99 @@ impl MemoIdentityMap {
         next.fingerprint = after.source().fingerprint().clone();
         next.operations.push(operation);
         next.validate()?;
-        Ok(next)
+        Ok(IdentityPatchOutcome {
+            map: next,
+            document: after,
+            refingerprinted_blocks,
+        })
     }
 
+    /// Parses the plan's validated result source. The parse is the structural gate:
+    /// block boundaries the planner assumed must still exist in the actual result.
     fn parse_result(&self, patch: &DocumentPatchPlan) -> Result<WorkspaceDocument, LomoError> {
         let filename =
             self.path.as_str().rsplit('/').next().ok_or_else(|| {
                 validation("invalid_workspace_path", "document filename is missing")
             })?;
         let stem = filename.strip_suffix(".md").unwrap_or(filename);
-        parse_workspace_document(
-            &SourceBytes::try_from_bytes(patch.result_bytes().to_vec())?,
-            stem,
-        )
+        parse_workspace_document(patch.result_source(), stem)
+    }
+
+    /// Rebinds IDs through the proven patch, refingerprinting only the blocks the
+    /// patched span touches.
+    ///
+    /// Position proof: the patch rewrites exactly `target_span`, so bytes before it are
+    /// verbatim and bytes after it are verbatim and shifted by the replacement delta.
+    /// A result block landing at precisely a previous binding's patch-adjusted
+    /// coordinates holds identical bytes and may carry that `block_fingerprint`;
+    /// every other result block — the patch target and anything the span straddles —
+    /// is re-hashed from the result source.
+    fn rebind_patched(
+        &self,
+        after: &WorkspaceDocument,
+        ids: &[MemoId],
+        patch: &DocumentPatchPlan,
+    ) -> Result<(Vec<MemoBinding>, usize), LomoError> {
+        if ids.len() != after.memos().len() {
+            return Err(count_mismatch());
+        }
+        let span = patch.target_span();
+        let shift = i128::from(
+            u64::try_from(patch.replacement().len())
+                .map_err(|error| validation("invalid_memo_locator", &error.to_string()))?,
+        ) - i128::from(
+            u64::try_from(span.len())
+                .map_err(|error| validation("invalid_memo_locator", &error.to_string()))?,
+        );
+        let span_start = u64::try_from(span.start())
+            .map_err(|error| validation("invalid_memo_locator", &error.to_string()))?;
+        let span_end = u64::try_from(span.end())
+            .map_err(|error| validation("invalid_memo_locator", &error.to_string()))?;
+        let mut carried = std::collections::HashMap::with_capacity(self.bindings.len());
+        for binding in &self.bindings {
+            let start = binding.locator().byte_start();
+            let end = binding.locator().byte_end();
+            if end <= span_start {
+                carried.insert((start, end), binding.block_fingerprint());
+            } else if start >= span_end {
+                let shifted_start = u64::try_from(i128::from(start) + shift)
+                    .map_err(|error| validation("invalid_memo_locator", &error.to_string()))?;
+                let shifted_end = u64::try_from(i128::from(end) + shift)
+                    .map_err(|error| validation("invalid_memo_locator", &error.to_string()))?;
+                carried.insert((shifted_start, shifted_end), binding.block_fingerprint());
+            }
+            // A binding the span straddles has no carry position: its block is the one
+            // being rewritten and its result bytes are always re-hashed below.
+        }
+        let mut refingerprinted = 0usize;
+        let mut bindings = Vec::with_capacity(ids.len());
+        for (index, memo_id) in ids.iter().enumerate() {
+            let index = u32::try_from(index)
+                .map_err(|error| validation("memo_block_limit", &error.to_string()))?;
+            let memo = after
+                .memos()
+                .get(index as usize)
+                .ok_or_else(count_mismatch)?;
+            let locator = MemoLocator::new(self.root_id, self.path.clone(), after, index)?;
+            let position = (
+                u64::try_from(memo.memo_span().start())
+                    .map_err(|error| validation("invalid_memo_locator", &error.to_string()))?,
+                u64::try_from(memo.memo_span().end())
+                    .map_err(|error| validation("invalid_memo_locator", &error.to_string()))?,
+            );
+            let block_fingerprint = if let Some(fingerprint) = carried.get(&position) {
+                (*fingerprint).clone()
+            } else {
+                refingerprinted += 1;
+                SourceFingerprint::of_bytes(after.source().slice(memo.memo_span())?.as_bytes())
+            };
+            bindings.push(MemoBinding {
+                memo_id: memo_id.clone(),
+                locator,
+                block_fingerprint,
+            });
+        }
+        Ok((bindings, refingerprinted))
     }
 
     fn transition_ids(
@@ -561,7 +685,11 @@ pub fn memo_identity_record_path(
 ) -> Result<WorkspaceRelativePath, LomoError> {
     let bytes = serde_json::to_vec(&(root, path)).map_err(|error| json_error(&error))?;
     let key = SourceFingerprint::of_bytes(&bytes);
-    WorkspaceRelativePath::parse(&format!(".lomo/identity/v1/{}.rec", key.as_str()))
+    WorkspaceRelativePath::parse(&format!(
+        "{}{}.rec",
+        crate::layout::relative::IDENTITY_V1_PREFIX,
+        key.as_str()
+    ))
 }
 
 fn physical_blocks(

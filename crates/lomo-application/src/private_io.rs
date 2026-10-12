@@ -81,9 +81,11 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), LomoError> {
     Ok(())
 }
 
-pub fn remember_baseline(state: &Path, bytes: &[u8]) -> Result<(), LomoError> {
+/// Persists baseline bytes under the session `baselines/` directory
+/// ([`lomo_workspace::SessionStateLayout::baselines`]), keyed by content fingerprint.
+pub fn remember_baseline(baselines_dir: &Path, bytes: &[u8]) -> Result<(), LomoError> {
     let fingerprint = SourceFingerprint::of_bytes(bytes);
-    let path = state.join("baselines").join(fingerprint.as_str());
+    let path = baselines_dir.join(fingerprint.as_str());
     match read_optional(&path)? {
         Some(previous) if previous == bytes => Ok(()),
         Some(_) => Err(corruption(
@@ -94,9 +96,10 @@ pub fn remember_baseline(state: &Path, bytes: &[u8]) -> Result<(), LomoError> {
     }
 }
 
-pub fn baseline_bytes(state: &Path, digest: &str) -> Result<Option<Vec<u8>>, LomoError> {
+/// Reads baseline bytes under the session `baselines/` directory by fingerprint.
+pub fn baseline_bytes(baselines_dir: &Path, digest: &str) -> Result<Option<Vec<u8>>, LomoError> {
     let fingerprint = SourceFingerprint::parse(digest)?;
-    let bytes = read_optional(&state.join("baselines").join(fingerprint.as_str()))?;
+    let bytes = read_optional(&baselines_dir.join(fingerprint.as_str()))?;
     if bytes
         .as_ref()
         .is_some_and(|bytes| SourceFingerprint::of_bytes(bytes) != fingerprint)
@@ -107,4 +110,59 @@ pub fn baseline_bytes(state: &Path, digest: &str) -> Result<Option<Vec<u8>>, Lom
         ));
     }
     Ok(bytes)
+}
+
+/// Evicts baseline blobs whose fingerprint is not in `keep` — the invalidation criterion is
+/// supplied by the caller (retained draft evidence ∪ currently committed document
+/// fingerprints). Filenames that are not valid fingerprints are left alone: a foreign file is
+/// not evidence the CAS wrote, so eviction never reaches for it.
+///
+/// # Errors
+/// Propagates directory listing or removal failures; a mid-pass error leaves already-removed
+/// blobs removed and reports the failure.
+pub fn evict_unreferenced_baselines(
+    baselines_dir: &Path,
+    keep: &std::collections::BTreeSet<String>,
+) -> Result<u64, LomoError> {
+    if !baselines_dir.exists() {
+        return Ok(0);
+    }
+    let mut evicted = 0u64;
+    let mut last_removed = None;
+    let entries = fs::read_dir(baselines_dir).map_err(|error| {
+        storage(
+            "baseline_dir_unavailable",
+            format!("failed to list baselines directory: {error}"),
+        )
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            storage(
+                "baseline_dir_unavailable",
+                format!("failed to read baselines directory entry: {error}"),
+            )
+        })?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        // A malformed filename cannot collide with a fingerprint key; it is foreign matter.
+        if SourceFingerprint::parse(name).is_err() || keep.contains(name) {
+            continue;
+        }
+        fs::remove_file(&path)
+            .map_err(|error| storage("private_remove_failed", error.to_string()))?;
+        evicted += 1;
+        last_removed = Some(path);
+    }
+    // One directory sync durably records the whole pass: a per-file fsync would
+    // multiply the same journal flush by the blob count, and eviction is
+    // idempotent — a crash before the sync simply re-evicts survivors next open.
+    if let Some(path) = last_removed {
+        sync_parent_dir(&path)?;
+    }
+    Ok(evicted)
 }

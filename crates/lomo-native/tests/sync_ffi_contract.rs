@@ -572,7 +572,9 @@ mod tests {
             .test_err("missing generation");
         assert_eq!(missing.code(), "workspace_generation_missing");
         assert!(
-            !lomo_workspace::LomoPaths::generation_record_path(&workspace).exists(),
+            !lomo_workspace::WorkspaceLayout::for_workspace(&workspace)
+                .generation_record
+                .exists(),
             "read FFI must not mint generation.rec"
         );
 

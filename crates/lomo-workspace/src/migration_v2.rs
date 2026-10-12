@@ -21,11 +21,9 @@ use crate::history_v2::{
     self, HistoryHead, HistoryRevisionV2, StateHead, StateRevisionCreate, StateRevisionV2,
     validate_parent_closure,
 };
+use crate::layout::{LomoLayoutVersion, WorkspaceLayout, write_layout_head_v2};
 use crate::limits::{corruption, storage, validation};
-use crate::lomo_record::{
-    LomoLayoutVersion, LomoPaths, LomoPayload, LomoRecordKind, hex_encode, read_record,
-    write_layout_head_v2, write_record_atomic,
-};
+use crate::lomo_record::{LomoPayload, LomoRecordKind, read_record, write_record_atomic};
 
 /// Migration action class — structural proof that no user-file delete/overwrite exists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -120,7 +118,7 @@ pub fn migrate_history_state_v1_to_v2_with_crash(
     workspace_root: &Path,
     crash: MigrationCrashPoint,
 ) -> Result<MigrationResult, lomo_core::LomoError> {
-    let current = LomoPaths::for_workspace(workspace_root);
+    let current = WorkspaceLayout::for_workspace(workspace_root);
     if current.layout == LomoLayoutVersion::V2 {
         // Layout head is authority. Finish residual internal cleanup only (crash-after-head recovery).
         complete_post_head_cleanup(workspace_root)?;
@@ -133,9 +131,9 @@ pub fn migrate_history_state_v1_to_v2_with_crash(
     }
 
     let staging_root = prepare_staging_root(workspace_root)?;
-    let v1 = LomoPaths::for_workspace_with_layout(workspace_root, LomoLayoutVersion::V1);
+    let v1 = WorkspaceLayout::for_workspace_with_layout(workspace_root, LomoLayoutVersion::V1);
     let (all_revisions, heads) = migrate_history_rows(&v1)?;
-    let staged_paths = create_staged_layout(workspace_root, &staging_root, &v1)?;
+    let staged_paths = create_staged_layout(workspace_root, &staging_root)?;
     stage_history_objects(&staged_paths, &all_revisions, &heads)?;
     let (state_written, state_heads) = stage_state_objects(&staged_paths, &v1)?;
 
@@ -182,10 +180,10 @@ pub fn migrate_history_state_v1_to_v2_with_crash(
 ///
 /// Retires leftover v1 history/state trees and removes migration staging. Never touches user files.
 fn complete_post_head_cleanup(workspace_root: &Path) -> Result<(), lomo_core::LomoError> {
-    let v1 = LomoPaths::for_workspace_with_layout(workspace_root, LomoLayoutVersion::V1);
+    let v1 = WorkspaceLayout::for_workspace_with_layout(workspace_root, LomoLayoutVersion::V1);
     retire_v1_tree(&v1.history)?;
     retire_v1_tree(&v1.state)?;
-    let staging_root = workspace_root.join(".lomo").join("migration-staging");
+    let staging_root = v1.migration_staging;
     if staging_root.exists() {
         // Best-effort only: layout head already switched; staging is not authoritative.
         drop(fs::remove_dir_all(&staging_root));
@@ -194,7 +192,9 @@ fn complete_post_head_cleanup(workspace_root: &Path) -> Result<(), lomo_core::Lo
 }
 
 fn prepare_staging_root(workspace_root: &Path) -> Result<PathBuf, lomo_core::LomoError> {
-    let staging_root = workspace_root.join(".lomo").join("migration-staging");
+    let staging_root =
+        WorkspaceLayout::for_workspace_with_layout(workspace_root, LomoLayoutVersion::V1)
+            .migration_staging;
     // Clean prior failed staging (internal only).
     if staging_root.exists() {
         fs::remove_dir_all(&staging_root).map_err(|err| {
@@ -214,7 +214,7 @@ fn prepare_staging_root(workspace_root: &Path) -> Result<PathBuf, lomo_core::Lom
 }
 
 fn migrate_history_rows(
-    v1: &LomoPaths,
+    v1: &WorkspaceLayout,
 ) -> Result<(Vec<HistoryRevisionV2>, Vec<HistoryHead>), lomo_core::LomoError> {
     let v1_history_rows = load_v1_history(v1)?;
     let ordered = history_v2::order_v1_history_for_migration(&v1_history_rows);
@@ -238,48 +238,38 @@ fn migrate_history_rows(
 fn create_staged_layout(
     workspace_root: &Path,
     staging_root: &Path,
-    v1: &LomoPaths,
-) -> Result<LomoPaths, lomo_core::LomoError> {
-    let staged_history = staging_root.join("history").join("v2");
-    let staged_state = staging_root.join("state").join("v2");
-    fs::create_dir_all(staged_history.join("objects")).map_err(|err| {
+) -> Result<WorkspaceLayout, lomo_core::LomoError> {
+    let staged = WorkspaceLayout::for_staged_root(workspace_root, staging_root);
+    fs::create_dir_all(staged.history.join("objects")).map_err(|err| {
         storage(
             "migration_stage_history_failed",
             &format!("cannot create staged history: {err}"),
         )
     })?;
-    fs::create_dir_all(staged_history.join("heads")).map_err(|err| {
+    fs::create_dir_all(staged.history.join("heads")).map_err(|err| {
         storage(
             "migration_stage_history_failed",
             &format!("cannot create staged history heads: {err}"),
         )
     })?;
-    fs::create_dir_all(staged_state.join("objects")).map_err(|err| {
+    fs::create_dir_all(staged.state.join("objects")).map_err(|err| {
         storage(
             "migration_stage_state_failed",
             &format!("cannot create staged state: {err}"),
         )
     })?;
-    fs::create_dir_all(staged_state.join("heads")).map_err(|err| {
+    fs::create_dir_all(staged.state.join("heads")).map_err(|err| {
         storage(
             "migration_stage_state_failed",
             &format!("cannot create staged state heads: {err}"),
         )
     })?;
 
-    Ok(LomoPaths {
-        root: workspace_root.join(".lomo"),
-        manifest: v1.manifest.clone(),
-        operations: v1.operations.clone(),
-        history: staged_history,
-        state: staged_state,
-        local: v1.local.clone(),
-        layout: LomoLayoutVersion::V2,
-    })
+    Ok(staged)
 }
 
 fn stage_history_objects(
-    staged_paths: &LomoPaths,
+    staged_paths: &WorkspaceLayout,
     all_revisions: &[HistoryRevisionV2],
     heads: &[HistoryHead],
 ) -> Result<(), lomo_core::LomoError> {
@@ -293,8 +283,8 @@ fn stage_history_objects(
 }
 
 fn stage_state_objects(
-    staged_paths: &LomoPaths,
-    v1: &LomoPaths,
+    staged_paths: &WorkspaceLayout,
+    v1: &WorkspaceLayout,
 ) -> Result<(u64, u64), lomo_core::LomoError> {
     let v1_state_rows = load_v1_state(v1)?;
     let mut state_written = 0_u64;
@@ -328,7 +318,7 @@ fn stage_state_objects(
 }
 
 fn validate_staged_history(
-    staged_paths: &LomoPaths,
+    staged_paths: &WorkspaceLayout,
     all_revisions: &[HistoryRevisionV2],
 ) -> Result<(), lomo_core::LomoError> {
     // Count / digest validation: re-read staged objects and compare ids.
@@ -352,7 +342,7 @@ fn validate_staged_history(
         ));
     }
     // Digest retained for future multi-device audit logs; computed to fail closed on empty hashers.
-    let _closure_digest: String = hex_encode(&digest.finalize()[..]);
+    let _closure_digest: String = format!("{:x}", digest.finalize());
     Ok(())
 }
 
@@ -361,8 +351,9 @@ fn promote_staged_trees(
     staged_history: &Path,
     staged_state: &Path,
 ) -> Result<(), lomo_core::LomoError> {
-    let live_history = workspace_root.join(".lomo").join("history").join("v2");
-    let live_state = workspace_root.join(".lomo").join("state").join("v2");
+    let live = WorkspaceLayout::for_workspace_with_layout(workspace_root, LomoLayoutVersion::V2);
+    let live_history = live.history;
+    let live_state = live.state;
     promote_dir(staged_history, &live_history)?;
     promote_dir(staged_state, &live_state)
 }
@@ -428,7 +419,7 @@ struct V1StateRow {
 }
 
 fn load_v1_history(
-    paths: &LomoPaths,
+    paths: &WorkspaceLayout,
 ) -> Result<Vec<(String, u64, String, String)>, lomo_core::LomoError> {
     if !paths.history.exists() {
         return Ok(Vec::new());
@@ -475,7 +466,7 @@ fn load_v1_history(
     Ok(out)
 }
 
-fn load_v1_state(paths: &LomoPaths) -> Result<Vec<V1StateRow>, lomo_core::LomoError> {
+fn load_v1_state(paths: &WorkspaceLayout) -> Result<Vec<V1StateRow>, lomo_core::LomoError> {
     if !paths.state.exists() {
         return Ok(Vec::new());
     }
@@ -567,7 +558,7 @@ pub fn write_v1_history_for_test(
     content: &str,
     file_fingerprint: &str,
 ) -> Result<PathBuf, lomo_core::LomoError> {
-    let paths = LomoPaths::for_workspace_with_layout(workspace_root, LomoLayoutVersion::V1);
+    let paths = WorkspaceLayout::for_workspace_with_layout(workspace_root, LomoLayoutVersion::V1);
     paths.ensure_layout()?;
     let body = V1HistoryBody {
         memo_id: memo_id.to_owned(),
@@ -605,7 +596,7 @@ pub fn write_v1_state_for_test(
     pinned: bool,
     trashed: bool,
 ) -> Result<PathBuf, lomo_core::LomoError> {
-    let paths = LomoPaths::for_workspace_with_layout(workspace_root, LomoLayoutVersion::V1);
+    let paths = WorkspaceLayout::for_workspace_with_layout(workspace_root, LomoLayoutVersion::V1);
     paths.ensure_layout()?;
     let body = V1StateBody {
         memo_id: memo_id.to_owned(),

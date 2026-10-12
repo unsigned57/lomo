@@ -1,15 +1,10 @@
 package com.lomo.data.sync
 
-import com.lomo.data.engine.media.WorkspaceFilesystemRoot
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.CredentialField
 import com.lomo.domain.repository.CredentialRepository
-import com.lomo.domain.usecase.DefaultDispatcherProvider
-import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withContext
 import timber.log.Timber
-import java.io.File
 
 /**
  * One-time migration for legacy Git remote URLs that embed `userinfo` credentials.
@@ -18,7 +13,9 @@ import java.io.File
  * credential material moves into the Keystore-backed credential store, the sanitized URL is
  * persisted back, and every surface that journaled the poisoned endpoint — queued
  * WorkManager inputs, the deferred lock work blob, the durable sync control tree, and the
- * app-private git mirror config — is purged so no plaintext secret remains on disk.
+ * app-private git mirror config — is purged so no plaintext secret remains on disk. The durable
+ * `.lomo/sync/v1` tree (including the git mirror) is cleared inside `lomo-sync`
+ * `reset_sync_control_tree`; Kotlin never constructs `.lomo/...` paths itself.
  *
  * An endpoint that cannot be parsed safely (SCP-like SSH, empty authority) is not trusted:
  * the remote is dropped so execution refuses until the user reconfigures. The migration is
@@ -28,8 +25,6 @@ internal class GitEndpointSecurityMigration(
     private val dataStore: LomoDataStore,
     private val credentialRepository: CredentialRepository,
     private val identityReset: SyncIdentityResetPolicy,
-    private val workspaceRoot: WorkspaceFilesystemRoot,
-    private val dispatcherProvider: DispatcherProvider = DefaultDispatcherProvider(),
 ) {
     suspend fun migrateIfNeeded() {
         val remote = dataStore.gitRemoteUrl.first()?.trim().orEmpty()
@@ -70,17 +65,9 @@ internal class GitEndpointSecurityMigration(
 
     private suspend fun purgePoisonedSurfaces() {
         identityReset.resetIdentityScopedSyncState()
-        val root = workspaceRoot.absolutePathOrNull()
-        if (!root.isNullOrBlank()) {
-            withContext(dispatcherProvider.io) {
-                File(root, GIT_MIRROR_RELATIVE_PATH).deleteRecursively()
-            }
-        }
     }
 
     private companion object {
-        private const val GIT_MIRROR_RELATIVE_PATH = ".lomo/sync/v1/git-mirror"
-
         private fun redactUserinfo(url: String): String {
             val schemeEnd = url.indexOf("://")
             if (schemeEnd < 0) {

@@ -24,8 +24,8 @@ mod tests {
     use super::support::{OptionTestExt, ResultTestExt};
     use lomo_core::ErrorCategory;
     use lomo_workspace::{
-        HISTORY_RETENTION_REVISIONS, HistoryHead, HistoryRevisionV2, LomoLayoutVersion, LomoPaths,
-        RevisionId, StateRevisionCreate, StateRevisionV2, history_revision_path,
+        HISTORY_RETENTION_REVISIONS, HistoryHead, HistoryRevisionV2, LomoLayoutVersion, RevisionId,
+        StateRevisionCreate, StateRevisionV2, WorkspaceLayout, history_revision_path,
         history_tombstone_path, prune_history_with_tombstones, read_history_revision,
         retention_keep_set, revisions_to_prune, write_history_head, write_history_revision,
     };
@@ -93,7 +93,7 @@ mod tests {
         fs::write(&user_md, "# keep me\n").test_ok("user file");
         let user_before = fs::read(&user_md).test_ok("read user before");
 
-        let paths = LomoPaths::for_workspace_with_layout(dir.path(), LomoLayoutVersion::V2);
+        let paths = WorkspaceLayout::for_workspace_with_layout(dir.path(), LomoLayoutVersion::V2);
         paths.ensure_layout().test_ok("layout");
         fs::create_dir_all(paths.history.join("objects")).test_ok("objects");
         fs::create_dir_all(paths.history.join("tombstones")).test_ok("tombstones");
@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn corrupt_history_object_is_not_clean_slated() {
         let dir = tempdir().test_ok("tempdir");
-        let paths = LomoPaths::for_workspace_with_layout(dir.path(), LomoLayoutVersion::V2);
+        let paths = WorkspaceLayout::for_workspace_with_layout(dir.path(), LomoLayoutVersion::V2);
         paths.ensure_layout().test_ok("layout");
         let rev = HistoryRevisionV2::create("m-c", &[], "x".into(), &digest_of("x"), "meta", 0)
             .test_ok("rev");
@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn history_v2_write_requires_v2_layout() {
         let dir = tempdir().test_ok("tempdir");
-        let paths = LomoPaths::for_workspace_with_layout(dir.path(), LomoLayoutVersion::V1);
+        let paths = WorkspaceLayout::for_workspace_with_layout(dir.path(), LomoLayoutVersion::V1);
         paths.ensure_layout().test_ok("layout");
         let rev = HistoryRevisionV2::create("m-v1", &[], "x".into(), &digest_of("x"), "meta", 0)
             .test_ok("rev");

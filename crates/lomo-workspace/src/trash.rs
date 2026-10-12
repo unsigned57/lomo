@@ -12,8 +12,7 @@ use std::path::Path;
 
 use crate::limits::{MAX_EDITABLE_MEMO_UTF8_CHARS, validation};
 use crate::lomo_record::{
-    LomoPayload, LomoRecordKind, decode_record, encode_record, hex_encode, read_record,
-    write_record_atomic,
+    LomoPayload, LomoRecordKind, decode_record, encode_record, read_record, write_record_atomic,
 };
 use crate::reminder::{ReminderRef, ReminderReference};
 use crate::source::SourceFingerprint;
@@ -23,7 +22,7 @@ use crate::types::{MemoIdentity, WorkspaceRelativePath};
 pub const TRASH_RECORD_SCHEMA_VERSION: u32 = 1;
 
 /// Relative directory containing provider-backed trash records.
-pub const TRASH_RECORD_DIRECTORY: &str = ".lomo/trash/v1";
+pub const TRASH_RECORD_DIRECTORY: &str = crate::layout::relative::TRASH_V1;
 
 /// Constructor input for one durable trash snapshot.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -318,10 +317,7 @@ pub fn write_trash_record_atomic(path: &Path, record: &TrashRecordV1) -> Result<
 pub fn trash_record_relative_path(memo_id: &str) -> Result<WorkspaceRelativePath, LomoError> {
     classify_memo_identity(memo_id)?;
     let digest = Sha256::digest(memo_id.as_bytes());
-    WorkspaceRelativePath::parse(&format!(
-        "{TRASH_RECORD_DIRECTORY}/{}.rec",
-        hex_encode(&digest)
-    ))
+    WorkspaceRelativePath::parse(&format!("{TRASH_RECORD_DIRECTORY}/{digest:x}.rec"))
 }
 
 /// The two admitted identity forms for a durable trash record.

@@ -13,6 +13,7 @@ use crate::error::{corrupt_state, resource_limit, storage, validation};
 use crate::limits::{MAX_DURABLE_RECORD_BYTES, SYNC_DURABLE_SCHEMA};
 use crate::pipeline::{ContentDigest, SyncPath};
 use lomo_core::LomoError;
+use lomo_workspace::layout::relative::SYNC_V1;
 use lomo_workspace::{RemoteDatasetId, RemoteIdentityDigest, WorkspaceGenerationId};
 
 /// Magic for framed sync durable records.
@@ -297,6 +298,14 @@ pub struct SyncPaths {
     pub cycle_state: PathBuf,
     /// Durable cancel request bound to a running cycle id (`cancel_request.rec`).
     pub cycle_cancel: PathBuf,
+    /// Transient exchange dir (`tmp/`) for backend object staging.
+    pub tmp: PathBuf,
+    /// Durable S3 multipart session dir (`multipart/`).
+    pub multipart: PathBuf,
+    /// App-private bare git mirror (`git-mirror/`); its config embeds the remote URL.
+    pub git_mirror: PathBuf,
+    /// Secret-free diagnostic exports (`diagnostics/`).
+    pub diagnostics: PathBuf,
 }
 
 impl SyncPaths {
@@ -304,7 +313,7 @@ impl SyncPaths {
     #[must_use]
     pub fn for_workspace(workspace_root: &Path) -> Self {
         let workspace_root = workspace_root.to_path_buf();
-        let root = workspace_root.join(".lomo").join("sync").join("v1");
+        let root = workspace_root.join(SYNC_V1);
         Self {
             workspace_root,
             session: root.join("session.rec"),
@@ -315,6 +324,10 @@ impl SyncPaths {
             cycle_lock: root.join("cycle.lock"),
             cycle_state: root.join("cycle_state.rec"),
             cycle_cancel: root.join("cancel_request.rec"),
+            tmp: root.join("tmp"),
+            multipart: root.join("multipart"),
+            git_mirror: root.join("git-mirror"),
+            diagnostics: root.join("diagnostics"),
             root,
         }
     }

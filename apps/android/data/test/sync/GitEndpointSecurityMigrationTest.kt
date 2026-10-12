@@ -44,7 +44,6 @@ package com.lomo.data.sync
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.work.Data
-import com.lomo.data.engine.media.WorkspaceFilesystemRoot
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.repository.TestCredentialRepository
 import com.lomo.data.worker.DeferredLockWorkStore
@@ -66,8 +65,6 @@ class GitEndpointSecurityMigrationTest : FunSpec({
         runTest {
             val fixture = MigrationFixture(backgroundScope)
             fixture.dataStore.updateGitRemoteUrl("https://alice:s3cret@example.com/repo.git")
-            val mirror = fixture.mirrorDir().apply { mkdirs() }
-            java.io.File(mirror, "config").writeText("legacy")
 
             fixture.migration.migrateIfNeeded()
 
@@ -78,7 +75,6 @@ class GitEndpointSecurityMigrationTest : FunSpec({
                     CredentialField.GIT_USERNAME to "alice",
                 )
             fixture.events shouldBe listOf("cancel", "deferred-clear", "reset")
-            mirror.exists() shouldBe false
         }
     }
 
@@ -169,14 +165,12 @@ class GitEndpointSecurityMigrationTest : FunSpec({
         runTest {
             val fixture = MigrationFixture(backgroundScope)
             fixture.dataStore.updateGitRemoteUrl("https://example.com/repo.git")
-            val mirror = fixture.mirrorDir().apply { mkdirs() }
 
             fixture.migration.migrateIfNeeded()
 
             fixture.dataStore.gitRemoteUrl.first() shouldBe "https://example.com/repo.git"
             fixture.credentials.writes.shouldBeEmpty()
             fixture.events.shouldBeEmpty()
-            mirror.exists() shouldBe true
         }
     }
 
@@ -213,7 +207,6 @@ private class MigrationFixture(
     val events = mutableListOf<String>()
     val dataStore: LomoDataStore = createMigrationDataStore(scope)
     val credentials = TestCredentialRepository(mutableMapOf())
-    private val workspaceDir = Files.createTempDirectory("lomo-git-migration").toFile()
     private val deferredStore =
         object : DeferredLockWorkStore {
             override fun save(input: Data) = error("not used")
@@ -239,10 +232,7 @@ private class MigrationFixture(
             dataStore = dataStore,
             credentialRepository = credentials,
             identityReset = SyncIdentityResetPolicy(scheduler, deferredStore, reset),
-            workspaceRoot = WorkspaceFilesystemRoot { workspaceDir.absolutePath },
         )
-
-    fun mirrorDir() = java.io.File(workspaceDir, ".lomo/sync/v1/git-mirror")
 }
 
 private fun createMigrationDataStore(scope: CoroutineScope): LomoDataStore {

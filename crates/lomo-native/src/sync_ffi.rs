@@ -1126,7 +1126,7 @@ fn connect_git_port(
     };
 
     let paths = SyncPaths::for_workspace(workspace_root);
-    let mirror_dir = paths.root.join("git-mirror");
+    let mirror_dir = paths.git_mirror.clone();
     std::fs::create_dir_all(&paths.root).map_err(|err| {
         boundary_err(
             "git_mirror_parent_create_failed",

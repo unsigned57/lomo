@@ -21,7 +21,7 @@ use super::shared::{
 };
 
 pub const HISTORY_SCAN_DRIVER_KIND: &str = "workspace-history-scan-v1";
-const HISTORY_RECORD_DIRECTORY: &str = ".lomo/history/v1";
+const HISTORY_RECORD_DIRECTORY: &str = crate::layout::relative::HISTORY_V1;
 const MAX_HISTORY_LIST_PAGE_SIZE: u32 = 63;
 
 /// Public history scan request accepted by the engine driver (JSON).

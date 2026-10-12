@@ -36,7 +36,9 @@ impl ContentDigest {
         Ok(Self(raw.to_owned()))
     }
 
-    /// Digests an in-memory slice (tests / tiny fixtures only — production uses streaming paths).
+    /// Digests an in-memory slice — the `MediaSource::Bytes` lane where the
+    /// producing boundary already holds the payload; filesystem paths stream
+    /// through [`Self::stream_from_path`] instead.
     #[must_use]
     pub fn of_slice(bytes: &[u8]) -> Self {
         let digest = Sha256::digest(bytes);
@@ -230,7 +232,8 @@ impl MediaMime {
 
 /// Extension-side classification: supported media mime, a recognized video container the product
 /// does not support, or no opinion at all.
-enum ExtensionClass {
+#[doc(hidden)]
+pub enum ExtensionClass {
     Mime(MediaMime),
     Video,
 }
@@ -242,7 +245,9 @@ enum MagicClass {
     Mp4Container,
 }
 
-fn classify_extension(ext: &str) -> Option<ExtensionClass> {
+#[doc(hidden)]
+#[must_use]
+pub fn classify_extension(ext: &str) -> Option<ExtensionClass> {
     match ext {
         "png" => Some(ExtensionClass::Mime(MediaMime::ImagePng)),
         "jpg" | "jpeg" => Some(ExtensionClass::Mime(MediaMime::ImageJpeg)),

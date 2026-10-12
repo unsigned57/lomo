@@ -13,11 +13,9 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::layout::{LomoLayoutVersion, WorkspaceLayout};
 use crate::limits::{corruption, storage, validation};
-use crate::lomo_record::{
-    LomoLayoutVersion, LomoPaths, LomoPayload, LomoRecordKind, hex_encode, read_record,
-    write_record_atomic,
-};
+use crate::lomo_record::{LomoPayload, LomoRecordKind, read_record, write_record_atomic};
 
 /// Product policy: keep the newest 20 reachable revisions per memo.
 pub const HISTORY_RETENTION_REVISIONS: usize = 20;
@@ -68,7 +66,7 @@ impl RevisionId {
         hasher.update(content_digest.as_bytes());
         hasher.update([0]);
         hasher.update(canonical_metadata.as_bytes());
-        Self(hex_encode(&hasher.finalize()[..]))
+        Self(format!("{:x}", hasher.finalize()))
     }
 }
 
@@ -281,7 +279,7 @@ fn state_content_digest(
     hasher.update(pin_operation_id.unwrap_or("").as_bytes());
     hasher.update([0]);
     hasher.update(trash_operation_id.unwrap_or("").as_bytes());
-    hex_encode(&hasher.finalize()[..])
+    format!("{:x}", hasher.finalize())
 }
 
 /// Permanent prune tombstone for a history revision.
@@ -375,7 +373,10 @@ pub fn revisions_to_prune<S: BuildHasher>(
 
 /// Absolute path for a history revision object under v2 layout.
 #[must_use]
-pub fn history_revision_path(paths: &LomoPaths, revision_id: &RevisionId) -> std::path::PathBuf {
+pub fn history_revision_path(
+    paths: &WorkspaceLayout,
+    revision_id: &RevisionId,
+) -> std::path::PathBuf {
     paths
         .history
         .join("objects")
@@ -384,14 +385,17 @@ pub fn history_revision_path(paths: &LomoPaths, revision_id: &RevisionId) -> std
 
 /// Absolute path for a history head under v2 layout.
 #[must_use]
-pub fn history_head_path(paths: &LomoPaths, memo_id: &str) -> std::path::PathBuf {
+pub fn history_head_path(paths: &WorkspaceLayout, memo_id: &str) -> std::path::PathBuf {
     // Memo ids are path-safe product ids; reject path separators at write time.
     paths.history.join("heads").join(format!("{memo_id}.rec"))
 }
 
 /// Absolute path for a history tombstone under v2 layout.
 #[must_use]
-pub fn history_tombstone_path(paths: &LomoPaths, revision_id: &RevisionId) -> std::path::PathBuf {
+pub fn history_tombstone_path(
+    paths: &WorkspaceLayout,
+    revision_id: &RevisionId,
+) -> std::path::PathBuf {
     paths
         .history
         .join("tombstones")
@@ -400,7 +404,10 @@ pub fn history_tombstone_path(paths: &LomoPaths, revision_id: &RevisionId) -> st
 
 /// Absolute path for a state revision object under v2 layout.
 #[must_use]
-pub fn state_revision_path(paths: &LomoPaths, revision_id: &RevisionId) -> std::path::PathBuf {
+pub fn state_revision_path(
+    paths: &WorkspaceLayout,
+    revision_id: &RevisionId,
+) -> std::path::PathBuf {
     paths
         .state
         .join("objects")
@@ -409,7 +416,7 @@ pub fn state_revision_path(paths: &LomoPaths, revision_id: &RevisionId) -> std::
 
 /// Absolute path for a state head under v2 layout.
 #[must_use]
-pub fn state_head_path(paths: &LomoPaths, memo_id: &str) -> std::path::PathBuf {
+pub fn state_head_path(paths: &WorkspaceLayout, memo_id: &str) -> std::path::PathBuf {
     paths.state.join("heads").join(format!("{memo_id}.rec"))
 }
 
@@ -419,7 +426,7 @@ pub fn state_head_path(paths: &LomoPaths, memo_id: &str) -> std::path::PathBuf {
 ///
 /// Encode/storage failures; validation if layout is not v2.
 pub fn write_history_revision(
-    paths: &LomoPaths,
+    paths: &WorkspaceLayout,
     revision: &HistoryRevisionV2,
 ) -> Result<(), lomo_core::LomoError> {
     require_v2(paths)?;
@@ -445,7 +452,7 @@ pub fn write_history_revision(
 ///
 /// Encode/storage failures; validation if layout is not v2 or `memo_id` has path separators.
 pub fn write_history_head(
-    paths: &LomoPaths,
+    paths: &WorkspaceLayout,
     head: &HistoryHead,
 ) -> Result<(), lomo_core::LomoError> {
     require_v2(paths)?;
@@ -472,7 +479,7 @@ pub fn write_history_head(
 ///
 /// Encode/storage failures.
 pub fn write_history_tombstone(
-    paths: &LomoPaths,
+    paths: &WorkspaceLayout,
     tombstone: &HistoryTombstone,
 ) -> Result<(), lomo_core::LomoError> {
     require_v2(paths)?;
@@ -498,7 +505,7 @@ pub fn write_history_tombstone(
 ///
 /// Encode/storage failures.
 pub fn write_state_revision(
-    paths: &LomoPaths,
+    paths: &WorkspaceLayout,
     revision: &StateRevisionV2,
 ) -> Result<(), lomo_core::LomoError> {
     require_v2(paths)?;
@@ -523,7 +530,10 @@ pub fn write_state_revision(
 /// # Errors
 ///
 /// Encode/storage failures.
-pub fn write_state_head(paths: &LomoPaths, head: &StateHead) -> Result<(), lomo_core::LomoError> {
+pub fn write_state_head(
+    paths: &WorkspaceLayout,
+    head: &StateHead,
+) -> Result<(), lomo_core::LomoError> {
     require_v2(paths)?;
     reject_unsafe_memo_id(&head.memo_id)?;
     let body_json = serde_json::to_string(head).map_err(|err| {
@@ -548,7 +558,7 @@ pub fn write_state_head(paths: &LomoPaths, head: &StateHead) -> Result<(), lomo_
 ///
 /// Storage/corruption on missing/invalid records.
 pub fn read_history_revision(
-    paths: &LomoPaths,
+    paths: &WorkspaceLayout,
     revision_id: &RevisionId,
 ) -> Result<HistoryRevisionV2, lomo_core::LomoError> {
     require_v2(paths)?;
@@ -577,7 +587,7 @@ pub fn read_history_revision(
 ///
 /// Storage failures.
 pub fn prune_history_with_tombstones<S: BuildHasher, P: BuildHasher>(
-    paths: &LomoPaths,
+    paths: &WorkspaceLayout,
     head: &RevisionId,
     by_id: &HashMap<RevisionId, HistoryRevisionV2, S>,
     pins: &HashSet<RevisionId, P>,
@@ -650,7 +660,7 @@ pub fn validate_parent_closure(
     Ok(())
 }
 
-fn require_v2(paths: &LomoPaths) -> Result<(), lomo_core::LomoError> {
+fn require_v2(paths: &WorkspaceLayout) -> Result<(), lomo_core::LomoError> {
     if paths.layout != LomoLayoutVersion::V2 {
         return Err(validation(
             "history_v2_layout_required",
@@ -726,6 +736,6 @@ pub fn migrate_memo_history_chain(
 
 /// Ensures `workspace_root` is usable as a path argument without further use (doc helper).
 #[must_use]
-pub fn workspace_history_root(workspace_root: &Path) -> LomoPaths {
-    LomoPaths::for_workspace_with_layout(workspace_root, LomoLayoutVersion::V2)
+pub fn workspace_history_root(workspace_root: &Path) -> WorkspaceLayout {
+    WorkspaceLayout::for_workspace_with_layout(workspace_root, LomoLayoutVersion::V2)
 }

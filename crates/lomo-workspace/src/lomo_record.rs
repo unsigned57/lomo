@@ -1,7 +1,8 @@
-//! Generic `.lomo` durable record codec and layout roots (stage-5 P5-01 owner: `lomo-workspace`).
+//! Generic `.lomo` durable record codec (stage-5 P5-01 owner: `lomo-workspace`).
 //!
 //! Owns magic + schema + length + checksum framing and temp+fsync+rename atomic writes.
-//! Transaction / projection semantics remain in `lomo-store`.
+//! Transaction / projection semantics remain in `lomo-store`; layout path inventory lives
+//! in [`crate::layout`].
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -9,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+use lomo_core::hex_encode;
 
 use crate::limits::{corruption, storage, validation};
 
@@ -20,97 +23,6 @@ pub const LOMO_CODEC_SCHEMA: u32 = 1;
 
 /// Maximum payload size accepted by the codec (16 MiB).
 pub const LOMO_MAX_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
-
-/// Active durable layout version for history/state trees.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum LomoLayoutVersion {
-    /// Pre-P5-01 mutable single-file state + `memoId-rN` history.
-    V1,
-    /// Content-addressed history/state revision DAG (sync-safe).
-    V2,
-}
-
-/// Layout roots under a workspace.
-#[derive(Debug, Clone)]
-pub struct LomoPaths {
-    pub root: PathBuf,
-    pub manifest: PathBuf,
-    pub operations: PathBuf,
-    pub history: PathBuf,
-    pub state: PathBuf,
-    /// App-local identity (never synced / never archived).
-    pub local: PathBuf,
-    /// Active history/state layout after migration head is read.
-    pub layout: LomoLayoutVersion,
-}
-
-impl LomoPaths {
-    /// Resolves layout paths for `workspace_root`, reading the migration head when present.
-    #[must_use]
-    pub fn for_workspace(workspace_root: &Path) -> Self {
-        let layout = read_layout_version(workspace_root).unwrap_or(LomoLayoutVersion::V1);
-        Self::for_workspace_with_layout(workspace_root, layout)
-    }
-
-    /// Resolves layout paths for an explicit layout version (tests / migration staging).
-    #[must_use]
-    pub fn for_workspace_with_layout(workspace_root: &Path, layout: LomoLayoutVersion) -> Self {
-        let root = workspace_root.join(".lomo");
-        let (history_seg, state_seg) = match layout {
-            LomoLayoutVersion::V1 => ("v1", "v1"),
-            LomoLayoutVersion::V2 => ("v2", "v2"),
-        };
-        Self {
-            manifest: root.join("manifest.v1"),
-            operations: root.join("operations").join("v1"),
-            history: root.join("history").join(history_seg),
-            state: root.join("state").join(state_seg),
-            local: root.join("local").join("v1"),
-            root,
-            layout,
-        }
-    }
-
-    /// Absolute path of the durable layout head record.
-    #[must_use]
-    pub fn layout_head_path(workspace_root: &Path) -> PathBuf {
-        workspace_root.join(".lomo").join("layout_head.rec")
-    }
-
-    /// Absolute path of the durable workspace generation record.
-    #[must_use]
-    pub fn generation_record_path(workspace_root: &Path) -> PathBuf {
-        workspace_root
-            .join(".lomo")
-            .join("local")
-            .join("v1")
-            .join("generation.rec")
-    }
-
-    /// Ensures durable directories for the active layout exist (does not create `SQLite` paths).
-    ///
-    /// # Errors
-    ///
-    /// Storage errors when directories cannot be created.
-    pub fn ensure_layout(&self) -> Result<(), lomo_core::LomoError> {
-        for dir in [
-            &self.root,
-            &self.operations,
-            &self.history,
-            &self.state,
-            &self.local,
-        ] {
-            fs::create_dir_all(dir).map_err(|err| {
-                storage(
-                    "lomo_dir_create_failed",
-                    &format!("cannot create {}: {err}", dir.display()),
-                )
-            })?;
-        }
-        Ok(())
-    }
-}
 
 /// Kind of durable record payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -361,58 +273,6 @@ pub fn isolate_corrupt_record(path: &Path) -> Result<PathBuf, lomo_core::LomoErr
     Ok(isolated)
 }
 
-/// Writes the layout head to V2 only after a successful migration validation.
-///
-/// # Errors
-///
-/// Storage/encode failures. Never deletes user Markdown/media.
-pub fn write_layout_head_v2(workspace_root: &Path) -> Result<(), lomo_core::LomoError> {
-    let path = LomoPaths::layout_head_path(workspace_root);
-    let body = LayoutHeadBody {
-        layout: LomoLayoutVersion::V2,
-    };
-    let body_json = serde_json::to_string(&body).map_err(|err| {
-        validation(
-            "layout_head_encode_failed",
-            &format!("cannot encode layout head: {err}"),
-        )
-    })?;
-    write_record_atomic(
-        &path,
-        &LomoPayload {
-            kind: LomoRecordKind::LayoutHead,
-            record_id: "layout".into(),
-            body_json,
-        },
-    )
-}
-
-fn read_layout_version(workspace_root: &Path) -> Result<LomoLayoutVersion, lomo_core::LomoError> {
-    let path = LomoPaths::layout_head_path(workspace_root);
-    if !path.exists() {
-        return Ok(LomoLayoutVersion::V1);
-    }
-    let record = read_record(&path)?;
-    if record.payload.kind != LomoRecordKind::LayoutHead {
-        return Err(corruption(
-            "layout_head_kind_mismatch",
-            "layout head path does not contain a LayoutHead record",
-        ));
-    }
-    let body: LayoutHeadBody = serde_json::from_str(&record.payload.body_json).map_err(|err| {
-        corruption(
-            "layout_head_payload_invalid",
-            &format!("cannot decode layout head: {err}"),
-        )
-    })?;
-    Ok(body.layout)
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct LayoutHeadBody {
-    layout: LomoLayoutVersion,
-}
-
 /// Durable filename for one history record id.
 ///
 /// Memo identity embeds `HH:mm:ss`, and a colon is unsafe as an Android SAF display name:
@@ -423,37 +283,4 @@ struct LayoutHeadBody {
 #[must_use]
 pub fn history_record_filename(record_id: &str) -> String {
     format!("{}.rec", record_id.replace(':', ""))
-}
-
-/// Hex-encodes bytes (lowercase).
-#[must_use]
-pub fn hex_encode(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(nibble_hex(byte >> 4));
-        out.push(nibble_hex(byte & 0x0f));
-    }
-    out
-}
-
-const fn nibble_hex(nibble: u8) -> char {
-    match nibble {
-        0 => '0',
-        1 => '1',
-        2 => '2',
-        3 => '3',
-        4 => '4',
-        5 => '5',
-        6 => '6',
-        7 => '7',
-        8 => '8',
-        9 => '9',
-        10 => 'a',
-        11 => 'b',
-        12 => 'c',
-        13 => 'd',
-        14 => 'e',
-        // Only 0..=15 are passed; any other value is treated as 'f' for total function.
-        _ => 'f',
-    }
 }

@@ -471,4 +471,42 @@ mod tests {
             b"# pending review\n"
         );
     }
+
+    #[test]
+    fn identity_reset_purges_embedded_endpoint_and_durable_dirs() {
+        // Given: a poisoned legacy endpoint journaled into the git mirror config plus durable
+        // multipart/tmp trees — the surfaces GitEndpointSecurityMigration used to purge by
+        // Kotlin-side `File(root, ".lomo/sync/v1/git-mirror").deleteRecursively()`.
+        // When: reset_sync_control_tree runs under the same SyncPaths the host passes.
+        // Then: every directory tree under `.lomo/sync/v1` is gone while workspace files live.
+        let temporary = tempdir().expect("temp");
+        let workspace = temporary.path().join("ws");
+        let paths = SyncPaths::for_workspace(&workspace);
+        for dir in [&paths.git_mirror, &paths.multipart, &paths.tmp] {
+            std::fs::create_dir_all(dir).expect("seed control dir");
+        }
+        std::fs::write(
+            paths.git_mirror.join("config"),
+            b"url = https://u:p@h/r.git\n",
+        )
+        .expect("seed poisoned mirror config");
+        std::fs::write(paths.multipart.join("session.rec"), b"LSYN").expect("seed multipart");
+        std::fs::write(paths.tmp.join("chunk.bin"), b"data").expect("seed tmp");
+        let session =
+            SyncSession::new(fence_g1(), SessionKind::Incremental, "s-purge").expect("session");
+        write_session(&paths, &session).expect("write session");
+
+        reset_sync_control_tree(&paths).expect("reset control");
+
+        assert!(!paths.session.exists());
+        assert!(
+            !paths.git_mirror.exists(),
+            "git mirror config embeds the endpoint"
+        );
+        assert!(
+            !paths.multipart.exists(),
+            "durable multipart sessions are identity-scoped"
+        );
+        assert!(!paths.tmp.exists(), "exchange temp is identity-scoped");
+    }
 }

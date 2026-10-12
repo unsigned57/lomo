@@ -10,8 +10,9 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use lomo_core::LomoError;
-use lomo_media::{ContentDigest, MediaRelativePath};
+use lomo_media::{ContentDigest, MEDIA_TRASH_DIR_NAME, MediaRelativePath, STAGE_DIR_NAME};
 use lomo_workspace::WorkspaceRelativePath;
+use lomo_workspace::layout::relative as lomo_rel;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use zip::write::SimpleFileOptions;
@@ -89,12 +90,12 @@ fn classify_relative(path: &str) -> Result<ArchiveEntryKind, LomoError> {
     if path == ARCHIVE_MANIFEST_ENTRY {
         return Ok(ArchiveEntryKind::Manifest);
     }
-    if path.starts_with(".lomo/history/") {
+    if path.starts_with(lomo_rel::HISTORY_PREFIX) {
         return Ok(ArchiveEntryKind::LomoHistory);
     }
     // Durable .lomo history/state (and layout head) are archiveable; device-local trees
     // are filtered earlier in `should_include` (local/sync/operations/migration-staging).
-    if path.starts_with(".lomo/") {
+    if path.starts_with(lomo_rel::ROOT_PREFIX) {
         return Ok(ArchiveEntryKind::LomoState);
     }
     if extension_is(path, "md") {
@@ -113,9 +114,9 @@ fn should_include(relative: &str) -> bool {
     if relative.is_empty() {
         return false;
     }
-    if relative.starts_with(".lomo-sqlite")
-        || relative.starts_with(".lomo-media-stage")
-        || relative.starts_with(".lomo-media-trash")
+    if relative.starts_with(lomo_rel::SQLITE_ROOT_PREFIX)
+        || relative.starts_with(STAGE_DIR_NAME)
+        || relative.starts_with(MEDIA_TRASH_DIR_NAME)
         || relative.contains("/.tmp")
         || extension_is(relative, "tmp")
         || extension_is(relative, "db")
@@ -126,12 +127,12 @@ fn should_include(relative: &str) -> bool {
     }
     // Stage-5 archive allowlist: include state/history v1+v2 and layout head; exclude
     // local/sync/operations/remote-control/migration staging (never leave the device).
-    if relative.starts_with(".lomo/local/")
-        || relative.starts_with(".lomo/sync/")
-        || relative.starts_with(".lomo/operations/")
-        || relative.starts_with(".lomo/migration-staging/")
-        || relative.starts_with(".lomo-remote/")
-        || relative.contains("/.lomo-remote/")
+    if relative.starts_with(lomo_rel::LOCAL_PREFIX)
+        || relative.starts_with(lomo_rel::SYNC_PREFIX)
+        || relative.starts_with(lomo_rel::OPERATIONS_PREFIX)
+        || relative.starts_with(lomo_rel::MIGRATION_STAGING_PREFIX)
+        || relative.starts_with(lomo_rel::REMOTE_PREFIX)
+        || relative.contains(lomo_rel::REMOTE_NESTED)
     {
         return false;
     }

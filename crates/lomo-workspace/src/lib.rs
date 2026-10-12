@@ -8,6 +8,7 @@
 
 #![deny(unsafe_code)]
 
+mod attachment_lookup;
 mod attachment_remap;
 mod attachments;
 mod conflict_merge;
@@ -16,6 +17,7 @@ pub mod header;
 mod history_v2;
 mod identity;
 pub mod jobs;
+pub mod layout;
 mod limits;
 mod lomo_record;
 mod memo_identity;
@@ -30,10 +32,13 @@ mod tags;
 mod trash;
 mod types;
 
+pub use attachment_lookup::{
+    ATTACHMENT_LOOKUP_DIRS, AttachmentResolution, resolve_attachment_listing,
+};
 pub use attachment_remap::remap_attachment_destinations;
 pub use attachments::{
-    ImageDest, Url, canonical_attachment_keys, canonical_attachment_path,
-    is_audio_attachment_destination, is_external_attachment_destination,
+    ImageDest, MediaClass, Url, attachment_media_class, canonical_attachment_keys,
+    canonical_attachment_path, is_audio_attachment_destination, is_external_attachment_destination,
     projected_attachment_destination,
 };
 pub use conflict_merge::merge_memo_shard_by_identity;
@@ -52,20 +57,25 @@ pub use identity::{
     load_or_mint_workspace_generation, load_workspace_generation, mint_new_workspace_generation,
     mint_reminder_embedded_id, persist_workspace_generation,
 };
+pub use layout::{
+    GIT_ROOT_NAME, IMAGES_ROOT_NAME, LEGACY_TRASH_ROOT_NAME, LOMO_DIR_NAME, LOMO_REMOTE_ROOT_NAME,
+    LOMO_SQLITE_ROOT_NAME, LomoLayoutVersion, MEDIA_ROOT_NAME, MEMO_ROOT_NAME, SessionLayout,
+    SessionStateLayout, VOICE_ROOT_NAME, WorkspaceLayout, write_layout_head_v2,
+};
 pub use limits::{
     MAX_EDITABLE_MEMO_UTF8_CHARS, MAX_INLINE_RENDER_UTF8_BYTES, MAX_IR_STRING_UTF8_BYTES,
     MAX_RENDER_DOCUMENT_NODES, MAX_SEMANTIC_NESTING_DEPTH, MAX_WORKSPACE_SCAN_PAGE_SIZE,
     ResourceBudget,
 };
+pub use lomo_core::hex_encode;
 pub use lomo_record::{
-    HistorySnapshotV1, LOMO_CODEC_SCHEMA, LOMO_MAGIC, LOMO_MAX_PAYLOAD_BYTES, LomoLayoutVersion,
-    LomoPaths, LomoPayload, LomoRecord, LomoRecordKind, decode_record, encode_record, hex_encode,
-    history_record_filename, isolate_corrupt_record, read_record, write_layout_head_v2,
-    write_record_atomic,
+    HistorySnapshotV1, LOMO_CODEC_SCHEMA, LOMO_MAGIC, LOMO_MAX_PAYLOAD_BYTES, LomoPayload,
+    LomoRecord, LomoRecordKind, decode_record, encode_record, history_record_filename,
+    isolate_corrupt_record, read_record, write_record_atomic,
 };
 pub use memo_identity::{
-    MemoBinding, MemoIdentityChange, MemoIdentityConflict, MemoIdentityMap, MemoIdentityOperation,
-    memo_identity_record_path,
+    IdentityPatchOutcome, MemoBinding, MemoIdentityChange, MemoIdentityConflict, MemoIdentityMap,
+    MemoIdentityOperation, memo_identity_record_path,
 };
 pub use memo_locator::{MemoId, MemoLocator, WorkspaceRootId};
 pub use migration_v2::{
@@ -77,10 +87,10 @@ pub use parse::{extract_memo_body_from_raw, parse_workspace_document};
 pub use patch::{DocumentPatchCommand, DocumentPatchPlan, plan_document_patch};
 pub use reminder::{ReminderRef, ReminderReference};
 pub use render::{
-    RENDER_DOCUMENT_SCHEMA_V1, ReminderTokenFacts, ReminderTokenMutation, RenderBlock,
-    RenderDocumentV1, RenderInline, RenderListItem, RenderTableCell, SemanticFact,
-    SemanticFactKind, build_reminder_token, plan_reminder_token_mutation, reminder_token_facts,
-    render_markdown,
+    DEFAULT_REMINDER_INTERVAL_MINUTES, RENDER_DOCUMENT_SCHEMA_V1, ReminderRecurrence,
+    ReminderTokenFacts, ReminderTokenMutation, RenderBlock, RenderDocumentV1, RenderInline,
+    RenderListItem, RenderTableCell, SemanticFact, SemanticFactKind, build_reminder_token,
+    plan_reminder_token_mutation, reminder_token_facts, render_markdown,
 };
 pub use source::{
     BomKind, ByteSpan, DominantNewline, NewlineKind, SourceBytes, SourceFingerprint,

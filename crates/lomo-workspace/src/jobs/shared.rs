@@ -229,6 +229,7 @@ pub(super) fn listed_page(
         PlatformActionOutput::Stat { .. }
         | PlatformActionOutput::DirectoryReady { .. }
         | PlatformActionOutput::ReadToExchange { .. }
+        | PlatformActionOutput::Read { .. }
         | PlatformActionOutput::WriteComplete { .. }
         | PlatformActionOutput::MoveComplete { .. }
         | PlatformActionOutput::DeleteComplete { .. } => Err(corruption(
@@ -249,6 +250,7 @@ pub(super) fn read_to_exchange_output(
         PlatformActionOutput::Stat { .. }
         | PlatformActionOutput::Listed { .. }
         | PlatformActionOutput::DirectoryReady { .. }
+        | PlatformActionOutput::Read { .. }
         | PlatformActionOutput::WriteComplete { .. }
         | PlatformActionOutput::MoveComplete { .. }
         | PlatformActionOutput::DeleteComplete { .. } => Err(corruption(
@@ -267,6 +269,7 @@ pub(super) fn write_complete_output(
         | PlatformActionOutput::Listed { .. }
         | PlatformActionOutput::DirectoryReady { .. }
         | PlatformActionOutput::ReadToExchange { .. }
+        | PlatformActionOutput::Read { .. }
         | PlatformActionOutput::MoveComplete { .. }
         | PlatformActionOutput::DeleteComplete { .. } => Err(corruption(
             "expected_write_complete_output",

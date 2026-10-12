@@ -217,10 +217,10 @@ pub struct IntentJournal {
 }
 
 impl IntentJournal {
-    pub fn new(state_dir: &Path) -> Result<Self, LomoError> {
+    pub fn new(state: &lomo_workspace::SessionStateLayout) -> Result<Self, LomoError> {
         let journal = Self {
-            directory: state_dir.join("intents"),
-            payloads: PayloadStore::new(state_dir),
+            directory: state.intents.clone(),
+            payloads: PayloadStore::new(&state.intent_payloads),
             lifecycle: Mutex::new(JournalLifecycle::default()),
         };
         for name in ["pending", "committed"] {
@@ -550,6 +550,46 @@ impl IntentJournal {
         save_record(&self.path("committed", id), id.as_str(), &committed)?;
         remove_durable(&self.path("pending", id))?;
         self.reclaim(&pending.references())
+    }
+
+    /// `(name, size, mtime)` tokens for every recoverable pending record — metadata-only
+    /// invalidation evidence for cached views over journal state. An unchanged name set whose
+    /// records were rewritten in place (progress marks) still moves the stamp.
+    ///
+    /// # Errors
+    /// Storage when the journal directory or an entry's metadata cannot be read, and corruption
+    /// when a pending record name is not UTF-8.
+    pub fn pending_evidence(&self) -> Result<Vec<crate::draft::DraftFileEvidence>, LomoError> {
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(self.directory.join("pending"))
+            .map_err(|error| storage("intent_list_failed", error.to_string()))?
+        {
+            let path = entry
+                .map_err(|error| storage("intent_list_failed", error.to_string()))?
+                .path();
+            if path.extension().is_none_or(|extension| extension != "rec") {
+                continue;
+            }
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| {
+                    corruption("invalid_operation_plan", "intent filename is not UTF-8")
+                })?
+                .to_owned();
+            let metadata = path
+                .metadata()
+                .map_err(|error| storage("intent_list_failed", error.to_string()))?;
+            out.push(crate::draft::DraftFileEvidence {
+                name,
+                size: metadata.len(),
+                modified: metadata
+                    .modified()
+                    .map_err(|error| storage("intent_list_failed", error.to_string()))?,
+            });
+        }
+        out.sort_by(|left, right| left.name.cmp(&right.name));
+        Ok(out)
     }
 
     /// Bounded metadata enumeration of recoverable operations.

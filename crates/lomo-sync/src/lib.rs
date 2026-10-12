@@ -23,7 +23,9 @@ mod pipeline;
 mod ports;
 mod recovery;
 mod s3;
+mod temp_path;
 mod webdav;
+mod xml;
 
 pub use conflict::{
     ConflictApplyRemoteResult, ConflictBodySource, ConflictCandidateBodies, ConflictContentKind,

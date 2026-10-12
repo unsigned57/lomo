@@ -21,7 +21,7 @@ mod tests {
 
     use lomo_core::ErrorCategory;
     use lomo_store::{
-        LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoPaths, LomoPayload, LomoRecordKind, decode_record,
+        LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoPayload, LomoRecordKind, WorkspaceLayout, decode_record,
         encode_record, isolate_corrupt_record, read_record, write_record_atomic,
     };
     use tempfile::tempdir;
@@ -29,7 +29,7 @@ mod tests {
     #[test]
     fn encode_decode_round_trip_and_atomic_write() {
         let dir = tempdir().expect("tempdir");
-        let paths = LomoPaths::for_workspace(dir.path());
+        let paths = WorkspaceLayout::for_workspace(dir.path());
         paths.ensure_layout().expect("layout");
 
         let payload = LomoPayload {
@@ -86,7 +86,7 @@ mod tests {
         assert_eq!(err.code(), "lomo_bad_magic");
 
         let dir = tempdir().expect("tempdir");
-        let paths = LomoPaths::for_workspace(dir.path());
+        let paths = WorkspaceLayout::for_workspace(dir.path());
         paths.ensure_layout().expect("layout");
         let path = paths.operations.join("bad.rec");
         write_record_atomic(
@@ -144,7 +144,7 @@ mod tests {
             body_json: r#"{"version":1}"#.into(),
         };
         let dir = tempdir().expect("tempdir");
-        let paths = LomoPaths::for_workspace(dir.path());
+        let paths = WorkspaceLayout::for_workspace(dir.path());
         paths.ensure_layout().expect("layout");
         write_record_atomic(&paths.manifest, &manifest).expect("write manifest");
         let read = read_record(&paths.manifest).expect("read");
@@ -180,7 +180,7 @@ mod tests {
                 .into(),
         };
         let dir = tempdir().expect("tempdir");
-        let paths = LomoPaths::for_workspace(dir.path());
+        let paths = WorkspaceLayout::for_workspace(dir.path());
         paths.ensure_layout().expect("layout");
         let path = paths.history.join("m-r1.rec");
         write_record_atomic(&path, &history).expect("write");

@@ -27,7 +27,8 @@ mod tests {
         MediaSource, PromotePlan, stage_media, suggest_human_relative_path, write_bytes_for_tests,
     };
     use lomo_store::{
-        LomoLayoutVersion, LomoPaths, MemoCommand, MemoCommandKind, Store, select_pending_promotes,
+        LomoLayoutVersion, MemoCommand, MemoCommandKind, Store, WorkspaceLayout,
+        select_pending_promotes,
     };
     use lomo_workspace::write_layout_head_v2;
     use tempfile::tempdir;
@@ -198,7 +199,7 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         write_layout_head_v2(dir.path()).expect("layout head v2");
         assert_eq!(
-            LomoPaths::for_workspace(dir.path()).layout,
+            WorkspaceLayout::for_workspace(dir.path()).layout,
             LomoLayoutVersion::V2
         );
 

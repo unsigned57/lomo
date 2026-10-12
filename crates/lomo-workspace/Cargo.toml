@@ -29,6 +29,8 @@ path = "tests/document_model_contract.rs"
 
 [dependencies]
 lomo-core = { path = "../lomo-core" }
+getrandom.workspace = true
+jiff.workspace = true
 pulldown-cmark.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -76,6 +78,10 @@ name = "image_dest_contract"
 path = "tests/image_dest_contract.rs"
 
 [[test]]
+name = "media_class_contract"
+path = "tests/media_class_contract.rs"
+
+[[test]]
 name = "reminder_token_construct_contract"
 path = "tests/reminder_token_construct_contract.rs"
 
@@ -92,6 +98,10 @@ name = "lomo_record_contract"
 path = "tests/lomo_record_contract.rs"
 
 [[test]]
+name = "workspace_layout_contract"
+path = "tests/workspace_layout_contract.rs"
+
+[[test]]
 name = "identity_contract"
 path = "tests/identity_contract.rs"
 
@@ -106,6 +116,10 @@ path = "tests/migration_v2_contract.rs"
 [[test]]
 name = "trash_record_contract"
 path = "tests/trash_record_contract.rs"
+
+[[test]]
+name = "attachment_lookup_contract"
+path = "tests/attachment_lookup_contract.rs"
 
 [[example]]
 name = "workspace_scale_benchmark"

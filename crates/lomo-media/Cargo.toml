@@ -35,6 +35,10 @@ path = "tests/d10_manifest_compare_contract.rs"
 name = "stage_lease_integrity_contract"
 path = "tests/stage_lease_integrity_contract.rs"
 
+[[test]]
+name = "identity_class_parity_contract"
+path = "tests/identity_class_parity_contract.rs"
+
 [dependencies]
 lomo-core = { path = "../lomo-core" }
 lomo-workspace = { path = "../lomo-workspace" }

@@ -3,17 +3,16 @@
 //! `WorkspaceGenerationId` is real random durable under `.lomo/local/v1/generation.rec`, never
 //! synced or archived. Archive activation must mint a new value (caller responsibility).
 
-use std::fs::File;
-use std::io::Read;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use lomo_core::hex_encode;
+
+use crate::layout::WorkspaceLayout;
 use crate::limits::{corruption, storage, validation};
-use crate::lomo_record::{
-    LomoPaths, LomoPayload, LomoRecordKind, hex_encode, read_record, write_record_atomic,
-};
+use crate::lomo_record::{LomoPayload, LomoRecordKind, read_record, write_record_atomic};
 
 /// Byte length of a workspace generation id (256-bit).
 pub const WORKSPACE_GENERATION_ID_BYTES: usize = 32;
@@ -56,7 +55,12 @@ impl WorkspaceGenerationId {
     /// Storage when the host CSPRNG cannot be read.
     pub fn mint() -> Result<Self, lomo_core::LomoError> {
         let mut bytes = [0_u8; WORKSPACE_GENERATION_ID_BYTES];
-        fill_csprng(&mut bytes)?;
+        getrandom::fill(&mut bytes).map_err(|err| {
+            storage(
+                "csprng_read_failed",
+                &format!("system CSPRNG getrandom failed: {err}"),
+            )
+        })?;
         Ok(Self(hex_encode(&bytes)))
     }
 }
@@ -68,7 +72,12 @@ impl WorkspaceGenerationId {
 /// Storage when the host CSPRNG cannot be read.
 pub fn mint_reminder_embedded_id() -> Result<String, lomo_core::LomoError> {
     let mut bytes = [0_u8; REMINDER_EMBEDDED_ID_BYTES];
-    fill_csprng(&mut bytes)?;
+    getrandom::fill(&mut bytes).map_err(|err| {
+        storage(
+            "csprng_read_failed",
+            &format!("system CSPRNG getrandom failed: {err}"),
+        )
+    })?;
     Ok(hex_encode(&bytes))
 }
 
@@ -122,7 +131,7 @@ impl RemoteIdentityDigest {
     #[must_use]
     pub fn from_canonical_config_bytes(canonical_utf8: &[u8]) -> Self {
         let digest = Sha256::digest(canonical_utf8);
-        Self(hex_encode(&digest[..]))
+        Self(format!("{digest:x}"))
     }
 
     #[must_use]
@@ -139,7 +148,7 @@ impl RemoteIdentityDigest {
 pub fn load_or_mint_workspace_generation(
     workspace_root: &Path,
 ) -> Result<WorkspaceGenerationId, lomo_core::LomoError> {
-    let path = LomoPaths::generation_record_path(workspace_root);
+    let path = WorkspaceLayout::for_workspace(workspace_root).generation_record;
     if path.exists() {
         return load_workspace_generation(workspace_root);
     }
@@ -157,7 +166,7 @@ pub fn load_or_mint_workspace_generation(
 pub fn load_workspace_generation(
     workspace_root: &Path,
 ) -> Result<WorkspaceGenerationId, lomo_core::LomoError> {
-    let path = LomoPaths::generation_record_path(workspace_root);
+    let path = WorkspaceLayout::for_workspace(workspace_root).generation_record;
     if !path.exists() {
         return Err(validation(
             "workspace_generation_missing",
@@ -195,9 +204,9 @@ pub fn persist_workspace_generation(
     workspace_root: &Path,
     id: &WorkspaceGenerationId,
 ) -> Result<(), lomo_core::LomoError> {
-    let paths = LomoPaths::for_workspace(workspace_root);
+    let paths = WorkspaceLayout::for_workspace(workspace_root);
     paths.ensure_layout()?;
-    let path = LomoPaths::generation_record_path(workspace_root);
+    let path = paths.generation_record;
     let body = GenerationBody {
         generation_id: id.as_str().to_owned(),
     };
@@ -233,21 +242,4 @@ pub fn mint_new_workspace_generation(
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct GenerationBody {
     generation_id: String,
-}
-
-fn fill_csprng(buf: &mut [u8]) -> Result<(), lomo_core::LomoError> {
-    // Host + Android both expose /dev/urandom; avoids a new production crate dependency.
-    let mut file = File::open("/dev/urandom").map_err(|err| {
-        storage(
-            "csprng_open_failed",
-            &format!("cannot open /dev/urandom: {err}"),
-        )
-    })?;
-    file.read_exact(buf).map_err(|err| {
-        storage(
-            "csprng_read_failed",
-            &format!("cannot read /dev/urandom: {err}"),
-        )
-    })?;
-    Ok(())
 }

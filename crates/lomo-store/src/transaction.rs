@@ -12,7 +12,8 @@ use lomo_workspace::canonical_attachment_path;
 use crate::content_facts::project_content_facts;
 use crate::error::{busy, conflict, storage, validation};
 use crate::lomo_format::{
-    LomoLayoutVersion, LomoPaths, MemoCommandKind, OperationIntent, OperationStatus, read_record,
+    LomoLayoutVersion, MemoCommandKind, OperationIntent, OperationStatus, WorkspaceLayout,
+    read_record,
 };
 
 /// Crash injection points for recovery matrix tests (production uses `None`).
@@ -37,7 +38,7 @@ pub enum CrashPoint {
 /// # Errors
 ///
 /// - `layout_v2_requires_v2_writers` when layout is V2.
-pub fn refuse_v1_writers_on_layout_v2(paths: &LomoPaths) -> Result<(), lomo_core::LomoError> {
+pub fn refuse_v1_writers_on_layout_v2(paths: &WorkspaceLayout) -> Result<(), lomo_core::LomoError> {
     if paths.layout == LomoLayoutVersion::V2 {
         return Err(validation(
             "layout_v2_requires_v2_writers",
@@ -252,7 +253,7 @@ fn apply_memo_command_inner(
         ));
     }
 
-    let paths = LomoPaths::for_workspace(workspace_root);
+    let paths = WorkspaceLayout::for_workspace(workspace_root);
     // Dual-layout fence: store writers still emit v1-shaped flat history/state records.
     // Layout V2 is authoritative only after migration; until store v2 writers cut over, refuse
     // mutate so v1 bodies never land under history/v2 or state/v2 paths.
@@ -368,7 +369,7 @@ fn decode_operation_intent(body_json: &str) -> Result<OperationIntent, lomo_core
     })
 }
 
-fn operation_path(paths: &LomoPaths, operation_id: &str) -> PathBuf {
+fn operation_path(paths: &WorkspaceLayout, operation_id: &str) -> PathBuf {
     paths.operations.join(format!("{operation_id}.rec"))
 }
 
@@ -399,7 +400,7 @@ pub fn cleanup_expired_operations(
     workspace_root: &Path,
     retain_ms: u64,
 ) -> Result<usize, lomo_core::LomoError> {
-    let paths = LomoPaths::for_workspace(workspace_root);
+    let paths = WorkspaceLayout::for_workspace(workspace_root);
     if !paths.operations.exists() {
         return Ok(0);
     }

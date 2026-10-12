@@ -24,7 +24,8 @@ pub use error::{
     validation as media_validation,
 };
 pub use identity::{
-    ContentDigest, DIGEST_STREAM_CHUNK_BYTES, MediaMime, read_magic_header, write_bytes_for_tests,
+    ContentDigest, DIGEST_STREAM_CHUNK_BYTES, ExtensionClass, MediaMime, classify_extension,
+    read_magic_header, write_bytes_for_tests,
 };
 pub use lease::{
     ArtifactId, STAGE_LEDGER_FILE, StageLease, StageLedger, StageOwnerKind, StageRecord,

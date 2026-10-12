@@ -7,7 +7,7 @@
 //! Scenarios:
 //! - Given a payload, when encoded/decoded, then fields round-trip and checksum matches.
 //! - Given flipped checksum / unknown schema / bad magic, when decode runs, then corruption codes.
-//! - Given a workspace without layout head, when `LomoPaths::for_workspace` runs, then layout is V1
+//! - Given a workspace without layout head, when `WorkspaceLayout::for_workspace` runs, then layout is V1
 //!   and history/state point at `v1` segments.
 //! - Given a V2 layout head, when paths resolve, then history/state point at `v2` segments.
 //!
@@ -22,15 +22,16 @@ mod tests {
     use super::support::{OptionTestExt, ResultTestExt};
     use lomo_core::ErrorCategory;
     use lomo_workspace::{
-        LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoLayoutVersion, LomoPaths, LomoPayload, LomoRecordKind,
-        decode_record, encode_record, read_record, write_layout_head_v2, write_record_atomic,
+        LOMO_CODEC_SCHEMA, LOMO_MAGIC, LomoLayoutVersion, LomoPayload, LomoRecordKind,
+        WorkspaceLayout, decode_record, encode_record, read_record, write_layout_head_v2,
+        write_record_atomic,
     };
     use tempfile::tempdir;
 
     #[test]
     fn encode_decode_round_trip_and_atomic_write() {
         let dir = tempdir().test_ok("tempdir");
-        let paths = LomoPaths::for_workspace(dir.path());
+        let paths = WorkspaceLayout::for_workspace(dir.path());
         paths.ensure_layout().test_ok("layout");
 
         let payload = LomoPayload {
@@ -89,14 +90,14 @@ mod tests {
     #[test]
     fn default_layout_is_v1_until_layout_head_switches() {
         let dir = tempdir().test_ok("tempdir");
-        let paths = LomoPaths::for_workspace(dir.path());
+        let paths = WorkspaceLayout::for_workspace(dir.path());
         assert_eq!(paths.layout, LomoLayoutVersion::V1);
         assert!(paths.history.ends_with("history/v1"));
         assert!(paths.state.ends_with("state/v1"));
         assert!(paths.local.ends_with("local/v1"));
 
         write_layout_head_v2(dir.path()).test_ok("layout head");
-        let paths_v2 = LomoPaths::for_workspace(dir.path());
+        let paths_v2 = WorkspaceLayout::for_workspace(dir.path());
         assert_eq!(paths_v2.layout, LomoLayoutVersion::V2);
         assert!(paths_v2.history.ends_with("history/v2"));
         assert!(paths_v2.state.ends_with("state/v2"));

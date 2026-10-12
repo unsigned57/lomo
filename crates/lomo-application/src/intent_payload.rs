@@ -70,9 +70,9 @@ pub struct PayloadStore {
 }
 
 impl PayloadStore {
-    pub fn new(state: &Path) -> Self {
+    pub fn new(directory: &Path) -> Self {
         Self {
-            directory: state.join("intent-payloads"),
+            directory: directory.to_path_buf(),
         }
     }
 

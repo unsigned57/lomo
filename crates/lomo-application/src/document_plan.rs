@@ -39,7 +39,11 @@ impl LoadedDocument {
             .as_str()
             .rsplit_once('.')
             .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("md"));
-        if matches!(first, Some(".lomo" | ".git")) || !markdown {
+        if matches!(
+            first,
+            Some(lomo_workspace::LOMO_DIR_NAME | lomo_workspace::GIT_ROOT_NAME)
+        ) || !markdown
+        {
             return Err(validation(
                 "invalid_memo_document_path",
                 "memo commands require a Markdown path outside control directories",
@@ -146,16 +150,15 @@ impl LoadedDocument {
             ));
         }
         let planned = plan_document_patch(&self.document, command)?;
-        let identities =
+        let outcome =
             self.identities
                 .apply_patch(operation, identity_change, &self.document, &planned)?;
-        let document = parse_workspace_document(
-            &SourceBytes::try_from_bytes(planned.result_bytes().to_vec())?,
-            filename_stem(&self.path)?,
-        )?;
+        // `apply_patch` returns the result parse it already proved the transition
+        // against: re-parsing `result_bytes` here would bill a second whole-document
+        // parse for every memo-level patch.
         Ok(DocumentChange {
-            document,
-            identities,
+            document: outcome.document,
+            identities: outcome.map,
         })
     }
 
