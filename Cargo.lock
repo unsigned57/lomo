@@ -553,6 +553,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "data-encoding"
+version = "2.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
+
+[[package]]
 name = "defmt"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -609,6 +615,27 @@ dependencies = [
  "block-buffer",
  "crypto-common",
  "subtle",
+]
+
+[[package]]
+name = "dirs"
+version = "7.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d57d423b3c82e89b9a24ca3091fee61f456a26edbd28d26c65906f4bc1dcd8f"
+dependencies = [
+ "dirs-sys",
+]
+
+[[package]]
+name = "dirs-sys"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e01a3366d27ee9890022452ee61b2b63a67e6f13f58900b651ff5665f0bb1fab"
+dependencies = [
+ "libc",
+ "option-ext",
+ "redox_users",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1354,6 +1381,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "libredox"
+version = "0.1.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61ff90caf6077a803a240f62fdbe88645a890bbca49ef8174c3cb0404362171d"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "libsqlite3-sys"
 version = "0.38.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1435,6 +1471,7 @@ dependencies = [
  "lomo-platform-fs",
  "lomo-store",
  "lomo-workspace",
+ "lru",
  "pinyin",
  "rusqlite",
  "rustix 1.1.4",
@@ -1462,6 +1499,7 @@ dependencies = [
 name = "lomo-core"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.4.3",
  "serde",
  "serde_json",
  "sha2",
@@ -1472,6 +1510,9 @@ dependencies = [
 name = "lomo-feasibility"
 version = "0.1.0"
 dependencies = [
+ "aws-lc-rs",
+ "base64 0.22.1",
+ "data-encoding",
  "git2",
  "pulldown-cmark",
  "rcgen",
@@ -1554,6 +1595,7 @@ name = "lomo-store"
 version = "0.1.0"
 dependencies = [
  "getrandom 0.4.3",
+ "jiff",
  "lomo-core",
  "lomo-media",
  "lomo-workspace",
@@ -1570,13 +1612,18 @@ name = "lomo-sync"
 version = "0.1.0"
 dependencies = [
  "aes",
+ "aws-lc-rs",
  "crypto_secretbox",
+ "data-encoding",
  "git2",
+ "jiff",
  "lomo-core",
  "lomo-git",
  "lomo-platform-fs",
  "lomo-store",
  "lomo-workspace",
+ "percent-encoding",
+ "quick-xml 0.42.0",
  "reqwest",
  "rustls",
  "scrypt",
@@ -1595,6 +1642,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "crossterm",
+ "dirs",
  "image",
  "lomo-application",
  "lomo-core",
@@ -1621,6 +1669,8 @@ dependencies = [
 name = "lomo-workspace"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.4.3",
+ "jiff",
  "lomo-core",
  "pulldown-cmark",
  "serde",
@@ -1639,6 +1689,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "toml_edit",
  "tree-sitter",
  "tree-sitter-kotlin-ng",
  "yaml-rust2",
@@ -1850,6 +1901,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "option-ext"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
+
+[[package]]
 name = "os_pipe"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2057,6 +2114,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "quinn"
 version = "0.11.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2241,6 +2307,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
  "bitflags 2.13.1",
+]
+
+[[package]]
+name = "redox_users"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60dc65c0ff1a7ae1294b0c67b9f14baf70b644404010370171787bfac1038fc0"
+dependencies = [
+ "libredox",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -2988,6 +3064,7 @@ dependencies = [
  "indexmap",
  "toml_datetime",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 
@@ -3392,7 +3469,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c324a910fd86ebdc364a3e61ec1f11737d3b1d6c273c0239ee8ff4bc0d24b4a"
 dependencies = [
  "proc-macro2",
- "quick-xml",
+ "quick-xml 0.39.4",
  "quote",
 ]
 
