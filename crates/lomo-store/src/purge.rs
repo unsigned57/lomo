@@ -26,7 +26,7 @@ use crate::lomo_format::{
 };
 
 /// Durable tombstone directory for permanently deleted memo identities.
-pub const PURGE_RECORD_DIRECTORY: &str = ".lomo/purged/v1";
+pub const PURGE_RECORD_DIRECTORY: &str = lomo_workspace::layout::relative::PURGED_V1;
 
 /// One durable permanent-delete tombstone: this memo identity may never re-project.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,10 +106,7 @@ impl PurgeRecordV1 {
 /// invalid.
 pub fn purge_record_relative_path(memo_id: &str) -> Result<WorkspaceRelativePath, LomoError> {
     let digest = Sha256::digest(memo_id.as_bytes());
-    WorkspaceRelativePath::parse(&format!(
-        "{PURGE_RECORD_DIRECTORY}/{}.rec",
-        crate::content_facts::hex_encode(&digest)
-    ))
+    WorkspaceRelativePath::parse(&format!("{PURGE_RECORD_DIRECTORY}/{digest:x}.rec"))
 }
 
 /// Encodes one tombstone into the workspace's framed checksum envelope.

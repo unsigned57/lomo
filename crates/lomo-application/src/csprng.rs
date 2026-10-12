@@ -1,5 +1,3 @@
-use std::fmt::Write as _;
-
 use lomo_core::LomoError;
 use lomo_workspace::MemoId;
 
@@ -26,11 +24,7 @@ pub fn fill_csprng(buf: &mut [u8]) -> Result<(), LomoError> {
 pub fn generate_hex_token(byte_count: usize) -> Result<String, LomoError> {
     let mut bytes = vec![0_u8; byte_count];
     fill_csprng(&mut bytes)?;
-    let mut hex = String::with_capacity(byte_count.saturating_mul(2));
-    for b in bytes {
-        write!(hex, "{b:02x}").map_err(|err| storage("fmt_write_failed", format!("{err}")))?;
-    }
-    Ok(hex)
+    Ok(lomo_core::hex_encode(&bytes))
 }
 
 /// Generates a stable, CSPRNG-minted `MemoId` with standard prefix `m_`.

@@ -57,20 +57,14 @@ mod tests {
         prepare_sync_apply, run_rebuild, sync_local_write_authority, verify_platform_results,
     };
     use lomo_workspace::{
-        LomoPaths, WorkspaceGenerationId, load_or_mint_workspace_generation,
+        WorkspaceGenerationId, WorkspaceLayout, load_or_mint_workspace_generation,
         load_workspace_generation, mint_new_workspace_generation,
     };
     use sha2::{Digest, Sha256};
     use tempfile::tempdir;
 
     fn hex_digest(bytes: &[u8]) -> String {
-        use std::fmt::Write as _;
-        let digest = Sha256::digest(bytes);
-        let mut out = String::with_capacity(64);
-        for byte in &digest {
-            write!(out, "{byte:02x}").expect("write");
-        }
-        out
+        format!("{:x}", Sha256::digest(bytes))
     }
 
     fn open_with_generation(root: &std::path::Path) -> Store {
@@ -108,7 +102,9 @@ mod tests {
             .expect_err("missing generation must not mint");
         assert_eq!(err.code(), "workspace_generation_missing");
         assert!(
-            !LomoPaths::generation_record_path(root).exists(),
+            !WorkspaceLayout::for_workspace(root)
+                .generation_record
+                .exists(),
             "read-side snapshot must not persist a minted generation"
         );
     }

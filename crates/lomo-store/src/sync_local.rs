@@ -1130,7 +1130,9 @@ fn verify_memo_file_fingerprint(
     expected: &str,
 ) -> Result<(), LomoError> {
     validate_memo_id_for_sync(memo_id)?;
-    let path = workspace_root.join("memos").join(format!("{memo_id}.md"));
+    let path = workspace_root
+        .join(lomo_workspace::MEMO_ROOT_NAME)
+        .join(format!("{memo_id}.md"));
     let content = std::fs::read_to_string(&path).map_err(|err| {
         conflict(
             "sync_expected_fingerprint_mismatch",
@@ -1151,15 +1153,7 @@ fn verify_memo_file_fingerprint(
 }
 
 fn hex_digest(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    let digest = Sha256::digest(bytes);
-    let mut out = String::with_capacity(digest.len() * 2);
-    for byte in &digest {
-        match write!(out, "{byte:02x}") {
-            Ok(()) | Err(_) => {}
-        }
-    }
-    out
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 /// Reads current `content_revision` for a memo (`None` when absent).

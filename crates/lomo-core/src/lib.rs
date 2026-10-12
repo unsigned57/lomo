@@ -2,6 +2,7 @@
 
 mod engine;
 mod error;
+mod hex;
 mod io;
 mod job;
 mod native_task;
@@ -14,6 +15,7 @@ pub use engine::{
     ShutdownDeadline, ShutdownOutcome, Subscription,
 };
 pub use error::{ErrorCategory, LomoError, RetryDisposition};
+pub use hex::hex_encode;
 pub use io::{BoundedReadError, read_bounded, read_bounded_reader};
 pub use job::{
     DriverAdvance, DriverStart, JobDriver, JobDriverContext, JobDriverKind, JobDriverRegistry,

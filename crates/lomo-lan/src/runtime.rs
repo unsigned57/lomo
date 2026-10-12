@@ -13,7 +13,7 @@ use std::time::Duration;
 use crate::journal::LanStagedPayload;
 use aws_lc_rs::agreement;
 use aws_lc_rs::rand::{SecureRandom, SystemRandom};
-use lomo_core::{ErrorCategory, LomoError};
+use lomo_core::{ErrorCategory, LomoError, hex_encode};
 use sha2::{Digest, Sha256};
 
 use crate::batch::{
@@ -57,7 +57,7 @@ impl LanPairingId {
                 "secure random generation failed for the pairing identity",
             )
         })?;
-        Ok(Self(hex_bytes(&bytes)))
+        Ok(Self(hex_encode(&bytes)))
     }
 
     /// Parses a pairing identity received from the v2 wire.
@@ -3942,7 +3942,7 @@ fn generate_session_id() -> Result<LanSessionId, LomoError> {
             "secure random generation failed for the session identity",
         )
     })?;
-    LanSessionId::parse(&hex_bytes(&bytes))
+    LanSessionId::parse(&hex_encode(&bytes))
 }
 
 fn assert_before_deadline(
@@ -4602,34 +4602,4 @@ fn chunk_wire_invalid() -> LomoError {
         "lan_chunk_wire_invalid",
         "chunk payload is truncated or malformed",
     )
-}
-
-fn hex_bytes(bytes: &[u8]) -> String {
-    let mut encoded = String::with_capacity(bytes.len().saturating_mul(2));
-    for byte in bytes {
-        encoded.push(hex_nibble(byte >> 4));
-        encoded.push(hex_nibble(byte & 0x0f));
-    }
-    encoded
-}
-
-const fn hex_nibble(value: u8) -> char {
-    match value {
-        0 => '0',
-        1 => '1',
-        2 => '2',
-        3 => '3',
-        4 => '4',
-        5 => '5',
-        6 => '6',
-        7 => '7',
-        8 => '8',
-        9 => '9',
-        10 => 'a',
-        11 => 'b',
-        12 => 'c',
-        13 => 'd',
-        14 => 'e',
-        _ => 'f',
-    }
 }
