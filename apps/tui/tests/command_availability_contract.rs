@@ -2357,10 +2357,11 @@ mod tests {
 
     #[test]
     fn every_failure_intent_lands_on_its_badge_class() {
-        let classes: [(PendingKind, BadgeClass); 6] = [
+        let classes: [(PendingKind, BadgeClass); 7] = [
             (PendingKind::Mutation, BadgeClass::Action),
             (PendingKind::Quit, BadgeClass::Action),
             (PendingKind::Maintenance, BadgeClass::Sync),
+            (PendingKind::Sweep, BadgeClass::Sync),
             (PendingKind::ConfigReload, BadgeClass::Sync),
             (PendingKind::Attachment, BadgeClass::Player),
             (PendingKind::DraftCommit { revision: 1 }, BadgeClass::Draft),
@@ -2420,6 +2421,41 @@ mod tests {
                 "{kind:?} failure still leaves a status trace"
             );
         }
+    }
+
+    /// P-55: the periodic media sweep is its own pending kind — a sweep
+    /// failure must name the sweep on the shared `Sync` badge, not relabel
+    /// it as a failed refresh.
+    #[test]
+    fn a_sweep_failure_badges_the_sweep_not_a_refresh() {
+        let mut model = feed_model(2);
+        let req = model.request(PendingKind::Sweep);
+        let effect = apply_message(
+            &mut model,
+            RuntimeMessage::Failed {
+                req,
+                diagnostic: "draft_evidence_corrupt".to_owned(),
+            },
+        );
+        assert!(effect.is_none());
+        let strings = UiStrings::detect();
+        let sweep_title = strings.text("Media sweep failed", "媒体清理失败");
+        let refresh_title = strings.text("Refresh failed", "刷新失败");
+        let badge = model
+            .badges
+            .iter()
+            .find(|badge| badge.class == BadgeClass::Sync)
+            .expect("a sweep failure raises the Sync badge");
+        assert!(
+            badge.text.contains(sweep_title),
+            "the badge names the failing unit: {}",
+            badge.text
+        );
+        assert!(
+            !badge.text.contains(refresh_title),
+            "a sweep failure is not a refresh failure: {}",
+            badge.text
+        );
     }
 
     #[test]

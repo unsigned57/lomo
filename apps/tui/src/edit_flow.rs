@@ -24,10 +24,10 @@ pub fn complete_edit<R: CommandRunner>(
     // Config edits draft as `.toml` so editors pick the right syntax mode.
     let path = match target {
         EditTarget::Config => {
-            draft_path(&runtime.paths.drafts_dir, operation.as_str()).with_extension("toml")
+            draft_path(&runtime.paths.capture_dir, operation.as_str()).with_extension("toml")
         }
         EditTarget::Capture | EditTarget::Memo { .. } => {
-            draft_path(&runtime.paths.drafts_dir, operation.as_str())
+            draft_path(&runtime.paths.capture_dir, operation.as_str())
         }
     };
     let initial = match target {

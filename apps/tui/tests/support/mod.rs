@@ -119,7 +119,7 @@ pub fn runtime_at(
         state_dir: root.join("state"),
         cache_dir: root.join("cache"),
         runtime_dir: root.join("run"),
-        drafts_dir: root.join("state/drafts"),
+        capture_dir: root.join("state/capture"),
         exchange_dir: root.join("state/exchange"),
         default_workspace: None,
         home_dir: Some(root.join("home")),

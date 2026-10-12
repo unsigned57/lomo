@@ -145,9 +145,12 @@ pub fn run_editor<R: CommandRunner>(
     Ok(fs::read_to_string(draft_path)?)
 }
 
+/// The per-operation editor draft path inside the TUI's private draft
+/// workspace (`capture_dir`) — never `state_dir/drafts`, which is the
+/// session's evidence store.
 #[must_use]
-pub fn draft_path(drafts_dir: &Path, operation_id: &str) -> PathBuf {
-    drafts_dir.join(format!("{operation_id}.md"))
+pub fn draft_path(draft_dir: &Path, operation_id: &str) -> PathBuf {
+    draft_dir.join(format!("{operation_id}.md"))
 }
 
 fn nonempty(value: Option<&str>) -> Option<&str> {

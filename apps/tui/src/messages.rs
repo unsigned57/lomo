@@ -174,6 +174,7 @@ fn land(
         | PendingKind::History { .. }
         | PendingKind::Date { .. }
         | PendingKind::Maintenance
+        | PendingKind::Sweep
         | PendingKind::Mutation
         | PendingKind::Attachment
         | PendingKind::ConfigReload
@@ -382,10 +383,9 @@ const fn clears_badge(intent: &PendingKind, receipt: &RuntimeMessage) -> Option<
         (PendingKind::Attachment, RuntimeMessage::Message { .. }) => Some(BadgeClass::Player),
         (
             PendingKind::Maintenance,
-            RuntimeMessage::Reconciled { .. }
-            | RuntimeMessage::MediaSweepDone { .. }
-            | RuntimeMessage::Changed { .. },
+            RuntimeMessage::Reconciled { .. } | RuntimeMessage::Changed { .. },
         )
+        | (PendingKind::Sweep, RuntimeMessage::MediaSweepDone { .. })
         | (PendingKind::ConfigReload, RuntimeMessage::ConfigApplied { .. }) => {
             Some(BadgeClass::Sync)
         }
@@ -461,7 +461,7 @@ fn land_state(
             }
         }
         (
-            PendingKind::Maintenance,
+            PendingKind::Sweep,
             RuntimeMessage::MediaSweepDone {
                 moved,
                 purged,
@@ -758,6 +758,7 @@ fn land_failure(
         | PendingKind::Date { dialog: false }
         | PendingKind::Mutation
         | PendingKind::Maintenance
+        | PendingKind::Sweep
         | PendingKind::Attachment
         | PendingKind::ConfigReload
         | PendingKind::Image
@@ -813,6 +814,12 @@ fn failure_badge(intent: &PendingKind) -> Option<(BadgeClass, &'static str)> {
             s.text("Could not open the attachment", "无法打开附件"),
         ),
         PendingKind::Maintenance => (BadgeClass::Sync, s.text("Refresh failed", "刷新失败")),
+        // The sweep is its own unit — a `draft_evidence_corrupt` from media
+        // housekeeping must never be mislabeled as a failed F5/reconcile.
+        PendingKind::Sweep => (
+            BadgeClass::Sync,
+            s.text("Media sweep failed", "媒体清理失败"),
+        ),
         PendingKind::ConfigReload => (
             BadgeClass::Sync,
             s.text("Config reload failed", "配置重载失败"),

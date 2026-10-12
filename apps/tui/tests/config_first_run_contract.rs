@@ -77,7 +77,7 @@ mod tests {
         },
         ops::{BootstrapSpec, LaunchConfig, RuntimeSlot, bootstrap, bootstrap_model, execute},
         update::apply_command,
-        xdg::{EnvLookup, RuntimePaths, initialized_workspace, mark_initialized, resolve_paths},
+        xdg::{HostDirs, RuntimePaths, initialized_workspace, mark_initialized, resolve_paths},
     };
     #[cfg(unix)]
     use std::os::unix::process::ExitStatusExt;
@@ -95,7 +95,7 @@ mod tests {
     fn paths_in(dir: &Path, default_workspace: Option<PathBuf>) -> RuntimePaths {
         RuntimePaths {
             config_dir: dir.join("cfg"),
-            drafts_dir: dir.join("drafts"),
+            capture_dir: dir.join("capture"),
             exchange_dir: dir.join("ex"),
             state_dir: dir.join("state"),
             cache_dir: dir.join("cache"),
@@ -970,8 +970,16 @@ mod tests {
         let notice = model.notice.clone().expect("the refusal is presented");
         assert_eq!(notice.surface, Surface::Modal);
         assert!(
-            notice.lines.iter().any(|line| line.contains("draft")),
+            notice.title.contains("draft retained"),
             "the modal names the retained draft: {:?}",
+            notice.title
+        );
+        assert!(
+            notice
+                .lines
+                .iter()
+                .any(|line| line.contains("op-") && line.contains(".toml")),
+            "the modal carries the retained draft's path: {:?}",
             notice.lines
         );
         assert_eq!(
@@ -1398,7 +1406,7 @@ mod tests {
     fn corrupt_capture_is_set_aside_with_evidence() {
         let fixture = RuntimeFixture::new().expect("fixture");
         let path = capture_path(&fixture.runtime).expect("capture path");
-        std::fs::create_dir_all(path.parent().expect("parent")).expect("drafts dir");
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("capture dir");
         let garbage = b"{\"schema\":1, oops not json".to_vec();
         std::fs::write(&path, &garbage).expect("corrupt capture");
         let loaded = load_capture(&fixture.runtime).expect("corrupt must recover");
@@ -1427,7 +1435,7 @@ mod tests {
     fn future_schema_capture_is_set_aside_not_bricked() {
         let fixture = RuntimeFixture::new().expect("fixture");
         let path = capture_path(&fixture.runtime).expect("capture path");
-        std::fs::create_dir_all(path.parent().expect("parent")).expect("drafts dir");
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("capture dir");
         std::fs::write(
             &path,
             b"{\"schema\":2,\"revision\":1,\"content\":\"next\",\"phase\":{\"state\":\"editing\"}}",
@@ -1445,7 +1453,7 @@ mod tests {
     fn every_corruption_preserves_its_backup() {
         let fixture = RuntimeFixture::new().expect("fixture");
         let path = capture_path(&fixture.runtime).expect("capture path");
-        std::fs::create_dir_all(path.parent().expect("parent")).expect("drafts dir");
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("capture dir");
         std::fs::write(&path, b"first garbage").expect("corrupt #1");
         let first = load_capture(&fixture.runtime)
             .expect("recovery #1")
@@ -1494,7 +1502,7 @@ mod tests {
         }
     }
 
-    /// A corrupt capture that cannot be moved aside — the drafts directory
+    /// A corrupt capture that cannot be moved aside — the capture directory
     /// read-only — must fail loudly and honestly, naming both problems; it
     /// must never silently keep the corrupt file as the live draft.
     #[cfg(unix)]
@@ -1502,7 +1510,7 @@ mod tests {
     fn an_unsettable_aside_corrupt_capture_fails_loudly() {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
         let fixture = RuntimeFixture::new().expect("fixture");
-        if std::fs::metadata(&fixture.runtime.paths.drafts_dir)
+        if std::fs::metadata(&fixture.runtime.paths.capture_dir)
             .expect("metadata")
             .uid()
             == 0
@@ -1512,13 +1520,13 @@ mod tests {
         let path = capture_path(&fixture.runtime).expect("capture path");
         std::fs::write(&path, b"garbage").expect("corrupt capture");
         std::fs::set_permissions(
-            &fixture.runtime.paths.drafts_dir,
+            &fixture.runtime.paths.capture_dir,
             std::fs::Permissions::from_mode(0o500),
         )
-        .expect("read-only drafts");
+        .expect("read-only capture dir");
         let outcome = load_capture(&fixture.runtime);
         std::fs::set_permissions(
-            &fixture.runtime.paths.drafts_dir,
+            &fixture.runtime.paths.capture_dir,
             std::fs::Permissions::from_mode(0o700),
         )
         .expect("restore");
@@ -1543,7 +1551,7 @@ mod tests {
     fn corrupt_capture_notice_is_a_modal_the_user_must_see() {
         let fixture = RuntimeFixture::new().expect("fixture");
         let path = capture_path(&fixture.runtime).expect("capture path");
-        std::fs::create_dir_all(path.parent().expect("parent")).expect("drafts dir");
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("capture dir");
         std::fs::write(&path, b"garbage").expect("corrupt capture");
         let model = bootstrap_model(&fixture.runtime, AppModel::new(80, 24)).expect("boot model");
         let notice = model
@@ -1567,30 +1575,22 @@ mod tests {
 
     // ---------- xdg / misc contracts ----------
 
-    /// A relative XDG override is ignored (spec-compliant) — but only by
-    /// falling back to the platform default, never by anchoring to the cwd.
+    /// A relative host base violates the base-dir spec — required bases fail
+    /// closed rather than anchoring to the cwd.
     #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
-    fn relative_xdg_values_fall_back_not_sideways() {
-        let paths = resolve_paths(EnvLookup {
-            home: Some("/home/u"),
-            config: Some("relative/cfg"),
-            state: Some("../state"),
-            cache: None,
-            runtime: Some("/run/user/1"),
-            data: None,
-            appdata: None,
-            localappdata: None,
+    fn relative_host_bases_fail_closed_not_sideways() {
+        let error = resolve_paths(&HostDirs {
+            home: Some(PathBuf::from("/home/u")),
+            config: Some(PathBuf::from("relative/cfg")),
+            state: Some(PathBuf::from("../state")),
+            runtime: Some(PathBuf::from("/run/user/1")),
+            ..HostDirs::default()
         })
-        .expect("resolve");
-        assert!(paths.config_dir.is_absolute());
-        assert!(paths.state_dir.is_absolute());
+        .expect_err("relative bases");
         assert!(
-            paths.config_dir.starts_with("/home/u") && paths.state_dir.starts_with("/home/u"),
-            "ignored overrides must fall back to the platform default, not \
-             sideways into the cwd: {:?} {:?}",
-            paths.config_dir,
-            paths.state_dir
+            matches!(error, TuiError::Config { .. }),
+            "rejected bases must surface as a config error, not sideways paths: {error}"
         );
     }
 

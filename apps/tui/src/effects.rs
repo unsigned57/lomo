@@ -210,7 +210,7 @@ pub enum Effect {
     },
     /// Session-owned media orphan sweep (D-12). `drafts` carries the
     /// compose buffer snapshot; the lane additionally guards every editor
-    /// draft file under `drafts_dir` so a sweep can never reclaim media an
+    /// draft file under `capture_dir` so a sweep can never reclaim media an
     /// unsaved draft references.
     MediaSweep {
         req: Req,
@@ -437,7 +437,7 @@ pub enum RuntimeMessage {
         verdict: crate::graphics::GraphicsVerdict,
     },
     /// The media orphan sweep completed; counters keep housekeeping visible
-    /// without a modal. A `Maintenance` receipt.
+    /// without a modal. A `Sweep` receipt.
     MediaSweepDone {
         req: Req,
         moved: u64,

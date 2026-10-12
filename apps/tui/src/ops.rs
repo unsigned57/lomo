@@ -258,11 +258,16 @@ pub fn open_runtime(paths: RuntimePaths, config: AppConfig) -> Result<TuiRuntime
         &paths.cache_dir,
         &paths.runtime_dir,
         &paths.exchange_dir,
-        &paths.drafts_dir,
+        &paths.capture_dir,
         &paths.config_dir,
     ] {
         crate::drafts::private_directory(dir)?;
     }
+    // One-time relocation (P-55): legacy `drafts/capture-*`/`op-*` journal and
+    // editor-draft stock moves into `capture_dir`; `state_dir/drafts` stays
+    // exclusively the session's conflict-evidence store. Marker-gated — it
+    // never re-runs as a per-launch pass.
+    crate::drafts::migrate_capture_journal(&paths)?;
     // Opening an existing library never materializes one: first-run minting is
     // the distinct create action. A missing workspace means a wrong path.
     if !config.workspace.is_dir() {
@@ -769,7 +774,7 @@ fn open_attachment(
 
 /// The two-phase media orphan sweep (D-12). The effect's `drafts` carry the
 /// UI-owned compose buffer; every `*.md` editor draft still sitting under
-/// `drafts_dir` is added as a guard so a sweep can never reclaim media an
+/// `capture_dir` is added as a guard so a sweep can never reclaim media an
 /// open `$EDITOR` session references. Guard bodies are projected inside the
 /// session's sweep lock — nothing is persisted by guarding.
 /// # Errors
@@ -779,7 +784,7 @@ fn media_sweep(
     req: crate::model::Req,
     drafts: &[lomo_application::GuardedDraftBody],
 ) -> Result<RuntimeMessage, TuiError> {
-    let mut guarded = editor_draft_guards(&runtime.paths.drafts_dir)?;
+    let mut guarded = editor_draft_guards(&runtime.paths.capture_dir)?;
     guarded.extend(drafts.iter().cloned());
     let now = u64::try_from(now_ms()?)
         .map_err(|error| TuiError::io(format!("negative clock: {error}")))?;
@@ -797,18 +802,19 @@ fn media_sweep(
 }
 
 /// Snapshot every external-editor draft body as a sweep guard. The draft
-/// files live outside the Rust draft store — without these guards a sweep
-/// could trash media a not-yet-committed edit still references.
+/// files live in the TUI-private `capture_dir`, outside the session's Rust
+/// draft store — without these guards a sweep could trash media a
+/// not-yet-committed edit still references.
 /// # Errors
 /// An unreadable directory or draft file aborts the sweep rather than
 /// silently dropping that draft's protection.
 fn editor_draft_guards(
-    drafts_dir: &Path,
+    draft_dir: &Path,
 ) -> Result<Vec<lomo_application::GuardedDraftBody>, TuiError> {
     let mut guards = Vec::new();
-    let entries = match std::fs::read_dir(drafts_dir) {
+    let entries = match std::fs::read_dir(draft_dir) {
         Ok(entries) => entries,
-        // No drafts directory means no editor drafts — an empty guard set is
+        // No draft directory means no editor drafts — an empty guard set is
         // the honest answer, not an error.
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(guards),
         Err(error) => return Err(TuiError::from(error)),

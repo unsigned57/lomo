@@ -307,7 +307,7 @@ mod tests {
                 .expect("fixture and operation must succeed")
                 .contains("concurrent change")
         );
-        let retained = fs::read_dir(&fixture.runtime.paths.drafts_dir)
+        let retained = fs::read_dir(&fixture.runtime.paths.capture_dir)
             .expect("fixture and operation must succeed")
             .map(|entry| entry.map(|entry| entry.path()))
             .collect::<Result<Vec<_>, _>>()

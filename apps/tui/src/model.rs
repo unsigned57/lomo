@@ -328,6 +328,9 @@ pub enum PendingKind {
     Mutation,
     /// A projection reconcile/refresh cycle (watcher batch, focus regain, F5).
     Maintenance,
+    /// The periodic media orphan sweep — a maintenance-lane job whose failure
+    /// badge names the sweep itself, never a refresh (P-55).
+    Sweep,
     /// A config.toml re-read + hot apply (`ReloadConfig`/`SaveSetting`); the
     /// reply is `ConfigApplied` naming which fields landed live and which
     /// still await a restart.

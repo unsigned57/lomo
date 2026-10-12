@@ -47,8 +47,77 @@ pub fn capture_path(runtime: &TuiRuntime) -> Result<PathBuf, TuiError> {
     let digest = format!("{:x}", Sha256::digest(identity.as_bytes()));
     Ok(runtime
         .paths
-        .drafts_dir
+        .capture_dir
         .join(format!("capture-{digest}.json")))
+}
+
+/// One-time migration marker under `state_dir` (next to `initialized`): the
+/// capture journal lived in `state_dir/drafts` before the TUI draft files
+/// were relocated into `state_dir/capture`.
+const CAPTURE_MIGRATION_MARKER: &str = "capture-migrated";
+
+/// One-time startup migration, gated by `CAPTURE_MIGRATION_MARKER`.
+///
+/// The marker is the commit record — written only after the drain completes,
+/// so a crash mid-drain simply resumes on the next launch; a present marker
+/// means the check never scans again.
+///
+/// `state_dir/drafts` belongs to the session's `DraftStore` — every `*.json`
+/// inside it must decode as conflict evidence or the media protection scan
+/// fails closed. Before the relocation the TUI wrote its capture journal
+/// (`capture-*.json`, plus `.corrupt` forensic backups and interrupted `*.tmp`
+/// writes) and its external-editor drafts (`op-*.md`/`op-*.toml`) into that
+/// same directory. The drain moves only these unambiguously TUI-owned names.
+///
+/// `op-*.json` never moves: the session writes real conflict evidence under
+/// the same operation-id stem a memo edit uses, and telling the two apart
+/// would need a content sniff — a compat read this change does not add. A
+/// TUI-authored sidecar left behind keeps failing the evidence scan loudly,
+/// which is the designed fail-closed answer for foreign JSON.
+///
+/// # Errors
+/// Listing, rename or marker-write failures surface visibly; the absent
+/// marker keeps the next launch eligible to finish the drain.
+pub fn migrate_capture_journal(paths: &crate::xdg::RuntimePaths) -> Result<(), TuiError> {
+    let marker = paths.state_dir.join(CAPTURE_MIGRATION_MARKER);
+    if marker.exists() {
+        return Ok(());
+    }
+    let legacy = lomo_workspace::SessionStateLayout::for_state_dir(&paths.state_dir).drafts;
+    let mut drained = Vec::new();
+    match fs::read_dir(&legacy) {
+        Ok(entries) => {
+            for entry in entries {
+                let entry = entry?;
+                let owned = entry.file_name().to_str().is_some_and(|name| {
+                    name.starts_with("capture-")
+                        || (name.starts_with("op-")
+                            && entry.path().extension().is_some_and(|ext| {
+                                ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("toml")
+                            }))
+                });
+                if owned {
+                    drained.push(entry.file_name());
+                }
+            }
+        }
+        // No legacy drafts directory means no pre-relocation state — a fresh
+        // install still records the marker so the check stays one-shot.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    if !drained.is_empty() {
+        private_directory(&paths.capture_dir)?;
+        for name in drained {
+            fs::rename(legacy.join(&name), paths.capture_dir.join(&name))?;
+        }
+        sync_dir(&paths.capture_dir)?;
+        sync_dir(&legacy)?;
+    }
+    // Commit point: the marker exists only once every byte moved. Atomic
+    // write so a torn marker can never mask an unfinished drain.
+    atomic_write(&marker, b"1\n")?;
+    Ok(())
 }
 
 fn read_capture(runtime: &TuiRuntime) -> Result<Option<CaptureRecord>, TuiError> {

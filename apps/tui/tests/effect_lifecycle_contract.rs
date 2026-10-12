@@ -140,7 +140,7 @@ mod tests {
         let mut model = model_with_memos(1, 80, 24).expect("fixture");
         let memo = model.selected_memo().expect("memo").clone();
         let before: usize =
-            fs::read_dir(&fixture.runtime.paths.drafts_dir).map_or(0, Iterator::count);
+            fs::read_dir(&fixture.runtime.paths.capture_dir).map_or(0, Iterator::count);
         let target = EditTarget::Memo {
             id: memo.id.clone(),
             fingerprint: memo.fingerprint,
@@ -163,8 +163,8 @@ mod tests {
             model.notice.is_some(),
             "the retained-draft notice names the evidence path"
         );
-        let mut drafts = fs::read_dir(&fixture.runtime.paths.drafts_dir)
-            .expect("drafts dir")
+        let mut drafts = fs::read_dir(&fixture.runtime.paths.capture_dir)
+            .expect("capture dir")
             .map(|entry| {
                 entry
                     .expect("entry")
