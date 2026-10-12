@@ -2,6 +2,7 @@
 
 use crate::error::validation;
 use lomo_core::LomoError;
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use url::Url;
 
 /// S3 addressing style for Stage-5 custom endpoints.
@@ -204,7 +205,7 @@ impl S3Endpoint {
         );
         let encoded_key = key
             .split('/')
-            .map(percent_encode_segment)
+            .map(|segment| utf8_percent_encode(segment, UNRESERVED_ENCODE_SET).to_string())
             .collect::<Vec<_>>()
             .join("/");
         let path = format!("{}/{}", self.bucket, encoded_key);
@@ -337,27 +338,12 @@ fn normalize_relative(raw: &str) -> Result<String, LomoError> {
     Ok(trimmed.to_owned())
 }
 
-fn percent_encode_segment(segment: &str) -> String {
-    let mut out = String::with_capacity(segment.len());
-    for byte in segment.as_bytes() {
-        match *byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(char::from(*byte));
-            }
-            _ => {
-                out.push('%');
-                out.push(hex_digit(byte >> 4));
-                out.push(hex_digit(byte & 0x0f));
-            }
-        }
-    }
-    out
-}
-
-fn hex_digit(nibble: u8) -> char {
-    match nibble {
-        0..=9 => char::from(b'0' + nibble),
-        10..=15 => char::from(b'A' + (nibble - 10)),
-        _ => '0',
-    }
-}
+/// RFC 3986 `unreserved` encode surface — the single byte law shared by S3 object-key
+/// segments (`object_url`) and `SigV4` canonical query pairs (`s3::sigv4`): bytes
+/// `A-Z a-z 0-9 - _ . ~` stay literal; every other byte — including all non-ASCII
+/// UTF-8 bytes, which `utf8_percent_encode` always encodes — emits uppercase `%XX`.
+pub const UNRESERVED_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'_')
+    .remove(b'.')
+    .remove(b'~');

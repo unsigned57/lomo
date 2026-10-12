@@ -2,6 +2,7 @@
 
 use crate::error::validation;
 use lomo_core::LomoError;
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
 use url::Url;
 
 /// Normalized `WebDAV` collection root (always ends with `/`, no fragment/query secrets).
@@ -98,7 +99,7 @@ impl WebDavEndpoint {
             // Encode each segment so Unicode paths round-trip safely.
             let encoded = trimmed
                 .split('/')
-                .map(percent_encode_segment)
+                .map(|segment| utf8_percent_encode(segment, SEGMENT_ENCODE_SET).to_string())
                 .collect::<Vec<_>>()
                 .join("/");
             self.root.join(&encoded).map_err(|_error| {
@@ -189,7 +190,14 @@ impl WebDavEndpoint {
         // segment cannot invent a second path hierarchy (path-collision fail-closed).
         let mut decoded_segments = Vec::with_capacity(relative_encoded.len());
         for segment in relative_encoded {
-            let decoded = percent_decode_path(&segment)?;
+            let decoded = percent_decode_str(&segment)
+                .decode_utf8()
+                .map_err(|_error| {
+                    validation(
+                        "webdav_href_invalid_utf8",
+                        "webdav href percent-decoding must yield valid UTF-8",
+                    )
+                })?;
             if decoded.is_empty()
                 || decoded == ".."
                 || decoded.contains('/')
@@ -201,7 +209,7 @@ impl WebDavEndpoint {
                     "webdav href segment percent-decoding must not invent path separators or parent segments",
                 ));
             }
-            decoded_segments.push(decoded);
+            decoded_segments.push(decoded.into_owned());
         }
         Ok(decoded_segments.join("/"))
     }
@@ -269,95 +277,23 @@ fn path_segments(url: &Url) -> Vec<String> {
         .collect()
 }
 
-fn percent_encode_segment(segment: &str) -> String {
-    let mut out = String::with_capacity(segment.len());
-    for byte in segment.as_bytes() {
-        match *byte {
-            b'A'..=b'Z'
-            | b'a'..=b'z'
-            | b'0'..=b'9'
-            | b'-'
-            | b'_'
-            | b'.'
-            | b'~'
-            | b'!'
-            | b'$'
-            | b'\''
-            | b'('
-            | b')'
-            | b'*'
-            | b'+'
-            | b','
-            | b';'
-            | b'='
-            | b':'
-            | b'@' => out.push(char::from(*byte)),
-            _ => {
-                out.push('%');
-                out.push(hex_digit(byte >> 4));
-                out.push(hex_digit(byte & 0x0f));
-            }
-        }
-    }
-    out
-}
-
-fn hex_digit(nibble: u8) -> char {
-    match nibble {
-        0..=9 => char::from(b'0' + nibble),
-        10..=15 => char::from(b'A' + (nibble - 10)),
-        _ => '0',
-    }
-}
-
-fn percent_decode_path(path: &str) -> Result<String, LomoError> {
-    let bytes = path.as_bytes();
-    let mut raw = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes.get(index) {
-            Some(b'%') => {
-                let a = *bytes.get(index + 1).ok_or_else(|| {
-                    validation(
-                        "webdav_href_bad_percent",
-                        "webdav href contains an incomplete percent-encoding sequence",
-                    )
-                })?;
-                let b = *bytes.get(index + 2).ok_or_else(|| {
-                    validation(
-                        "webdav_href_bad_percent",
-                        "webdav href contains an incomplete percent-encoding sequence",
-                    )
-                })?;
-                if !(a.is_ascii_hexdigit() && b.is_ascii_hexdigit()) {
-                    return Err(validation(
-                        "webdav_href_bad_percent",
-                        "webdav href contains an incomplete percent-encoding sequence",
-                    ));
-                }
-                raw.push((hex_val(a) << 4) | hex_val(b));
-                index += 3;
-            }
-            Some(byte) => {
-                raw.push(*byte);
-                index += 1;
-            }
-            None => break,
-        }
-    }
-    String::from_utf8(raw).map_err(|_error| {
-        validation(
-            "webdav_href_invalid_utf8",
-            "webdav href percent-decoding must yield valid UTF-8",
-        )
-    })
-}
-
-const fn hex_val(byte: u8) -> u8 {
-    match byte {
-        b'0'..=b'9' => byte - b'0',
-        b'a'..=b'f' => byte - b'a' + 10,
-        b'A'..=b'F' => byte - b'A' + 10,
-        _ => 0,
-    }
-}
+/// `WebDAV` path-segment encode surface: `unreserved` (`A-Z a-z 0-9 - _ . ~`) plus the
+/// legacy-kept sub-delims/delims `! $ ' ( ) * + , ; = : @` stay literal; every other
+/// byte — including `&`, `/`, `?` and all non-ASCII UTF-8 — emits uppercase `%XX`.
+const SEGMENT_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'_')
+    .remove(b'.')
+    .remove(b'~')
+    .remove(b'!')
+    .remove(b'$')
+    .remove(b'\'')
+    .remove(b'(')
+    .remove(b')')
+    .remove(b'*')
+    .remove(b'+')
+    .remove(b',')
+    .remove(b';')
+    .remove(b'=')
+    .remove(b':')
+    .remove(b'@');
