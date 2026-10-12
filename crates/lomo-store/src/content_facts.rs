@@ -7,7 +7,9 @@
 use sha2::{Digest, Sha256};
 
 use lomo_core::LomoError;
-use lomo_workspace::{MemoIdentity, SourceBytes, is_audio_attachment_destination, render_markdown};
+use lomo_workspace::{
+    MediaClass, MemoIdentity, SourceBytes, attachment_media_class, render_markdown,
+};
 
 use crate::error::validation;
 
@@ -21,7 +23,9 @@ pub struct ContentFacts {
     /// canonical form; destinations that do not name a workspace file (external URLs, anchors)
     /// stay raw and are distinguishable via `is_external_attachment_destination`.
     pub attachment_paths: Vec<String>,
-    /// Non-audio attachment destinations for list/gallery image URLs.
+    /// Non-audio attachment destinations for list/gallery image URLs, classified by the
+    /// workspace attachment-media owner — membership is the non-audio set; image-ness is
+    /// judged fail-closed at render time.
     pub image_urls: Vec<String>,
 }
 
@@ -45,7 +49,7 @@ pub fn project_content_facts(content: &str) -> Result<ContentFacts, LomoError> {
         .collect();
     let image_urls = attachment_paths
         .iter()
-        .filter(|path| !is_audio_attachment_destination(path))
+        .filter(|path| attachment_media_class(path) != MediaClass::Audio)
         .cloned()
         .collect();
     let mut tags = doc.tag_names().to_vec();
@@ -146,7 +150,7 @@ pub fn merge_tags(
 /// Hex SHA-256 of content bytes (memo file fingerprint authority).
 #[must_use]
 pub fn fingerprint_content(content: &str) -> String {
-    hex_encode(&Sha256::digest(content.as_bytes()))
+    format!("{:x}", Sha256::digest(content.as_bytes()))
 }
 
 /// Maximum character budget for the list-row body preview.
@@ -235,19 +239,5 @@ pub fn aggregate_memo_digest(pairs: &[(String, String)]) -> String {
         hasher.update(fingerprint.as_bytes());
         hasher.update(b"\n");
     }
-    hex_encode(&hasher.finalize())
-}
-
-/// Canonical attachment keys are owned by `lomo_workspace` (`canonical_attachment_path`,
-/// `canonical_attachment_keys`); this module consumes that authority rather than re-implementing
-/// the spelling law.
-pub fn hex_encode(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        match write!(out, "{byte:02x}") {
-            Ok(()) | Err(_) => {}
-        }
-    }
-    out
+    format!("{:x}", hasher.finalize())
 }

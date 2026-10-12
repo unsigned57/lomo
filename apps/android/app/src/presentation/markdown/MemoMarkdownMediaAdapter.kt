@@ -1,7 +1,7 @@
 package com.lomo.app.presentation.markdown
 
 import androidx.compose.runtime.Composable
-import com.lomo.domain.model.MediaFileExtensions
+import com.lomo.domain.model.MediaClass
 import com.lomo.ui.component.markdown.MarkdownMediaPresentation
 import com.lomo.ui.component.markdown.MarkdownMediaPresentationAdapter
 import com.lomo.ui.component.markdown.MarkdownMediaPresentationResolver
@@ -10,7 +10,7 @@ import com.lomo.ui.component.media.AudioPlayerCard
 private const val MEMO_MARKDOWN_AUDIO_KIND = "audio"
 
 val MemoMarkdownMediaPresentationResolver: MarkdownMediaPresentationResolver = { image ->
-    if (MediaFileExtensions.hasAudioExtension(image.destination)) {
+    if (image.mediaClass == MediaClass.AUDIO) {
         MarkdownMediaPresentation(
             source = image.destination,
             description = image.description,

@@ -1,6 +1,6 @@
 package com.lomo.app.util
 
-import com.lomo.domain.model.MediaFileExtensions
+import com.lomo.domain.model.MediaClass
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownRenderInline
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
@@ -15,7 +15,7 @@ internal fun countShareCardImageSlots(document: MarkdownRenderDocument): Int {
         inlines.forEach { inline ->
             when (inline) {
                 is MarkdownRenderInline.Image -> {
-                    if (!MediaFileExtensions.hasAudioExtension(inline.destination)) {
+                    if (inline.mediaClass == MediaClass.IMAGE) {
                         count++
                     }
                 }
@@ -48,9 +48,7 @@ internal fun countShareCardImageSlots(document: MarkdownRenderDocument): Int {
     // Prefer IR image nodes; fall back to attachment destinations when blocks omit media
     // (transport projection without nested image nodes).
     if (count > 0) return count
-    return document.attachmentDestinations.count { path ->
-        path.isNotEmpty() && !MediaFileExtensions.hasAudioExtension(path)
-    }
+    return document.attachments.count { attachment -> attachment.mediaClass == MediaClass.IMAGE }
 }
 
 /**

@@ -7,6 +7,7 @@
 use std::collections::BTreeSet;
 use std::ops::Range;
 
+use jiff::ToSpan;
 use lomo_core::LomoError;
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd};
 use serde::{Deserialize, Serialize};
@@ -1988,13 +1989,87 @@ pub fn validate_reminder_token(token: &str) -> Result<(), LomoError> {
     Ok(())
 }
 
+/// Recurrence vocabulary of the reminder token grammar (`r` field).
+///
+/// `None` writes no `r` field; `Daily`/`Weekly` write `rd`/`rw`. The variant set is the
+/// complete owner vocabulary: serialization is the grammar code itself, so payloads and the
+/// durable `reminders_json` projection keep the exact string shape while consumers handle a
+/// closed enum and never re-encode or re-validate codes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReminderRecurrence {
+    None,
+    Daily,
+    Weekly,
+}
+
+impl ReminderRecurrence {
+    /// The complete variant set, declaration order, for parity/enumeration surfaces.
+    pub const ALL: [Self; 3] = [Self::None, Self::Daily, Self::Weekly];
+
+    /// Grammar code embedded after `r` in the token (`""` for [`Self::None`]).
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::None => "",
+            Self::Daily => "d",
+            Self::Weekly => "w",
+        }
+    }
+
+    /// The checked constructor for the grammar vocabulary: `""`, `d`, or `w` only.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation for any code outside the grammar vocabulary.
+    pub fn from_code(code: &str) -> Result<Self, LomoError> {
+        match code {
+            "" => Ok(Self::None),
+            "d" => Ok(Self::Daily),
+            "w" => Ok(Self::Weekly),
+            _ => Err(validation(
+                "invalid_reminder_token",
+                "reminder recurrence code must be empty, d, or w",
+            )),
+        }
+    }
+
+    /// Days one firing advances `due_at_local`; [`Self::None`] never advances.
+    #[must_use]
+    pub const fn advance_days(self) -> Option<i64> {
+        match self {
+            Self::None => None,
+            Self::Daily => Some(1),
+            Self::Weekly => Some(7),
+        }
+    }
+}
+
+impl Serialize for ReminderRecurrence {
+    /// The wire/durable shape stays the grammar code (`"d"`, `"w"`, `""`).
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.code())
+    }
+}
+
+impl<'de> Deserialize<'de> for ReminderRecurrence {
+    /// Reads the grammar code back through the checked constructor — an out-of-vocabulary
+    /// payload fails deserialization instead of fabricating a variant.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let code = String::deserialize(deserializer)?;
+        Self::from_code(&code).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Token-grammar default repeat interval: `i10` is implicit and never serialized.
+pub const DEFAULT_REMINDER_INTERVAL_MINUTES: u32 = 10;
+
 pub struct ReminderTokenFacts {
     pub due_at_local: String,
     pub repeat_count: u32,
     pub fired_count: u32,
     pub done: bool,
     pub interval_minutes: u32,
-    pub recurrence_code: String,
+    pub recurrence: ReminderRecurrence,
     /// Durable embedded reminder id (`#<16 lowercase hex>` tail); `None` on legacy tokens.
     pub embedded_id: Option<String>,
 }
@@ -2014,7 +2089,7 @@ pub fn build_reminder_token(
     fired_count: u32,
     done: bool,
     interval_minutes: u32,
-    recurrence_code: &str,
+    recurrence: ReminderRecurrence,
     embedded_id: Option<&str>,
 ) -> Result<String, LomoError> {
     if !is_ymd_hm(due_at_local) {
@@ -2035,12 +2110,6 @@ pub fn build_reminder_token(
             "reminder fired count cannot exceed repeat count",
         ));
     }
-    if !matches!(recurrence_code, "" | "d" | "w") {
-        return Err(validation(
-            "invalid_reminder_token",
-            "reminder recurrence code must be empty, d, or w",
-        ));
-    }
     if let Some(id) = embedded_id
         && (id.len() != crate::identity::REMINDER_EMBEDDED_ID_BYTES * 2
             || !id.bytes().all(is_embedded_id_char))
@@ -2055,13 +2124,13 @@ pub fn build_reminder_token(
         token.push('x');
         token.push_str(&repeat_count.to_string());
     }
-    if repeat_count > 1 && interval_minutes != 10 {
+    if repeat_count > 1 && interval_minutes != DEFAULT_REMINDER_INTERVAL_MINUTES {
         token.push('i');
         token.push_str(&interval_minutes.to_string());
     }
-    if !recurrence_code.is_empty() {
+    if recurrence != ReminderRecurrence::None {
         token.push('r');
-        token.push_str(recurrence_code);
+        token.push_str(recurrence.code());
     }
     if done {
         token.push_str(".done");
@@ -2106,15 +2175,15 @@ pub fn plan_reminder_token_mutation(
                 .clone()
                 .map_or_else(crate::identity::mint_reminder_embedded_id, Ok)?;
             let embedded = Some(embedded_id.as_str());
-            if matches!(facts.recurrence_code.as_str(), "d" | "w") {
-                let next_due = advance_due_at_local(&facts.due_at_local, &facts.recurrence_code)?;
+            if facts.recurrence.advance_days().is_some() {
+                let next_due = advance_due_at_local(&facts.due_at_local, facts.recurrence)?;
                 return build_reminder_token(
                     &next_due,
                     facts.repeat_count,
                     0,
                     false,
                     facts.interval_minutes,
-                    &facts.recurrence_code,
+                    facts.recurrence,
                     embedded,
                 );
             }
@@ -2124,7 +2193,7 @@ pub fn plan_reminder_token_mutation(
                 facts.fired_count,
                 true,
                 facts.interval_minutes,
-                &facts.recurrence_code,
+                facts.recurrence,
                 embedded,
             )
         }
@@ -2139,15 +2208,15 @@ pub fn plan_reminder_token_mutation(
             let embedded = Some(embedded_id.as_str());
             let new_fired = facts.fired_count.saturating_add(1).min(facts.repeat_count);
             let exhausted = new_fired >= facts.repeat_count;
-            if exhausted && matches!(facts.recurrence_code.as_str(), "d" | "w") {
-                let next_due = advance_due_at_local(&facts.due_at_local, &facts.recurrence_code)?;
+            if exhausted && facts.recurrence.advance_days().is_some() {
+                let next_due = advance_due_at_local(&facts.due_at_local, facts.recurrence)?;
                 return build_reminder_token(
                     &next_due,
                     facts.repeat_count,
                     0,
                     false,
                     facts.interval_minutes,
-                    &facts.recurrence_code,
+                    facts.recurrence,
                     embedded,
                 );
             }
@@ -2157,7 +2226,7 @@ pub fn plan_reminder_token_mutation(
                 new_fired,
                 exhausted,
                 facts.interval_minutes,
-                &facts.recurrence_code,
+                facts.recurrence,
                 embedded,
             )
         }
@@ -2189,111 +2258,39 @@ fn is_ymd_hm(text: &str) -> bool {
     hour <= 23 && minute <= 59
 }
 
-fn advance_due_at_local(due_at_local: &str, recurrence_code: &str) -> Result<String, LomoError> {
-    let bytes = due_at_local.as_bytes();
+fn advance_due_at_local(
+    due_at_local: &str,
+    recurrence: ReminderRecurrence,
+) -> Result<String, LomoError> {
     if !is_ymd_hm(due_at_local) {
         return Err(validation(
             "invalid_reminder_token",
             "cannot advance an invalid due_at_local",
         ));
     }
-    let year = bytes
-        .get(0..4)
-        .and_then(decimal_u32)
-        .ok_or_else(|| validation("invalid_reminder_token", "reminder year is invalid"))?;
-    let month = bytes
-        .get(5..7)
-        .and_then(decimal_u32)
-        .ok_or_else(|| validation("invalid_reminder_token", "reminder month is invalid"))?;
-    let day = bytes
-        .get(8..10)
-        .and_then(decimal_u32)
-        .ok_or_else(|| validation("invalid_reminder_token", "reminder day is invalid"))?;
-    let hour = bytes
-        .get(11..13)
-        .and_then(decimal_u32)
-        .ok_or_else(|| validation("invalid_reminder_token", "reminder hour is invalid"))?;
-    let minute = bytes
-        .get(14..16)
-        .and_then(decimal_u32)
-        .ok_or_else(|| validation("invalid_reminder_token", "reminder minute is invalid"))?;
-    let days = match recurrence_code {
-        "d" => 1i32,
-        "w" => 7i32,
-        _ => {
-            return Err(validation(
-                "invalid_reminder_token",
-                "only d/w recurrence can advance due_at_local",
-            ));
-        }
-    };
-    let (year, month, day) = add_days(year, month, day, days)?;
-    Ok(format!(
-        "{year:04}-{month:02}-{day:02}-{hour:02}:{minute:02}"
-    ))
-}
-
-fn add_days(year: u32, month: u32, day: u32, delta: i32) -> Result<(u32, u32, u32), LomoError> {
-    let mut y = i64::from(year);
-    let mut m = i64::from(month);
-    let mut d = i64::from(day) + i64::from(delta);
-    while d < 1 {
-        m -= 1;
-        if m < 1 {
-            m = 12;
-            y -= 1;
-        }
-        d += i64::from(days_in_month(
-            u32::try_from(y).map_err(|_error| {
-                validation("invalid_reminder_token", "reminder year underflow")
-            })?,
-            u32::try_from(m).map_err(|_error| {
-                validation("invalid_reminder_token", "reminder month underflow")
-            })?,
-        )?);
-    }
-    loop {
-        let dim = i64::from(days_in_month(
-            u32::try_from(y)
-                .map_err(|_error| validation("invalid_reminder_token", "reminder year overflow"))?,
-            u32::try_from(m).map_err(|_error| {
-                validation("invalid_reminder_token", "reminder month overflow")
-            })?,
-        )?);
-        if d <= dim {
-            break;
-        }
-        d -= dim;
-        m += 1;
-        if m > 12 {
-            m = 1;
-            y += 1;
-        }
-    }
-    Ok((
-        u32::try_from(y)
-            .map_err(|_error| validation("invalid_reminder_token", "reminder year out of range"))?,
-        u32::try_from(m).map_err(|_error| {
-            validation("invalid_reminder_token", "reminder month out of range")
-        })?,
-        u32::try_from(d)
-            .map_err(|_error| validation("invalid_reminder_token", "reminder day out of range"))?,
-    ))
-}
-
-fn days_in_month(year: u32, month: u32) -> Result<u32, LomoError> {
-    Ok(match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if is_leap_year(year) => 29,
-        2 => 28,
-        _ => {
-            return Err(validation(
-                "invalid_reminder_token",
-                "reminder month is invalid",
-            ));
-        }
-    })
+    let days = recurrence.advance_days().ok_or_else(|| {
+        validation(
+            "invalid_reminder_token",
+            "only d/w recurrence can advance due_at_local",
+        )
+    })?;
+    // Civil-date arithmetic is delegated to jiff: the fixed-width gate above already
+    // rejected anything outside `yyyy-MM-dd-HH:mm`, so parse is the checked constructor.
+    let date = due_at_local
+        .get(..10)
+        .ok_or_else(|| validation("invalid_reminder_token", "reminder due date is invalid"))?
+        .parse::<jiff::civil::Date>()
+        .map_err(|_error| validation("invalid_reminder_token", "reminder due date is invalid"))?;
+    let advanced = date.checked_add(days.days()).map_err(|_error| {
+        validation(
+            "invalid_reminder_token",
+            "reminder due date advance overflows the civil range",
+        )
+    })?;
+    let hm = due_at_local
+        .get(11..16)
+        .ok_or_else(|| validation("invalid_reminder_token", "reminder due time is invalid"))?;
+    Ok(format!("{advanced}-{hm}"))
 }
 
 /// Parses a validated reminder token into structured facts.
@@ -2306,8 +2303,8 @@ pub fn reminder_token_facts(token: &str) -> Result<ReminderTokenFacts, LomoError
     let bytes = token.as_bytes();
     let mut offset = 17usize;
     let mut repeat_count = 1u64;
-    let mut interval_minutes = 10u64;
-    let mut recurrence_code = String::new();
+    let mut interval_minutes = u64::from(DEFAULT_REMINDER_INTERVAL_MINUTES);
+    let mut recurrence = ReminderRecurrence::None;
     let mut done = false;
     let mut fired_count = 0u64;
     if bytes.get(offset) == Some(&b'x') {
@@ -2324,10 +2321,10 @@ pub fn reminder_token_facts(token: &str) -> Result<ReminderTokenFacts, LomoError
         offset = end;
     }
     if bytes.get(offset) == Some(&b'r') {
-        token
-            .get(offset + 1..offset + 2)
-            .ok_or_else(|| validation("invalid_reminder_token", "reminder recurrence is invalid"))?
-            .clone_into(&mut recurrence_code);
+        recurrence =
+            ReminderRecurrence::from_code(token.get(offset + 1..offset + 2).ok_or_else(|| {
+                validation("invalid_reminder_token", "reminder recurrence is invalid")
+            })?)?;
         offset += 2;
     }
     if bytes.get(offset) == Some(&b'.') {
@@ -2377,7 +2374,7 @@ pub fn reminder_token_facts(token: &str) -> Result<ReminderTokenFacts, LomoError
         interval_minutes: u32::try_from(interval_minutes).map_err(|_error| {
             validation("invalid_reminder_token", "reminder interval exceeds u32")
         })?,
-        recurrence_code,
+        recurrence,
         embedded_id,
     })
 }
@@ -2422,23 +2419,9 @@ fn is_ymd(text: &str) -> bool {
     {
         return false;
     }
-    let Some(year) = b.get(0..4).and_then(decimal_u32) else {
-        return false;
-    };
-    let Some(month) = b.get(5..7).and_then(decimal_u32) else {
-        return false;
-    };
-    let Some(day) = b.get(8..10).and_then(decimal_u32) else {
-        return false;
-    };
-    let max_day = match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if is_leap_year(year) => 29,
-        2 => 28,
-        _ => return false,
-    };
-    (1..=max_day).contains(&day)
+    // Fixed-width shape is checked above; month length / leap-year validity is
+    // delegated to the jiff civil date constructor.
+    text.parse::<jiff::civil::Date>().is_ok()
 }
 
 fn decimal_u32(bytes: &[u8]) -> Option<u32> {
@@ -2474,10 +2457,6 @@ fn two_digit_value(bytes: &[u8]) -> Option<u8> {
         return None;
     };
     Some(tens.checked_sub(b'0')?.checked_mul(10)? + ones.checked_sub(b'0')?)
-}
-
-const fn is_leap_year(year: u32) -> bool {
-    year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))
 }
 
 fn is_two_digits(text: &str) -> bool {

@@ -264,7 +264,7 @@ private fun renderDocument(
         plainText = "text",
         nodeCount = nodeCount,
         tagNames = emptyList(),
-        attachmentDestinations = emptyList(),
+        attachments = emptyList(),
         nodes = nodes,
     )
 
@@ -280,6 +280,8 @@ private fun renderNode(
     checked: Boolean? = null,
     actionStart: ULong? = null,
     actionEnd: ULong? = null,
+    mediaClass: com.lomo.nativebridge.MediaClass? =
+        if (kind == RenderNodeKind.IMAGE) com.lomo.nativebridge.MediaClass.IMAGE else null,
 ): RenderNode =
     RenderNode(
         kind = kind,
@@ -295,4 +297,5 @@ private fun renderNode(
         checked = checked,
         actionStart = actionStart,
         actionEnd = actionEnd,
+        mediaClass = mediaClass,
     )

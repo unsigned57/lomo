@@ -116,7 +116,7 @@ private class FakeShareMarkdownRepository : MarkdownWorkspaceRepository {
             sourceByteLength = content.encodeToByteArray().size.toULong(),
             plainText = plain.ifBlank { content },
             tagNames = tags,
-            attachmentDestinations = emptyList(),
+            attachments = emptyList(),
             blocks = emptyList(),
         )
     }

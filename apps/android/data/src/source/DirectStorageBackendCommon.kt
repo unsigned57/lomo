@@ -2,7 +2,6 @@ package com.lomo.data.source
 
 import android.system.Os
 import android.system.OsConstants
-import com.lomo.domain.model.MediaFileExtensions
 import timber.log.Timber
 import java.io.File
 import java.io.FileInputStream
@@ -23,10 +22,6 @@ internal fun directEnsureTrashExists(rootDir: File) {
     if (!trashDir.exists()) {
         trashDir.mkdirs()
     }
-}
-
-internal fun directIsImageFilename(name: String): Boolean {
-    return MediaFileExtensions.hasImageExtension(name)
 }
 
 /**

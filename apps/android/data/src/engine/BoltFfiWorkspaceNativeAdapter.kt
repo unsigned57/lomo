@@ -83,7 +83,7 @@ private fun WorkspaceReminderReferenceSnapshot.toBridge(): WorkspaceReminderRefe
         firedCount = firedCount,
         done = done,
         intervalMinutes = intervalMinutes,
-        recurrenceCode = recurrenceCode,
+        recurrence = recurrence,
     )
 
 internal fun WorkspaceReminderReference.toSnapshot(): WorkspaceReminderReferenceSnapshot =
@@ -102,5 +102,5 @@ internal fun WorkspaceReminderReference.toSnapshot(): WorkspaceReminderReference
         firedCount = firedCount,
         done = done,
         intervalMinutes = intervalMinutes,
-        recurrenceCode = recurrenceCode,
+        recurrence = recurrence,
     )

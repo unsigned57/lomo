@@ -365,7 +365,9 @@ mod tests {
                 PlatformAction::EnsureDirectory { .. } => self.execute_ensure_directory(action),
                 PlatformAction::Delete { .. } => self.execute_delete(action),
                 PlatformAction::Move { .. } => self.execute_move(action),
-                PlatformAction::Stat { .. } | PlatformAction::ArtifactWrite { .. } => {
+                PlatformAction::Stat { .. }
+                | PlatformAction::Read { .. }
+                | PlatformAction::ArtifactWrite { .. } => {
                     panic!("unexpected action in harness: {action:?}")
                 }
             }
@@ -1164,7 +1166,7 @@ mod tests {
             assert_eq!(reminder.repeat_count, 3);
             assert_eq!(reminder.fired_count, 0);
             assert_eq!(reminder.interval_minutes, 15);
-            assert_eq!(reminder.recurrence_code, "w");
+            assert_eq!(reminder.recurrence.code(), "w");
             assert!(reminder.done);
             assert!(reminder.source_end > reminder.source_start);
         }

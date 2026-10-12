@@ -78,7 +78,7 @@ class InputEditorPreviewContentPolicyTest : UiComponentsFunSpec() {
             sourceByteLength = plainText.encodeToByteArray().size.toULong(),
             plainText = plainText,
             tagNames = emptyList(),
-            attachmentDestinations = emptyList(),
+            attachments = emptyList(),
             blocks = emptyList(),
         )
 }

@@ -38,6 +38,8 @@ package com.lomo.app.util
  */
 
 import com.lomo.app.testing.AppFunSpec
+import com.lomo.domain.model.MediaClass
+import com.lomo.domain.model.markdown.MarkdownAttachment
 import com.lomo.domain.model.markdown.MarkdownRenderBlock
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownRenderInline
@@ -54,7 +56,7 @@ class ShareCardMarkdownBodyLinesTest : AppFunSpec() {
                     sourceByteLength = 200u,
                     plainText = "Title Paragraph with bold and removed text. quoted text done plain item Name Status Lomo ready cover",
                     tagNames = emptyList(),
-                    attachmentDestinations = listOf("images/cover.png"),
+                    attachments = listOf(MarkdownAttachment("images/cover.png", MediaClass.IMAGE)),
                     blocks =
                         listOf(
                             MarkdownRenderBlock.Heading(
@@ -145,6 +147,7 @@ class ShareCardMarkdownBodyLinesTest : AppFunSpec() {
                                             destination = "images/cover.png",
                                             title = null,
                                             altText = "cover",
+                                            mediaClass = MediaClass.IMAGE,
                                         ),
                                     ),
                             ),
@@ -184,7 +187,11 @@ class ShareCardMarkdownBodyLinesTest : AppFunSpec() {
                     sourceByteLength = 40u,
                     plainText = "a b",
                     tagNames = emptyList(),
-                    attachmentDestinations = listOf("a.png", "b.png"),
+                    attachments =
+                        listOf(
+                            MarkdownAttachment("a.png", MediaClass.IMAGE),
+                            MarkdownAttachment("b.png", MediaClass.IMAGE),
+                        ),
                     blocks =
                         listOf(
                             MarkdownRenderBlock.Paragraph(
@@ -196,6 +203,7 @@ class ShareCardMarkdownBodyLinesTest : AppFunSpec() {
                                             destination = "a.png",
                                             title = null,
                                             altText = "a",
+                                            mediaClass = MediaClass.IMAGE,
                                         ),
                                     ),
                             ),
@@ -208,6 +216,7 @@ class ShareCardMarkdownBodyLinesTest : AppFunSpec() {
                                             destination = "b.png",
                                             title = null,
                                             altText = "b",
+                                            mediaClass = MediaClass.IMAGE,
                                         ),
                                     ),
                             ),
@@ -225,7 +234,7 @@ class ShareCardMarkdownBodyLinesTest : AppFunSpec() {
                     sourceByteLength = 40u,
                     plainText = "Visit site and important",
                     tagNames = emptyList(),
-                    attachmentDestinations = emptyList(),
+                    attachments = emptyList(),
                     blocks =
                         listOf(
                             MarkdownRenderBlock.Paragraph(

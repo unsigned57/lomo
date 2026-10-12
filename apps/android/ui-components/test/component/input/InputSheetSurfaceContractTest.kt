@@ -179,6 +179,6 @@ private fun emptyPreviewDocument() =
         sourceByteLength = 0uL,
         plainText = "preview",
         tagNames = emptyList(),
-        attachmentDestinations = emptyList(),
+        attachments = emptyList(),
         blocks = emptyList(),
     )

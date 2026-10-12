@@ -450,7 +450,7 @@ private fun buildFallbackImageViewerMemo(imageUrls: List<String>): MemoUiModel? 
                 sourceByteLength = 0uL,
                 plainText = "",
                 tagNames = emptyList(),
-                attachmentDestinations = emptyList(),
+                attachments = emptyList(),
                 blocks = emptyList(),
             ),
         tags = persistentListOf(),

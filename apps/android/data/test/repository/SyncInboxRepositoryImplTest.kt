@@ -527,7 +527,7 @@ private class InboxRecordingStorePort : StorePort {
 
     override fun snoozeReminder(
         opaqueId: String,
-        snoozeDurationMs: Long,
+        interval: com.lomo.domain.model.ReminderInterval,
     ) = error("unexpected")
 
     override fun recoverReminderSnooze() = error("unexpected")

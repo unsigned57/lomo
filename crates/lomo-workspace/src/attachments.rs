@@ -190,19 +190,69 @@ pub fn is_external_attachment_destination(raw: &str) -> bool {
     bytes.get(index) == Some(&b':')
 }
 
-/// Whether a destination names an audio attachment by file extension. Shared by the render
-/// attachment classification (audio links count as attachments) and the store image-URL split.
+/// Media class owned by the workspace attachment-destination law.
+///
+/// One classification authority for "what kind of media does this destination name": the
+/// render attachment list, the audio-link attachment rule, the store `image_urls` split, and
+/// every FFI projection derive from it. The class is a property of the destination name —
+/// content identity (magic bytes vs. declared type) stays with `lomo-media`'s own table.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MediaClass {
+    Image,
+    Video,
+    Audio,
+    File,
+}
+
+/// The owner media class for one attachment destination.
+///
+/// Extension law: the image/audio/video container suffixes the media owner recognizes map to
+/// their class; every other destination — unknown extensions, extensionless names, anchors,
+/// extension-free URLs — is `File`. `data:` destinations carry no extension, so they classify
+/// by their declared media type instead.
+#[must_use]
+pub fn attachment_media_class(destination: &str) -> MediaClass {
+    if let Some(class) = data_scheme_media_class(destination) {
+        return class;
+    }
+    match destination_extension(destination).as_deref() {
+        Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "heic" | "heif" | "avif") => {
+            MediaClass::Image
+        }
+        Some("mp4" | "m4v" | "mov") => MediaClass::Video,
+        Some("m4a" | "mp3" | "aac" | "wav" | "ogg" | "oga") => MediaClass::Audio,
+        _ => MediaClass::File,
+    }
+}
+
+/// Whether a destination names an audio attachment. Shared by the render attachment
+/// classification (audio links count as attachments) and the store image-URL split.
 #[must_use]
 pub fn is_audio_attachment_destination(destination: &str) -> bool {
+    attachment_media_class(destination) == MediaClass::Audio
+}
+
+/// `data:` destinations declare a media type in place of an extension; only the image/audio/
+/// video families are media classes — anything else (`data:text/…`) stays `File`.
+fn data_scheme_media_class(destination: &str) -> Option<MediaClass> {
+    let media_type = destination
+        .strip_prefix("data:")?
+        .split([';', ','])
+        .next()?;
+    match media_type.split('/').next() {
+        Some("image") => Some(MediaClass::Image),
+        Some("video") => Some(MediaClass::Video),
+        Some("audio") => Some(MediaClass::Audio),
+        _ => Some(MediaClass::File),
+    }
+}
+
+/// Lowercased final-path-extension view of a destination, or `None` when it carries none.
+fn destination_extension(destination: &str) -> Option<String> {
     std::path::Path::new(destination)
         .extension()
         .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| {
-            matches!(
-                ext.to_ascii_lowercase().as_str(),
-                "m4a" | "mp3" | "ogg" | "wav" | "aac"
-            )
-        })
+        .map(str::to_ascii_lowercase)
 }
 
 /// The projected attachment-destination value for fact lists.

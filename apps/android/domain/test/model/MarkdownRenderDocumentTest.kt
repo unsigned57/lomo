@@ -20,9 +20,20 @@
  *
  * Excludes:
  * - Markdown parsing, generated BoltFFI transport types, Compose layout, and production DI.
- */
+  * Test Change Justification:
+ * - Reason category: production DTO field migration — attachmentDestinations: List<String>
+ *   replaced by attachments: List<MarkdownAttachment> carrying MediaClass.
+ * - Old behavior/assertion being replaced: assertions on flat attachment destination strings.
+ * - Why old assertion is no longer correct: the render IR now exposes typed attachment facts
+ *   (destination plus media class); the plain string list no longer exists on the DTO.
+ * - Coverage preserved by: the same scenarios now assert MarkdownAttachment values and the new
+ *   mediaClass field on image inlines; empty-attachment cases are unchanged.
+ * - Why this is not fitting the test to the implementation: the update mirrors a public field
+ *   migration; expected hierarchy and span outcomes are unchanged.
+*/
 package com.lomo.domain.model.markdown
 
+import com.lomo.domain.model.MediaClass
 import com.lomo.domain.testing.DomainFunSpec
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
@@ -50,6 +61,7 @@ class MarkdownRenderDocumentTest : DomainFunSpec() {
                     destination = "images/a.png",
                     title = null,
                     altText = "a",
+                    mediaClass = MediaClass.IMAGE,
                 )
             val task =
                 MarkdownRenderListItem(
@@ -75,7 +87,7 @@ class MarkdownRenderDocumentTest : DomainFunSpec() {
                     sourceByteLength = 48uL,
                     plainText = "Lomo a ship typed IR",
                     tagNames = listOf("p2"),
-                    attachmentDestinations = listOf("images/a.png"),
+                    attachments = listOf(MarkdownAttachment("images/a.png", MediaClass.IMAGE)),
                     blocks =
                         listOf(
                             MarkdownRenderBlock.Paragraph(
@@ -105,7 +117,7 @@ class MarkdownRenderDocumentTest : DomainFunSpec() {
                     sourceByteLength = 8uL,
                     plainText = "outside",
                     tagNames = emptyList(),
-                    attachmentDestinations = emptyList(),
+                    attachments = emptyList(),
                     blocks =
                         listOf(
                             MarkdownRenderBlock.Paragraph(
@@ -127,7 +139,7 @@ class MarkdownRenderDocumentTest : DomainFunSpec() {
                     sourceByteLength = 8uL,
                     plainText = "task",
                     tagNames = emptyList(),
-                    attachmentDestinations = emptyList(),
+                    attachments = emptyList(),
                     blocks =
                         listOf(
                             MarkdownRenderBlock.ListBlock(

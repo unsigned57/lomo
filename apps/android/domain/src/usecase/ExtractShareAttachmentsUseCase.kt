@@ -1,16 +1,20 @@
 package com.lomo.domain.usecase
 
 import com.lomo.domain.model.ShareAttachmentExtractionResult
-import com.lomo.domain.model.markdown.toMemoContentAnalysis
+import com.lomo.domain.model.markdown.MarkdownAttachment
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
 
 class ExtractShareAttachmentsUseCase(
     private val markdownWorkspaceRepository: MarkdownWorkspaceRepository,
 ) {
     operator fun invoke(content: String): ShareAttachmentExtractionResult {
-        val analysis = markdownWorkspaceRepository.renderMarkdown(content).toMemoContentAnalysis()
+        // Share contracts extract every owner-classified attachment — image, video, audio, and
+        // generic file — filtered only by locality, never by extension re-classification.
         val localAttachmentPaths =
-            (analysis.imageUrls + analysis.audioUrls)
+            markdownWorkspaceRepository
+                .renderMarkdown(content)
+                .attachments
+                .map(MarkdownAttachment::destination)
                 .filter(::isLocalAttachmentPath)
                 .distinct()
         return ShareAttachmentExtractionResult(

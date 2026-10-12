@@ -37,6 +37,8 @@ import com.lomo.domain.testing.DomainFunSpec
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownSourceSpan
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
+import com.lomo.domain.model.MediaClass
+import com.lomo.domain.model.markdown.MarkdownAttachment
 import io.kotest.matchers.shouldBe
 
 class ExtractShareAttachmentsUseCaseTest : DomainFunSpec() {
@@ -53,11 +55,11 @@ class ExtractShareAttachmentsUseCaseTest : DomainFunSpec() {
 
             val result =
                 useCase(
-                    "images/a.png",
-                    "vault/b.jpg",
-                    "voice/recording.m4a",
-                    "https://cdn.example.com/c.png",
-                    "http://example.com/d.mp3",
+                    MarkdownAttachment("images/a.png", MediaClass.IMAGE),
+                    MarkdownAttachment("vault/b.jpg", MediaClass.IMAGE),
+                    MarkdownAttachment("voice/recording.m4a", MediaClass.AUDIO),
+                    MarkdownAttachment("https://cdn.example.com/c.png", MediaClass.IMAGE),
+                    MarkdownAttachment("http://example.com/d.mp3", MediaClass.AUDIO),
                 )(content)
 
             result.localAttachmentPaths shouldBe listOf("images/a.png", "vault/b.jpg", "voice/recording.m4a")
@@ -77,7 +79,11 @@ class ExtractShareAttachmentsUseCaseTest : DomainFunSpec() {
                 """.trimIndent()
 
             val result =
-                useCase("vault/first.jpg", "images/second.png", "voice/recording.m4a")(content)
+                useCase(
+                        MarkdownAttachment("vault/first.jpg", MediaClass.IMAGE),
+                        MarkdownAttachment("images/second.png", MediaClass.IMAGE),
+                        MarkdownAttachment("voice/recording.m4a", MediaClass.AUDIO),
+                    )(content)
 
             result.localAttachmentPaths shouldBe
                 listOf("vault/first.jpg", "images/second.png", "voice/recording.m4a")
@@ -90,25 +96,28 @@ class ExtractShareAttachmentsUseCaseTest : DomainFunSpec() {
                 ![img2](./same.png)
                 """.trimIndent()
 
-            val result = useCase("./same.png", "./same.png")(content)
+            val result = useCase(
+                        MarkdownAttachment("./same.png", MediaClass.IMAGE),
+                        MarkdownAttachment("./same.png", MediaClass.IMAGE),
+                    )(content)
 
             result.localAttachmentPaths shouldBe listOf("./same.png")
         }
     }
 
-    private fun useCase(vararg attachments: String): ExtractShareAttachmentsUseCase =
+    private fun useCase(vararg attachments: MarkdownAttachment): ExtractShareAttachmentsUseCase =
         ExtractShareAttachmentsUseCase(FakeAttachmentMarkdownRepository(attachments.toList()))
 }
 
 private class FakeAttachmentMarkdownRepository(
-    private val attachments: List<String>,
+    private val attachments: List<MarkdownAttachment>,
 ) : MarkdownWorkspaceRepository {
     override fun renderMarkdown(content: String): MarkdownRenderDocument =
         MarkdownRenderDocument(
             sourceByteLength = content.encodeToByteArray().size.toULong(),
             plainText = "",
             tagNames = emptyList(),
-            attachmentDestinations = attachments,
+            attachments = attachments,
             blocks = emptyList(),
         )
 

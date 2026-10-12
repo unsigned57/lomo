@@ -54,6 +54,8 @@ package com.lomo.app.util
  */
 
 import com.lomo.app.testing.AppFunSpec
+import com.lomo.domain.model.MediaClass
+import com.lomo.domain.model.markdown.MarkdownAttachment
 import com.lomo.domain.model.markdown.MarkdownRenderBlock
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownRenderInline
@@ -68,7 +70,12 @@ class ShareCardBitmapRendererBodyTest : AppFunSpec() {
                     sourceByteLength = 64u,
                     plainText = "Intro cover photo voice Outro",
                     tagNames = emptyList(),
-                    attachmentDestinations = listOf("cover.png", "gallery/day-1.jpg", "recordings/memo.ogg"),
+                    attachments =
+                        listOf(
+                            MarkdownAttachment("cover.png", MediaClass.IMAGE),
+                            MarkdownAttachment("gallery/day-1.jpg", MediaClass.IMAGE),
+                            MarkdownAttachment("recordings/memo.ogg", MediaClass.AUDIO),
+                        ),
                     blocks =
                         listOf(
                             MarkdownRenderBlock.Paragraph(
@@ -80,18 +87,21 @@ class ShareCardBitmapRendererBodyTest : AppFunSpec() {
                                             destination = "cover.png",
                                             title = null,
                                             altText = "cover",
+                                            mediaClass = MediaClass.IMAGE,
                                         ),
                                         MarkdownRenderInline.Image(
                                             sourceSpan = span(4u, 8u),
                                             destination = "gallery/day-1.jpg",
                                             title = null,
                                             altText = "photo",
+                                            mediaClass = MediaClass.IMAGE,
                                         ),
                                         MarkdownRenderInline.Image(
                                             sourceSpan = span(8u, 10u),
                                             destination = "recordings/memo.ogg",
                                             title = null,
                                             altText = "voice",
+                                            mediaClass = MediaClass.AUDIO,
                                         ),
                                     ),
                             ),

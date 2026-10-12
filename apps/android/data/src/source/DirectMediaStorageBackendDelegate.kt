@@ -32,7 +32,7 @@ private suspend fun directListImageFiles(
             .listFiles()
             ?.run {
                 asSequence()
-                    .filter { file -> file.isFile && directIsImageFilename(file.name) }
+                    .filter { file -> file.isFile && isImageAttachmentFileName(file.name) }
                     .map { file -> file.name to Uri.fromFile(file).toString() }
                     .toList()
             }
@@ -46,7 +46,7 @@ private suspend fun directGetImageLocation(
 ): String? =
     withContext(dispatcher) {
         val file = File(rootDir, filename)
-        if (file.exists() && file.isFile && directIsImageFilename(file.name)) {
+        if (file.exists() && file.isFile && isImageAttachmentFileName(file.name)) {
             Uri.fromFile(file).toString()
         } else {
             null

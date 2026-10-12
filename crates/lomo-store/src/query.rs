@@ -8,7 +8,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter};
 
 use lomo_core::PageSize;
 use lomo_workspace::{
-    decode_trash_record, is_audio_attachment_destination, trash_record_relative_path,
+    MediaClass, attachment_media_class, decode_trash_record, trash_record_relative_path,
 };
 
 use crate::content_facts::fingerprint_content;
@@ -993,7 +993,7 @@ pub fn get_memo(
                 // Legacy Direct workspaces may still have only the physical trash optimization;
                 // use it until the next successful delete emits the canonical record.
                 let trash_path = workspace_root
-                    .join("trash")
+                    .join(lomo_workspace::LEGACY_TRASH_ROOT_NAME)
                     .join(format!("{}.md", summary.memo_id));
                 std::fs::read_to_string(&trash_path).map_err(|trash_error| {
                     storage(
@@ -1346,7 +1346,7 @@ fn attach_tags_and_images(
         .map_err(|err| from_sqlite(&err))?;
     for row in rows {
         let (memo_id, path) = row.map_err(|err| from_sqlite(&err))?;
-        if !is_audio_attachment_destination(&path) {
+        if attachment_media_class(&path) != MediaClass::Audio {
             let paths = images_by_memo.get_mut(&memo_id).ok_or_else(|| {
                 validation(
                     "memo_attachment_owner_missing",

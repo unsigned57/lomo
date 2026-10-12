@@ -1,5 +1,6 @@
 package com.lomo.app.util
 
+import com.lomo.domain.model.MediaClass
 import com.lomo.domain.model.markdown.MarkdownRenderInline
 import com.lomo.domain.model.markdown.MarkdownRenderTableCell
 
@@ -105,7 +106,11 @@ private fun MarkdownRenderInline.appendShareText(
             appendStyledChildren(state, ShareInlineStyleKind.Link, inlines)
         is MarkdownRenderInline.Highlight ->
             appendStyledChildren(state, ShareInlineStyleKind.Highlight, inlines)
-        is MarkdownRenderInline.Image -> state.appendImagePlaceholder()
+        is MarkdownRenderInline.Image ->
+            when (mediaClass) {
+                MediaClass.IMAGE -> state.appendImagePlaceholder()
+                else -> state.appendText(altText.ifBlank { destination })
+            }
         is MarkdownRenderInline.SoftBreak,
         is MarkdownRenderInline.HardBreak,
         -> state.appendLineBreak()

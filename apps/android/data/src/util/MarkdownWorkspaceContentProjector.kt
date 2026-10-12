@@ -1,7 +1,8 @@
 package com.lomo.data.util
 
-import com.lomo.domain.model.MediaFileExtensions
+import com.lomo.domain.model.MediaClass
 import com.lomo.domain.model.MemoContentAnalysis
+import com.lomo.domain.model.markdown.MarkdownAttachment
 import com.lomo.domain.model.markdown.toMemoContentAnalysis
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
 
@@ -21,8 +22,12 @@ class MarkdownWorkspaceContentProjector(
 
     fun extractTags(content: String): List<String> = analyze(content).tags
 
+    /** Every attachment destination with its owner media class — the typed fact surface. */
+    fun extractTypedAttachments(content: String): List<MarkdownAttachment> =
+        markdownWorkspaceRepository.renderMarkdown(content).attachments
+
     fun extractInlineAttachments(content: String): List<String> =
-        analyze(content).let { analysis -> analysis.imageUrls + analysis.audioUrls }
+        extractTypedAttachments(content).map(MarkdownAttachment::destination)
 
     fun extractLocalAttachmentPaths(content: String): List<String> =
         extractInlineAttachments(content)
@@ -33,5 +38,7 @@ class MarkdownWorkspaceContentProjector(
             }.distinct()
 
     fun extractAudioLinks(content: String): List<String> =
-        extractInlineAttachments(content).filter(MediaFileExtensions::hasAudioExtension)
+        extractTypedAttachments(content)
+            .filter { attachment -> attachment.mediaClass == MediaClass.AUDIO }
+            .map(MarkdownAttachment::destination)
 }

@@ -1,6 +1,6 @@
 package com.lomo.app.util
 
-import com.lomo.domain.model.MediaFileExtensions
+import com.lomo.domain.model.MediaClass
 import com.lomo.domain.model.markdown.MarkdownRenderBlock
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownRenderInline
@@ -176,13 +176,13 @@ private fun paragraphToShareBodyLines(
 ): List<ShareBodyLine> {
     val singleInline = inlines.singleOrNull()
     if (singleInline is MarkdownRenderInline.Image) {
-        return listOf(singleInline.toImageOrAudioLine(audioPlaceholder, nextImageIndex))
+        return listOf(singleInline.toMediaLine(audioPlaceholder, nextImageIndex))
     }
 
     // Mixed paragraph: emit standalone image lines for IR Image nodes, then residual text.
     val imageOnly =
         inlines.filterIsInstance<MarkdownRenderInline.Image>().map { image ->
-            image.toImageOrAudioLine(audioPlaceholder, nextImageIndex)
+            image.toMediaLine(audioPlaceholder, nextImageIndex)
         }
     if (imageOnly.isNotEmpty() && inlines.all { it is MarkdownRenderInline.Image }) {
         return imageOnly
@@ -204,14 +204,17 @@ private fun paragraphToShareBodyLines(
         )
 }
 
-private fun MarkdownRenderInline.Image.toImageOrAudioLine(
+private fun MarkdownRenderInline.Image.toMediaLine(
     audioPlaceholder: String,
     nextImageIndex: () -> Int,
 ): ShareBodyLine =
-    if (MediaFileExtensions.hasAudioExtension(destination)) {
-        ShareBodyLine(audioPlaceholder, ShareBodyLineType.Paragraph)
-    } else {
-        ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Image, imageIndex = nextImageIndex())
+    when (mediaClass) {
+        MediaClass.IMAGE ->
+            ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Image, imageIndex = nextImageIndex())
+        MediaClass.AUDIO -> ShareBodyLine(audioPlaceholder, ShareBodyLineType.Paragraph)
+        MediaClass.VIDEO,
+        MediaClass.FILE,
+        -> ShareBodyLine(altText.ifBlank { destination }, ShareBodyLineType.Paragraph)
     }
 
 private fun MarkdownRenderBlock.Table.toShareBodyTableLines(): List<ShareBodyLine> =

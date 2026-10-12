@@ -20,8 +20,7 @@ private suspend fun safListImageFiles(
             if (name == null || !file.isFile) {
                 return@mapNotNull null
             }
-            val mimeType = file.type
-            if (mimeType?.startsWith("image/") == true || safIsImageFilename(name)) {
+            if (isImageAttachmentFileName(name)) {
                 name to file.uri.toString()
             } else {
                 null

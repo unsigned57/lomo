@@ -32,7 +32,7 @@ internal data class WorkspaceReminderReferenceSnapshot(
     val firedCount: UInt,
     val done: Boolean,
     val intervalMinutes: UInt,
-    val recurrenceCode: String,
+    val recurrence: com.lomo.nativebridge.ReminderRecurrence,
 )
 
 internal data class SafMemoProjectionSnapshot(

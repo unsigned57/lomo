@@ -1,5 +1,7 @@
 package com.lomo.domain.model.markdown
 
+import com.lomo.domain.model.MediaClass
+
 /**
  * Presentation-safe projection of the Rust-owned Markdown render IR.
  *
@@ -10,7 +12,7 @@ data class MarkdownRenderDocument(
     val sourceByteLength: ULong,
     val plainText: String,
     val tagNames: List<String>,
-    val attachmentDestinations: List<String>,
+    val attachments: List<MarkdownAttachment>,
     val blocks: List<MarkdownRenderBlock>,
 ) {
     val schemaVersion: UInt = SCHEMA_VERSION
@@ -25,7 +27,7 @@ data class MarkdownRenderDocument(
         }
         validateString(plainText)
         tagNames.forEach(::validateString)
-        attachmentDestinations.forEach(::validateString)
+        attachments.forEach { attachment -> validateString(attachment.destination) }
         blocks.forEach { block -> validateBlock(block = block, parentSpan = null) }
     }
 
@@ -279,6 +281,8 @@ sealed interface MarkdownRenderInline {
         val destination: String,
         val title: String?,
         val altText: String,
+        /** Owner media classification of [destination]; Kotlin never re-derives it. */
+        val mediaClass: MediaClass,
     ) : MarkdownRenderInline
 
     data class Tag(

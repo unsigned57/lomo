@@ -1,6 +1,5 @@
 package com.lomo.data.source
 
-import com.lomo.domain.model.MediaFileExtensions
 import com.lomo.domain.usecase.DispatcherProvider
 import kotlinx.coroutines.CoroutineDispatcher
 
@@ -18,7 +17,3 @@ internal fun safMatchesMarkdownTarget(
     name != null &&
         name.endsWith(SAF_MARKDOWN_SUFFIX) &&
         (targetFilename == null || name == targetFilename)
-
-internal fun safIsImageFilename(name: String): Boolean {
-    return MediaFileExtensions.hasImageExtension(name)
-}

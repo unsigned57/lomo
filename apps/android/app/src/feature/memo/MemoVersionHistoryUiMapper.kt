@@ -3,6 +3,7 @@ package com.lomo.app.feature.memo
 import android.net.Uri
 import com.lomo.app.feature.main.MemoUiImageContentResolver
 import com.lomo.app.feature.main.buildImageMapDependencySignatureForPaths
+import com.lomo.domain.model.MediaClass
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.repository.MarkdownWorkspaceRepository
@@ -39,7 +40,11 @@ internal class MemoVersionHistoryUiMapper(
                     imagePath = imagePath,
                     imageDependencySignature =
                         buildImageMapDependencySignatureForPaths(
-                            imagePaths = sourceDocument.attachmentDestinations.toSet(),
+                            imagePaths =
+                                sourceDocument.attachments
+                                    .filter { attachment -> attachment.mediaClass != MediaClass.AUDIO }
+                                    .map { attachment -> attachment.destination }
+                                    .toSet(),
                             imageMap = imageMap,
                         ),
                 )

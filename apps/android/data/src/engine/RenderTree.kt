@@ -171,6 +171,10 @@ private fun RenderTree.toInline(): MarkdownRenderInline =
                 destination = node.destination.required("render_image_destination_missing", "image destination"),
                 title = node.title,
                 altText = node.text.required("render_image_alt_missing", "image alt text"),
+                mediaClass =
+                    node.mediaClass
+                        .required("render_image_media_class_missing", "image media class")
+                        .toDomainMediaClass(),
             )
         }
         RenderNodeKind.TAG ->

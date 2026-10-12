@@ -1,21 +1,25 @@
 package com.lomo.domain.model.markdown
 
-import com.lomo.domain.model.MediaFileExtensions
+import com.lomo.domain.model.MediaClass
 import com.lomo.domain.model.MemoContentAnalysis
 
 /** Projects query/storage facts from the validated Rust-owned render document. */
 fun MarkdownRenderDocument.toMemoContentAnalysis(): MemoContentAnalysis {
-    val audioUrls = attachmentDestinations.filter(MediaFileExtensions::hasAudioExtension)
-    val imageUrls = attachmentDestinations.filterNot(MediaFileExtensions::hasAudioExtension)
+    val audioUrls = destinationsWithClass(MediaClass.AUDIO)
+    val imageUrls = destinationsWithClass(MediaClass.IMAGE)
     return MemoContentAnalysis(
         hasTodo = blocks.any(MarkdownRenderBlock::containsTask),
-        hasAttachment = attachmentDestinations.isNotEmpty(),
+        hasAttachment = attachments.isNotEmpty(),
         hasUrl = blocks.any(MarkdownRenderBlock::containsExternalLink),
         tags = tagNames,
         imageUrls = imageUrls,
         audioUrls = audioUrls,
     )
 }
+
+private fun MarkdownRenderDocument.destinationsWithClass(mediaClass: MediaClass): List<String> =
+    attachments.filter { attachment -> attachment.mediaClass == mediaClass }
+        .map(MarkdownAttachment::destination)
 
 private fun MarkdownRenderBlock.containsTask(): Boolean =
     when (this) {

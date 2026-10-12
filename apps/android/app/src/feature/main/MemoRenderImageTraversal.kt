@@ -3,7 +3,7 @@ package com.lomo.app.feature.main
 import com.lomo.domain.model.markdown.MarkdownRenderBlock
 import com.lomo.domain.model.markdown.MarkdownRenderInline
 
-internal fun MarkdownRenderBlock.resolveImages(resolve: (String) -> String): MarkdownRenderBlock =
+internal fun MarkdownRenderBlock.resolveImages(resolve: (MarkdownRenderInline.Image) -> String): MarkdownRenderBlock =
     when (this) {
         is MarkdownRenderBlock.Paragraph -> copy(inlines = inlines.resolveImages(resolve))
         is MarkdownRenderBlock.Heading -> copy(inlines = inlines.resolveImages(resolve))
@@ -35,7 +35,9 @@ internal fun MarkdownRenderBlock.resolveImages(resolve: (String) -> String): Mar
         -> this
     }
 
-internal fun List<MarkdownRenderInline>.resolveImages(resolve: (String) -> String): List<MarkdownRenderInline> =
+internal fun List<MarkdownRenderInline>.resolveImages(
+    resolve: (MarkdownRenderInline.Image) -> String,
+): List<MarkdownRenderInline> =
     map { inline ->
         when (inline) {
             is MarkdownRenderInline.Strong ->
@@ -49,7 +51,7 @@ internal fun List<MarkdownRenderInline>.resolveImages(resolve: (String) -> Strin
             is MarkdownRenderInline.Link ->
                 inline.copy(inlines = inline.inlines.resolveImages(resolve))
             is MarkdownRenderInline.Image ->
-                inline.copy(destination = resolve(inline.destination))
+                inline.copy(destination = resolve(inline))
             is MarkdownRenderInline.WikiReference ->
                 inline.copy(inlines = inline.inlines.resolveImages(resolve))
             else -> inline

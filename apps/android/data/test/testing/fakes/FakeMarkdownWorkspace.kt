@@ -1,6 +1,8 @@
 package com.lomo.data.testing.fakes
 
 import com.lomo.data.util.MarkdownWorkspaceContentProjector
+import com.lomo.domain.model.MediaClass
+import com.lomo.domain.model.markdown.MarkdownAttachment
 import com.lomo.domain.model.markdown.MarkdownRenderBlock
 import com.lomo.domain.model.markdown.MarkdownRenderDocument
 import com.lomo.domain.model.markdown.MarkdownRenderInline
@@ -17,7 +19,7 @@ import com.lomo.domain.repository.MarkdownWorkspaceRepository
  */
 internal class FakeMarkdownWorkspaceRepository(
     private val tagExtractor: (String) -> List<String> = ::extractTestTags,
-    private val attachmentExtractor: (String) -> List<String> = ::extractTestAttachments,
+    private val attachmentExtractor: (String) -> List<MarkdownAttachment> = ::extractTestAttachments,
 ) : MarkdownWorkspaceRepository {
     override fun renderMarkdown(content: String): MarkdownRenderDocument {
         val bytes = content.encodeToByteArray().size.toULong()
@@ -85,7 +87,7 @@ internal class FakeMarkdownWorkspaceRepository(
             sourceByteLength = bytes,
             plainText = content,
             tagNames = tagExtractor(content),
-            attachmentDestinations = attachmentExtractor(content),
+            attachments = attachmentExtractor(content),
             blocks = blocks,
         )
     }
@@ -114,10 +116,16 @@ internal fun extractTestTags(content: String): List<String> =
         .distinct()
         .toList()
 
-internal fun extractTestAttachments(content: String): List<String> {
+internal fun extractTestAttachments(content: String): List<MarkdownAttachment> {
     val images =
-        TEST_MD_IMAGE_PATTERN.findAll(content).map { it.groupValues[1] } +
-            TEST_WIKI_IMAGE_PATTERN.findAll(content).map { it.groupValues[1] }
-    val audio = TEST_AUDIO_LINK_PATTERN.findAll(content).map { it.groupValues[1] }
-    return (images + audio).distinct().toList()
+        (TEST_MD_IMAGE_PATTERN.findAll(content).map { it.groupValues[1] } +
+            TEST_WIKI_IMAGE_PATTERN.findAll(content).map { it.groupValues[1] })
+            .map { destination -> MarkdownAttachment(destination, MediaClass.IMAGE) }
+            .toList()
+    val audio =
+        TEST_AUDIO_LINK_PATTERN
+            .findAll(content)
+            .map { MarkdownAttachment(it.groupValues[1], MediaClass.AUDIO) }
+            .toList()
+    return (images + audio).distinct()
 }

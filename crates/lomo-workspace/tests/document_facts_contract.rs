@@ -122,7 +122,7 @@ mod tests {
             assert_eq!(reference.due_at_local(), "2026-07-18-09:00");
             assert_eq!(reference.repeat_count(), 2);
             assert_eq!(reference.interval_minutes(), 5);
-            assert_eq!(reference.recurrence_code(), "d");
+            assert_eq!(reference.recurrence().code(), "d");
             assert!(reference.done());
             assert_eq!(reference.fired_count(), 0);
         }
