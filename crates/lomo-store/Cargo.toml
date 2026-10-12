@@ -72,6 +72,7 @@ lomo-core = { path = "../lomo-core" }
 lomo-workspace = { path = "../lomo-workspace" }
 lomo-media = { path = "../lomo-media" }
 getrandom.workspace = true
+jiff.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -94,6 +95,10 @@ path = "tests/archive_contract.rs"
 [[test]]
 name = "history_refs_contract"
 path = "tests/history_refs_contract.rs"
+
+[[test]]
+name = "history_paging_contract"
+path = "tests/history_paging_contract.rs"
 
 [[test]]
 name = "sync_local_contract"
