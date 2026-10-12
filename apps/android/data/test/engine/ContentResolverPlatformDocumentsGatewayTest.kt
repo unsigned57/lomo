@@ -22,10 +22,17 @@
  * - Given a provider sanitizes or uniquifies the display name at create time, when a document is
  *   created, then the boundary repairs the durable name onto the requested path by rename, or
  *   fails closed and rolls back the created document instead of leaving a misnamed file.
+ * - Given an observation with declared evidence depth, when stat runs, then METADATA_ONLY never
+ *   opens the content stream while CONTENT produces the streamed digest.
+ * - Given a multi-row listing page, when children are listed, then one provider query answers the
+ *   whole page — the cursor's own document ids build every child URI without per-item lookups.
+ * - Given ensureDirectory or move completes, when the tail snapshot is observed, then the leaf is
+ *   queried through the document id already in hand instead of re-walking the whole path, and no
+ *   content stream is opened.
  *
  * Observable outcomes:
- * - Returned document metadata/read bytes, write failure, ContentResolver stream opens, and
- *   rollback deletion of an incomplete create target.
+ * - Returned document metadata/read bytes, write failure, ContentResolver stream opens, provider
+ *   children-query count, and rollback deletion of an incomplete create target.
  *
  * TDD proof:
  * - RED on 2026-08-06 because listChildren opened every file to hash it and openRead opened the
@@ -34,9 +41,12 @@
  *   document, causing every durable retry to fail with target-exists conflict.
  * - RED on 2026-09-02 because a provider-side display-name sanitize/uniquify silently detached
  *   the durable filename from the record identity, poisoning every later workspace history scan.
+ * - RED on 2026-10-04 because every stat hashed whole files regardless of the caller's evidence
+ *   need, and the ensureDirectory/move tails re-walked the full path through findChild before
+ *   hashing the leaf a second time.
  *
  * Excludes:
- * - Provider-specific paging order, moves, deletes, and Rust scan orchestration.
+ * - Provider-specific paging order, deletes, and Rust scan orchestration.
  *
  * Test Change Justification:
  * - Reason category: SAF document creation failure rollback.
@@ -53,6 +63,7 @@ import android.database.Cursor
 import android.net.Uri
 import android.provider.DocumentsContract
 import com.lomo.data.testing.DataFunSpec
+import com.lomo.nativebridge.DocumentKind
 import com.lomo.nativebridge.WorkspaceTarget
 import com.lomo.nativebridge.WriteMode
 import io.kotest.assertions.throwables.shouldThrow
@@ -240,6 +251,85 @@ class ContentResolverPlatformDocumentsGatewayTest : DataFunSpec() {
             fixture.createdDocumentDeleteCount shouldBe 1
         }
 
+        test("given metadata-only stat when the file is observed then its content stream is never opened") {
+            val fixture = ResolverFixture(FILE_BYTES)
+            fixture.stubSingleFileRead()
+
+            val snapshot =
+                fixture.gateway.stat(
+                    treeUri = TREE_URI,
+                    target = WorkspaceTarget.Relative(FILE_NAME),
+                    digest = SnapshotDigestMode.METADATA_ONLY,
+                )
+
+            snapshot?.documentId shouldBe DOCUMENT_ID
+            snapshot?.digest shouldBe null
+            fixture.inputStreamOpenCount shouldBe 0
+        }
+
+        test("given content stat when the file is observed then the digest comes from one stream") {
+            val fixture = ResolverFixture(FILE_BYTES)
+            fixture.stubSingleFileRead()
+
+            val snapshot =
+                fixture.gateway.stat(
+                    treeUri = TREE_URI,
+                    target = WorkspaceTarget.Relative(FILE_NAME),
+                    digest = SnapshotDigestMode.CONTENT,
+                )
+
+            snapshot?.digest shouldBe sha256Hex(FILE_BYTES)
+            fixture.inputStreamOpenCount shouldBe 1
+        }
+
+        test("given several children when one page is listed then the provider answers one query for the whole page") {
+            val fixture = ResolverFixture(FILE_BYTES)
+            val rows =
+                listOf(
+                    ListingRow("primary:Lomo/one.md", "one.md"),
+                    ListingRow("primary:Lomo/two.md", "two.md"),
+                    ListingRow("primary:Lomo/three.md", "three.md"),
+                )
+            fixture.stubListing(listingCursor(rows))
+
+            val page =
+                fixture.gateway.listChildren(
+                    treeUri = TREE_URI,
+                    target = WorkspaceTarget.Root,
+                    cursor = null,
+                    pageSize = 16u,
+                )
+
+            page.items.map { it.documentId } shouldBe rows.map { it.id }
+            page.items.forEach { it.digest shouldBe null }
+            fixture.childrenQueryCount shouldBe 1
+            fixture.inputStreamOpenCount shouldBe 0
+        }
+
+        test("given a created directory when ensure finishes then the leaf is observed without a second path walk") {
+            val fixture = ResolverFixture(FILE_BYTES)
+            fixture.stubDirectoryCreate(dirName = "subdir", dirDocId = DIR_DOCUMENT_ID)
+
+            val snapshot = fixture.gateway.ensureDirectory(TREE_URI, "subdir")
+
+            snapshot.documentId shouldBe DIR_DOCUMENT_ID
+            snapshot.kind shouldBe DocumentKind.DIRECTORY
+            // One findChild probe + one leaf snapshot query; the old tail stat re-walked the path.
+            fixture.childrenQueryCount shouldBe 1
+            fixture.inputStreamOpenCount shouldBe 0
+        }
+
+        test("given a rename-in-place move when it completes then the receipt is observed without a second path walk or content stream") {
+            val fixture = ResolverFixture(FILE_BYTES)
+            fixture.stubRenameInPlaceMove()
+
+            val snapshot = fixture.gateway.move(TREE_URI, FILE_NAME, RENAMED_NAME)
+
+            snapshot.documentId shouldBe MOVED_DOCUMENT_ID
+            snapshot.digest shouldBe null
+            fixture.inputStreamOpenCount shouldBe 0
+        }
+
         test("given listing cursor when children are listed then page respects cursor offset") {
             val fixture = ResolverFixture(FILE_BYTES)
             val cursor = mockk<Cursor>()
@@ -283,6 +373,8 @@ private class ResolverFixture(
     var inputStreamOpenCount: Int = 0
         private set
     var parentQueryCount: Int = 0
+        private set
+    var childrenQueryCount: Int = 0
         private set
     var createdDocumentDeleteCount: Int = 0
         private set
@@ -333,7 +425,89 @@ private class ResolverFixture(
                 null,
                 null,
             )
-        } returns cursor
+        } answers {
+            childrenQueryCount += 1
+            cursor
+        }
+    }
+
+    /**
+     * Directory create flow: the leaf segment misses findChild, is created under the root
+     * document, and the tail observation queries the created document id directly.
+     */
+    fun stubDirectoryCreate(
+        dirName: String,
+        dirDocId: String,
+    ) {
+        val createdUri = mockk<Uri>()
+        val createdDocUri = mockk<Uri>()
+        every {
+            resolver.query(childrenUri, any<Array<String>>(), null, null, null)
+        } answers {
+            childrenQueryCount += 1
+            absentLookup()
+        }
+        every {
+            DocumentsContract.buildDocumentUriUsingTree(rootUri, ROOT_DOCUMENT_ID)
+        } returns documentUri
+        every {
+            DocumentsContract.createDocument(
+                resolver,
+                documentUri,
+                DocumentsContract.Document.MIME_TYPE_DIR,
+                dirName,
+            )
+        } returns createdUri
+        every { DocumentsContract.getDocumentId(createdUri) } returns dirDocId
+        every {
+            DocumentsContract.buildDocumentUriUsingTree(rootUri, dirDocId)
+        } returns createdDocUri
+        every {
+            resolver.query(createdDocUri, any<Array<String>>(), null, null, null)
+        } returns directoryCursor(dirDocId, dirName)
+    }
+
+    /**
+     * Rename-in-place move: source resolves under the root, the target name is absent, and the
+     * provider returns the same document URI under the repaired name — so the move tail observes
+     * the returned URI without walking the target path.
+     */
+    fun stubRenameInPlaceMove() {
+        val movedUri = mockk<Uri>()
+        var childrenQueries = 0
+        every {
+            resolver.query(childrenUri, any<Array<String>>(), null, null, null)
+        } answers {
+            childrenQueryCount += 1
+            childrenQueries += 1
+            // First probe resolves the source; the target-name probes come back absent.
+            if (childrenQueries == 1) lookupCursor() else absentLookup()
+        }
+        every {
+            resolver.query(
+                documentUri,
+                arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )
+        } returns displayNameCursor(FILE_NAME)
+        every {
+            resolver.query(movedUri, any<Array<String>>(), null, null, null)
+        } returns movedDocumentCursor()
+        every {
+            resolver.query(
+                movedUri,
+                arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )
+        } returns displayNameCursor(RENAMED_NAME)
+        every {
+            DocumentsContract.renameDocument(resolver, documentUri, RENAMED_NAME)
+        } returns movedUri
+        every { DocumentsContract.getDocumentId(movedUri) } returns MOVED_DOCUMENT_ID
     }
 
     fun stubSingleFileRead() {
@@ -613,7 +787,111 @@ private class ResolverFixture(
             every { cursor.getLong(4) } returns 1_754_300_000_000L
             every { cursor.close() } returns Unit
         }
+
+    private fun directoryCursor(
+        docId: String,
+        name: String,
+    ): Cursor =
+        mockk<Cursor>().also { cursor ->
+            every {
+                cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            } returns 0
+            every {
+                cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            } returns 1
+            every {
+                cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            } returns 2
+            every {
+                cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
+            } returns 3
+            every {
+                cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+            } returns 4
+            every { cursor.moveToFirst() } returns true
+            every { cursor.getString(0) } returns docId
+            every { cursor.getString(1) } returns name
+            every { cursor.getString(2) } returns DocumentsContract.Document.MIME_TYPE_DIR
+            every { cursor.getLong(3) } returns 0L
+            every { cursor.getLong(4) } returns 1_754_300_000_000L
+            every { cursor.close() } returns Unit
+        }
+
+    private fun movedDocumentCursor(): Cursor =
+        mockk<Cursor>().also { cursor ->
+            every {
+                cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            } returns 0
+            every {
+                cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            } returns 1
+            every {
+                cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            } returns 2
+            every {
+                cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
+            } returns 3
+            every {
+                cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+            } returns 4
+            every { cursor.moveToFirst() } returns true
+            every { cursor.getString(0) } returns MOVED_DOCUMENT_ID
+            every { cursor.getString(1) } returns RENAMED_NAME
+            every { cursor.getString(2) } returns "text/markdown"
+            every { cursor.getLong(3) } returns fileBytes.size.toLong()
+            every { cursor.getLong(4) } returns 1_754_300_000_000L
+            every { cursor.close() } returns Unit
+        }
 }
+
+private class ListingRow(
+    val id: String,
+    val name: String,
+    val mime: String = "text/markdown",
+    val size: Long = 128L,
+    val lastModified: Long = 1_754_300_000_000L,
+)
+
+private fun listingCursor(rows: List<ListingRow>): Cursor =
+    mockk<Cursor>().also { cursor ->
+        var position = -1
+        every {
+            cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+        } returns 0
+        every {
+            cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+        } returns 1
+        every {
+            cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+        } returns 2
+        every {
+            cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE)
+        } returns 3
+        every {
+            cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+        } returns 4
+        every { cursor.moveToNext() } answers {
+            position += 1
+            position < rows.size
+        }
+        every { cursor.moveToPosition(any()) } answers {
+            position = firstArg()
+            position < rows.size
+        }
+        every { cursor.getString(any()) } answers {
+            val row = rows[position]
+            when (firstArg<Int>()) {
+                0 -> row.id
+                1 -> row.name
+                else -> row.mime
+            }
+        }
+        every { cursor.getLong(any()) } answers {
+            val row = rows[position]
+            if (firstArg<Int>() == 3) row.size else row.lastModified
+        }
+        every { cursor.close() } returns Unit
+    }
 
 private fun sha256Hex(bytes: ByteArray): String =
     MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
@@ -622,4 +900,7 @@ private const val TREE_URI = "content://com.lomo.documents/tree/primary%3ALomo"
 private const val ROOT_DOCUMENT_ID = "primary:Lomo"
 private const val DOCUMENT_ID = "primary:Lomo/2026_08_06.md"
 private const val FILE_NAME = "2026_08_06.md"
+private const val DIR_DOCUMENT_ID = "primary:Lomo/subdir"
+private const val MOVED_DOCUMENT_ID = "primary:Lomo/renamed.md"
+private const val RENAMED_NAME = "renamed.md"
 private val FILE_BYTES = "# memo\n\nbody".encodeToByteArray()

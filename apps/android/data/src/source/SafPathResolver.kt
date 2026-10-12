@@ -4,25 +4,6 @@ import androidx.documentfile.provider.DocumentFile
 import java.io.IOException
 
 /**
- * Walks a relative path (segments separated by `/`) from [root], returning the leaf DocumentFile
- * when every intermediate directory exists. Returns `null` if any segment is missing. The caller
- * is responsible for excluding the trash subdirectory if that matters to the use case.
- */
-internal fun safResolveRelative(
-    root: DocumentFile?,
-    relativePath: String,
-): DocumentFile? {
-    if (root == null) return null
-    if (relativePath.isBlank()) return root
-    var current = root
-    for (segment in relativePath.split('/')) {
-        if (segment.isEmpty()) continue
-        current = current?.findFile(segment) ?: return null
-    }
-    return current
-}
-
-/**
  * Walks a relative path (segments separated by `/`), creating any missing directories on the way
  * and creating the leaf file with [leafMimeType] if it does not exist. Returns the existing or
  * freshly-created leaf DocumentFile, or throws if creation fails at any step.

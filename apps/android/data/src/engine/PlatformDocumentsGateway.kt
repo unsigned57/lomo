@@ -14,9 +14,17 @@ import java.io.File
  * behavior is proven without Robolectric or a live DocumentsProvider.
  */
 internal interface PlatformDocumentsGateway {
+    /**
+     * Observes one target. [digest] declares how much evidence the caller needs:
+     * [SnapshotDigestMode.METADATA_ONLY] stays inside provider metadata and never opens the
+     * content stream, while [SnapshotDigestMode.CONTENT] hashes the document bytes into a
+     * verified digest. Only actions whose evidence is consumed for content verification may
+     * request CONTENT — a metadata observation must never silently read whole documents.
+     */
     fun stat(
         treeUri: String,
         target: WorkspaceTarget,
+        digest: SnapshotDigestMode,
     ): PlatformDocumentSnapshot?
 
     fun listChildren(
@@ -73,6 +81,15 @@ internal interface PlatformDocumentsGateway {
         treeUri: String,
         path: String,
     )
+}
+
+/** Evidence depth an observation needs; callers requiring verified content declare CONTENT. */
+internal enum class SnapshotDigestMode {
+    /** Provider metadata columns only; the returned snapshot digest is `null` (Unknown). */
+    METADATA_ONLY,
+
+    /** Streams the document through SHA-256 so the snapshot carries a verified digest. */
+    CONTENT,
 }
 
 internal data class PlatformDocumentSnapshot(

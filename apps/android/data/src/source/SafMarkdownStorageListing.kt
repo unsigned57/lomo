@@ -7,7 +7,6 @@ import com.lomo.data.util.runNonFatalCatching
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.withContext
-import timber.log.Timber
 
 internal suspend fun safListMetadata(
     context: Context,
@@ -16,7 +15,7 @@ internal suspend fun safListMetadata(
 ): List<FileMetadata> =
     withContext(documentAccess.ioDispatcher) {
         // behavior-contract: silent-result-ok: fast recursive query may fail; falls to safListMetadataSlow
-        runCatching { safQueryMainMarkdownMetadataRecursive(context, rootUri) }
+        runNonFatalCatching { safQueryMainMarkdownMetadataRecursive(context, rootUri) }
             .getOrNull()
             ?.takeIf(List<FileMetadata>::isNotEmpty)
             ?: safListMetadataSlow(documentAccess)
@@ -35,14 +34,15 @@ internal suspend fun safListTrashMetadata(
     documentAccess: SafDocumentAccess,
 ): List<FileMetadata> =
     withContext(documentAccess.ioDispatcher) {
-        val trashDir = documentAccess.trashDir() ?: return@withContext emptyList()
-        trashDir.listFiles().mapNotNull { file ->
+        // One provider children query answers the whole trash listing; every row already carries
+        // the name/mtime/size a `DocumentFile` child would re-query per column.
+        safQueryTrashChildren(documentAccess).mapNotNull { file ->
             val name = file.name
             if (safMatchesMarkdownTarget(name, targetFilename = null)) {
                 FileMetadata(
                     filename = name ?: return@mapNotNull null,
-                    lastModified = file.lastModified(),
-                    size = file.length(),
+                    lastModified = file.lastModified ?: 0L,
+                    size = file.size,
                 )
             } else {
                 null
@@ -85,8 +85,8 @@ internal suspend fun safGetFileMetadata(
     filename: String,
 ): FileMetadata? =
     withContext(documentAccess.ioDispatcher) {
-        safResolveRelative(documentAccess.root(), filename)?.let { file ->
-            FileMetadata(filename = filename, lastModified = file.lastModified(), size = file.length())
+        safResolveRelativeDocument(documentAccess, filename)?.let { file ->
+            FileMetadata(filename = filename, lastModified = file.lastModified ?: 0L, size = file.size)
         }
     }
 
@@ -95,7 +95,7 @@ internal suspend fun safGetTrashFileMetadata(
     filename: String,
 ): FileMetadata? =
     withContext(documentAccess.ioDispatcher) {
-        documentAccess.trashDir()?.findFile(filename)?.let { file ->
-            FileMetadata(filename = filename, lastModified = file.lastModified(), size = file.length())
+        safResolveTrashDocument(documentAccess, filename)?.let { file ->
+            FileMetadata(filename = filename, lastModified = file.lastModified ?: 0L, size = file.size)
         }
     }

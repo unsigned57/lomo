@@ -3,6 +3,7 @@ package com.lomo.data.source
 import android.net.Uri
 import android.provider.DocumentsContract
 import com.lomo.data.util.md5Hex
+import com.lomo.data.util.runNonFatalCatching
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -13,7 +14,7 @@ internal suspend fun safReadFile(
     filename: String,
 ): String? =
     withContext(documentAccess.ioDispatcher) {
-        val file = safResolveRelative(documentAccess.root(), filename) ?: return@withContext null
+        val file = safResolveRelativeDocument(documentAccess, filename) ?: return@withContext null
         documentAccess.readTextFromUri(file.uri)
     }
 
@@ -30,7 +31,7 @@ internal suspend fun safReadTrashFile(
     filename: String,
 ): String? =
     withContext(documentAccess.ioDispatcher) {
-        val file = documentAccess.trashDir()?.findFile(filename) ?: return@withContext null
+        val file = safResolveTrashDocument(documentAccess, filename) ?: return@withContext null
         documentAccess.readTextFromUri(file.uri)
     }
 
@@ -39,7 +40,7 @@ internal suspend fun safFingerprintFile(
     filename: String,
 ): String? =
     withContext(documentAccess.ioDispatcher) {
-        val file = safResolveRelative(documentAccess.root(), filename) ?: return@withContext null
+        val file = safResolveRelativeDocument(documentAccess, filename) ?: return@withContext null
         documentAccess.contentResolver.openInputStream(file.uri)?.use { input -> input.md5Hex() }
     }
 
@@ -48,7 +49,7 @@ internal suspend fun safFingerprintTrashFile(
     filename: String,
 ): String? =
     withContext(documentAccess.ioDispatcher) {
-        val file = documentAccess.trashDir()?.findFile(filename) ?: return@withContext null
+        val file = safResolveTrashDocument(documentAccess, filename) ?: return@withContext null
         documentAccess.contentResolver.openInputStream(file.uri)?.use { input -> input.md5Hex() }
     }
 
@@ -58,6 +59,8 @@ internal suspend fun safReadFileByDocumentId(
     documentId: String,
 ): String? =
     withContext(documentAccess.ioDispatcher) {
+        // behavior-contract: silent-result-ok: a cached docId may go stale against the provider;
+        // fall back to the by-name resolver before reporting the file unreadable
         try {
             val fileUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, documentId)
             documentAccess.readTextFromUri(fileUri)
@@ -72,7 +75,9 @@ internal fun safStreamFileByDocumentId(
     documentAccess: SafDocumentAccess,
     documentId: String,
 ): Flow<String> =
-    runCatching {
+    // behavior-contract: silent-result-ok: a cached docId may go stale against the provider;
+    // fall back to the by-name resolver before reporting the stream unavailable
+    runNonFatalCatching {
         val fileUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, documentId)
         documentAccess.streamTextLinesFromUri(fileUri)
     }.getOrElse {
@@ -83,7 +88,7 @@ internal fun safStreamFile(
     documentAccess: SafDocumentAccess,
     filename: String,
 ): Flow<String> {
-    val file = safResolveRelative(documentAccess.root(), filename) ?: return emptyFlow()
+    val file = safResolveRelativeDocument(documentAccess, filename) ?: return emptyFlow()
     return documentAccess.streamTextLinesFromUri(file.uri)
 }
 
@@ -93,6 +98,8 @@ internal suspend fun safReadTrashFileByDocumentId(
     documentId: String,
 ): String? =
     withContext(documentAccess.ioDispatcher) {
+        // behavior-contract: silent-result-ok: a cached docId may go stale against the provider;
+        // fall back to the by-name trash resolver before reporting the record unreadable
         try {
             val fileUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, documentId)
             documentAccess.readTextFromUri(fileUri)
@@ -107,7 +114,9 @@ internal fun safStreamTrashFileByDocumentId(
     documentAccess: SafDocumentAccess,
     documentId: String,
 ): Flow<String> =
-    runCatching {
+    // behavior-contract: silent-result-ok: a cached docId may go stale against the provider;
+    // fall back to the by-name trash resolver before reporting the stream unavailable
+    runNonFatalCatching {
         val fileUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, documentId)
         documentAccess.streamTextLinesFromUri(fileUri)
     }.getOrElse {
@@ -118,6 +127,6 @@ internal fun safStreamTrashFile(
     documentAccess: SafDocumentAccess,
     filename: String,
 ): Flow<String> {
-    val file = documentAccess.trashDir()?.findFile(filename) ?: return emptyFlow()
+    val file = safResolveTrashDocument(documentAccess, filename) ?: return emptyFlow()
     return documentAccess.streamTextLinesFromUri(file.uri)
 }

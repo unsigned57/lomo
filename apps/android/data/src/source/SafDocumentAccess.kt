@@ -26,6 +26,10 @@ internal class SafDocumentAccess(
     internal val contentResolver
         get() = context.contentResolver
 
+    /** The granted tree URI children/document queries are built against. */
+    internal val treeUri: Uri
+        get() = rootUri
+
     fun root(): DocumentFile? =
         try {
             val root = DocumentFile.fromTreeUri(context, rootUri) ?: return null
@@ -117,6 +121,8 @@ internal class SafDocumentAccess(
             writeTextToUri(uri, "wt", content)
         }.getOrElse { error ->
             if (backup != null) {
+                // behavior-contract: silent-result-ok: rollback is best-effort; the original
+                // write error is rethrown regardless and a failed restore is logged
                 runCatching { writeTextToUri(uri, "wt", backup) }
                     .onFailure { rollbackError ->
                         Timber.e(rollbackError, "Rollback failed after overwrite error for uri=%s", uri)

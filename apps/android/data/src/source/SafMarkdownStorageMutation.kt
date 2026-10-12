@@ -65,8 +65,10 @@ internal suspend fun safDeleteFile(
         if (uri != null) {
             Timber.w("Failed to delete using cached URI, falling back to findFile")
         }
-        val root = documentAccess.root() ?: throw SecurityException("Cannot access SAF root for deleteFile")
-        safResolveRelative(root, filename)?.delete()
+        documentAccess.root() ?: throw SecurityException("Cannot access SAF root for deleteFile")
+        safResolveRelativeDocument(documentAccess, filename)?.let { resolved ->
+            android.provider.DocumentsContract.deleteDocument(documentAccess.contentResolver, resolved.uri)
+        }
         Unit
     }
 }
@@ -75,7 +77,9 @@ internal suspend fun safDeleteTrashFile(
     documentAccess: SafDocumentAccess,
     filename: String,
 ) = withContext(documentAccess.ioDispatcher) {
-    documentAccess.trashDir()?.findFile(filename)?.delete()
+    safResolveTrashDocument(documentAccess, filename)?.let { resolved ->
+        android.provider.DocumentsContract.deleteDocument(documentAccess.contentResolver, resolved.uri)
+    }
     Unit
 }
 

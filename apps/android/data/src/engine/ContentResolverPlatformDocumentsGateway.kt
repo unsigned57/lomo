@@ -24,6 +24,7 @@ internal class ContentResolverPlatformDocumentsGateway(
     override fun stat(
         treeUri: String,
         target: WorkspaceTarget,
+        digest: SnapshotDigestMode,
     ): PlatformDocumentSnapshot? {
         val root = treeUri.toAndroidUri()
         return when (target) {
@@ -34,7 +35,7 @@ internal class ContentResolverPlatformDocumentsGateway(
                     documentUri = documentUri,
                     target = WorkspaceTarget.Root,
                     documentId = docId,
-                    digestMode = SnapshotDigestMode.CONTENT,
+                    digestMode = digest,
                 )
             }
             is WorkspaceTarget.Relative -> {
@@ -43,7 +44,7 @@ internal class ContentResolverPlatformDocumentsGateway(
                     documentUri = resolved.uri,
                     target = target,
                     documentId = resolved.documentId,
-                    digestMode = SnapshotDigestMode.CONTENT,
+                    digestMode = digest,
                 )
             }
         }
@@ -121,8 +122,15 @@ internal class ContentResolverPlatformDocumentsGateway(
                 ) ?: throw IOException("Failed to create directory segment $segment")
             parentDocId = DocumentsContract.getDocumentId(created)
         }
-        return stat(treeUri, WorkspaceTarget.Relative(path))
-            ?: throw IOException("Created directory is not observable: $path")
+        // The created/existing leaf document id is already known: observe it directly instead of
+        // re-walking every path segment a second time, and stay metadata-only — a directory never
+        // carries a content digest.
+        return querySnapshot(
+            documentUri = DocumentsContract.buildDocumentUriUsingTree(root, parentDocId),
+            target = WorkspaceTarget.Relative(path),
+            documentId = parentDocId,
+            digestMode = SnapshotDigestMode.METADATA_ONLY,
+        ) ?: throw IOException("Created directory is not observable: $path")
     }
 
     override fun openRead(
@@ -336,15 +344,23 @@ internal class ContentResolverPlatformDocumentsGateway(
                     DocumentsContract.buildDocumentUriUsingTree(root, parentDocId),
                 ) ?: errorIo("moveDocument returned null for $source -> $target")
             }
-        repairDisplayName(
-            root = root,
-            documentUri = targetDocUri,
-            parentDocId = parentDocId,
-            requestedName = targetName,
-            description = target,
-        )
-        return stat(treeUri, WorkspaceTarget.Relative(target))
-            ?: errorIo("Moved document is not observable: $target")
+        val finalUri =
+            repairDisplayName(
+                root = root,
+                documentUri = targetDocUri,
+                parentDocId = parentDocId,
+                requestedName = targetName,
+                description = target,
+            )
+        // The moved document's identity is the URI the provider just returned — observe it
+        // directly (metadata-only) instead of re-resolving the target path through every
+        // intermediate findChild query a second time.
+        return querySnapshot(
+            documentUri = finalUri,
+            target = WorkspaceTarget.Relative(target),
+            documentId = DocumentsContract.getDocumentId(finalUri),
+            digestMode = SnapshotDigestMode.METADATA_ONLY,
+        ) ?: errorIo("Moved document is not observable: $target")
     }
 
     private fun resolveParentDocId(
@@ -544,11 +560,6 @@ internal class ContentResolverPlatformDocumentsGateway(
         val uri: Uri,
         val createdByThisWrite: Boolean,
     )
-
-    private enum class SnapshotDigestMode {
-        METADATA_ONLY,
-        CONTENT,
-    }
 
     internal companion object {
         val DOCUMENT_PROJECTION =

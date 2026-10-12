@@ -243,6 +243,7 @@ internal class DirectRootPathAccess {
         resolved: Resolved,
         target: WorkspaceTarget,
         bytes: ByteArray? = null,
+        digest: SnapshotDigestMode,
     ): PlatformDocumentSnapshot =
         snapshot(
             absolute = resolved.absolute,
@@ -250,6 +251,7 @@ internal class DirectRootPathAccess {
             openReadChannel = { resolved.openChannel(StandardOpenOption.READ) },
             target = target,
             bytes = bytes,
+            digest = digest,
         )
 
     /** Snapshot of a directory pinned open by [dir] — attributes come from the descriptor. */
@@ -263,6 +265,7 @@ internal class DirectRootPathAccess {
             attributes = dir.getFileAttributeView(BasicFileAttributeView::class.java).readAttributes(),
             openReadChannel = { Files.newByteChannel(absolute, StandardOpenOption.READ) },
             target = target,
+            digest = SnapshotDigestMode.METADATA_ONLY,
         )
 
     /** Snapshot of the grant root anchor itself; its identity is established at registration. */
@@ -276,9 +279,14 @@ internal class DirectRootPathAccess {
                 Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS),
             openReadChannel = { Files.newByteChannel(path, StandardOpenOption.READ) },
             target = target,
+            digest = SnapshotDigestMode.METADATA_ONLY,
         )
 
-    /** Snapshot of one child inside an already-pinned directory stream. */
+    /**
+     * Metadata-only snapshot of one child inside an already-pinned directory stream. Listing a
+     * page must not open the content channel of every file it names — callers needing verified
+     * bytes ask for [SnapshotDigestMode.CONTENT] stat on the selected document.
+     */
     fun snapshotChild(
         dir: SecureDirectoryStream<Path>,
         name: Path,
@@ -296,6 +304,7 @@ internal class DirectRootPathAccess {
                 )
             },
             target = target,
+            digest = SnapshotDigestMode.METADATA_ONLY,
         )
 
     /**
@@ -345,13 +354,14 @@ internal class DirectRootPathAccess {
         openReadChannel: () -> SeekableByteChannel,
         target: WorkspaceTarget,
         bytes: ByteArray? = null,
+        digest: SnapshotDigestMode,
     ): PlatformDocumentSnapshot {
         val directory = attributes.isDirectory
-        // A supplied array digests in place; an unsupplied file digests by stream so
-        // observation never buffers whole documents into memory.
-        val digest =
+        // A supplied array digests in place; a CONTENT observation digests by stream so
+        // evidence never buffers whole documents; METADATA_ONLY never opens the channel.
+        val contentDigest =
             when {
-                directory -> null
+                directory || digest == SnapshotDigestMode.METADATA_ONLY -> null
                 bytes != null -> bytes.sha256Hex()
                 else -> openReadChannel().use { channel -> Channels.newInputStream(channel).sha256Hex() }
             }
@@ -372,7 +382,7 @@ internal class DirectRootPathAccess {
                 },
             lastModifiedEpochMillis = attributes.lastModifiedTime().toMillis().coerceAtLeast(0L),
             documentId = documentId(absolute, attributes),
-            digest = digest,
+            digest = contentDigest,
         )
     }
 
