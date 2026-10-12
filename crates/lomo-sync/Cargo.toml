@@ -32,6 +32,10 @@ name = "s3_adapter_contract"
 path = "tests/s3_adapter_contract.rs"
 
 [[test]]
+name = "percent_encoding_contract"
+path = "tests/percent_encoding_contract.rs"
+
+[[test]]
 name = "conflict_recovery_contract"
 path = "tests/conflict_recovery_contract.rs"
 
@@ -90,6 +94,7 @@ lomo-core = { path = "../lomo-core" }
 lomo-workspace = { path = "../lomo-workspace" }
 lomo-store = { path = "../lomo-store" }
 aes.workspace = true
+jiff.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -97,7 +102,14 @@ scrypt.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
 url = { version = "=2.5.8", default-features = false, features = ["std"] }
+percent-encoding = { version = "=2.3.2", default-features = false, features = ["alloc"] }
 crypto_secretbox.workspace = true
+# SigV4 HMAC-SHA256 (P-48): aws-lc-rs is already linked via rustls/reqwest; direct edge adds no new native code.
+aws-lc-rs.workspace = true
+# S3 ListObjectsV2 + WebDAV multistatus + multipart-init XML parsers (P-50).
+quick-xml.workspace = true
+# rclone filename base32hex/base64url codecs (P-51).
+data-encoding.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
