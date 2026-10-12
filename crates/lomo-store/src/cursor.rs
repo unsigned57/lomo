@@ -134,6 +134,102 @@ impl PageCursor {
     }
 }
 
+/// Opaque history cursor: the last emitted row's keyset bound under
+/// `revision DESC, history_record_id ASC`, bound to one memo and one store high-water.
+///
+/// The bound is positional evidence, not an offset — a page re-enters exactly after
+/// `(last_revision, last_history_record_id)` without re-scanning skipped rows. Any memo or
+/// high-water mismatch fails closed because the ordering context the bound names is gone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryPageCursor {
+    /// Memo identity this cursor was minted for.
+    pub memo_id: String,
+    /// `revision` of the last row on the previous page.
+    pub last_revision: u64,
+    /// `history_record_id` of the last row on the previous page.
+    pub last_history_record_id: String,
+    /// Store high-water revision the bound was minted under.
+    pub high_water_revision: u64,
+}
+
+impl HistoryPageCursor {
+    /// Builds a cursor for the last row of a history page.
+    #[must_use]
+    pub const fn new(
+        memo_id: String,
+        last_revision: u64,
+        last_history_record_id: String,
+        high_water_revision: u64,
+    ) -> Self {
+        Self {
+            memo_id,
+            last_revision,
+            last_history_record_id,
+            high_water_revision,
+        }
+    }
+
+    /// Encodes the cursor as compact JSON (opaque to callers).
+    ///
+    /// # Errors
+    ///
+    /// Returns a validation error when serialization fails (should not happen for valid cursors).
+    pub fn encode(&self) -> Result<String, lomo_core::LomoError> {
+        serde_json::to_string(self).map_err(|err| {
+            validation(
+                "cursor_encode_failed",
+                &format!("cannot encode history cursor: {err}"),
+            )
+        })
+    }
+
+    /// Decodes an opaque history cursor.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed on malformed input — including the retired decimal-offset form.
+    pub fn decode(raw: &str) -> Result<Self, lomo_core::LomoError> {
+        serde_json::from_str(raw).map_err(|err| {
+            validation(
+                "invalid_history_cursor",
+                &format!("cannot decode history cursor: {err}"),
+            )
+        })
+    }
+
+    /// Validates this cursor against the memo being paged and the current store revision.
+    ///
+    /// # Errors
+    ///
+    /// `invalid_history_cursor` when the cursor binds a different memo; `stale_cursor` when the
+    /// store moved past the revision the bound was minted under. Never falls back to OFFSET.
+    pub fn validate_against(
+        &self,
+        memo_id: &str,
+        high_water_revision: u64,
+    ) -> Result<(), lomo_core::LomoError> {
+        if self.memo_id != memo_id {
+            return Err(validation(
+                "invalid_history_cursor",
+                "history cursor belongs to a different memo",
+            ));
+        }
+        if self.last_history_record_id.is_empty() {
+            return Err(validation(
+                "invalid_history_cursor",
+                "history cursor bound has no record id",
+            ));
+        }
+        if self.high_water_revision != high_water_revision {
+            return Err(validation(
+                "stale_cursor",
+                "history cursor high_water_revision does not match store revision",
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Stable fingerprint of a query plan + filter set for cursor coupling.
 #[must_use]
 pub fn fingerprint_query(
@@ -148,7 +244,7 @@ pub fn fingerprint_query(
     hasher.update(b"|");
     hasher.update(filter_fingerprint.as_bytes());
     let digest = hasher.finalize();
-    hex_encode(&digest)
+    format!("{digest:x}")
 }
 
 /// Fingerprint helper when a full plan is available.
@@ -159,15 +255,4 @@ pub fn fingerprint_plan(plan: &QueryPlan, filter_fingerprint: &str) -> String {
         filter_fingerprint,
         TOKENIZER_VERSION,
     )
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        match write!(out, "{byte:02x}") {
-            Ok(()) | Err(_) => {}
-        }
-    }
-    out
 }

@@ -1,11 +1,12 @@
 //! Rebuild state machine: read-only → temp DB → batched checkpoint → integrity → atomic replace.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, params};
+use rusqlite::{
+    Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior, params,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::content_facts::{
@@ -13,7 +14,7 @@ use crate::content_facts::{
     project_content_facts, project_reminder_references,
 };
 use crate::error::{busy, conflict, corruption, from_sqlite, storage, validation};
-use crate::lomo_format::{LomoPaths, MemoCommandKind};
+use crate::lomo_format::{MemoCommandKind, WorkspaceLayout};
 use crate::open::{SQLITE_DIR_NAME, create_schema_db, database_path};
 use crate::purge::list_purged_memo_ids;
 use crate::query::recompute_stats;
@@ -1662,13 +1663,7 @@ fn mint_opaque_memo_id() -> Result<String, lomo_core::LomoError> {
         let diagnostic = format!("system CSPRNG getrandom failed: {error}");
         storage("csprng_read_failed", &diagnostic)
     })?;
-    let mut hex = String::with_capacity(32);
-    for byte in bytes {
-        write!(hex, "{byte:02x}").map_err(|error| {
-            let diagnostic = format!("{error}");
-            storage("fmt_write_failed", &diagnostic)
-        })?;
-    }
+    let hex = lomo_core::hex_encode(&bytes);
     lomo_workspace::MemoId::parse(&format!("m_{hex}")).map(|id| id.as_str().to_owned())
 }
 
@@ -1721,7 +1716,7 @@ fn persisted_revision(value: u64) -> Result<i64, lomo_core::LomoError> {
     reason = "projection upsert keeps memo, FTS, tags, and attachments in one transaction"
 )]
 fn upsert_saf_projection(
-    connection: &Transaction<'_>,
+    connection: &Connection,
     projection: &ScannedMemoProjection,
     revision: u64,
 ) -> Result<(), lomo_core::LomoError> {
@@ -1913,6 +1908,14 @@ impl SafProjectionRebuild {
         remove_file_if_exists(&temp_db, "stale SAF projection rebuild")?;
         remove_wal_shm(&temp_db);
         let connection = create_schema_db(&temp_db)?;
+        // The whole rebuild is one build transaction: `BEGIN IMMEDIATE` claims the write lock
+        // once, each `append_*` page runs under a savepoint so a failed page rolls back without
+        // touching earlier pages, and `finish` issues the single COMMIT — there is no per-page
+        // fsync. Dropping the connection mid-build rolls everything back; the live database is
+        // untouched until `finish_atomic_replace` promotes the committed temp file.
+        connection
+            .execute_batch("BEGIN IMMEDIATE")
+            .map_err(|error| from_sqlite(&error))?;
         Ok(Self {
             projection_root: projection_root.to_path_buf(),
             live_db,
@@ -1927,12 +1930,15 @@ impl SafProjectionRebuild {
         })
     }
 
-    /// Appends one bounded scan page in a single `SQLite` transaction.
+    /// Appends one bounded scan page under a savepoint inside the build transaction.
+    ///
+    /// A failed page rolls back to the savepoint, leaving every earlier page untouched; the
+    /// single COMMIT lands in [`Self::finish`].
     ///
     /// # Errors
     ///
     /// Returns validation for oversized/duplicate pages or malformed memo facts, and storage errors
-    /// when the page cannot be committed.
+    /// when the page cannot be applied.
     pub fn append_page(
         &mut self,
         memos: &[ScannedMemoProjection],
@@ -1949,8 +1955,8 @@ impl SafProjectionRebuild {
                 "SAF projection rebuild is already finished or aborted",
             )
         })?;
-        let transaction = connection
-            .unchecked_transaction()
+        let page = connection
+            .savepoint()
             .map_err(|error| from_sqlite(&error))?;
         let mut page_ids = BTreeSet::new();
         let mut page_evidence = Vec::with_capacity(memos.len());
@@ -1962,7 +1968,7 @@ impl SafProjectionRebuild {
                     "SAF projection page contains a duplicate memo identity",
                 ));
             }
-            let exists: i64 = transaction
+            let exists: i64 = page
                 .query_row(
                     "SELECT COUNT(*) FROM memo WHERE memo_id=?1",
                     params![&memo.memo_id],
@@ -1975,7 +1981,7 @@ impl SafProjectionRebuild {
                     "SAF projection rebuild received a duplicate memo identity",
                 ));
             }
-            index_scanned_memo(&transaction, memo)?;
+            index_scanned_memo(&page, memo)?;
             page_evidence.push((
                 memo.memo_id.clone(),
                 ScannedProjectionEvidence {
@@ -1991,7 +1997,7 @@ impl SafProjectionRebuild {
                 },
             ));
         }
-        transaction.commit().map_err(|error| from_sqlite(&error))?;
+        page.commit().map_err(|error| from_sqlite(&error))?;
         for (memo_id, evidence) in page_evidence {
             if self.workspace_evidence.insert(memo_id, evidence).is_some() {
                 return Err(corruption(
@@ -2029,8 +2035,8 @@ impl SafProjectionRebuild {
                 "SAF projection rebuild is already finished or aborted",
             )
         })?;
-        let transaction = connection
-            .unchecked_transaction()
+        let page = connection
+            .savepoint()
             .map_err(|error| from_sqlite(&error))?;
         let mut page_ids = BTreeSet::new();
         let mut page_evidence = Vec::with_capacity(trash_memos.len());
@@ -2048,9 +2054,9 @@ impl SafProjectionRebuild {
                     "SAF trash page contains a duplicate memo identity",
                 ));
             }
-            page_evidence.push(merge_trash_projection(&transaction, trash)?);
+            page_evidence.push(merge_trash_projection(&page, trash)?);
         }
-        transaction.commit().map_err(|error| from_sqlite(&error))?;
+        page.commit().map_err(|error| from_sqlite(&error))?;
         for (memo_id, evidence) in page_evidence {
             self.workspace_evidence.insert(memo_id, evidence);
         }
@@ -2078,8 +2084,8 @@ impl SafProjectionRebuild {
                 "SAF projection rebuild is already finished or aborted",
             )
         })?;
-        let transaction = connection
-            .unchecked_transaction()
+        let page = connection
+            .savepoint()
             .map_err(|error| from_sqlite(&error))?;
         let mut page_ids = BTreeSet::new();
         for revision in revisions {
@@ -2100,9 +2106,9 @@ impl SafProjectionRebuild {
                     "SAF history page contains a duplicate revision",
                 ));
             }
-            index_scanned_history_revision(&transaction, revision)?;
+            index_scanned_history_revision(&page, revision)?;
         }
-        transaction.commit().map_err(|error| from_sqlite(&error))
+        page.commit().map_err(|error| from_sqlite(&error))
     }
 
     /// Appends durable purge tombstone identities decoded by the workspace scan.
@@ -2122,8 +2128,8 @@ impl SafProjectionRebuild {
                 "SAF projection rebuild is already finished or aborted",
             )
         })?;
-        let transaction = connection
-            .unchecked_transaction()
+        let page = connection
+            .savepoint()
             .map_err(|error| from_sqlite(&error))?;
         let mut page_ids = BTreeSet::new();
         for memo_id in memo_ids {
@@ -2133,14 +2139,13 @@ impl SafProjectionRebuild {
                     "purged page requires distinct non-empty memo ids",
                 ));
             }
-            transaction
-                .execute(
-                    "INSERT INTO purged_memo(memo_id) VALUES(?1)",
-                    params![memo_id],
-                )
-                .map_err(|error| from_sqlite(&error))?;
+            page.execute(
+                "INSERT INTO purged_memo(memo_id) VALUES(?1)",
+                params![memo_id],
+            )
+            .map_err(|error| from_sqlite(&error))?;
         }
-        transaction.commit().map_err(|error| from_sqlite(&error))
+        page.commit().map_err(|error| from_sqlite(&error))
     }
 
     /// Appends verified workspace listing rows admitted with this projection commit.
@@ -2163,8 +2168,8 @@ impl SafProjectionRebuild {
                 "SAF projection rebuild is already finished or aborted",
             )
         })?;
-        let transaction = connection
-            .unchecked_transaction()
+        let page = connection
+            .savepoint()
             .map_err(|error| from_sqlite(&error))?;
         let mut page_paths = BTreeSet::new();
         for row in rows {
@@ -2177,14 +2182,13 @@ impl SafProjectionRebuild {
                     "listing page requires distinct non-empty verified paths and digests",
                 ));
             }
-            transaction
-                .execute(
-                    "INSERT INTO file_listing(path, digest) VALUES(?1, ?2)",
-                    params![&row.path, &row.digest],
-                )
-                .map_err(|error| from_sqlite(&error))?;
+            page.execute(
+                "INSERT INTO file_listing(path, digest) VALUES(?1, ?2)",
+                params![&row.path, &row.digest],
+            )
+            .map_err(|error| from_sqlite(&error))?;
         }
-        transaction.commit().map_err(|error| from_sqlite(&error))
+        page.commit().map_err(|error| from_sqlite(&error))
     }
 
     /// Appends verified durable pin facts to the pending projection.
@@ -2208,8 +2212,8 @@ impl SafProjectionRebuild {
                 "SAF projection rebuild is already finished or aborted",
             )
         })?;
-        let transaction = connection
-            .unchecked_transaction()
+        let page = connection
+            .savepoint()
             .map_err(|error| from_sqlite(&error))?;
         for pin in pins {
             if pin.memo_id.trim().is_empty() {
@@ -2224,20 +2228,18 @@ impl SafProjectionRebuild {
                     "SAF pin projection requires a positive epoch millisecond",
                 ));
             }
-            transaction
-                .execute(
-                    "INSERT OR REPLACE INTO memo_pin(memo_id, pinned_at_ms) VALUES(?1, ?2)",
-                    params![&pin.memo_id, pin.pinned_at_ms],
-                )
-                .map_err(|error| from_sqlite(&error))?;
-            transaction
-                .execute(
-                    "UPDATE memo SET is_pinned=1 WHERE memo_id=?1",
-                    params![&pin.memo_id],
-                )
-                .map_err(|error| from_sqlite(&error))?;
+            page.execute(
+                "INSERT OR REPLACE INTO memo_pin(memo_id, pinned_at_ms) VALUES(?1, ?2)",
+                params![&pin.memo_id, pin.pinned_at_ms],
+            )
+            .map_err(|error| from_sqlite(&error))?;
+            page.execute(
+                "UPDATE memo SET is_pinned=1 WHERE memo_id=?1",
+                params![&pin.memo_id],
+            )
+            .map_err(|error| from_sqlite(&error))?;
         }
-        transaction.commit().map_err(|error| from_sqlite(&error))
+        page.commit().map_err(|error| from_sqlite(&error))
     }
 
     /// Records the memo identities a durable state head attested a pin verdict for.
@@ -2283,6 +2285,10 @@ impl SafProjectionRebuild {
         recompute_stats(&connection)?;
         crate::write_meta_u64(&connection, "high_water_revision", self.high_water_revision)?;
         crate::write_meta_u64(&connection, "event_sequence", self.event_sequence)?;
+        // The committed `file_listing` baseline and its digest meta land in the same build
+        // commit — a crash can never promote listing rows without the digest that certifies
+        // them, and no separate post-promote write is needed on the live store.
+        persist_listing_digest(&connection)?;
         ensure_quick_check(&connection, "SAF projection temp")?;
         let mut image = ScannedRowImage::default();
         for (memo_id, evidence) in &self.workspace_evidence {
@@ -2308,6 +2314,11 @@ impl SafProjectionRebuild {
         let memos_indexed = u64::try_from(self.workspace_evidence.len())
             .map_err(|_error| validation("memo_count_overflow", "memo count exceeds u64"))?;
         let evidence = compare_scanned_rows_to_store(&mut image, &connection)?;
+        // Single COMMIT for the whole rebuild — the certified row image lands on disk as one
+        // durable unit before the temp file is promoted over the live projection.
+        connection
+            .execute_batch("COMMIT")
+            .map_err(|error| from_sqlite(&error))?;
         drop(connection);
         finish_atomic_replace(&self.live_db, &self.temp_db, &self.live_bak)?;
         Ok(RebuildResult {
@@ -2339,8 +2350,33 @@ impl SafProjectionRebuild {
     }
 }
 
+/// Recomputes `workspace_listing_digest` from the committed `file_listing` rows inside the
+/// caller's transaction — the digest meta is derived state and must land in the same commit
+/// as the rows it certifies.
+fn persist_listing_digest(connection: &Connection) -> Result<(), lomo_core::LomoError> {
+    let mut pairs = Vec::new();
+    {
+        let mut statement = connection
+            .prepare("SELECT path,digest FROM file_listing ORDER BY path")
+            .map_err(|error| from_sqlite(&error))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| from_sqlite(&error))?;
+        for row in rows {
+            pairs.push(row.map_err(|error| from_sqlite(&error))?);
+        }
+    }
+    crate::write_meta_string(
+        connection,
+        "workspace_listing_digest",
+        &aggregate_memo_digest(&pairs),
+    )
+}
+
 fn merge_trash_projection(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     trash: &ScannedTrashProjection,
 ) -> Result<(String, ScannedProjectionEvidence), lomo_core::LomoError> {
     let already_trashed: i64 = transaction
@@ -2801,25 +2837,7 @@ pub fn apply_scanned_incremental(
 
     recompute_stats(&transaction)?;
 
-    let mut pairs = Vec::new();
-    {
-        let mut statement = transaction
-            .prepare("SELECT path,digest FROM file_listing ORDER BY path")
-            .map_err(|error| from_sqlite(&error))?;
-        let rows = statement
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })
-            .map_err(|error| from_sqlite(&error))?;
-        for row in rows {
-            pairs.push(row.map_err(|error| from_sqlite(&error))?);
-        }
-    }
-    crate::write_meta_string(
-        &transaction,
-        "workspace_listing_digest",
-        &aggregate_memo_digest(&pairs),
-    )?;
+    persist_listing_digest(&transaction)?;
 
     let after = projection_state_digest(&transaction)?;
     // A scoped commit that moved projection content is still a projection revision: the
@@ -2916,7 +2934,7 @@ pub fn run_rebuild(
         ));
     }
 
-    let paths = LomoPaths::for_workspace(workspace_root);
+    let paths = WorkspaceLayout::for_workspace(workspace_root);
     paths.ensure_layout()?;
 
     // Durable facts stay put even when SQLite is corrupt — we only touch rebuildable files.
@@ -2955,7 +2973,7 @@ pub fn run_rebuild(
             save_checkpoint(&checkpoint_path, &checkpoint)?;
         }
 
-        let conn = create_or_open_temp(&temp_db, &checkpoint)?;
+        let mut conn = create_or_open_temp(&temp_db, &checkpoint)?;
         let memo_files = list_memo_files(workspace_root)?;
         let trash_records = list_trash_records(workspace_root)?;
         let memo_file_count = u64::try_from(memo_files.len()).map_err(|_error| {
@@ -2982,29 +3000,45 @@ pub fn run_rebuild(
         checkpoint.phase = RebuildPhase::Indexing;
         save_checkpoint(&checkpoint_path, &checkpoint)?;
 
-        let start = usize::try_from(checkpoint.scanned).map_err(|_error| {
+        // `scanned` counts memo files and committed trash records on one cursor: a checkpoint
+        // taken mid-trash-phase is already past the memo segment, so the memo cursor clamps to
+        // the segment length and resumes as an empty pending range. Overshoot past the
+        // memo+trash total is still rejected by the trash-phase bound below.
+        let start = usize::try_from(checkpoint.scanned.min(memo_file_count)).map_err(|_error| {
             validation(
                 "rebuild_checkpoint_invalid",
                 "rebuild checkpoint scanned count does not fit this platform",
             )
         })?;
-        if start > memo_files.len() {
-            return Err(validation(
+        // One `BEGIN IMMEDIATE` transaction per `batch_size` files: the checkpoint boundary is
+        // the commit boundary, so `scanned` always names exactly the rows durably committed in
+        // the temp DB. A crash mid-batch rolls the whole batch back and resumes at the last
+        // committed boundary — never at a half-written page.
+        let mut indexed = start;
+        let pending = memo_files.get(start..).ok_or_else(|| {
+            validation(
                 "rebuild_checkpoint_invalid",
                 "rebuild checkpoint scanned count exceeds memo file count",
-            ));
-        }
-        for (idx, memo_path) in memo_files.iter().enumerate().skip(start) {
-            index_memo_file(&conn, memo_path)?;
-            checkpoint.scanned = u64::try_from(idx + 1).map_err(|_error| {
+            )
+        })?;
+        for chunk in pending.chunks(batch_size) {
+            {
+                let page = conn
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|error| from_sqlite(&error))?;
+                for memo_path in chunk {
+                    index_memo_file(&page, memo_path)?;
+                }
+                page.commit().map_err(|error| from_sqlite(&error))?;
+            }
+            indexed += chunk.len();
+            checkpoint.scanned = u64::try_from(indexed).map_err(|_error| {
                 validation(
                     "rebuild_progress_overflow",
                     "rebuild memo progress does not fit the supported width",
                 )
             })?;
-            if (idx + 1) % batch_size == 0 {
-                save_checkpoint(&checkpoint_path, &checkpoint)?;
-            }
+            save_checkpoint(&checkpoint_path, &checkpoint)?;
         }
 
         // Direct and SAF soft deletes share the same checksummed workspace record.  Index these
@@ -3023,41 +3057,61 @@ pub fn run_rebuild(
                 "rebuild checkpoint trash progress exceeds trash record count",
             ));
         }
-        for (index, record) in trash_records.iter().enumerate().skip(record_start) {
-            index_trash_record(&conn, record)?;
-            let indexed_records = u64::try_from(index + 1).map_err(|_error| {
+        let mut indexed_records = record_start;
+        let pending_records = trash_records.get(record_start..).ok_or_else(|| {
+            validation(
+                "rebuild_checkpoint_invalid",
+                "rebuild checkpoint trash progress exceeds trash record count",
+            )
+        })?;
+        for chunk in pending_records.chunks(batch_size) {
+            {
+                let page = conn
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(|error| from_sqlite(&error))?;
+                for record in chunk {
+                    index_trash_record(&page, record)?;
+                }
+                page.commit().map_err(|error| from_sqlite(&error))?;
+            }
+            indexed_records += chunk.len();
+            let committed = u64::try_from(indexed_records).map_err(|_error| {
                 validation(
                     "rebuild_progress_overflow",
                     "rebuild trash progress does not fit the supported width",
                 )
             })?;
-            checkpoint.scanned = memo_file_count
-                .checked_add(indexed_records)
-                .ok_or_else(|| {
-                    validation(
-                        "rebuild_progress_overflow",
-                        "rebuild progress total exceeds the supported width",
-                    )
-                })?;
-            if (index + 1) % batch_size == 0 {
-                save_checkpoint(&checkpoint_path, &checkpoint)?;
-            }
+            checkpoint.scanned = memo_file_count.checked_add(committed).ok_or_else(|| {
+                validation(
+                    "rebuild_progress_overflow",
+                    "rebuild progress total exceeds the supported width",
+                )
+            })?;
+            save_checkpoint(&checkpoint_path, &checkpoint)?;
         }
 
-        // Durable trash markers are authoritative after memo files so a stale physical
-        // `trash/{id}.md` cannot outrank the checksummed record.
-        apply_trash_record_state(&conn, &trash_records)?;
-        // Purge tombstones are durable suppression facts the projection itself carries: the
-        // reconcile gate compares `purged_memo` against `.lomo/purged/`, so every build must
-        // leave the table equal to the tombstone set the scan just read.
-        for memo_id in list_purged_memo_ids(workspace_root)? {
-            conn.execute(
-                "INSERT OR REPLACE INTO purged_memo(memo_id) VALUES(?1)",
-                params![memo_id],
-            )
-            .map_err(|error| from_sqlite(&error))?;
+        // Tail-state work — authoritative trash markers, purge tombstones, statistics — commits
+        // as one final indexing transaction before the Integrity phase.
+        {
+            let tail = conn
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|error| from_sqlite(&error))?;
+            // Durable trash markers are authoritative after memo files so a stale physical
+            // `trash/{id}.md` cannot outrank the checksummed record.
+            apply_trash_record_state(&tail, &trash_records)?;
+            // Purge tombstones are durable suppression facts the projection itself carries: the
+            // reconcile gate compares `purged_memo` against `.lomo/purged/`, so every build must
+            // leave the table equal to the tombstone set the scan just read.
+            for memo_id in list_purged_memo_ids(workspace_root)? {
+                tail.execute(
+                    "INSERT OR REPLACE INTO purged_memo(memo_id) VALUES(?1)",
+                    params![memo_id],
+                )
+                .map_err(|error| from_sqlite(&error))?;
+            }
+            recompute_stats(&tail)?;
+            tail.commit().map_err(|error| from_sqlite(&error))?;
         }
-        recompute_stats(&conn)?;
         drop(conn);
 
         checkpoint.phase = RebuildPhase::Integrity;
@@ -3122,6 +3176,13 @@ pub fn run_rebuild(
         compare_store_digest = evidence.store_digest;
     }
 
+    // The result reports the clock row the promoted temp database actually committed —
+    // a resumed run can carry a populated temp whose meta is not the fresh-schema seed.
+    let committed_high_water = {
+        let live = Connection::open(&live_db).map_err(|err| from_sqlite(&err))?;
+        crate::read_meta_u64(&live, "high_water_revision")?
+    };
+
     let memos_indexed = checkpoint.scanned;
     Ok(RebuildResult {
         memos_indexed,
@@ -3130,7 +3191,7 @@ pub fn run_rebuild(
         workspace_digest: compare_workspace_digest,
         store_digest: compare_store_digest,
         corrupt_lomo_isolated: checkpoint.isolated,
-        high_water_revision: 0,
+        high_water_revision: committed_high_water,
         rewritten: true,
     })
 }
@@ -3173,7 +3234,7 @@ fn collect_direct_workspace_rows(
             .parent()
             .and_then(|parent| parent.file_name())
             .and_then(|name| name.to_str())
-            == Some("trash");
+            == Some(lomo_workspace::LEGACY_TRASH_ROOT_NAME);
         image
             .memo_rows
             .push((memo_id, fingerprint_content(&content), trashed));
@@ -3951,12 +4012,18 @@ fn open_temp_existing(temp_db: &Path) -> Result<Connection, lomo_core::LomoError
 
 fn list_memo_files(workspace_root: &Path) -> Result<Vec<PathBuf>, lomo_core::LomoError> {
     let mut out = Vec::new();
-    collect_md_files(&workspace_root.join("memos"), &mut out)?;
+    collect_md_files(
+        &workspace_root.join(lomo_workspace::MEMO_ROOT_NAME),
+        &mut out,
+    )?;
     // A legacy physical trash body is considered only when no canonical workspace trash record
     // exists.  Once the record is present, the body/metadata in that record is the sole rebuild
     // authority and the file is merely an optional local optimization.
     let mut legacy_trash = Vec::new();
-    collect_md_files(&workspace_root.join("trash"), &mut legacy_trash)?;
+    collect_md_files(
+        &workspace_root.join(lomo_workspace::LEGACY_TRASH_ROOT_NAME),
+        &mut legacy_trash,
+    )?;
     let purged = list_purged_memo_ids(workspace_root)?;
     for path in legacy_trash {
         let memo_id = path
@@ -4125,7 +4192,7 @@ fn index_memo_file(conn: &Connection, path: &Path) -> Result<(), lomo_core::Lomo
         .parent()
         .and_then(|p| p.file_name())
         .and_then(|n| n.to_str())
-        .unwrap_or("memos");
+        .unwrap_or(lomo_workspace::MEMO_ROOT_NAME);
     let source_path = format!("{parent_name}/{memo_id}.md");
     let modified = fs::metadata(path)
         .and_then(|metadata| metadata.modified())

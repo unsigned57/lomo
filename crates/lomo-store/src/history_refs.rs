@@ -4,6 +4,7 @@
 //! must count attachments still referenced by **in-window** history so media stays live after the
 //! current memo body no longer links them. Out-of-window revisions must not keep digests.
 
+use crate::cursor::HistoryPageCursor;
 use crate::error::{corruption, from_sqlite, validation};
 use rusqlite::{Connection, params};
 
@@ -24,6 +25,12 @@ pub struct MemoHistoryPage {
 
 /// Lists durable memo revisions in descending revision order.
 ///
+/// Paging is keyset-based: the opaque cursor carries the previous page's last
+/// `(revision, history_record_id)` bound under `revision DESC, history_record_id ASC`, so a
+/// continuation enters exactly after that row instead of re-scanning an OFFSET prefix. The cursor
+/// is bound to this memo and to the store high-water revision it was minted under — malformed,
+/// foreign-memo, stale, or out-of-range bounds fail closed rather than silently restarting.
+///
 /// # Errors
 ///
 /// Returns validation for malformed cursors/limits and storage errors for unreadable history.
@@ -39,32 +46,47 @@ pub fn list_memo_history(
             "memo id and page limit are invalid",
         ));
     }
-    let offset = cursor
-        .unwrap_or("0")
-        .parse::<usize>()
-        .map_err(|_parse_error| {
-            validation(
-                "invalid_history_cursor",
-                "history cursor must be a decimal offset",
-            )
-        })?;
-    let offset_i64 = i64::try_from(offset)
-        .map_err(|_error| validation("invalid_history_cursor", "history cursor exceeds SQLite"))?;
+    let high_water_revision = crate::read_meta_u64(connection, "high_water_revision")?;
+    let bound = match cursor {
+        Some(raw) => Some(resolve_history_bound(
+            connection,
+            memo_id,
+            raw,
+            high_water_revision,
+        )?),
+        None => None,
+    };
     let fetch = limit
         .checked_add(1)
         .ok_or_else(|| validation("invalid_history_page", "history page limit overflow"))?;
     let fetch_i64 = i64::try_from(fetch).map_err(|_error| {
         validation("invalid_history_page", "history page limit exceeds SQLite")
     })?;
-    let mut statement = connection
-        .prepare(
-            "SELECT revision,created_at_ms,content,file_fingerprint,history_record_id FROM revision_index \
+    // Keyset bound for `revision DESC, history_record_id ASC`: strictly-older revision, or the
+    // same revision at a strictly-later record id. `WHERE cursor > ?` never re-scans the prefix.
+    let (sql, bound_args): (&str, Option<(i64, &str)>) = match &bound {
+        Some((revision, record_id)) => (
+            "SELECT revision,created_at_ms,content,file_fingerprint,history_record_id \
+             FROM revision_index \
              WHERE memo_id=?1 AND content IS NOT NULL AND file_fingerprint IS NOT NULL \
-             ORDER BY revision DESC,history_record_id ASC LIMIT ?2 OFFSET ?3",
-        )
+             AND (revision < ?3 OR (revision = ?3 AND history_record_id > ?4)) \
+             ORDER BY revision DESC,history_record_id ASC LIMIT ?2",
+            Some((*revision, record_id.as_str())),
+        ),
+        None => (
+            "SELECT revision,created_at_ms,content,file_fingerprint,history_record_id \
+             FROM revision_index \
+             WHERE memo_id=?1 AND content IS NOT NULL AND file_fingerprint IS NOT NULL \
+             ORDER BY revision DESC,history_record_id ASC LIMIT ?2",
+            None,
+        ),
+    };
+    let mut statement = connection
+        .prepare(sql)
         .map_err(|error| from_sqlite(&error))?;
-    let rows = statement
-        .query_map(params![memo_id, fetch_i64, offset_i64], |row| {
+    let mut items = Vec::with_capacity(fetch);
+    let collect =
+        |row: &rusqlite::Row<'_>| -> rusqlite::Result<(i64, i64, String, String, String)> {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, i64>(1)?,
@@ -72,9 +94,15 @@ pub fn list_memo_history(
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
             ))
-        })
-        .map_err(|error| from_sqlite(&error))?;
-    let mut items = Vec::with_capacity(fetch);
+        };
+    let rows = match bound_args {
+        Some((revision, record_id)) => statement
+            .query_map(params![memo_id, fetch_i64, revision, record_id], collect)
+            .map_err(|error| from_sqlite(&error))?,
+        None => statement
+            .query_map(params![memo_id, fetch_i64], collect)
+            .map_err(|error| from_sqlite(&error))?,
+    };
     for row in rows {
         let (revision, created_at_ms, content, file_fingerprint, record_id) =
             row.map_err(|error| from_sqlite(&error))?;
@@ -93,8 +121,55 @@ pub fn list_memo_history(
     }
     let has_more = items.len() > limit;
     items.truncate(limit);
-    let next_cursor = has_more.then(|| offset.saturating_add(limit).to_string());
+    let next_cursor = match (has_more, items.last()) {
+        (true, Some(tail)) => Some(
+            HistoryPageCursor::new(
+                memo_id.to_owned(),
+                tail.revision,
+                tail.record_id.clone(),
+                high_water_revision,
+            )
+            .encode()?,
+        ),
+        _ => None,
+    };
     Ok(MemoHistoryPage { items, next_cursor })
+}
+
+/// Decodes an opaque history cursor, validates it against the memo and store revision it pages
+/// under, and proves the bound row is still a pageable revision — the projection is append-only
+/// within one high-water, so a bound naming an absent or filtered-out row is forged evidence.
+fn resolve_history_bound(
+    connection: &Connection,
+    memo_id: &str,
+    raw: &str,
+    high_water_revision: u64,
+) -> Result<(i64, String), lomo_core::LomoError> {
+    let decoded = HistoryPageCursor::decode(raw)?;
+    decoded.validate_against(memo_id, high_water_revision)?;
+    let last_revision = i64::try_from(decoded.last_revision).map_err(|_error| {
+        validation(
+            "invalid_history_cursor",
+            "history cursor revision exceeds SQLite",
+        )
+    })?;
+    let bound_exists: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM revision_index \
+             WHERE memo_id=?1 AND revision=?2 AND history_record_id=?3 \
+             AND content IS NOT NULL AND file_fingerprint IS NOT NULL)",
+            params![memo_id, last_revision, &decoded.last_history_record_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|error| from_sqlite(&error))?
+        != 0;
+    if !bound_exists {
+        return Err(validation(
+            "invalid_history_cursor",
+            "history cursor bound is not a projected revision",
+        ));
+    }
+    Ok((last_revision, decoded.last_history_record_id))
 }
 
 /// Default per-memo revision keep count for history media refs (D5/D6 retention window).

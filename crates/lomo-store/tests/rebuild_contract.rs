@@ -58,11 +58,11 @@ mod tests {
 
     use lomo_core::{ErrorCategory, OperationId, PageSize};
     use lomo_store::{
-        LomoPaths, MemoCommand, MemoCommandKind, MemoFilters, MemoQuery, RebuildPhase,
+        MemoCommand, MemoCommandKind, MemoFilters, MemoQuery, RebuildPhase,
         SafPermanentDeleteTarget, SafProjectionMutation, SafProjectionMutationKind,
         SafProjectionRebuild, ScannedHistoryProjection, ScannedMemoProjection,
-        ScannedTrashProjection, Store, WriteGate, ensure_writable, fingerprint_content,
-        project_reminder_references, rebuild_scanned_projection, run_rebuild,
+        ScannedTrashProjection, Store, WorkspaceLayout, WriteGate, ensure_writable,
+        fingerprint_content, project_reminder_references, rebuild_scanned_projection, run_rebuild,
         write_gate_for_checkpoint,
     };
     use lomo_workspace::trash_record_relative_path;
@@ -979,7 +979,7 @@ mod tests {
         seed_trash_record(dir.path(), "tr1", "durable trash body", &["x"]);
         let store = indexed_store(dir.path());
 
-        let lomo = LomoPaths::for_workspace(dir.path());
+        let lomo = WorkspaceLayout::for_workspace(dir.path());
         assert!(lomo.root.exists());
         let lomo_entries_before = fs::read_dir(&lomo.root).expect("lomo").count();
 
@@ -1345,6 +1345,42 @@ mod tests {
         assert_eq!(err.code(), "session_owns_document_writes");
     }
 
+    /// A crash-resumed rebuild promotes a temp database that carries the previously committed
+    /// clock row; the returned `high_water_revision` must equal the committed meta, not a
+    /// literal placeholder.
+    #[test]
+    fn resumed_rebuild_result_reports_committed_high_water_revision() {
+        let dir = tempdir().expect("tempdir");
+        seed_memo(dir.path(), "hw1", "first high water body", &[]);
+        let store = indexed_store(dir.path());
+        let live = store.open_info().database_path;
+        seed_memo(dir.path(), "hw2", "second high water body", &[]);
+        let (store, rewritten) = store
+            .rebuild(4)
+            .expect("rewriting rebuild publishes a clock");
+        assert!(rewritten.rewritten);
+        let committed = store.high_water_revision();
+        assert!(committed >= 1);
+        drop(store);
+
+        // Crash mid-index with a populated temp carrying the live clock row.
+        let sqlite_dir = dir.path().join(".lomo-sqlite");
+        let temp_db = sqlite_dir.join("store.rebuild.db");
+        let checkpoint = sqlite_dir.join("rebuild.checkpoint.json");
+        fs::copy(&live, &temp_db).expect("copy live to temp");
+        fs::write(
+            &checkpoint,
+            r#"{"phase":"indexing","scanned":0,"total_hint":2,"isolated":0}"#,
+        )
+        .expect("checkpoint");
+
+        let result = run_rebuild(dir.path(), 4).expect("resume with populated temp");
+
+        let reopened = Store::open(dir.path()).expect("reopen after resume");
+        assert_eq!(result.high_water_revision, reopened.high_water_revision());
+        assert_eq!(result.high_water_revision, committed);
+    }
+
     #[test]
     fn mid_indexing_checkpoint_resumes_without_duplicate_or_stuck_gate() {
         let dir = tempdir().expect("tempdir");
@@ -1526,7 +1562,7 @@ mod tests {
         // Retired `.lomo/state` and `.lomo/history` record trees are migration-owned and no
         // longer rebuild inputs: even unreadable leftovers must be ignored, never moved or
         // deleted by the projection indexer.
-        let paths = LomoPaths::for_workspace(dir.path());
+        let paths = WorkspaceLayout::for_workspace(dir.path());
         fs::create_dir_all(&paths.state).expect("state dir");
         fs::create_dir_all(&paths.history).expect("history dir");
         let state_path = paths.state.join("iso1.rec");
@@ -1584,5 +1620,196 @@ mod tests {
         assert_eq!(RebuildPhase::Indexing.as_str(), "indexing");
         assert_eq!(RebuildPhase::Complete.as_str(), "complete");
         assert_eq!(RebuildPhase::Replacing.as_str(), "replacing");
+    }
+
+    #[test]
+    fn saf_projection_pages_commit_only_at_finish_and_failed_pages_release() {
+        let projection_root = tempdir().expect("projection root");
+        let body_a = "first page body".to_owned();
+        let page_a = ScannedMemoProjection {
+            memo_id: "2026_08_05_09:00:00_0".to_owned(),
+            source_path: "2026_08_05.md".to_owned(),
+            file_fingerprint: fingerprint_content(&body_a),
+            chronology_epoch_ms: 1_754_320_000_000,
+            body: body_a,
+            tags: vec![],
+            attachment_paths: vec![],
+            has_todo: false,
+            has_url: false,
+            reminders: Vec::new(),
+        };
+        let mut rebuild = SafProjectionRebuild::begin(projection_root.path()).expect("begin");
+        rebuild
+            .append_page(std::slice::from_ref(&page_a))
+            .expect("page a");
+
+        // The whole build is one transaction: a second connection sees only the pre-build
+        // committed image — an empty schema — never a half-built projection. Under per-page
+        // commits this read would already observe page A's rows.
+        let temp_db = projection_root
+            .path()
+            .join(".lomo-sqlite")
+            .join("store.saf.rebuild.db");
+        let observer = rusqlite::Connection::open_with_flags(
+            &temp_db,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .expect("observer");
+        let committed: i64 = observer
+            .query_row("SELECT COUNT(*) FROM memo", [], |row| row.get(0))
+            .expect("count committed memo rows");
+        drop(observer);
+        assert_eq!(
+            committed, 0,
+            "build pages must not be durable before finish commits"
+        );
+
+        // A rejected page rolls back to its savepoint only — earlier pages in the same build
+        // transaction stay staged and the builder keeps accepting pages.
+        let duplicate = rebuild
+            .append_page(std::slice::from_ref(&page_a))
+            .expect_err("duplicate page must fail closed");
+        assert_eq!(duplicate.code(), "duplicate_saf_projection_memo");
+
+        let body_b = "later page body".to_owned();
+        let page_b = ScannedMemoProjection {
+            memo_id: "2026_08_06_09:00:00_0".to_owned(),
+            source_path: "2026_08_06.md".to_owned(),
+            file_fingerprint: fingerprint_content(&body_b),
+            chronology_epoch_ms: 1_754_400_000_000,
+            body: body_b,
+            tags: vec![],
+            attachment_paths: vec![],
+            has_todo: false,
+            has_url: false,
+            reminders: Vec::new(),
+        };
+        rebuild
+            .append_page(std::slice::from_ref(&page_b))
+            .expect("failed page must not poison the build");
+        let result = rebuild.finish().expect("finish");
+        assert_eq!(result.memos_indexed, 2);
+
+        let store = Store::open_projection(projection_root.path()).expect("live projection");
+        for memo_id in [&page_a.memo_id, &page_b.memo_id] {
+            assert!(
+                store
+                    .get_memo_projection(memo_id)
+                    .expect("memo query")
+                    .is_some(),
+                "committed page row must be present after finish"
+            );
+        }
+    }
+
+    #[test]
+    fn rebuild_commit_boundary_is_the_checkpoint_boundary() {
+        let dir = tempdir().expect("tempdir");
+        for i in 0..5 {
+            seed_memo(dir.path(), &format!("batch{i}"), &format!("body {i}"), &[]);
+        }
+        // One undecodable document fails inside whichever batch reaches it — `read_to_string`
+        // fails closed on invalid UTF-8.
+        fs::write(dir.path().join("memos").join("bad.md"), [0xff, 0xfe, 0xfd])
+            .expect("corrupt memo");
+
+        let error = run_rebuild(dir.path(), 2).expect_err("corrupt memo must fail the rebuild");
+        assert_eq!(error.code(), "memo_read_failed");
+
+        // The checkpoint boundary equals the commit boundary: `scanned` names exactly the rows
+        // the temp DB durably holds — a failed batch leaves no committed prefix behind that a
+        // resume would have to tolerate or double-index.
+        let sqlite_dir = dir.path().join(".lomo-sqlite");
+        let checkpoint: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(sqlite_dir.join("rebuild.checkpoint.json")).expect("checkpoint"),
+        )
+        .expect("checkpoint json");
+        let scanned = checkpoint
+            .get("scanned")
+            .and_then(serde_json::Value::as_u64)
+            .expect("scanned count");
+        let temp = rusqlite::Connection::open_with_flags(
+            sqlite_dir.join("store.rebuild.db"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .expect("temp db");
+        let committed: i64 = temp
+            .query_row("SELECT COUNT(*) FROM memo", [], |row| row.get(0))
+            .expect("count committed rows");
+        drop(temp);
+        assert_eq!(
+            u64::try_from(committed).expect("row count"),
+            scanned,
+            "committed rows must equal the checkpointed boundary"
+        );
+
+        // Repairing the corrupt input resumes from the committed boundary and completes once —
+        // no duplicate or missing memo rows.
+        fs::write(dir.path().join("memos").join("bad.md"), "repaired body").expect("repair");
+        let result = run_rebuild(dir.path(), 2).expect("resumed rebuild");
+        assert!(result.memos_indexed >= 6);
+        let store = Store::open(dir.path()).expect("open after resume");
+        assert_eq!(query_all(&store), 6);
+    }
+
+    /// `scanned` is one cursor over two segments — memo files then trash records — so a
+    /// checkpoint taken mid-trash-phase legitimately carries `scanned > memo file count`.
+    /// Resume must read that as trash progress: the memo cursor clamps to the segment
+    /// end and the remaining trash records index exactly once, never a false
+    /// `rebuild_checkpoint_invalid`.
+    #[test]
+    fn trash_phase_checkpoint_resumes_without_false_corruption() {
+        let dir = tempdir().expect("tempdir");
+        for i in 0..4 {
+            seed_memo(
+                dir.path(),
+                &format!("tp{i}"),
+                &format!("trash phase body {i}"),
+                &[],
+            );
+        }
+        seed_trash_record(dir.path(), "ta", "trash record a", &[]);
+        seed_trash_record(dir.path(), "tb", "trash record b", &[]);
+        let store = indexed_store(dir.path());
+        let live = store.open_info().database_path;
+        drop(store);
+
+        // Simulate a crash mid-trash-phase: the temp DB holds every committed memo row
+        // plus the first sorted trash record; `scanned = memo_count + 1` states exactly
+        // that boundary.
+        let sqlite_dir = dir.path().join(".lomo-sqlite");
+        let temp_db = sqlite_dir.join("store.rebuild.db");
+        let checkpoint = sqlite_dir.join("rebuild.checkpoint.json");
+        fs::copy(&live, &temp_db).expect("copy live to temp as partial index");
+        {
+            let conn = rusqlite::Connection::open(&temp_db).expect("temp db");
+            conn.pragma_update(None, "foreign_keys", "ON")
+                .expect("foreign keys");
+            conn.execute("DELETE FROM memo WHERE memo_id='tb'", [])
+                .expect("drop the uncommitted trash tail");
+        }
+        fs::write(
+            &checkpoint,
+            r#"{"phase":"indexing","scanned":5,"total_hint":6,"isolated":0}"#,
+        )
+        .expect("mid-trash checkpoint");
+
+        let result = run_rebuild(dir.path(), 2).expect("trash-phase resume must not false-reject");
+        assert_eq!(
+            result.memos_indexed, 6,
+            "the unified cursor ends at memo files plus trash records"
+        );
+        assert_eq!(write_gate_for_checkpoint(dir.path()), WriteGate::Ready);
+        assert!(!checkpoint.exists(), "checkpoint cleared on completion");
+
+        let store = Store::open(dir.path()).expect("open after trash resume");
+        assert_eq!(query_all(&store), 4, "no missing or duplicated memo rows");
+        for id in ["ta", "tb"] {
+            let memo = store
+                .get_memo_projection(id)
+                .expect("projection")
+                .expect("memo");
+            assert!(memo.is_trashed, "{id} must be trashed after resume");
+        }
     }
 }
