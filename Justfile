@@ -30,6 +30,11 @@ bootstrap:
 rust-toolchain-bump channel *flags:
     {{xtask}} rust-toolchain-bump {{channel}} {{flags}}
 
+# Verify every JDK/SDK/NDK/serialization copy equals its declaration site
+# (apps/android/app/module.yaml + crates/lomo-xtask/src/workspace.rs).
+kotlin-toolchain-check:
+    {{xtask}} kotlin-toolchain-check
+
 # Format staged/all sources or verify formatting.
 fmt mode="staged":
     {{xtask}} fmt {{mode}}

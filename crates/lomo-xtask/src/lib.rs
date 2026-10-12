@@ -10,6 +10,7 @@ mod perf;
 mod protocol;
 mod quality;
 mod rust_pin;
+mod toolchain_parity;
 mod tools;
 mod usecase_reachability;
 mod util;
@@ -18,11 +19,17 @@ mod workspace;
 
 use std::path::PathBuf;
 
+pub use android::{BenchmarkScenario, benchmark_scenarios};
 pub use kotlin_text::{KotlinText, kotlin_code_view};
 pub use native::canonicalize_binding;
 pub use rust_pin::{RustPin, parse_channel, replace_toml_assignment};
+pub use toolchain_parity::{
+    PinViolation, ToolchainParity, check_kotlin_toolchain_parity,
+    kotlin_toolchain_parity_violations,
+};
 pub use tools::pinned_tool_version;
 pub use usecase_reachability::check_usecase_reachability;
+pub use workspace::{ANDROID_API, NDK_VERSION};
 
 /// Canonical repository root discovered the same way as the xtask CLI.
 ///

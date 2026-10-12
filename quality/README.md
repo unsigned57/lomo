@@ -41,6 +41,7 @@ Every invocation that reaches xtask writes exactly one JSON document to stdout:
 | `just cache audit` | entries with `present` plus bytes, or `absent` without invented bytes |
 | `just cache prune` / `clean` | removed-file counts or removed paths |
 | `just android ...` / `native ...` / `bindings` | published APK or generated output directory |
+| `just android benchmark` | `target/lomo/reports/android-benchmark/android-benchmark.v1.json` plus raw androidx `*-benchmarkData.json`; an attached device is required and the run never claims a scenario it did not execute |
 | `just perf` | baseline/performance JSON paths and the measured conclusion |
 
 Verification task statuses are `Passed`, `Failed`, `Cancelled` and `NotScheduled`. Read `logs`
@@ -96,7 +97,7 @@ Read current values from their owners; do not add pins to agent configuration or
 | Fact | Authoritative input |
 | --- | --- |
 | Rust channel and components | [`rust-toolchain.toml`](../rust-toolchain.toml); MSRV in [`Cargo.toml`](../Cargo.toml); update via `just rust-toolchain-bump` |
-| JDK and Android SDK levels | Owning `apps/android/**/module.yaml`; for the app, [`module.yaml`](../apps/android/app/module.yaml) |
+| JDK and Android SDK levels | [`apps/android/app/module.yaml`](../apps/android/app/module.yaml) is the single declaration; Amper has no cross-module settings inheritance, so sibling `module.yaml` copies are verified by `just kotlin-toolchain-check` (also checks workflow `java-version`/`ndk` literals against `jdk.version`/`NDK_VERSION`) |
 | Cargo tools and BoltFFI CLI | [`tools.toml`](../tools.toml), installed by `just bootstrap` |
 | Crate/module dependencies and app version | Cargo manifests/lock and `apps/android/**/module.yaml` |
 | External dependency capabilities | [`dependency-capabilities.toml`](dependency-capabilities.toml); classification workflow in [Dependency Selection](dependencies.md#capability-boundaries-instead-of-library-allowlists) |

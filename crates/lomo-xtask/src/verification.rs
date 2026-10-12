@@ -243,6 +243,7 @@ pub enum TaskAction {
     AndroidLint,
     ShellContracts,
     UseCaseReachability,
+    KotlinToolchainCheck,
     BaselineProfile,
 }
 
@@ -392,7 +393,11 @@ impl VerificationPlan {
             .cloned()
             .collect();
         plan.add_kotlin_tasks(&kotlin, &product_modules, changes, ffi_changed, mode);
-        plan.add_evidence_tasks(&product_modules, mode);
+        // The toolchain parity check reads module.yaml manifests (Kotlin owners), the xtask
+        // workspace.rs pins, and workflow files — schedule it exactly when one of its inputs
+        // can be in scope. A workflow change selects every owner, so it is covered too.
+        let toolchain_scope = !kotlin.is_empty() || selected.contains("lomo-xtask");
+        plan.add_evidence_tasks(&product_modules, toolchain_scope, mode);
         plan.assign_artifacts(graph);
         plan.validate()?;
         Ok(plan)
@@ -533,7 +538,12 @@ impl VerificationPlan {
         }
     }
 
-    fn add_evidence_tasks(&mut self, product_modules: &BTreeSet<String>, mode: PlanMode) {
+    fn add_evidence_tasks(
+        &mut self,
+        product_modules: &BTreeSet<String>,
+        toolchain_scope: bool,
+        mode: PlanMode,
+    ) {
         if mode == PlanMode::Check {
             self.tasks.push(
                 Task::new(
@@ -587,6 +597,16 @@ impl VerificationPlan {
                 .using(RequiredTool::Rust, Resource::Reports),
             );
         }
+        if mode != PlanMode::Tests && toolchain_scope {
+            self.tasks.push(
+                Task::new(
+                    "kotlin-toolchain-check",
+                    TaskAction::KotlinToolchainCheck,
+                    "every JDK/SDK/NDK/serialization pin copy must equal its declaration site",
+                )
+                .using(RequiredTool::Rust, Resource::Reports),
+            );
+        }
     }
 
     fn assign_artifacts(&mut self, graph: &ImpactGraph) {
@@ -623,7 +643,8 @@ impl VerificationPlan {
                 | TaskAction::KotlinTests { .. }
                 | TaskAction::AndroidLint
                 | TaskAction::ShellContracts
-                | TaskAction::UseCaseReachability => {}
+                | TaskAction::UseCaseReachability
+                | TaskAction::KotlinToolchainCheck => {}
             }
         }
     }

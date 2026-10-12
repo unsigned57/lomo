@@ -95,8 +95,8 @@ const COMMANDS: &[CommandSpec] = &[
     ),
     command(
         "android",
-        "[debug|release] [arm64|arm|x86_64|x86|all]",
-        "Build and validate APK; release requires signing",
+        "[debug|release|benchmark] [arm64|arm|x86_64|x86|all|startup|frame|scroll]",
+        "Build and validate APK; release requires signing; benchmark runs the device Macrobenchmark suite",
         android_command,
     ),
     command(
@@ -130,6 +130,16 @@ const COMMANDS: &[CommandSpec] = &[
         |w, args| {
             rust_toolchain_bump(w, args)?;
             Ok(Value::Null)
+        },
+    ),
+    command(
+        "kotlin-toolchain-check",
+        "",
+        "Assert JDK/SDK/NDK/serialization pin parity: module.yaml copies, workflows, workspace.rs",
+        |w, args| {
+            no_args(args, || {
+                crate::toolchain_parity::check_kotlin_toolchain_parity(&w.root)
+            })
         },
     ),
     command(
@@ -246,6 +256,16 @@ fn native_command(workspace: &Workspace, arguments: &[String]) -> Result<Value> 
 }
 
 fn android_command(workspace: &Workspace, arguments: &[String]) -> Result<Value> {
+    if matches!(arguments.first().map(String::as_str), Some("benchmark")) {
+        // `just android benchmark` always forwards the recipe's default ABI token in the
+        // scenario slot; `benchmark_scenarios` maps it (and explicit scenario names) to the
+        // run set. The instrumented harness is ABI-universal, so the slot carries no target.
+        if arguments.len() > 2 {
+            bail!("usage: just android benchmark [startup|frame|scroll|all]");
+        }
+        let scenarios = android::benchmark_scenarios(arguments.get(1))?;
+        return android::benchmark(workspace, &scenarios);
+    }
     let (variant, abis) = match arguments {
         [] => (AndroidVariant::Debug, Abi::ALL.to_vec()),
         [arg1] => {
@@ -255,12 +275,12 @@ fn android_command(workspace: &Workspace, arguments: &[String]) -> Result<Value>
                 (AndroidVariant::Debug, abis)
             } else {
                 bail!(
-                    "invalid android argument: {arg1}; usage: just android [debug|release] [abi]"
+                    "invalid android argument: {arg1}; usage: just android [debug|release|benchmark] [abi|scenario]"
                 );
             }
         }
         [arg1, arg2] => (parse_variant(arg1)?, Abi::parse_selector(arg2)?),
-        _ => bail!("usage: just android [debug|release] [abi]"),
+        _ => bail!("usage: just android [debug|release|benchmark] [abi|scenario]"),
     };
     let apk = android::build(workspace, variant, &abis)?;
     Ok(json!({"apk": apk}))

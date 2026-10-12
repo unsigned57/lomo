@@ -249,7 +249,8 @@ impl<'a> RepositoryRunner<'a> {
             TaskAction::AndroidLint
             | TaskAction::Bindings
             | TaskAction::ShellContracts
-            | TaskAction::UseCaseReachability => {
+            | TaskAction::UseCaseReachability
+            | TaskAction::KotlinToolchainCheck => {
                 anyhow::bail!("task uses an owned executor")
             }
         }
@@ -365,6 +366,7 @@ impl<'a> RepositoryRunner<'a> {
             | TaskAction::Bindings
             | TaskAction::ShellContracts
             | TaskAction::UseCaseReachability
+            | TaskAction::KotlinToolchainCheck
             | TaskAction::BaselineProfile => {
                 anyhow::bail!("task uses an owned executor")
             }
@@ -465,6 +467,7 @@ impl<'a> RepositoryRunner<'a> {
             | TaskAction::AndroidLint
             | TaskAction::ShellContracts
             | TaskAction::UseCaseReachability
+            | TaskAction::KotlinToolchainCheck
             | TaskAction::BaselineProfile => {
                 anyhow::bail!("task does not use the Kotlin command executor")
             }
@@ -540,6 +543,10 @@ impl CommandRunner for RepositoryRunner<'_> {
             }
             TaskAction::UseCaseReachability => {
                 crate::usecase_reachability::check_usecase_reachability(&self.workspace.root)?;
+                return Ok(TaskOutcome::Success { tests: None });
+            }
+            TaskAction::KotlinToolchainCheck => {
+                crate::toolchain_parity::check_kotlin_toolchain_parity(&self.workspace.root)?;
                 return Ok(TaskOutcome::Success { tests: None });
             }
             TaskAction::Architecture

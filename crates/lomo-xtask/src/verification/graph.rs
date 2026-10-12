@@ -1,15 +1,15 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
     path::{Path, PathBuf},
     process::Command,
 };
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
-use yaml_rust2::{Yaml, YamlLoader};
+use yaml_rust2::Yaml;
 
 use super::{ChangeInventory, TaskAction};
+use crate::util::load_yaml_document;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum OwnerKind {
@@ -81,7 +81,7 @@ impl ImpactGraph {
                 },
             );
         }
-        let project = yaml(&root.join("apps/android/project.yaml"))?;
+        let project = load_yaml_document(&root.join("apps/android/project.yaml"))?;
         let modules = project["modules"]
             .as_vec()
             .context("Amper modules must be a list")?;
@@ -102,7 +102,7 @@ impl ImpactGraph {
                 .and_then(|part| part.to_str())
                 .context("module name")?
                 .to_owned();
-            let manifest = yaml(&root.join(&path).join("module.yaml"))?;
+            let manifest = load_yaml_document(&root.join(&path).join("module.yaml"))?;
             let dependencies = kotlin_dependencies(&manifest)?;
             ensure!(
                 owners
@@ -243,7 +243,8 @@ impl ImpactGraph {
             | TaskAction::Machete
             | TaskAction::Bindings
             | TaskAction::AndroidLint
-            | TaskAction::ShellContracts => self.owners.keys().cloned().collect(),
+            | TaskAction::ShellContracts
+            | TaskAction::KotlinToolchainCheck => self.owners.keys().cloned().collect(),
         };
         let mut closure = owners;
         loop {
@@ -276,25 +277,12 @@ impl ImpactGraph {
             ]
             .map(PathBuf::from),
         );
+        if matches!(action, TaskAction::KotlinToolchainCheck) {
+            // The parity check reads the workflow `java-version`/`ndk` literals too.
+            inputs.insert(PathBuf::from(".github"));
+        }
         inputs
     }
-}
-
-fn yaml(path: &Path) -> Result<Yaml> {
-    let source = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
-    let mut documents = YamlLoader::load_from_str(&source)?;
-    ensure!(
-        documents.len() == 1,
-        "{} must contain one YAML document",
-        path.display()
-    );
-    let document = documents.pop().context("missing YAML document")?;
-    ensure!(
-        document.as_hash().is_some(),
-        "{} must be a mapping",
-        path.display()
-    );
-    Ok(document)
 }
 
 fn kotlin_dependencies(manifest: &Yaml) -> Result<BTreeSet<String>> {
