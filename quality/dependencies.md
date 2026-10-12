@@ -98,3 +98,5 @@ This does not authorize unrelated bulk upgrades or changing an explicitly prescr
 or stack outside the task. Pin selected versions through the existing manifest/lockfile workflow.
 No floating "latest" references, unassessed automatic upgrades or duplicate pins.
 Complete the [dependency and affected-surface checks](README.md#gate-selection-and-evidence).
+Rejected and deferred candidate records live in
+[dependency-gap-register.md](dependency-gap-register.md).
