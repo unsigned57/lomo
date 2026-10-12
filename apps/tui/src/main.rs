@@ -6,29 +6,13 @@ use lomo_tui::{
     logging::init_logging,
     model::AppModel,
     ops::{BootstrapSpec, LaunchConfig, RuntimeSlot, SetupSpec},
-    xdg::{EnvLookup, env_nonempty, resolve_paths},
+    xdg::{HostDirs, env_nonempty, resolve_paths},
 };
 use std::{
     collections::BTreeMap,
     io::{self, Write},
     sync::Arc,
 };
-
-/// `HOME` on Unix, `USERPROFILE` on Windows — the user profile root.
-#[cfg(unix)]
-fn home_dir_env() -> Option<String> {
-    env_nonempty("HOME")
-}
-
-#[cfg(windows)]
-fn home_dir_env() -> Option<String> {
-    env_nonempty("USERPROFILE")
-}
-
-#[cfg(not(any(unix, windows)))]
-fn home_dir_env() -> Option<String> {
-    env_nonempty("HOME")
-}
 
 fn main() -> Result<(), TuiError> {
     match cli::parse_cli(std::env::args())? {
@@ -45,16 +29,7 @@ fn main() -> Result<(), TuiError> {
             Ok(())
         }
         CliAction::Run { workspace_override } => {
-            let paths = resolve_paths(EnvLookup {
-                home: home_dir_env().as_deref(),
-                config: env_nonempty("XDG_CONFIG_HOME").as_deref(),
-                state: env_nonempty("XDG_STATE_HOME").as_deref(),
-                cache: env_nonempty("XDG_CACHE_HOME").as_deref(),
-                runtime: env_nonempty("XDG_RUNTIME_DIR").as_deref(),
-                data: env_nonempty("XDG_DATA_HOME").as_deref(),
-                appdata: env_nonempty("APPDATA").as_deref(),
-                localappdata: env_nonempty("LOCALAPPDATA").as_deref(),
-            })?;
+            let paths = resolve_paths(&HostDirs::detect())?;
             install_panic_hook(paths.state_dir.clone());
             let _log_guard = init_logging(&paths.state_dir, env_nonempty("LOMO_LOG").as_deref());
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "lomo starting");

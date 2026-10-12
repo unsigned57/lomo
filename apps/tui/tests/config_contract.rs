@@ -14,30 +14,30 @@ mod tests {
     use lomo_tui::cli::{CliAction, parse_cli};
     use lomo_tui::config::{AppConfig, ConfigProbe, mint_config, parse_config_toml, probe_config};
     use lomo_tui::error::TuiError;
-    use lomo_tui::xdg::{EnvLookup, RuntimePaths, resolve_paths};
+    use lomo_tui::xdg::{HostDirs, RuntimePaths, resolve_paths};
     use tempfile::tempdir;
 
-    fn env<'a>(
-        home: Option<&'a str>,
-        runtime: Option<&'a str>,
-        data: Option<&'a str>,
-    ) -> EnvLookup<'a> {
-        EnvLookup {
+    /// The `dirs` output for a Linux user with the given `home`: `dirs` merges
+    /// every XDG default off the profile, so a resolvable home implies the
+    /// config/state/cache bases. `runtime`/`data` stay explicit.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn host(home: Option<&str>, runtime: Option<&str>, data: Option<&str>) -> HostDirs {
+        let home = home.map(PathBuf::from);
+        HostDirs {
+            config: home.as_ref().map(|dir| dir.join(".config")),
+            state: home.as_ref().map(|dir| dir.join(".local/state")),
+            cache: home.as_ref().map(|dir| dir.join(".cache")),
             home,
-            config: None,
-            state: None,
-            cache: None,
-            runtime,
-            data,
-            appdata: None,
-            localappdata: None,
+            runtime: runtime.map(PathBuf::from),
+            data: data.map(PathBuf::from),
+            ..HostDirs::default()
         }
     }
 
     fn paths_in(dir: &Path, default_workspace: Option<PathBuf>) -> RuntimePaths {
         RuntimePaths {
             config_dir: dir.join("cfg"),
-            drafts_dir: dir.join("drafts"),
+            capture_dir: dir.join("capture"),
             exchange_dir: dir.join("ex"),
             state_dir: dir.join("state"),
             cache_dir: dir.join("cache"),
@@ -152,106 +152,111 @@ mod tests {
         assert!(help.contains("Keys:"), "help keeps the key table: {help}");
     }
 
-    /// Explicit `XDG_*_HOME`-style overrides resolve as `<dir>/lomo` on every
-    /// supported platform; only the platform *defaults* differ.
+    /// Host-provided bases resolve as `<base>/lomo` on every supported
+    /// platform; only the platform *defaults* the bases carry differ.
     #[test]
-    fn explicit_env_dirs_resolve_everywhere() {
-        let paths = resolve_paths(EnvLookup {
-            home: Some("/home/u"),
-            config: Some("/cfg"),
-            state: Some("/state"),
-            cache: Some("/cache"),
-            runtime: Some("/run/user/1"),
-            data: None,
-            appdata: None,
-            localappdata: None,
+    fn provided_host_dirs_resolve_everywhere() {
+        let paths = resolve_paths(&HostDirs {
+            home: Some(PathBuf::from("/home/u")),
+            config: Some(PathBuf::from("/cfg")),
+            state: Some(PathBuf::from("/state")),
+            cache: Some(PathBuf::from("/cache")),
+            runtime: Some(PathBuf::from("/run/user/1")),
+            ..HostDirs::default()
         })
         .expect("paths");
         assert_eq!(paths.config_dir, Path::new("/cfg/lomo"));
-        assert_eq!(paths.drafts_dir, Path::new("/state/lomo/drafts"));
+        assert_eq!(paths.capture_dir, Path::new("/state/lomo/capture"));
         assert_eq!(paths.runtime_dir, Path::new("/run/user/1/lomo"));
         assert_eq!(
             paths.default_workspace.as_deref(),
             Some(Path::new("/home/u/Notes"))
         );
-        let data_fallback = resolve_paths(EnvLookup {
-            home: None,
-            config: Some("/cfg"),
-            state: Some("/state"),
-            cache: Some("/cache"),
-            runtime: Some("/run/user/1"),
-            data: Some("/data"),
-            appdata: None,
-            localappdata: None,
+        let data_fallback = resolve_paths(&HostDirs {
+            config: Some(PathBuf::from("/cfg")),
+            state: Some(PathBuf::from("/state")),
+            cache: Some(PathBuf::from("/cache")),
+            runtime: Some(PathBuf::from("/run/user/1")),
+            data: Some(PathBuf::from("/data")),
+            ..HostDirs::default()
         })
         .expect("data fallback");
         assert_eq!(
             data_fallback.default_workspace.as_deref(),
             Some(Path::new("/data/lomo/notes"))
         );
-        let no_mint = resolve_paths(EnvLookup {
-            home: None,
-            config: Some("/cfg"),
-            state: Some("/state"),
-            cache: Some("/cache"),
-            runtime: Some("/run/user/1"),
-            data: None,
-            appdata: None,
-            localappdata: None,
+        let no_mint = resolve_paths(&HostDirs {
+            config: Some(PathBuf::from("/cfg")),
+            state: Some(PathBuf::from("/state")),
+            cache: Some(PathBuf::from("/cache")),
+            runtime: Some(PathBuf::from("/run/user/1")),
+            ..HostDirs::default()
         })
-        .expect("explicit xdg without home");
+        .expect("host dirs without home");
         assert!(no_mint.default_workspace.is_none());
     }
 
-    /// Linux/Unix: XDG defaults hang off `$HOME` and `$XDG_RUNTIME_DIR` is
-    /// required — there is no portable runtime fallback.
+    /// Linux/Unix: host bases resolve to `<base>/lomo` and a missing runtime
+    /// base fails closed — there is no portable runtime fallback.
     #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
-    fn xdg_defaults_and_runtime_required() {
-        let error = resolve_paths(env(Some("/home/u"), None, None)).expect_err("runtime");
+    fn unix_bases_resolve_and_runtime_required() {
+        let error = resolve_paths(&host(Some("/home/u"), None, None)).expect_err("runtime");
         assert_eq!(error, TuiError::MissingRuntimeDir);
-        let home_fallback =
-            resolve_paths(env(Some("/home/u"), Some("/run/user/1"), None)).expect("home fallback");
-        assert_eq!(home_fallback.config_dir, Path::new("/home/u/.config/lomo"));
-        assert_eq!(
-            home_fallback.state_dir,
-            Path::new("/home/u/.local/state/lomo")
-        );
-        assert_eq!(home_fallback.cache_dir, Path::new("/home/u/.cache/lomo"));
-        let missing_home =
-            resolve_paths(env(None, Some("/run/user/1"), None)).expect_err("home required");
-        assert!(matches!(missing_home, TuiError::Config { .. }));
+        let merged =
+            resolve_paths(&host(Some("/home/u"), Some("/run/user/1"), None)).expect("merged bases");
+        assert_eq!(merged.config_dir, Path::new("/home/u/.config/lomo"));
+        assert_eq!(merged.state_dir, Path::new("/home/u/.local/state/lomo"));
+        assert_eq!(merged.cache_dir, Path::new("/home/u/.cache/lomo"));
+        let missing_config =
+            resolve_paths(&host(None, Some("/run/user/1"), None)).expect_err("no config base");
+        assert!(matches!(missing_config, TuiError::Config { .. }));
     }
 
-    /// macOS: defaults live under `~/Library`; the runtime dir falls back to a
-    /// private `run` dir because macOS provides none.
+    /// macOS: the state base falls back to `~/Library/Application Support` and
+    /// the runtime dir to a private `run` dir because macOS provides none.
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_defaults_use_library_dirs() {
-        let paths = resolve_paths(env(Some("/Users/u"), None, None)).expect("macos paths");
+    fn macos_bases_resolve_with_library_fallbacks() {
+        let paths = resolve_paths(&HostDirs {
+            home: Some(PathBuf::from("/Users/u")),
+            config: Some(PathBuf::from("/Users/u/Library/Application Support")),
+            state: None,
+            cache: Some(PathBuf::from("/Users/u/Library/Caches")),
+            runtime: None,
+            ..HostDirs::default()
+        })
+        .expect("macos paths");
         let app_support = Path::new("/Users/u/Library/Application Support/lomo");
         assert_eq!(paths.config_dir, app_support);
         assert_eq!(paths.state_dir, app_support);
         assert_eq!(paths.cache_dir, Path::new("/Users/u/Library/Caches/lomo"));
         assert_eq!(paths.runtime_dir, app_support.join("run"));
-        // An explicit runtime env var still wins.
-        let explicit =
-            resolve_paths(env(Some("/Users/u"), Some("/tmp/run"), None)).expect("explicit");
+        // An explicit runtime base still wins.
+        let explicit = resolve_paths(&HostDirs {
+            home: Some(PathBuf::from("/Users/u")),
+            config: Some(PathBuf::from("/Users/u/Library/Application Support")),
+            cache: Some(PathBuf::from("/Users/u/Library/Caches")),
+            runtime: Some(PathBuf::from("/tmp/run")),
+            ..HostDirs::default()
+        })
+        .expect("explicit");
         assert_eq!(explicit.runtime_dir, Path::new("/tmp/run/lomo"));
     }
 
-    /// Windows: config roams with `%APPDATA%`, state/cache/runtime stay under
-    /// `%LOCALAPPDATA%`; there is no runtime env to require.
+    /// Windows: the roaming config base carries config while the local base
+    /// carries state/cache/runtime; there is no runtime env to require.
     #[cfg(windows)]
     #[test]
-    fn windows_defaults_use_appdata() {
-        let lookup = EnvLookup {
-            home: Some("C:\\Users\\u"),
-            appdata: Some("C:\\Users\\u\\AppData\\Roaming"),
-            localappdata: Some("C:\\Users\\u\\AppData\\Local"),
-            ..env(None, None, None)
-        };
-        let paths = resolve_paths(lookup).expect("windows paths");
+    fn windows_bases_resolve_with_local_fallbacks() {
+        let paths = resolve_paths(&HostDirs {
+            home: Some(PathBuf::from("C:\\Users\\u")),
+            config: Some(PathBuf::from("C:\\Users\\u\\AppData\\Roaming")),
+            data_local: Some(PathBuf::from("C:\\Users\\u\\AppData\\Local")),
+            cache: Some(PathBuf::from("C:\\Users\\u\\AppData\\Local")),
+            ..HostDirs::default()
+        })
+        .expect("windows paths");
         assert_eq!(
             paths.config_dir,
             Path::new("C:\\Users\\u\\AppData\\Roaming\\lomo")
@@ -272,7 +277,7 @@ mod tests {
             paths.default_workspace.as_deref(),
             Some(Path::new("C:\\Users\\u\\Notes"))
         );
-        let missing = resolve_paths(env(None, None, None)).expect_err("appdata required");
+        let missing = resolve_paths(&HostDirs::default()).expect_err("no config base");
         assert!(matches!(missing, TuiError::Config { .. }));
     }
 
