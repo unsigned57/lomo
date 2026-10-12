@@ -21,9 +21,14 @@ data class ArchiveImportRebuildResult(
 )
 
 interface ArchivePort {
-    fun archiveExport(
+    /**
+     * Session-owned export under the Rust transaction lock. The returned
+     * [ArchiveExportResult.archivePath] points into the session-env export root; callers may
+     * only influence the artifact name through a bare file-name stem.
+     */
+    fun sessionExportArchive(
         workspaceRoot: String,
-        archivePath: String,
+        fileNameHint: String?,
     ): ArchiveExportResult
 
     fun archiveImportRebuild(

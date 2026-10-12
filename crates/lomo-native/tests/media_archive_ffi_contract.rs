@@ -1,8 +1,8 @@
 //! Behavior Contract — P4-09 media/archive `BoltFFI` dark-build surface
 //!
 //! - Unit under test: `LomoEngine::{stage_media,finalize_recording,
-//!   query_media_manifest,media_orphan_sweep,archive_export,archive_inspect,
-//!   archive_import,archive_activate,session_import_archive}` +
+//!   query_media_manifest,media_orphan_sweep,session_export_archive,
+//!   session_import_archive}` +
 //!   `StoreMemoCommand.pending_promotes` wire through `session_create_memo`
 //! - Owning layer: `lomo-native` (conversion only); rules in `lomo-media` / `lomo-store`
 //! - Priority tier: P0
@@ -96,6 +96,7 @@ mod tests {
             .open_workspace_session(
                 Box::new(PosixBatchHost { executor }),
                 "UTC".to_owned(),
+                "yyyy_MM_dd".to_owned(),
                 workspace.to_string_lossy().into_owned(),
             )
             .test_ok("open session");
@@ -297,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn archive_export_and_session_import_rebuild() {
+    fn session_export_archive_and_session_import_rebuild() {
         let tmp = tempdir().expect("tmp");
         let source = tmp.path().join("source");
         let control = tmp.path().join("control");
@@ -307,19 +308,27 @@ mod tests {
         fs::create_dir_all(source.join("media")).expect("media");
         write_bytes_for_tests(&source.join("media/shot.png"), PNG_1X1).expect("png");
 
-        let archive = tmp.path().join("out.zip");
+        // Export is session-owned: the target path is derived from the session exchange
+        // environment (`<exchange>/exports/<name>.zip`), never nominated by the caller.
+        attach_posix_session(&engine, &source, &control.join("exchange"));
         let exported = engine
-            .archive_export(
+            .session_export_archive(
                 source.to_string_lossy().into_owned(),
-                archive.to_string_lossy().into_owned(),
+                Some("round-trip".to_owned()),
             )
             .test_ok("export");
         assert_eq!(exported.schema_version, 2);
         assert!(exported.entry_count >= 1);
+        let archive = std::path::PathBuf::from(&exported.archive_path);
+        assert!(archive.is_file(), "export artifact must exist");
+        assert_eq!(
+            archive.parent().expect("export parent"),
+            control.join("exchange").join("exports")
+        );
+        assert_eq!(archive.file_name().expect("export name"), "round-trip.zip");
 
-        // Second path: session-owned import→activate→rebuild generation switch over the bound
+        // Session-owned import→activate→rebuild generation switch over the bound
         // workspace; the previous generation is kept at "<staging>.previous".
-        attach_posix_session(&engine, &source, &control.join("exchange"));
         let staging2 = tmp.path().join("staging2");
         fs::write(source.join("memos/1999_01_01.md"), b"old generation").expect("old");
         let rebuild = engine
@@ -342,6 +351,65 @@ mod tests {
         assert!(
             !source.join("memos/1999_01_01.md").is_file(),
             "previous live generation must be swapped out"
+        );
+    }
+
+    #[test]
+    fn session_export_archive_requires_open_session_and_bare_file_name() {
+        let tmp = tempdir().expect("tmp");
+        let source = tmp.path().join("source");
+        let control = tmp.path().join("control");
+        let engine = open_engine(&source, &control);
+
+        // The export edge is session-gated: no unlocked path survives.
+        let error = engine
+            .session_export_archive(source.to_string_lossy().into_owned(), None)
+            .test_err("export without session");
+        assert_eq!(error.code(), "workspace_session_unavailable");
+
+        attach_posix_session(&engine, &source, &control.join("exchange"));
+
+        // No hint: the session mints the artifact name itself.
+        let generated = engine
+            .session_export_archive(source.to_string_lossy().into_owned(), None)
+            .test_ok("default-name export");
+        let generated_path = std::path::PathBuf::from(&generated.archive_path);
+        let generated_name = generated_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("generated name");
+        assert!(
+            generated_name.starts_with("lomo-archive-")
+                && generated_path
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("zip")),
+            "generated export name must follow lomo-archive-<token>.zip, got {generated_name}"
+        );
+        assert!(generated_path.is_file());
+
+        // Foreign path nominations are rejected at the edge; nothing is written.
+        for hint in [
+            "../escape",
+            "nested/out",
+            "a\\b",
+            "",
+            "   ",
+            ".hidden",
+            "..",
+            "bad name.zip",
+        ] {
+            let error = engine
+                .session_export_archive(
+                    source.to_string_lossy().into_owned(),
+                    Some(hint.to_owned()),
+                )
+                .test_err("foreign file name must be rejected");
+            assert_eq!(error.code(), "archive_export_name_invalid", "hint={hint:?}");
+        }
+        assert!(
+            !control.join("exchange").join("escape.zip").exists()
+                && !control.join("escape.zip").exists(),
+            "rejected hints must not leave artifacts behind"
         );
     }
 

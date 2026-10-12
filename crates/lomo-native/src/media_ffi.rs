@@ -1,19 +1,22 @@
-//! Stage-4 dark-build media + archive FFI conversion surface (P4-09).
+//! Stage-4 dark-build media FFI conversion surface (P4-09).
 //!
-//! Path-only commands: stage/finalize/promote/manifest/orphan + archive
-//! export/inspect/import/activate. No full media-byte FFI. Business rules stay in
-//! `lomo-media` / `lomo-store`. Not wired into production Kotlin DI.
+//! Path-only commands: stage/finalize/promote/manifest/orphan, plus the archive wire DTOs.
+//! Archive export/import run through the session commands `session_export_archive` /
+//! `session_import_archive` (lomo-application `archive_cmd`), not through standalone DTO
+//! wrappers — there is no session-less archive entry point. No full media-byte FFI. Business
+//! rules stay in `lomo-media` / `lomo-store`. Not wired into production Kotlin DI.
 
 use std::path::{Path, PathBuf};
 
 use boltffi::data;
 use lomo_core::LomoError;
 use lomo_media::{
-    ArtifactId, ContentDigest, MediaMime, MediaRelativePath, MediaSource, MediaStaged, PromotePlan,
-    STAGE_DIR_NAME, StageLease, StageLedger, StageOwnerKind, allocate_recording_target,
-    finalize_recording, stage_directory, stage_media, suggest_human_relative_path,
+    ArtifactId, ContentDigest, MEDIA_DELETE_INTENT_DIR_NAME, MEDIA_TRASH_DIR_NAME, MediaMime,
+    MediaRelativePath, MediaSource, MediaStaged, PromotePlan, STAGE_DIR_NAME, StageLease,
+    StageLedger, StageOwnerKind, allocate_recording_target, finalize_recording, stage_directory,
+    stage_media, suggest_human_relative_path,
 };
-use lomo_store::{archive_activate, archive_export, archive_import, archive_inspect};
+use lomo_workspace::MEDIA_ROOT_NAME;
 
 use crate::EngineError;
 
@@ -147,15 +150,6 @@ pub struct MediaStageReleaseDto {
 #[derive(Clone, Debug, Default)]
 pub struct ArchiveExportResultDto {
     pub archive_path: String,
-    pub schema_version: u32,
-    pub entry_count: u64,
-}
-
-/// Archive inspect/import staging result.
-#[data]
-#[derive(Clone, Debug, Default)]
-pub struct ArchiveInspectResultDto {
-    pub staging_root: String,
     pub schema_version: u32,
     pub entry_count: u64,
 }
@@ -445,7 +439,7 @@ pub fn ffi_query_media_manifest(
     // Verified host-held digests are not evidence of content identity; only the bytes are.
     drop(verified_entries);
     let root = Path::new(workspace_root);
-    let media_dir = root.join("media");
+    let media_dir = root.join(MEDIA_ROOT_NAME);
     let mut entries = Vec::new();
     if media_dir.is_dir() {
         collect_media_files(&media_dir, &mut entries)?;
@@ -483,9 +477,9 @@ fn collect_media_files(
         if file_type.is_dir() {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             // Do not walk media-trash or stage dirs as committed live media.
-            if name == ".lomo-media-trash"
-                || name == ".lomo-media-stage"
-                || name == ".lomo-media-delete-intents"
+            if name == MEDIA_TRASH_DIR_NAME
+                || name == STAGE_DIR_NAME
+                || name == MEDIA_DELETE_INTENT_DIR_NAME
             {
                 continue;
             }
@@ -529,78 +523,6 @@ fn collect_media_files(
         }
     }
     Ok(())
-}
-
-/// Exports archive v2 from a workspace root (path-only).
-///
-/// # Errors
-///
-/// Archive export errors.
-pub fn ffi_archive_export(
-    workspace_root: &str,
-    archive_path: &str,
-) -> Result<ArchiveExportResultDto, EngineError> {
-    let result = archive_export(Path::new(workspace_root), Path::new(archive_path))
-        .map_err(EngineError::from)?;
-    Ok(ArchiveExportResultDto {
-        archive_path: result.archive_path.to_string_lossy().into_owned(),
-        schema_version: result.manifest.schema_version,
-        entry_count: result.manifest.entries.len() as u64,
-    })
-}
-
-/// Inspects an archive into a fresh staging root (does not touch live).
-///
-/// # Errors
-///
-/// Archive inspect errors.
-pub fn ffi_archive_inspect(
-    archive_path: &str,
-    staging_root: &str,
-) -> Result<ArchiveInspectResultDto, EngineError> {
-    let result = archive_inspect(Path::new(archive_path), Path::new(staging_root))
-        .map_err(EngineError::from)?;
-    Ok(ArchiveInspectResultDto {
-        staging_root: result.staging_root.to_string_lossy().into_owned(),
-        schema_version: result.manifest.schema_version,
-        entry_count: result.manifest.entries.len() as u64,
-    })
-}
-
-/// Imports (inspect alias) into staging.
-///
-/// # Errors
-///
-/// Same as inspect.
-pub fn ffi_archive_import(
-    archive_path: &str,
-    staging_root: &str,
-) -> Result<ArchiveInspectResultDto, EngineError> {
-    let result = archive_import(Path::new(archive_path), Path::new(staging_root))
-        .map_err(EngineError::from)?;
-    Ok(ArchiveInspectResultDto {
-        staging_root: result.staging_root.to_string_lossy().into_owned(),
-        schema_version: result.manifest.schema_version,
-        entry_count: result.manifest.entries.len() as u64,
-    })
-}
-
-/// Atomically activates green staging as live (path-only).
-///
-/// # Errors
-///
-/// Activate validation/storage errors.
-pub fn ffi_archive_activate(
-    staging_root: &str,
-    live_root: &str,
-    backup_root: &str,
-) -> Result<(), EngineError> {
-    archive_activate(
-        Path::new(staging_root),
-        Path::new(live_root),
-        Path::new(backup_root),
-    )
-    .map_err(EngineError::from)
 }
 
 /// Converts promote plan DTOs for memo apply (`pending_promotes` wire).

@@ -3,7 +3,9 @@
 //! and fail-closed soft delete when the activity Markdown source has been removed externally.
 //! Scenarios: wikilink attachments survive soft delete via history/trash refs; restore rebinds
 //! the original `MemoId` and returns a full store commit (`core_revision` + scopes); archive
-//! export is self-contained; a corrupt archive fails closed; deleting a projected memo whose `.md`
+//! export is self-contained and its target path is session-env derived (`<exchange>/exports`),
+//! with foreign file-name hints rejected (`archive_export_name_invalid`); a corrupt archive
+//! fails closed; deleting a projected memo whose `.md`
 //! was unlinked outside Lomo returns `memo_source_missing` and does not invent a trash record.
 //! Observable outcomes: protected paths, restored bodies, restore commit clocks, zip entries,
 //! unchanged live files, error code `memo_source_missing`, and no `.lomo/trash/v1` record for the
@@ -43,6 +45,7 @@ mod tests {
     struct Ctx {
         session: WorkspaceSession,
         workspace_path: std::path::PathBuf,
+        exchange_path: std::path::PathBuf,
         _workspace: tempfile::TempDir,
         _state: tempfile::TempDir,
         _cache: tempfile::TempDir,
@@ -80,6 +83,7 @@ mod tests {
         .expect("open");
         Ctx {
             workspace_path: workspace.path().to_path_buf(),
+            exchange_path: exchange.path().to_path_buf(),
             session,
             _workspace: workspace,
             _state: state,
@@ -197,14 +201,25 @@ mod tests {
                 chronology_epoch_ms: None,
             })
             .expect("create");
-        let archives = tempdir().expect("archives");
-        let archive_path = archives.path().join("lomo.zip");
-        ctx.session
-            .export_archive(&ctx.workspace_path, &archive_path)
+        let exported = ctx
+            .session
+            .export_archive(&ctx.workspace_path, Some("contract-archive"))
             .expect("export");
-        assert!(archive_path.exists());
+        let archive_path = exported.archive_path;
+        assert!(archive_path.is_file());
+        // The export destination is derived from the frozen session environment:
+        // <exchange>/exports/<name>.zip — the caller never nominates a path.
+        assert_eq!(
+            archive_path.parent().expect("export parent"),
+            ctx.exchange_path.join("exports")
+        );
+        assert_eq!(
+            archive_path.file_name().expect("export name"),
+            "contract-archive.zip"
+        );
         let original =
             fs::read_to_string(ctx.workspace_path.join("2026_09_10.md")).expect("original");
+        let archives = tempdir().expect("archives");
         let bad = archives.path().join("bad.zip");
         fs::write(&bad, b"not a zip").expect("bad zip");
         let staging = tempdir().expect("staging");
@@ -216,6 +231,69 @@ mod tests {
         }
         let after = fs::read_to_string(ctx.workspace_path.join("2026_09_10.md")).expect("after");
         assert_eq!(original, after);
+    }
+
+    #[test]
+    fn archive_export_names_target_from_session_env_and_rejects_foreign_hints() {
+        let ctx = open_session();
+
+        // No hint: the session mints a collision-free name inside its export root.
+        let generated = ctx
+            .session
+            .export_archive(&ctx.workspace_path, None)
+            .expect("default-name export");
+        let generated_name = generated
+            .archive_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("generated name");
+        assert!(
+            generated_name.starts_with("lomo-archive-")
+                && generated
+                    .archive_path
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("zip")),
+            "generated export name must follow lomo-archive-<token>.zip, got {generated_name}"
+        );
+        assert!(
+            generated
+                .archive_path
+                .starts_with(ctx.exchange_path.join("exports")),
+            "export target must stay under the session-env export root"
+        );
+
+        // A hint contributes only a file-name stem; the session owns the `.zip` suffix
+        // idempotently and never lets the hint escape its export root.
+        let hinted = ctx
+            .session
+            .export_archive(&ctx.workspace_path, Some("backup-2026_10.zip"))
+            .expect("hinted export");
+        assert_eq!(
+            hinted.archive_path.file_name().and_then(|n| n.to_str()),
+            Some("backup-2026_10.zip")
+        );
+        assert_eq!(
+            hinted.archive_path.parent().expect("hinted parent"),
+            ctx.exchange_path.join("exports")
+        );
+
+        // Foreign path nominations are rejected before any I/O.
+        for hint in [
+            "../escape",
+            "nested/out",
+            "a\\b",
+            "",
+            "   ",
+            ".hidden",
+            "..",
+            "bad name.zip",
+        ] {
+            let error = ctx
+                .session
+                .export_archive(&ctx.workspace_path, Some(hint))
+                .expect_err("foreign file name must be rejected");
+            assert_eq!(error.code(), "archive_export_name_invalid", "hint={hint:?}");
+        }
     }
 
     #[test]

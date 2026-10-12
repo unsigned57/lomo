@@ -18,7 +18,8 @@ import com.lomo.data.engine.lan.LanProtocolLimits
 import com.lomo.domain.model.EngineCommandFailureException
 import com.lomo.domain.model.EngineFailureCategory
 import com.lomo.domain.model.EngineRetryDisposition
-import com.lomo.domain.model.Recurrence
+import com.lomo.data.reminder.REMINDER_DUE_AT_FORMATTER
+import com.lomo.data.reminder.toDomainRecurrence
 import com.lomo.domain.model.ReminderMarker
 import com.lomo.domain.model.ReminderReference
 import com.lomo.domain.model.MemoDocumentMutation
@@ -252,10 +253,11 @@ internal abstract class ManagedEngineCapabilities :
     override fun openWorkspaceSession(
         host: com.lomo.nativebridge.PlatformBatchHost,
         timeZone: String,
+        dateFormat: String,
         mediaStageRoot: String,
-    ): String =
+    ): com.lomo.nativebridge.SessionOpenResult =
         withActiveEngineAdapter { adapter ->
-            adapter.openWorkspaceSession(host, timeZone, mediaStageRoot)
+            adapter.openWorkspaceSession(host, timeZone, dateFormat, mediaStageRoot)
         }
 
     override fun sessionCreateMemo(
@@ -328,8 +330,8 @@ internal abstract class ManagedEngineCapabilities :
 
     override fun sessionSnoozeReminder(
         opaqueId: String,
-        snoozeDurationMs: Long,
-    ) = withActiveWorkspaceAdapter { adapter -> adapter.sessionSnoozeReminder(opaqueId, snoozeDurationMs) }
+        interval: com.lomo.nativebridge.ReminderSnoozeInterval,
+    ) = withActiveWorkspaceAdapter { adapter -> adapter.sessionSnoozeReminder(opaqueId, interval) }
 
     override fun sessionRecoverReminderSnooze() =
         withActiveWorkspaceAdapter { adapter -> adapter.sessionRecoverReminderSnooze() }
@@ -429,11 +431,13 @@ internal abstract class ManagedEngineCapabilities :
             adapter.sessionMediaOrphanSweep(nowMs, recoveryWindowMs, externalDrafts)
         }
 
-    override fun archiveExport(
+    override fun sessionExportArchive(
         workspaceRoot: String,
-        archivePath: String,
+        fileNameHint: String?,
     ): com.lomo.nativebridge.ArchiveExportResultDto =
-        withActiveWorkspaceAdapter { adapter -> adapter.archiveExport(workspaceRoot, archivePath) }
+        withActiveWorkspaceAdapter { adapter ->
+            adapter.sessionExportArchive(workspaceRoot, fileNameHint)
+        }
 
     override fun sessionImportArchive(
         workspaceRoot: String,
@@ -525,9 +529,10 @@ private fun WorkspaceReminderReferenceSnapshot.matches(reference: ReminderRefere
 
 private fun WorkspaceReminderReferenceSnapshot.toDomainMarker(): ReminderMarker =
     ReminderMarker(
+        dueAtLocal = dueAtLocal,
         dueAt =
             try {
-                LocalDateTime.parse(dueAtLocal, ReminderMarker.TIMESTAMP_FORMAT)
+                LocalDateTime.parse(dueAtLocal, REMINDER_DUE_AT_FORMATTER)
             } catch (error: java.time.format.DateTimeParseException) {
                 throw WorkspaceRenderBoundaryException(
                     code = "invalid_reminder_due_at",
@@ -539,7 +544,7 @@ private fun WorkspaceReminderReferenceSnapshot.toDomainMarker(): ReminderMarker 
         firedCount = firedCount.toIntExact("fired_count"),
         done = done,
         intervalMinutes = intervalMinutes.toIntExact("interval_minutes"),
-        recurrence = Recurrence.fromCode(recurrenceCode),
+        recurrence = recurrence.toDomainRecurrence(),
         reference =
             ReminderReference(
                 opaqueId = opaqueId,

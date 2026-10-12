@@ -36,10 +36,11 @@ constructor(
     override suspend fun exportAllNotesArchive(output: OutputStream): MigrationArchiveSummary =
         withContext(dispatcherProvider.io) {
             val root = requireDirectWorkspaceRoot()
-            val archiveFile =
-                File(context.cacheDir, "lomo-archive-export-${UUID.randomUUID()}.zip")
+            // The artifact path is session-env derived inside Rust; Kotlin only streams the
+            // artifact out and reclaims it.
+            val exported = archivePort.sessionExportArchive(root, null)
+            val archiveFile = File(exported.archivePath)
             try {
-                val exported = archivePort.archiveExport(root, archiveFile.absolutePath)
                 archiveFile.inputStream().use { input -> input.copyTo(output) }
                 // Counts are not re-derived in Kotlin; surface schema/entry projection only.
                 MigrationArchiveSummary(

@@ -6,11 +6,11 @@ package com.lomo.data.engine.archive
 internal class BoltFfiArchivePort(
     private val bridge: ArchiveNativeBridge,
 ) : ArchivePort {
-    override fun archiveExport(
+    override fun sessionExportArchive(
         workspaceRoot: String,
-        archivePath: String,
+        fileNameHint: String?,
     ): ArchiveExportResult {
-        val result = bridge.archiveExport(workspaceRoot, archivePath)
+        val result = bridge.sessionExportArchive(workspaceRoot, fileNameHint)
         return ArchiveExportResult(
             archivePath = result.archivePath,
             schemaVersion = result.schemaVersion.toInt(),

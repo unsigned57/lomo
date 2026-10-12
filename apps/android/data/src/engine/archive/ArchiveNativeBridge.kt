@@ -7,9 +7,13 @@ import com.lomo.nativebridge.StoreRebuildResult as BridgeRebuild
  * True FFI edge for archive v2 operations.
  */
 internal interface ArchiveNativeBridge {
-    fun archiveExport(
+    /**
+     * Session-owned export: the artifact path is derived inside Rust from the frozen session
+     * exchange environment; [fileNameHint] may contribute only a bare file-name stem.
+     */
+    fun sessionExportArchive(
         workspaceRoot: String,
-        archivePath: String,
+        fileNameHint: String?,
     ): BridgeExport
 
     fun sessionImportArchive(
