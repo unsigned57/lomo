@@ -158,7 +158,7 @@ val syncDataModule = module {
     single<AuthorizedWorkResume> {
         DeferredLockAuthorizedWorkResume(
             store = get(),
-            scheduler = get(),
+            scheduler = lazy { get() },
             scope = get(named("ApplicationScope")),
         )
     }
@@ -202,7 +202,6 @@ val syncDataModule = module {
             dataStore = get(),
             credentialRepository = get(),
             identityReset = get(),
-            workspaceRoot = get(),
         )
     }
     single {

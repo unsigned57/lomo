@@ -8,7 +8,7 @@ import timber.log.Timber
 
 class DeferredLockAuthorizedWorkResume(
     private val store: DeferredLockWorkStore,
-    private val scheduler: RustSyncScheduler,
+    private val scheduler: Lazy<RustSyncScheduler>,
     private val scope: CoroutineScope,
 ) : AuthorizedWorkResume {
     override fun onSessionAllowsBackgroundWork() {
@@ -22,7 +22,7 @@ class DeferredLockAuthorizedWorkResume(
                     Timber.e(error, "Deferred lock work could not be resumed")
                     return@launch
                 } ?: return@launch
-            scheduler.enqueueSaved(pending)
+            scheduler.value.enqueueSaved(pending)
         }
     }
 }

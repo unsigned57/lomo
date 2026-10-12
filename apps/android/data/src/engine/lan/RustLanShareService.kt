@@ -518,6 +518,11 @@ internal class RustLanShareService(
     }
 
     private fun refreshPeers() {
+        // Peer truth is engine-durable: before the first adapter exists (cold start, engine
+        // still unopened) the only honest projection is empty. This collector runs on the
+        // process scope, so demanding the adapter here is process-fatal — the first post-attach
+        // inbox generation repopulates the list instead.
+        if (!engine.hasActiveEngineAdapter()) return
         _trustedPeers.value =
             engine.listLanPeers().peers
                 .filterNot(LanPeer::revoked)
@@ -568,7 +573,7 @@ private suspend fun LomoLanSharePreferencesStore.lanShareEnabledValue(): Boolean
 private fun resolvedDeviceName(stored: String?): String {
     val storedName = stored?.trim()
     if (!storedName.isNullOrEmpty()) return storedName
-    return Build.MODEL.trim().ifEmpty { "Android" }
+    return Build.MODEL.orEmpty().trim().ifEmpty { "Android" }
 }
 
 private fun LanPairingChallenge.toDomain() =
