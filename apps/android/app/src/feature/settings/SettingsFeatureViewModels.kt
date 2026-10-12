@@ -1,5 +1,7 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.app.feature.common.appWhileSubscribed
+
 import com.lomo.app.feature.update.AppUpdateChecker
 import com.lomo.app.feature.update.AppUpdateDownloadManager
 import com.lomo.app.feature.update.AppUpdateDialogState
@@ -129,7 +131,7 @@ class SettingsStorageFeatureViewModel(
         combine(rootCommandInFlight, mount, ::workspaceRootOperationState)
             .stateIn(
                 scope = scope,
-                started = settingsWhileSubscribed(),
+                started = appWhileSubscribed(),
                 initialValue = workspaceRootOperationState(false, mount.value),
             )
 
@@ -282,7 +284,7 @@ class SettingsDisplayFeatureViewModel(
                 customFontHost.familyOrNull(preference.id) == null -> CustomFontStatus.MISSING
                 else -> CustomFontStatus.READY
             }
-        }.stateIn(scope, settingsWhileSubscribed(), CustomFontStatus.NONE_SELECTED)
+        }.stateIn(scope, appWhileSubscribed(), CustomFontStatus.NONE_SELECTED)
 
     fun deleteCustomFont(
         id: String,

@@ -1,5 +1,7 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.app.feature.common.appWhileSubscribed
+
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.CustomFontImportResult
@@ -63,161 +65,161 @@ class SettingsAppConfigCoordinator(
     val dateFormat: StateFlow<String> =
         appConfigRepository
             .getDateFormat()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.DATE_FORMAT)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.DATE_FORMAT)
 
     val timeFormat: StateFlow<String> =
         appConfigRepository
             .getTimeFormat()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.TIME_FORMAT)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.TIME_FORMAT)
 
     val themeMode: StateFlow<ThemeMode> =
         appConfigRepository
             .getThemeMode()
-            .stateIn(scope, settingsWhileSubscribed(), ThemeMode.SYSTEM)
+            .stateIn(scope, appWhileSubscribed(), ThemeMode.SYSTEM)
 
     val calendarHeatmapThresholds: StateFlow<CalendarHeatmapThresholds> =
         appConfigRepository
             .getCalendarHeatmapThresholds()
-            .stateIn(scope, settingsWhileSubscribed(), CalendarHeatmapThresholds.default())
+            .stateIn(scope, appWhileSubscribed(), CalendarHeatmapThresholds.default())
 
     val colorSource: StateFlow<ColorSource> =
         appConfigRepository
             .getColorSource()
-            .stateIn(scope, settingsWhileSubscribed(), ColorSource.default())
+            .stateIn(scope, appWhileSubscribed(), ColorSource.default())
 
     val colorHistory: StateFlow<List<Int>> =
         appConfigRepository
             .getColorHistory()
-            .stateIn(scope, settingsWhileSubscribed(), emptyList())
+            .stateIn(scope, appWhileSubscribed(), emptyList())
 
     val fontPreference: StateFlow<FontPreference> =
         appConfigRepository
             .getFontPreference()
-            .stateIn(scope, settingsWhileSubscribed(), FontPreference.default())
+            .stateIn(scope, appWhileSubscribed(), FontPreference.default())
 
     val availableCustomFonts: StateFlow<List<CustomFontInfo>> =
         customFontStore
             .observeFonts()
-            .stateIn(scope, settingsWhileSubscribed(), emptyList())
+            .stateIn(scope, appWhileSubscribed(), emptyList())
 
     val typographyFontSizeScale: StateFlow<Float> =
         appConfigRepository
             .getFontSizeScale()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.TYPOGRAPHY_FONT_SIZE_SCALE)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.TYPOGRAPHY_FONT_SIZE_SCALE)
 
     val typographyLineHeightScale: StateFlow<Float> =
         appConfigRepository
             .getLineHeightScale()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.TYPOGRAPHY_LINE_HEIGHT_SCALE)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.TYPOGRAPHY_LINE_HEIGHT_SCALE)
 
     val typographyLetterSpacingScale: StateFlow<Float> =
         appConfigRepository
             .getLetterSpacingScale()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.TYPOGRAPHY_LETTER_SPACING_SCALE)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.TYPOGRAPHY_LETTER_SPACING_SCALE)
 
     val typographyParagraphSpacingScale: StateFlow<Float> =
         appConfigRepository
             .getParagraphSpacingScale()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE)
 
     val hapticFeedbackEnabled: StateFlow<Boolean> =
         appConfigRepository
             .isHapticFeedbackEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.HAPTIC_FEEDBACK_ENABLED)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.HAPTIC_FEEDBACK_ENABLED)
 
     val showInputHints: StateFlow<Boolean> =
         appConfigRepository
             .isShowInputHintsEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SHOW_INPUT_HINTS)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.SHOW_INPUT_HINTS)
 
     val doubleTapEditEnabled: StateFlow<Boolean> =
         appConfigRepository
             .isDoubleTapEditEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED)
 
     val freeTextCopyEnabled: StateFlow<Boolean> =
         appConfigRepository
             .isFreeTextCopyEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.FREE_TEXT_COPY_ENABLED)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.FREE_TEXT_COPY_ENABLED)
 
     val memoActionAutoReorderEnabled: StateFlow<Boolean> =
         appConfigRepository
             .isMemoActionAutoReorderEnabled()
             .stateIn(
                 scope,
-                settingsWhileSubscribed(),
+                appWhileSubscribed(),
                 PreferenceDefaults.MEMO_ACTION_AUTO_REORDER_ENABLED,
             )
 
     val quickSaveOnBackEnabled: StateFlow<Boolean> =
         appConfigRepository
             .isQuickSaveOnBackEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED)
 
     val scrollbarEnabled: StateFlow<Boolean> =
         appConfigRepository
             .isScrollbarEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SCROLLBAR_ENABLED)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.SCROLLBAR_ENABLED)
 
     val autoOpenInputOnForeground: StateFlow<Boolean> =
         appConfigRepository
             .isAutoOpenInputOnForegroundEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.AUTO_OPEN_INPUT_ON_FOREGROUND)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.AUTO_OPEN_INPUT_ON_FOREGROUND)
 
     val appLockEnabled: StateFlow<Boolean> =
         appConfigRepository
             .isAppLockEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.APP_LOCK_ENABLED)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.APP_LOCK_ENABLED)
 
     val storageFilenameFormat: StateFlow<String> =
         appConfigRepository
             .getStorageFilenameFormat()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.STORAGE_FILENAME_FORMAT)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.STORAGE_FILENAME_FORMAT)
 
     val storageTimestampFormat: StateFlow<String> =
         appConfigRepository
             .getStorageTimestampFormat()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.STORAGE_TIMESTAMP_FORMAT)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.STORAGE_TIMESTAMP_FORMAT)
 
     val checkUpdatesOnStartup: StateFlow<Boolean> =
         appConfigRepository
             .isCheckUpdatesOnStartupEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.CHECK_UPDATES_ON_STARTUP)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.CHECK_UPDATES_ON_STARTUP)
 
     val shareCardShowTime: StateFlow<Boolean> =
         appConfigRepository
             .isShareCardShowTimeEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SHARE_CARD_SHOW_TIME)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.SHARE_CARD_SHOW_TIME)
 
     val shareCardShowBrand: StateFlow<Boolean> =
         appConfigRepository
             .isShareCardShowBrandEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SHARE_CARD_SHOW_BRAND)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.SHARE_CARD_SHOW_BRAND)
 
     val shareCardSignatureText: StateFlow<String> =
         appConfigRepository
             .getShareCardSignatureText()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SHARE_CARD_SIGNATURE_TEXT)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.SHARE_CARD_SIGNATURE_TEXT)
 
     val syncInboxEnabled: StateFlow<Boolean> =
         appConfigRepository
             .isSyncInboxEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SYNC_INBOX_ENABLED)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.SYNC_INBOX_ENABLED)
 
     val memoSnapshotsEnabled: StateFlow<Boolean> =
         memoSnapshotPreferencesRepository
             .isMemoSnapshotsEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.MEMO_SNAPSHOTS_ENABLED)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.MEMO_SNAPSHOTS_ENABLED)
 
     val memoSnapshotMaxCount: StateFlow<Int> =
         memoSnapshotPreferencesRepository
             .getMemoSnapshotMaxCount()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.MEMO_SNAPSHOT_MAX_COUNT)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.MEMO_SNAPSHOT_MAX_COUNT)
 
     val memoSnapshotMaxAgeDays: StateFlow<Int> =
         memoSnapshotPreferencesRepository
             .getMemoSnapshotMaxAgeDays()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.MEMO_SNAPSHOT_MAX_AGE_DAYS)
+            .stateIn(scope, appWhileSubscribed(), PreferenceDefaults.MEMO_SNAPSHOT_MAX_AGE_DAYS)
 
     val updateRootDirectory: suspend (String) -> Unit =
         { path ->
@@ -405,4 +407,4 @@ class SettingsAppConfigCoordinator(
 
 private fun Flow<String?>.asDirectoryDisplayState(scope: CoroutineScope): StateFlow<DirectoryDisplayState> =
     map(DirectoryDisplayState::Resolved)
-        .stateIn(scope, settingsWhileSubscribed(), DirectoryDisplayState.Loading)
+        .stateIn(scope, appWhileSubscribed(), DirectoryDisplayState.Loading)

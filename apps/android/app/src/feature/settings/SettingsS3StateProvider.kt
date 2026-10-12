@@ -1,5 +1,7 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.app.feature.common.appWhileSubscribed
+
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
@@ -56,7 +58,7 @@ class SettingsS3StateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 S3ExtensionState(
                     endpointUrl = s3Coordinator.s3EndpointUrl.value,
@@ -75,7 +77,7 @@ class SettingsS3StateProvider(
             extension.copy(localSyncDirectory = localSyncDirectory)
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 baseExtensionState.value.copy(
                     localSyncDirectory = s3Coordinator.s3LocalSyncDirectory.value,
@@ -114,7 +116,7 @@ class SettingsS3StateProvider(
             }
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 S3RoutingState(
                     pathStyle = s3Coordinator.s3PathStyle.value,
@@ -139,7 +141,7 @@ class SettingsS3StateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 s3Coordinator.providerSettingsModel.value.toS3SectionState(
                     extension = extensionState.value,

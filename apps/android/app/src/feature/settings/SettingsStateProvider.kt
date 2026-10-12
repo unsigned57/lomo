@@ -1,5 +1,7 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.app.feature.common.appWhileSubscribed
+
 import com.lomo.domain.model.ColorSource
 import com.lomo.domain.model.CalendarHeatmapThresholds
 import com.lomo.domain.model.CustomFontInfo
@@ -115,7 +117,7 @@ class SettingsStateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 StorageSectionState(
                     rootDirectory = appConfigCoordinator.rootDirectory.value,
@@ -181,7 +183,7 @@ class SettingsStateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 DisplaySectionState(
                     dateFormat = appConfigCoordinator.dateFormat.value,
@@ -214,7 +216,7 @@ class SettingsStateProvider(
             LanShareSectionState(enabled, deviceName)
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 LanShareSectionState(
                     enabled = lanShareCoordinator.lanShareEnabled.value,
@@ -231,7 +233,7 @@ class SettingsStateProvider(
             ShareCardSectionState(showTime, showBrand, signatureText)
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 ShareCardSectionState(
                     appConfigCoordinator.shareCardShowTime.value,
@@ -249,7 +251,7 @@ class SettingsStateProvider(
             Triple(enabled, count, days)
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 Triple(
                     appConfigCoordinator.memoSnapshotsEnabled.value,
@@ -267,7 +269,7 @@ class SettingsStateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 SnapshotSectionState(
                     memoSnapshotsEnabled = appConfigCoordinator.memoSnapshotsEnabled.value,
@@ -286,7 +288,7 @@ class SettingsStateProvider(
             GitExtensionState(remoteUrl, branch, authorName, authorEmail)
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 GitExtensionState(
                     remoteUrl = gitCoordinator.gitRemoteUrl.value,
@@ -312,7 +314,7 @@ class SettingsStateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 GitSectionState(
                     providerSettings = gitCoordinator.providerSettingsModel.value,
@@ -333,7 +335,7 @@ class SettingsStateProvider(
             Triple(provider, baseUrl, endpointUrl)
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 Triple(
                     webDavCoordinator.webDavProvider.value,
@@ -355,7 +357,7 @@ class SettingsStateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 WebDavExtensionState(
                     provider = webDavCoordinator.webDavProvider.value,
@@ -379,7 +381,7 @@ class SettingsStateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 WebDavSectionState(
                     providerSettings = webDavCoordinator.providerSettingsModel.value,
@@ -405,7 +407,7 @@ class SettingsStateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 InteractionPrimaryState(
                     hapticEnabled = appConfigCoordinator.hapticFeedbackEnabled.value,
@@ -447,7 +449,7 @@ class SettingsStateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 InteractionSectionState(
                     hapticEnabled = appConfigCoordinator.hapticFeedbackEnabled.value,
@@ -467,7 +469,7 @@ class SettingsStateProvider(
             .map(::SystemSectionState)
             .stateIn(
                 scope = scope,
-                started = settingsWhileSubscribed(),
+                started = appWhileSubscribed(),
                 initialValue = SystemSectionState(appConfigCoordinator.checkUpdatesOnStartup.value),
             )
 
@@ -488,7 +490,7 @@ class SettingsStateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 PrimaryUiSections(
                     storage = storageState.value,
@@ -513,7 +515,7 @@ class SettingsStateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 CoreUiSections(
                     storage = storageState.value,
@@ -549,7 +551,7 @@ class SettingsStateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = settingsWhileSubscribed(),
+            started = appWhileSubscribed(),
             initialValue =
                 SettingsScreenUiState(
                     storage = coreUiSections.value.storage,

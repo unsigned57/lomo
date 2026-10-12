@@ -1,5 +1,7 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.app.feature.common.appWhileSubscribed
+
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.repository.LanShareService
 import kotlinx.coroutines.CoroutineScope
@@ -15,7 +17,7 @@ class SettingsLanShareCoordinator(
             .lanShareEnabled
             .stateIn(
                 scope,
-                settingsWhileSubscribed(),
+                appWhileSubscribed(),
                 PreferenceDefaults.LAN_SHARE_ENABLED,
             )
 
@@ -24,7 +26,7 @@ class SettingsLanShareCoordinator(
             .lanShareDeviceName
             .stateIn(
                 scope,
-                settingsWhileSubscribed(),
+                appWhileSubscribed(),
                 "",
             )
 
