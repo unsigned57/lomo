@@ -14,6 +14,7 @@ This document defines the immutable architecture and authority model for Lomo. I
 - `app`: UI screens, navigation, and state presentation. Business code consumes domain contracts; reusable UI comes from `ui-components`. The composition root packages `data` as a runtime-only dependency, without a compile-time dependency on its implementations. UI/framework dependencies do not confer domain or storage authority.
 - `ui-components`: Pure, reusable presentation components without business logic or platform integration.
 - `native-bindings`: Generated Kotlin/JNI declarations. Build output only; never committed.
+- `benchmark`: Standalone Gradle instrumented-test harness (AndroidX Macrobenchmark) measuring the installed debug APK through `just android benchmark`. Not an Amper module, ships no product code and holds no domain authority.
 
 ### Rust Crates (`crates/`)
 - `lomo-application`: Sole authority for workspace session orchestration, durable document write transactions, dual-mode retrieval, task aggregation, statistics, daily review, reminder planning, history/trash/archive lifecycle, platform action staging via exchange tokens, operation idempotency journals, private state/cache isolation, and full/incremental SQLite query projection rebuilds.

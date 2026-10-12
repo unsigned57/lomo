@@ -40,6 +40,10 @@ const REQUIRED_BASELINE_METRICS: &[&str] = &[
     "sqlite_probe_wal_fts_backup",
     "markdown_fixture_set_parse",
     "markdown_scale_100k_memo_parse",
+    "reconcile_idle_ms",
+    "io_read_ms",
+    "paging_append_ms",
+    "ffi_roundtrip_ms",
 ];
 
 pub fn run_diagnostics(workspace: &Workspace) -> Result<serde_json::Value> {
@@ -168,7 +172,9 @@ fn write_performance_report(report: &BaselineReportV1, report_dir: &Path) -> Res
             "Pass requires every required metric to be established with its required fields.",
             "just perf exits non-zero on Inconclusive/Fail so recipe exit 0 means product-pass of required metrics.",
             "Per-metric samples may differ (e.g. scale uses fewer full-corpus passes); see metrics[].samples.",
-            "Required metrics are current owner workloads; optional provider diagnostics never establish a pass."
+            "Required metrics are current owner workloads; optional provider diagnostics never establish a pass.",
+            "reconcile_idle_ms/io_read_ms/paging_append_ms run the lomo-application owner in one isolated release process: digest-matched rebuild_projection, a verified io.read batch envelope (workspace_io wire shape), and cursor continuation fetches.",
+            "ffi_roundtrip_ms runs the lomo-native facade owner: LomoEngine::query_memos wire decode->projection query->wire encode through a real WorkspaceSession."
         ],
         "native": {
             "liblomo_native_jni_so_bytes": report.sizes.abi_so_bytes,
@@ -317,10 +323,135 @@ fn collect_baseline_report(workspace: &Workspace) -> Result<BaselineReportV1> {
 
 /// Required host metrics other than the scale owner.
 fn measure_required_non_scale_metrics(workspace: &Workspace) -> Result<Vec<BaselineMetricV1>> {
-    Ok(vec![
+    let mut metrics = vec![
         measure_sqlite_metric(workspace)?,
         measure_markdown_metric(workspace)?,
-    ])
+    ];
+    metrics.extend(measure_session_path_metrics(workspace)?);
+    metrics.push(measure_ffi_roundtrip_metric(workspace)?);
+    Ok(metrics)
+}
+
+/// P-61 session hot-path probes, measured in one isolated `lomo-application` owner process per
+/// round so peak RSS belongs to the probe and host noise cannot be attributed to xtask. The
+/// example exercises production `WorkspaceSession` code: digest-matched idle reconcile, one
+/// verified `io.read` batch envelope round trip (same wire shape `workspace_io` issues), and the
+/// cursor continuation fetch Android Paging pays per append.
+fn measure_session_path_metrics(workspace: &Workspace) -> Result<Vec<BaselineMetricV1>> {
+    let fields = run_owner_probe(
+        workspace,
+        "lomo-application",
+        "session_path_probe",
+        "SESSION_PATH_BENCH",
+    )?;
+    let memo_count: u64 = required_bench_field(&fields, "memo_count")?.parse()?;
+    let doc_count: u64 = required_bench_field(&fields, "doc_count")?.parse()?;
+    let samples: u32 = required_bench_field(&fields, "samples")?.parse()?;
+    let peak_rss_bytes: u64 = required_bench_field(&fields, "peak_rss_bytes")?.parse()?;
+    let workload_summary = format!(
+        "isolated lomo-application session owner docs={doc_count} memos={memo_count} seeded_markdown"
+    );
+    let mut metrics = Vec::with_capacity(3);
+    for (name, p50_key, p95_key) in [
+        (
+            "reconcile_idle_ms",
+            "reconcile_idle_p50_ms",
+            "reconcile_idle_p95_ms",
+        ),
+        ("io_read_ms", "io_read_p50_ms", "io_read_p95_ms"),
+        (
+            "paging_append_ms",
+            "paging_append_p50_ms",
+            "paging_append_p95_ms",
+        ),
+    ] {
+        metrics.push(BaselineMetricV1 {
+            name: name.to_owned(),
+            unit: "ms".to_owned(),
+            p50: required_bench_field(&fields, p50_key)?.parse()?,
+            p95: required_bench_field(&fields, p95_key)?.parse()?,
+            peak_rss_bytes: Some(peak_rss_bytes),
+            network_request_count: None,
+            samples: Some(samples),
+            workload_summary: workload_summary.clone(),
+            result_count: Some(memo_count),
+            warm_path_p50_ms: None,
+        });
+    }
+    Ok(metrics)
+}
+
+/// P-61 FFI facade round trip, measured in one isolated `lomo-native` owner process per round:
+/// `LomoEngine::query_memos` decodes the wire `StoreMemoQuery`/cursor into core types, queries the
+/// committed projection through a real `WorkspaceSession`, then encodes `StoreMemoPage` wire DTOs
+/// back — the conversion+query cost the JNI boundary pays per list call.
+fn measure_ffi_roundtrip_metric(workspace: &Workspace) -> Result<BaselineMetricV1> {
+    let fields = run_owner_probe(
+        workspace,
+        "lomo-native",
+        "ffi_roundtrip_probe",
+        "FFI_ROUNDTRIP_BENCH",
+    )?;
+    let memo_count: u64 = required_bench_field(&fields, "memo_count")?.parse()?;
+    let doc_count: u64 = required_bench_field(&fields, "doc_count")?.parse()?;
+    Ok(BaselineMetricV1 {
+        name: "ffi_roundtrip_ms".to_owned(),
+        unit: "ms".to_owned(),
+        p50: required_bench_field(&fields, "ffi_roundtrip_p50_ms")?.parse()?,
+        p95: required_bench_field(&fields, "ffi_roundtrip_p95_ms")?.parse()?,
+        peak_rss_bytes: Some(required_bench_field(&fields, "peak_rss_bytes")?.parse()?),
+        network_request_count: None,
+        samples: Some(required_bench_field(&fields, "samples")?.parse()?),
+        workload_summary: format!(
+            "isolated lomo-native facade owner docs={doc_count} memos={memo_count} query_memos_wire_roundtrip"
+        ),
+        result_count: Some(memo_count),
+        warm_path_p50_ms: None,
+    })
+}
+
+/// Runs a `cargo run --release --example <example>` owner probe and returns the `key=value`
+/// fields of its `<marker>` stdout line. Any missing marker or field is a hard error — a probe
+/// that cannot report cannot establish a required metric.
+fn run_owner_probe(
+    workspace: &Workspace,
+    package: &str,
+    example: &str,
+    marker: &str,
+) -> Result<BTreeMap<String, String>> {
+    let mut command = cargo(workspace);
+    command.args([
+        "run",
+        "--locked",
+        "--release",
+        "-p",
+        package,
+        "--example",
+        example,
+    ]);
+    let stdout = text_output(&mut command)?;
+    let prefix = format!("{marker} ");
+    let line = stdout
+        .lines()
+        .rev()
+        .find(|line| line.starts_with(&prefix))
+        .with_context(|| format!("missing {marker} line in: {stdout}"))?;
+    Ok(parse_bench_fields(line))
+}
+
+fn parse_bench_fields(line: &str) -> BTreeMap<String, String> {
+    line.split_whitespace()
+        .skip(1)
+        .filter_map(|token| token.split_once('='))
+        .map(|(key, value)| (key.to_owned(), value.to_owned()))
+        .collect()
+}
+
+fn required_bench_field<'a>(fields: &'a BTreeMap<String, String>, key: &str) -> Result<&'a str> {
+    fields
+        .get(key)
+        .map(String::as_str)
+        .with_context(|| format!("missing {key} in bench line"))
 }
 
 /// Optional noisy I/O / device probes. Exclusion never invents Pass.
@@ -609,18 +740,8 @@ struct ScaleBenchFields {
 }
 
 fn parse_scale_bench_line(line: &str) -> Result<ScaleBenchFields> {
-    let mut map = BTreeMap::new();
-    for token in line.split_whitespace().skip(1) {
-        let Some((key, value)) = token.split_once('=') else {
-            continue;
-        };
-        map.insert(key.to_owned(), value.to_owned());
-    }
-    let require = |key: &str| -> Result<&str> {
-        map.get(key)
-            .map(String::as_str)
-            .with_context(|| format!("missing {key} in scale bench line"))
-    };
+    let map = parse_bench_fields(line);
+    let require = |key: &str| required_bench_field(&map, key);
     Ok(ScaleBenchFields {
         full_p50_ms: require("full_p50_ms")?.parse()?,
         full_p95_ms: require("full_p95_ms")?.parse()?,

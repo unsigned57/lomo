@@ -5,7 +5,8 @@ use std::{
     process::Command,
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
+use serde_json::Value;
 
 use crate::{
     native::{self, Abi, NativeProfile},
@@ -459,4 +460,395 @@ fn required(values: &BTreeMap<String, String>, primary: &str, alternate: &str) -
         .filter(|value| !value.is_empty())
         .cloned()
         .with_context(|| format!("release signing requires {primary} (or {alternate})"))
+}
+
+// ---- P-60 AndroidX Macrobenchmark harness ----
+
+/// Instrumented benchmark scenarios; each maps to one `LomoMacrobenchmark` `JUnit` method in the
+/// `apps/android/benchmark` harness module.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BenchmarkScenario {
+    Startup,
+    Frame,
+    Scroll,
+}
+
+impl BenchmarkScenario {
+    pub const ALL: [Self; 3] = [Self::Startup, Self::Frame, Self::Scroll];
+
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Startup => "startup",
+            Self::Frame => "frame",
+            Self::Scroll => "scroll",
+        }
+    }
+}
+
+/// Parses the optional `[scenario]` slot of `android benchmark`.
+///
+/// The Justfile recipe always forwards its default ABI token in this position, so an ABI
+/// selector also resolves to all scenarios — the instrumented test APK is universal and the
+/// ABI slot is documented unused.
+///
+/// # Errors
+/// Unknown scenario names fail closed.
+pub fn benchmark_scenarios(argument: Option<&String>) -> Result<Vec<BenchmarkScenario>> {
+    match argument.map(String::as_str) {
+        None | Some("all") => Ok(BenchmarkScenario::ALL.to_vec()),
+        Some("startup") => Ok(vec![BenchmarkScenario::Startup]),
+        Some("frame") => Ok(vec![BenchmarkScenario::Frame]),
+        Some("scroll") => Ok(vec![BenchmarkScenario::Scroll]),
+        Some(value) if Abi::parse_selector(value).is_ok() => Ok(BenchmarkScenario::ALL.to_vec()),
+        Some(value) => bail!("unknown android benchmark scenario: {value}"),
+    }
+}
+
+const BENCHMARK_MODULE: &str = "apps/android/benchmark";
+const BENCHMARK_PACKAGE: &str = "com.lomo.benchmark";
+const BENCHMARK_CLASS: &str = "com.lomo.benchmark.LomoMacrobenchmark";
+const BENCHMARK_TARGET_PACKAGE: &str = "com.lomo.app";
+const BENCHMARK_SUPPRESSED_ERRORS: [&str; 2] = ["EMULATOR", "DEBUGGABLE"];
+/// AGP version the benchmark module pins — the same AGP the pinned Kotlin toolchain resolves
+/// for its embedded Android bridge, verified by `gradle tasks` against the shared cache.
+const BENCHMARK_AGP: &str = "9.2.1";
+
+/// Redirected Gradle build directory of the benchmark module (`layout.buildDirectory` in its
+/// `build.gradle.kts` resolves to `target/lomo/android-benchmark/gradle`).
+fn benchmark_harness_build_dir(workspace: &Workspace) -> PathBuf {
+    workspace
+        .root
+        .join(BENCHMARK_MODULE)
+        .join("../../../target/lomo/android-benchmark/gradle")
+}
+
+/// Compiles the instrumented-test APK (`assembleDebugAndroidTest`) without a device — the
+/// CI-verifiable half of the P-60 harness. Scenario execution still requires
+/// `just android benchmark` on an attached device; this only proves the harness itself
+/// configures, compiles and packages.
+///
+/// # Errors
+/// Missing `gradle`, a failing harness build, or an absent androidTest APK all fail closed.
+pub fn benchmark_harness_assemble(workspace: &Workspace) -> Result<()> {
+    let gradle = gradle_command(workspace)?;
+    let mut command = Command::new(&gradle);
+    command
+        .current_dir(workspace.root.join(BENCHMARK_MODULE))
+        .args(["assembleDebugAndroidTest", "--console=plain"]);
+    run(&mut command).context("android benchmark harness assembleDebugAndroidTest failed")?;
+    let outputs = benchmark_harness_build_dir(workspace).join("outputs/apk/androidTest");
+    let apks = find_files(&outputs, "apk")?;
+    ensure!(
+        !apks.is_empty(),
+        "benchmark harness assembled no androidTest APK under {}",
+        outputs.display()
+    );
+    for apk in &apks {
+        crate::util::emit_stderr(format_args!(
+            "xtask: benchmark harness androidTest APK at {}",
+            apk.display()
+        ));
+    }
+    Ok(())
+}
+
+/// Runs the `AndroidX` Macrobenchmark harness on the attached device.
+///
+/// The flow is fail-closed: no attached device aborts before any metric exists; the debug APK
+/// is rebuilt for the device's primary ABI so measured artifacts match current sources; the
+/// Gradle harness runs each scenario as a separate instrumented test method; and the androidx
+/// `*-benchmarkData.json` files are parsed into one `android-benchmark.v1.json` summary whose
+/// `measurement` block permanently records the emulator/debuggable suppression.
+///
+/// # Errors
+/// Missing adb/device, APK build/install failure, missing `gradle`, a failing instrumented
+/// test, or absent benchmark output all propagate as errors — the command never reports a
+/// scenario it did not execute.
+pub fn benchmark(workspace: &Workspace, scenarios: &[BenchmarkScenario]) -> Result<Value> {
+    ensure!(
+        !scenarios.is_empty(),
+        "android benchmark requires at least one scenario"
+    );
+    let adb = adb_program(workspace)?;
+    let serial = adb_primary_serial(&adb)?.with_context(
+        || "android benchmark requires an attached device or emulator (`adb devices` lists none)",
+    )?;
+    let model = adb_getprop(&adb, &serial, "ro.product.model")?;
+    let api_level = adb_getprop(&adb, &serial, "ro.build.version.sdk")?;
+    let abilist = adb_getprop(&adb, &serial, "ro.product.cpu.abilist")?;
+    let primary = abilist
+        .split(',')
+        .next()
+        .filter(|value| !value.trim().is_empty())
+        .with_context(|| format!("device {serial} reports empty ro.product.cpu.abilist"))?;
+    let abi = Abi::parse(primary.trim())?;
+    crate::util::emit_stderr(format_args!(
+        "xtask: android benchmark on {serial} ({model} api={api_level} abi={})",
+        abi.android_name()
+    ));
+
+    // Measure the artifact built from current sources: rebuild the debug APK for the
+    // device's primary ABI rather than trusting a previously published universal APK.
+    let apk = build(workspace, AndroidVariant::Debug, &[abi])?;
+    adb_install(&adb, &serial, &apk)?;
+
+    let gradle = gradle_command(workspace)?;
+    let module_root = workspace.root.join(BENCHMARK_MODULE);
+    let harness_build = benchmark_harness_build_dir(workspace);
+    let report_dir = workspace.reports_dir().join("android-benchmark");
+    if report_dir.exists() {
+        fs::remove_dir_all(&report_dir)
+            .with_context(|| format!("failed to reset {}", report_dir.display()))?;
+    }
+    fs::create_dir_all(&report_dir)
+        .with_context(|| format!("failed to create {}", report_dir.display()))?;
+
+    let mut scenario_results = Vec::with_capacity(scenarios.len());
+    for scenario in scenarios {
+        let mut command = Command::new(&gradle);
+        command
+            .current_dir(&module_root)
+            .args(["connectedDebugAndroidTest", "--console=plain"])
+            .arg(format!(
+                "-Pandroid.testInstrumentationRunnerArguments.class={BENCHMARK_CLASS}#{}",
+                scenario.name()
+            ));
+        run(&mut command).with_context(|| {
+            format!(
+                "instrumented {} benchmark failed on {serial} (see {} for the Gradle log)",
+                scenario.name(),
+                harness_build.display()
+            )
+        })?;
+        let raw = collect_benchmark_outputs(&harness_build, &report_dir, scenario.name())?;
+        let summary = summarize_benchmark_files(&raw, scenario.name())?;
+        scenario_results.push(summary);
+    }
+
+    let report = serde_json::json!({
+        "schema_version": 1,
+        "kind": "androidx_macrobenchmark",
+        "git_revision": benchmark_git_revision(workspace)?,
+        "measurement": {
+            "target_package": BENCHMARK_TARGET_PACKAGE,
+            "harness_package": BENCHMARK_PACKAGE,
+            "harness_module": BENCHMARK_MODULE,
+            "harness_build_dir": harness_build,
+            "agp": BENCHMARK_AGP,
+            "suppressed_errors": BENCHMARK_SUPPRESSED_ERRORS,
+            "accuracy_note": "Values come from an emulator plus a debuggable target; androidx.benchmark suppressedErrors are declared in every raw artifact. Emulator-grade evidence, not physical-device release truth.",
+        },
+        "device": {
+            "serial": serial,
+            "model": model,
+            "api_level": api_level.parse::<u32>().unwrap_or(0),
+            "abilist": abilist,
+        },
+        "apk": apk,
+        "scenarios": scenario_results,
+    });
+    let report_path = report_dir.join("android-benchmark.v1.json");
+    let pretty = serde_json::to_string_pretty(&report)
+        .context("failed to serialize android benchmark report")?;
+    fs::write(&report_path, format!("{pretty}\n"))
+        .with_context(|| format!("failed to write {}", report_path.display()))?;
+    crate::util::emit_stderr(format_args!("xtask: wrote {}", report_path.display()));
+    Ok(report)
+}
+
+fn adb_program(workspace: &Workspace) -> Result<PathBuf> {
+    let adb = workspace.android_sdk.join("platform-tools/adb");
+    if adb.is_file() {
+        return Ok(adb);
+    }
+    // Fall back to PATH so developer machines without the pinned SDK path still work.
+    let probe = Command::new("adb").arg("version").output();
+    match probe {
+        Ok(output) if output.status.success() => Ok(PathBuf::from("adb")),
+        _ => bail!("adb not found at {} or on PATH", adb.display()),
+    }
+}
+
+fn adb_primary_serial(adb: &Path) -> Result<Option<String>> {
+    let mut command = Command::new(adb);
+    command.arg("devices");
+    let devices = text_output(&mut command).context("adb devices failed")?;
+    Ok(devices.lines().find_map(|line| {
+        let mut parts = line.split_whitespace();
+        match (parts.next(), parts.next()) {
+            (Some(serial), Some("device")) if !serial.is_empty() && serial != "List" => {
+                Some(serial.to_owned())
+            }
+            _ => None,
+        }
+    }))
+}
+
+fn adb_getprop(adb: &Path, serial: &str, key: &str) -> Result<String> {
+    let mut command = Command::new(adb);
+    command.args(["-s", serial, "shell", "getprop", key]);
+    text_output(&mut command)
+        .map(|value| value.trim().to_owned())
+        .with_context(|| format!("adb getprop {key} failed on {serial}"))
+}
+
+fn adb_install(adb: &Path, serial: &str, apk: &Path) -> Result<()> {
+    let mut command = Command::new(adb);
+    command
+        .args(["-s", serial, "install", "-r"])
+        .arg(apk.as_os_str());
+    run(&mut command).with_context(|| format!("failed to install {} on {serial}", apk.display()))
+}
+
+fn gradle_command(workspace: &Workspace) -> Result<PathBuf> {
+    let probe = Command::new("gradle").arg("--version").output();
+    match probe {
+        Ok(output) if output.status.success() => Ok(PathBuf::from("gradle")),
+        _ => bail!(
+            "android benchmark requires a `gradle` binary on PATH (the instrumented-test harness lives in {} and is not part of the Kotlin toolchain project)",
+            workspace.root.join(BENCHMARK_MODULE).display()
+        ),
+    }
+}
+
+/// Moves androidx `*-benchmarkData.json` artifacts for `scenario` from the harness build output
+/// into the report directory and returns their paths.
+fn collect_benchmark_outputs(
+    harness_build: &Path,
+    report_dir: &Path,
+    scenario: &str,
+) -> Result<Vec<PathBuf>> {
+    let output_root = harness_build.join("outputs/connected_android_test_additional_output");
+    let mut collected = Vec::new();
+    if !output_root.is_dir() {
+        return Ok(collected);
+    }
+    let mut pending = vec![output_root];
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(&directory)
+            .with_context(|| format!("failed to read {}", directory.display()))?
+        {
+            let path = entry?.path();
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            let is_benchmark_artifact = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with("-benchmarkData.json"));
+            if !is_benchmark_artifact {
+                continue;
+            }
+            // androidx names the artifact after the test package
+            // (`com.lomo.benchmark.test-benchmarkData.json`), never after the scenario, so
+            // attribution must come from the artifact body: each instrumented run invokes
+            // exactly one `LomoMacrobenchmark#<scenario>` method and `benchmarks[].name`
+            // records it. A stale artifact from another scenario can never be attributed here.
+            let text = fs::read_to_string(&path)
+                .with_context(|| format!("failed to read {}", path.display()))?;
+            let document: Value = serde_json::from_str(&text)
+                .with_context(|| format!("{} is not valid benchmark JSON", path.display()))?;
+            let belongs_to_scenario = document
+                .get("benchmarks")
+                .and_then(Value::as_array)
+                .is_some_and(|benchmarks| {
+                    benchmarks.iter().any(|benchmark| {
+                        benchmark.get("name").and_then(Value::as_str) == Some(scenario)
+                            && benchmark.get("className").and_then(Value::as_str)
+                                == Some(BENCHMARK_CLASS)
+                    })
+                });
+            if belongs_to_scenario {
+                let file_name = path
+                    .file_name()
+                    .with_context(|| format!("{} has no file name", path.display()))?;
+                let target = report_dir.join(format!("{scenario}-{}", file_name.to_string_lossy()));
+                fs::copy(&path, &target).with_context(|| {
+                    format!("failed to copy {} -> {}", path.display(), target.display())
+                })?;
+                collected.push(target);
+            }
+        }
+    }
+    collected.sort();
+    Ok(collected)
+}
+
+/// Summarizes one scenario's raw benchmark artifacts: every `benchmarks[].metrics.*` median,
+/// minimum, maximum and run count, plus the suppression declaration androidx embeds in
+/// `context`. A scenario with no parsed benchmark is a hard error — partial evidence would
+/// masquerade as a completed suite.
+fn summarize_benchmark_files(paths: &[PathBuf], scenario: &str) -> Result<Value> {
+    let mut metrics = serde_json::Map::new();
+    let mut files = Vec::with_capacity(paths.len());
+    let mut iterations = Value::Null;
+    for path in paths {
+        files.push(path.clone());
+        let text = fs::read_to_string(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        let document: Value = serde_json::from_str(&text)
+            .with_context(|| format!("{} is not valid benchmark JSON", path.display()))?;
+        let benchmarks = document
+            .get("benchmarks")
+            .and_then(Value::as_array)
+            .with_context(|| format!("{} carries no benchmarks array", path.display()))?;
+        for benchmark in benchmarks {
+            if iterations.is_null() {
+                iterations = benchmark
+                    .get("repeatIterations")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+            }
+            if let Some(object) = benchmark.get("metrics").and_then(Value::as_object) {
+                for (name, metric) in object {
+                    metrics.insert(
+                        name.clone(),
+                        serde_json::json!({
+                            "median": metric.get("median"),
+                            "minimum": metric.get("minimum"),
+                            "maximum": metric.get("maximum"),
+                            "runs": metric.get("runs").and_then(Value::as_array).map_or(0, Vec::len),
+                        }),
+                    );
+                }
+            }
+        }
+    }
+    ensure!(
+        !metrics.is_empty(),
+        "scenario {scenario} produced no benchmark metrics under {}",
+        paths
+            .first()
+            .and_then(|path| path.parent())
+            .map_or_else(|| "<none>".to_owned(), |dir| dir.display().to_string())
+    );
+    Ok(serde_json::json!({
+        "name": scenario,
+        "repeat_iterations": iterations,
+        "metrics": metrics,
+        "artifacts": files,
+    }))
+}
+
+fn benchmark_git_revision(workspace: &Workspace) -> Result<String> {
+    let mut command = Command::new("git");
+    command
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&workspace.root);
+    let value = text_output(&mut command)?.trim().to_owned();
+    if value.is_empty() {
+        bail!("git revision is empty");
+    }
+    let mut status = Command::new("git");
+    status
+        .args(["status", "--porcelain"])
+        .current_dir(&workspace.root);
+    let porcelain = text_output(&mut status)?;
+    if porcelain.trim().is_empty() {
+        Ok(value)
+    } else {
+        Ok(format!("{value}-dirty"))
+    }
 }

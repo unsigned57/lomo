@@ -114,6 +114,9 @@ pub fn android_ci(workspace: &Workspace, coverage: CoverageMode) -> Result<()> {
         &native::Abi::ALL,
     )?;
     crate::android::publish_apk(workspace, &apk, "debug", "all")?;
+    // CI-verifiable half of the benchmark gate: the instrumented-test harness must compile
+    // and package. Scenario execution stays with `just android benchmark` on a device.
+    crate::android::benchmark_harness_assemble(workspace)?;
     Ok(())
 }
 
