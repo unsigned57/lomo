@@ -1,7 +1,9 @@
 package com.lomo.domain.model
 
+import com.github.difflib.DiffUtils
+
 /**
- * Lightweight line-based diff using a simplified Myers algorithm.
+ * Lightweight line-based diff backed by java-diff-utils Myers.
  * Produces grouped hunks with context lines for display.
  */
 object SimpleLineDiff {
@@ -15,7 +17,7 @@ object SimpleLineDiff {
         data class TooLarge(
             val oldLineCount: Int,
             val newLineCount: Int,
-            val maxMatrixCells: Int,
+            val maxComparedCells: Int,
             val maxDiffLineCount: Int = DEFAULT_MAX_DIFF_LINE_COUNT,
         ) : DiffResult
     }
@@ -32,7 +34,7 @@ object SimpleLineDiff {
     )
 
     private const val CONTEXT_LINES = 3
-    private const val DEFAULT_MAX_MATRIX_CELLS = 250_000
+    private const val DEFAULT_MAX_COMPARED_CELLS = 250_000
     private const val DEFAULT_MAX_DIFF_LINE_COUNT = 2_000
 
     fun diff(
@@ -47,7 +49,7 @@ object SimpleLineDiff {
     fun diffResult(
         oldText: String,
         newText: String,
-        maxMatrixCells: Int = DEFAULT_MAX_MATRIX_CELLS,
+        maxComparedCells: Int = DEFAULT_MAX_COMPARED_CELLS,
         maxDiffLineCount: Int = DEFAULT_MAX_DIFF_LINE_COUNT,
     ): DiffResult {
         if (oldText == newText) return DiffResult.Computed(emptyList())
@@ -57,46 +59,47 @@ object SimpleLineDiff {
             exceedsBudget(
                 oldLineCount = oldLines.size,
                 newLineCount = newLines.size,
-                maxMatrixCells = maxMatrixCells,
+                maxComparedCells = maxComparedCells,
                 maxDiffLineCount = maxDiffLineCount,
             )
         ) {
             return DiffResult.TooLarge(
                 oldLineCount = oldLines.size,
                 newLineCount = newLines.size,
-                maxMatrixCells = maxMatrixCells,
+                maxComparedCells = maxComparedCells,
                 maxDiffLineCount = maxDiffLineCount,
             )
         }
 
-        val rawDiff = computeLcs(oldLines, newLines)
+        val rawDiff = computeDiffLines(oldLines, newLines)
         return DiffResult.Computed(groupIntoHunks(rawDiff))
     }
 
     private fun exceedsBudget(
         oldLineCount: Int,
         newLineCount: Int,
-        maxMatrixCells: Int,
+        maxComparedCells: Int,
         maxDiffLineCount: Int,
     ): Boolean =
-        exceedsMatrixBudget(
+        exceedsComparedCellBudget(
             oldLineCount = oldLineCount,
             newLineCount = newLineCount,
-            maxMatrixCells = maxMatrixCells,
+            maxComparedCells = maxComparedCells,
         ) || exceedsDiffLineBudget(
             oldLineCount = oldLineCount,
             newLineCount = newLineCount,
             maxDiffLineCount = maxDiffLineCount,
         )
 
-    private fun exceedsMatrixBudget(
+    private fun exceedsComparedCellBudget(
         oldLineCount: Int,
         newLineCount: Int,
-        maxMatrixCells: Int,
+        maxComparedCells: Int,
     ): Boolean =
-        matrixCellCount(oldLineCount = oldLineCount, newLineCount = newLineCount) > maxMatrixCells.toLong()
+        comparedCellCount(oldLineCount = oldLineCount, newLineCount = newLineCount) >
+            maxComparedCells.toLong()
 
-    private fun matrixCellCount(
+    private fun comparedCellCount(
         oldLineCount: Int,
         newLineCount: Int,
     ): Long =
@@ -109,52 +112,41 @@ object SimpleLineDiff {
     ): Boolean =
         oldLineCount.toLong() + newLineCount.toLong() > maxDiffLineCount.toLong()
 
-    private fun computeLcs(
+    /**
+     * Adapts java-diff-utils Myers deltas into `DiffLine`s: deltas arrive in
+     * document order, so leading equal runs precede each chunk and every source
+     * chunk deletes before its target chunk inserts.
+     */
+    private fun computeDiffLines(
         oldLines: List<String>,
         newLines: List<String>,
     ): List<DiffLine> {
-        val n = oldLines.size
-        val m = newLines.size
-
-        // Build LCS table
-        val dp = Array(n + 1) { IntArray(m + 1) }
-        for (i in n - 1 downTo 0) {
-            for (j in m - 1 downTo 0) {
-                dp[i][j] =
-                    if (oldLines[i] == newLines[j]) {
-                        dp[i + 1][j + 1] + 1
-                    } else {
-                        maxOf(dp[i + 1][j], dp[i][j + 1])
-                    }
+        val lines = mutableListOf<DiffLine>()
+        var oldIndex = 0
+        var newIndex = 0
+        for (delta in DiffUtils.diff(oldLines, newLines).deltas) {
+            val source = delta.source
+            val target = delta.target
+            while (oldIndex < source.position) {
+                lines.add(DiffLine(DiffOp.EQUAL, oldLines[oldIndex], oldIndex + 1, newIndex + 1))
+                oldIndex += 1
+                newIndex += 1
+            }
+            for (line in source.lines) {
+                lines.add(DiffLine(DiffOp.DELETE, line, oldIndex + 1, null))
+                oldIndex += 1
+            }
+            for (line in target.lines) {
+                lines.add(DiffLine(DiffOp.INSERT, line, null, newIndex + 1))
+                newIndex += 1
             }
         }
-
-        // Trace back to produce diff lines
-        val result = mutableListOf<DiffLine>()
-        var i = 0
-        var j = 0
-        var oldLineNo = 1
-        var newLineNo = 1
-
-        while (i < n || j < m) {
-            when {
-                i < n && j < m && oldLines[i] == newLines[j] -> {
-                    result.add(DiffLine(DiffOp.EQUAL, oldLines[i], oldLineNo++, newLineNo++))
-                    i++
-                    j++
-                }
-                j < m && (i >= n || dp[i][j + 1] >= dp[i + 1][j]) -> {
-                    result.add(DiffLine(DiffOp.INSERT, newLines[j], null, newLineNo++))
-                    j++
-                }
-                else -> {
-                    result.add(DiffLine(DiffOp.DELETE, oldLines[i], oldLineNo++, null))
-                    i++
-                }
-            }
+        while (oldIndex < oldLines.size) {
+            lines.add(DiffLine(DiffOp.EQUAL, oldLines[oldIndex], oldIndex + 1, newIndex + 1))
+            oldIndex += 1
+            newIndex += 1
         }
-
-        return result
+        return lines
     }
 
     private fun groupIntoHunks(diffLines: List<DiffLine>): List<DiffHunk> {

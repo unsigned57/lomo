@@ -22,6 +22,7 @@ settings:
 
 dependencies@jvmAndAndroid:
   - androidx.paging:paging-common:3.5.0
+  - io.github.java-diff-utils:java-diff-utils:4.17
   - org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0
   - org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0
 

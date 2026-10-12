@@ -29,7 +29,16 @@
  * Excludes:
  * - Compose rendering, horizontal scrolling, DiffViewer row styling, and domain
  *   LCS correctness.
- */
+  * Test Change Justification:
+ * - Reason category: production field rename — DiffResult.TooLarge.maxMatrixCells renamed to
+ *   maxComparedCells.
+ * - Old behavior/assertion being replaced: TooLarge construction using maxMatrixCells.
+ * - Why old assertion is no longer correct: the domain result type exposes maxComparedCells;
+ *   the old named argument no longer compiles.
+ * - Coverage preserved by: identical presentation assertions under the renamed field.
+ * - Why this is not fitting the test to the implementation: a pure rename mirroring; the
+ *   expected rendered output is unchanged.
+*/
 package com.lomo.ui.component.dialog
 
 import com.lomo.domain.model.SimpleLineDiff
@@ -74,7 +83,7 @@ class ConflictTextDiffPresentationTest : UiComponentsFunSpec() {
                     SimpleLineDiff.DiffResult.TooLarge(
                         oldLineCount = 501,
                         newLineCount = 501,
-                        maxMatrixCells = 250_000,
+                        maxComparedCells = 250_000,
                     ),
                 )
 
